@@ -32,7 +32,9 @@
     <!-- ── TYPOGRAPHY ── -->
     <FontFamily x:Key="PrimaryFont">Segoe UI Variable, Segoe UI, sans-serif</FontFamily>
 
-    <!-- ── SCROLLBAR ── -->
+    <!-- ── SCROLLBAR (global implicit styles — apply to every window) ── -->
+
+    <!-- Thumb: narrow pill with rounded ends -->
     <Style x:Key="ScrollBarThumb" TargetType="{x:Type Thumb}">
         <Setter Property="Background" Value="{StaticResource BgQuaternaryBrush}"/>
         <Setter Property="Template">
@@ -40,7 +42,7 @@
                 <ControlTemplate TargetType="{x:Type Thumb}">
                     <Border Background="{TemplateBinding Background}"
                             CornerRadius="3"
-                            Margin="1"
+                            Margin="2,2,2,2"
                             Cursor="Hand"/>
                 </ControlTemplate>
             </Setter.Value>
@@ -55,34 +57,77 @@
         </Style.Triggers>
     </Style>
 
-    <Style x:Key="MinimalScrollBar" TargetType="{x:Type ScrollBar}">
-        <Setter Property="Background" Value="#1A1A1A"/>
-        <Setter Property="Width" Value="8"/>
+    <!-- Implicit ScrollBar: 6px wide, no arrow buttons, transparent track -->
+    <Style TargetType="{x:Type ScrollBar}">
+        <Setter Property="Background"    Value="Transparent"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Width"         Value="6"/>
+        <Setter Property="MinWidth"      Value="6"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="{x:Type ScrollBar}">
-                    <Grid>
-                        <Border Background="{TemplateBinding Background}">
-                            <Track x:Name="PART_Track" IsDirectionReversed="False">
-                                <Track.DecreaseRepeatButton>
-                                    <RepeatButton Background="Transparent" BorderThickness="0" Command="ScrollBar.PageUpCommand"/>
-                                </Track.DecreaseRepeatButton>
-                                <Track.IncreaseRepeatButton>
-                                    <RepeatButton Background="Transparent" BorderThickness="0" Command="ScrollBar.PageDownCommand"/>
-                                </Track.IncreaseRepeatButton>
-                                <Track.Thumb>
-                                    <Thumb Style="{StaticResource ScrollBarThumb}" MinHeight="20"/>
-                                </Track.Thumb>
-                            </Track>
-                        </Border>
+                    <Grid Background="Transparent">
+                        <Track x:Name="PART_Track" IsDirectionReversed="True">
+                            <Track.DecreaseRepeatButton>
+                                <RepeatButton Command="ScrollBar.PageUpCommand"
+                                              Background="Transparent" BorderThickness="0"
+                                              Focusable="False" IsTabStop="False"
+                                              Height="0"/>
+                            </Track.DecreaseRepeatButton>
+                            <Track.IncreaseRepeatButton>
+                                <RepeatButton Command="ScrollBar.PageDownCommand"
+                                              Background="Transparent" BorderThickness="0"
+                                              Focusable="False" IsTabStop="False"
+                                              Height="0"/>
+                            </Track.IncreaseRepeatButton>
+                            <Track.Thumb>
+                                <Thumb Style="{StaticResource ScrollBarThumb}" MinHeight="24"/>
+                            </Track.Thumb>
+                        </Track>
                     </Grid>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
+        <!-- Horizontal variant -->
+        <Style.Triggers>
+            <Trigger Property="Orientation" Value="Horizontal">
+                <Setter Property="Height"    Value="6"/>
+                <Setter Property="MinHeight" Value="6"/>
+                <Setter Property="Width"     Value="Auto"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="{x:Type ScrollBar}">
+                            <Grid Background="Transparent">
+                                <Track x:Name="PART_Track" IsDirectionReversed="False">
+                                    <Track.DecreaseRepeatButton>
+                                        <RepeatButton Command="ScrollBar.PageLeftCommand"
+                                                      Background="Transparent" BorderThickness="0"
+                                                      Focusable="False" IsTabStop="False"
+                                                      Width="0"/>
+                                    </Track.DecreaseRepeatButton>
+                                    <Track.IncreaseRepeatButton>
+                                        <RepeatButton Command="ScrollBar.PageRightCommand"
+                                                      Background="Transparent" BorderThickness="0"
+                                                      Focusable="False" IsTabStop="False"
+                                                      Width="0"/>
+                                    </Track.IncreaseRepeatButton>
+                                    <Track.Thumb>
+                                        <Thumb Style="{StaticResource ScrollBarThumb}" MinWidth="24"/>
+                                    </Track.Thumb>
+                                </Track>
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Trigger>
+        </Style.Triggers>
     </Style>
 
-    <Style x:Key="MinimalScrollViewer" TargetType="{x:Type ScrollViewer}">
-        <Setter Property="Background" Value="Transparent"/>
+    <!-- Implicit ScrollViewer: no horizontal bar, vertical bar flush to right edge -->
+    <Style TargetType="{x:Type ScrollViewer}">
+        <Setter Property="Background"                   Value="Transparent"/>
+        <Setter Property="HorizontalScrollBarVisibility" Value="Disabled"/>
+        <Setter Property="VerticalScrollBarVisibility"   Value="Auto"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="{x:Type ScrollViewer}">
@@ -91,9 +136,8 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <ScrollContentPresenter Grid.Column="0"/>
+                        <ScrollContentPresenter Grid.Column="0" CanContentScroll="{TemplateBinding CanContentScroll}"/>
                         <ScrollBar Grid.Column="1"
-                                   Style="{StaticResource MinimalScrollBar}"
                                    Value="{TemplateBinding VerticalOffset}"
                                    Maximum="{TemplateBinding ScrollableHeight}"
                                    ViewportSize="{TemplateBinding ViewportHeight}"
@@ -103,6 +147,10 @@
             </Setter.Value>
         </Setter>
     </Style>
+
+    <!-- Keep named variants for any explicit references -->
+    <Style x:Key="MinimalScrollBar"    BasedOn="{StaticResource {x:Type ScrollBar}}"    TargetType="{x:Type ScrollBar}"/>
+    <Style x:Key="MinimalScrollViewer" BasedOn="{StaticResource {x:Type ScrollViewer}}" TargetType="{x:Type ScrollViewer}"/>
 
     <!-- ── SIDEBAR ITEM BUTTON ── -->
     <Style x:Key="SidebarItemStyle" TargetType="{x:Type Button}">

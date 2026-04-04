@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -808,10 +810,277 @@ namespace Emutastic.Views
             }
         };
 
+        // ── Core downloader ───────────────────────────────────────────────────
+        private readonly CoreDownloadService _downloader = new();
+        private CancellationTokenSource? _downloadAllCts;
+
+        private void BuildDownloadSection(string coresFolder)
+        {
+            CoresListPanel.Children.Add(new TextBlock
+            {
+                Text = "DOWNLOAD CORES",
+                FontSize = 10,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = _brushTextMuted,
+                Margin = new Thickness(0, 0, 0, 8)
+            });
+
+            // "Download All Recommended" button row
+            var dlAllBtn = new Button
+            {
+                Content = "Download All Recommended",
+                Style = (Style)FindResource("AccentButton"),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Margin = new Thickness(0, 0, 0, 12)
+            };
+
+            var allProgressBar = new ProgressBar
+            {
+                Height = 4,
+                Minimum = 0,
+                Maximum = 100,
+                Value = 0,
+                Visibility = Visibility.Collapsed,
+                Margin = new Thickness(0, 4, 0, 8)
+            };
+
+            var allStatusText = new TextBlock
+            {
+                FontSize = 11,
+                Foreground = _brushTextMuted,
+                Visibility = Visibility.Collapsed,
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+
+            CoresListPanel.Children.Add(dlAllBtn);
+            CoresListPanel.Children.Add(allProgressBar);
+            CoresListPanel.Children.Add(allStatusText);
+
+            // Per-core rows (recommended only)
+            var recommended = CoreDownloadService.Catalog.Where(c => c.Recommended).ToList();
+            var rowMap = new Dictionary<string, (ProgressBar Bar, TextBlock Status, Button Btn)>();
+
+            var coreCard = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(0x1F, 0x1F, 0x21)),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(14, 10, 14, 10),
+                Margin = new Thickness(0, 0, 0, 4)
+            };
+            var coreCardStack = new StackPanel();
+
+            for (int i = 0; i < recommended.Count; i++)
+            {
+                var entry = recommended[i];
+                bool installed = System.IO.File.Exists(System.IO.Path.Combine(coresFolder, entry.FileName));
+
+                bool hasBackup = CoreDownloadService.HasBackup(coresFolder, entry.FileName);
+
+                var row = new Grid { Margin = new Thickness(0, 0, 0, i < recommended.Count - 1 ? 6 : 0) };
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(220) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                // Name + systems
+                var nameStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+                nameStack.Children.Add(new TextBlock { Text = entry.DisplayName, FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = _brushText });
+                nameStack.Children.Add(new TextBlock { Text = string.Join(", ", entry.Systems), FontSize = 10, Foreground = _brushTextMuted, Margin = new Thickness(0, 2, 0, 0) });
+                Grid.SetColumn(nameStack, 0);
+
+                // Status badge + progress
+                var statusStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+                var badge = new Border
+                {
+                    CornerRadius = new CornerRadius(4),
+                    Padding = new Thickness(8, 3, 8, 3),
+                    Background = installed
+                        ? new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58))
+                        : new SolidColorBrush(Color.FromArgb(0x22, 0x88, 0x88, 0x88)),
+                };
+                badge.Child = new TextBlock
+                {
+                    Text = installed ? "Installed" : "Not installed",
+                    FontSize = 10,
+                    Foreground = installed
+                        ? new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58))
+                        : _brushTextMuted
+                };
+                var rowProgress = new ProgressBar { Height = 4, Minimum = 0, Maximum = 100, Value = 0, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 4, 0, 0) };
+                var rowStatus   = new TextBlock   { FontSize = 10, Foreground = _brushTextMuted, Visibility = Visibility.Collapsed };
+                statusStack.Children.Add(badge);
+                statusStack.Children.Add(rowProgress);
+                statusStack.Children.Add(rowStatus);
+                Grid.SetColumn(statusStack, 1);
+
+                // Button panel: Download + optional Revert
+                var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+
+                var revertBtn = new Button
+                {
+                    Content = "Revert",
+                    Style = (Style)FindResource("SmallOutlineButton"),
+                    Margin = new Thickness(0, 0, 6, 0),
+                    Visibility = hasBackup ? Visibility.Visible : Visibility.Collapsed,
+                    ToolTip = "Restore the previous version of this core"
+                };
+                revertBtn.Click += (_, _) =>
+                {
+                    try
+                    {
+                        CoreDownloadService.Revert(coresFolder, entry.FileName);
+                        revertBtn.Visibility = Visibility.Collapsed;
+                        rowStatus.Text = "Reverted to previous version";
+                        rowStatus.Visibility = Visibility.Visible;
+                    }
+                    catch (Exception ex)
+                    {
+                        rowStatus.Text = $"Revert failed: {ex.Message}";
+                        rowStatus.Visibility = Visibility.Visible;
+                    }
+                };
+
+                var dlBtn = new Button
+                {
+                    Content = installed ? "Re-download" : "Download",
+                    Style = (Style)FindResource("SmallOutlineButton"),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+
+                dlBtn.Click += (_, _) => StartSingleDownload(entry, coresFolder, badge, rowProgress, rowStatus, dlBtn, revertBtn);
+
+                btnPanel.Children.Add(revertBtn);
+                btnPanel.Children.Add(dlBtn);
+                Grid.SetColumn(btnPanel, 2);
+
+                row.Children.Add(nameStack);
+                row.Children.Add(statusStack);
+                row.Children.Add(btnPanel);
+
+                rowMap[entry.FileName] = (rowProgress, rowStatus, dlBtn);
+                coreCardStack.Children.Add(row);
+            }
+
+            coreCard.Child = coreCardStack;
+            CoresListPanel.Children.Add(coreCard);
+
+            // "Download All" handler
+            dlAllBtn.Click += async (_, _) =>
+            {
+                _downloadAllCts?.Cancel();
+                _downloadAllCts = new CancellationTokenSource();
+                var ct = _downloadAllCts.Token;
+
+                dlAllBtn.IsEnabled = false;
+                allProgressBar.Visibility = Visibility.Visible;
+                allStatusText.Visibility  = Visibility.Visible;
+
+                int done = 0;
+                foreach (var entry in recommended)
+                {
+                    if (ct.IsCancellationRequested) break;
+                    allStatusText.Text = $"Downloading {entry.DisplayName}… ({done + 1}/{recommended.Count})";
+
+                    if (rowMap.TryGetValue(entry.FileName, out var r))
+                    {
+                        r.Bar.Visibility    = Visibility.Visible;
+                        r.Status.Visibility = Visibility.Visible;
+                        r.Btn.IsEnabled     = false;
+                    }
+
+                    try
+                    {
+                        var prog = new Progress<int>(v =>
+                        {
+                            if (rowMap.TryGetValue(entry.FileName, out var r2)) r2.Bar.Value = v;
+                            allProgressBar.Value = (done * 100 + v) / recommended.Count;
+                        });
+                        await _downloader.DownloadAsync(entry, coresFolder, prog, ct);
+
+                        if (rowMap.TryGetValue(entry.FileName, out var r3))
+                        {
+                            r3.Bar.Visibility = Visibility.Collapsed;
+                            r3.Status.Text = "Done";
+                        }
+                    }
+                    catch (OperationCanceledException) { break; }
+                    catch (Exception ex)
+                    {
+                        if (rowMap.TryGetValue(entry.FileName, out var r4))
+                            r4.Status.Text = $"Error: {ex.Message}";
+                    }
+
+                    done++;
+                }
+
+                allProgressBar.Value = 100;
+                allStatusText.Text = ct.IsCancellationRequested
+                    ? "Cancelled."
+                    : $"Done — {done}/{recommended.Count} cores downloaded.";
+                dlAllBtn.IsEnabled = true;
+
+                // Rebuild to reflect newly installed state
+                BuildCoresPanel();
+            };
+        }
+
+        private async void StartSingleDownload(CoreEntry entry, string coresFolder,
+            Border badge, ProgressBar bar, TextBlock statusText, Button dlBtn, Button? revertBtn = null)
+        {
+            dlBtn.IsEnabled       = false;
+            bar.Visibility        = Visibility.Visible;
+            statusText.Visibility = Visibility.Visible;
+            statusText.Text       = "Downloading…";
+            bar.Value = 0;
+
+            try
+            {
+                var prog = new Progress<int>(v => bar.Value = v);
+                await _downloader.DownloadAsync(entry, coresFolder, prog);
+                statusText.Text = "Updated";
+                badge.Background = new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58));
+                if (badge.Child is TextBlock tb)
+                {
+                    tb.Text = "Installed";
+                    tb.Foreground = new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58));
+                }
+                bar.Visibility = Visibility.Collapsed;
+                dlBtn.Content  = "Re-download";
+                dlBtn.IsEnabled = true;
+                // Show revert button now that a backup exists
+                if (revertBtn != null)
+                    revertBtn.Visibility = Visibility.Visible;
+                // Rebuild installed-cores section
+                BuildCoresPanel();
+            }
+            catch (Exception ex)
+            {
+                statusText.Text = $"Error: {ex.Message}";
+                dlBtn.IsEnabled = true;
+            }
+        }
+
         private void BuildCoresPanel()
         {
             CoresListPanel.Children.Clear();
             string coresFolder = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Cores");
+
+            BuildDownloadSection(coresFolder);
+
+            // ── Separator between download section and installed cores ──
+            CoresListPanel.Children.Add(new Rectangle
+            {
+                Height = 1,
+                Fill = new SolidColorBrush(Color.FromRgb(0x30, 0x30, 0x33)),
+                Margin = new Thickness(0, 16, 0, 0)
+            });
+            CoresListPanel.Children.Add(new TextBlock
+            {
+                Text = "INSTALLED CORES",
+                FontSize = 10,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = _brushTextMuted,
+                Margin = new Thickness(0, 12, 0, 6)
+            });
             var prefs = _configService.GetCorePreferences();
 
             bool anyConsole = false;
@@ -1055,12 +1324,8 @@ namespace Emutastic.Views
                 "ppsspp"            => "PPSSPP",
                 "mednafen_pce"      => "Mednafen PCE",
                 "mednafen_pce_fast" => "Mednafen PCE Fast",
-                "mednafen_pcfx"     => "Mednafen PC-FX",
                 "mednafen_ngp"      => "Mednafen Neo Geo Pocket",
                 "gearcoleco"        => "GearColeco",
-                "gearlynx"          => "GearLynx",
-                "holani"            => "Holani",
-                "handy"             => "Handy",
                 "stella"            => "Stella",
                 "stella2014"        => "Stella 2014",
                 "stella2023"        => "Stella 2023",
@@ -1164,10 +1429,6 @@ namespace Emutastic.Views
             // Intellivision (FreeIntv — both files required)
             new("Intellivision","Intellivision","exec.bin","Executive ROM",8192,"62e761035cb657903761800f4437b8af"),
             new("Intellivision","Intellivision","grom.bin","Graphics ROM",2048,"0cd5946c6473e42e8e4c2137785e427f"),
-            // PC-FX
-            new("PCFX","PC-FX","pcfx.rom","PC-FX BIOS v1.00",1048576,"08e36edbea28a017f79f8d4f7ff9b6d7"),
-            // Atari Lynx
-            new("AtariLynx","Atari Lynx","lynxboot.img","Boot ROM",512,"fcd403db69f54290b51035d82f835e7b"),
             // Game Boy Advance (optional — mgba has built-in HLE BIOS)
             new("GBA","Game Boy Advance","gba_bios.bin","BIOS (optional, improves compatibility)",16384,"a860e8c0b6d573d191e4ec7db1b1e4f6"),
         };

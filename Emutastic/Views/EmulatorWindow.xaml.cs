@@ -125,6 +125,8 @@ namespace Emutastic.Views
         // Overlay HUD
         private bool _isPaused = false;
         private DispatcherTimer? _overlayTimer;
+        private DispatcherTimer? _mousePoller;
+        private System.Windows.Point _lastMousePos = new(-1, -1);
 
         // Save state
         private string _saveStatePath = "";    // file-system dir for this game's save states
@@ -632,7 +634,6 @@ namespace Emutastic.Views
                 _audioPlayer = new AudioPlayer(44100);
 
                 Loaded += OnWindowLoaded;
-                MouseMove += (_, _) => ShowOverlay();
                 System.Diagnostics.Trace.WriteLine("EmulatorWindow constructor completed successfully");
             }
             catch (Exception ex)
@@ -680,6 +681,16 @@ namespace Emutastic.Views
                 OverlayCoreLabel.Text = System.IO.Path.GetFileNameWithoutExtension(_core.CorePath);
                 _overlayTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2.5) };
                 _overlayTimer.Tick += (_, _) => HideOverlay();
+
+                // Poll mouse position every 100ms — MouseMove doesn't fire over HwndHost
+                // (Win32 child windows swallow mouse messages before WPF sees them).
+                _mousePoller = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
+                _mousePoller.Tick += (_, _) =>
+                {
+                    var pos = Mouse.GetPosition(this);
+                    if (pos != _lastMousePos) { _lastMousePos = pos; ShowOverlay(); }
+                };
+                _mousePoller.Start();
 
                 StatusText.Text = "Starting emulator...";
                 _emuThread = new System.Threading.Thread(StartEmulator, 32 * 1024 * 1024) { IsBackground = true, Name = "EmuThread" };
@@ -2470,16 +2481,6 @@ namespace Emutastic.Views
                         "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
                         _ => uint.MaxValue
                     };
-                case "PCFX":
-                    return n switch {
-                        "i" => JOYPAD_B, "ii" => JOYPAD_A, "iii" => JOYPAD_Y,
-                        "iv" => JOYPAD_X, "v" => JOYPAD_L, "vi" => JOYPAD_R,
-                        "select" => JOYPAD_SELECT, "run" => JOYPAD_START,
-                        "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
-                        "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
-                        _ => uint.MaxValue
-                    };
-
                 // ── Nintendo 64 (Z trigger → L2; C-buttons via analog path) ──
                 case "N64":
                     return n switch {
@@ -2515,15 +2516,6 @@ namespace Emutastic.Views
                 case "Atari2600": case "Atari7800":
                     return n switch {
                         "fire" => JOYPAD_B, "fire 1" => JOYPAD_B, "fire 2" => JOYPAD_Y,
-                        "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
-                        "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
-                        _ => uint.MaxValue
-                    };
-                case "AtariLynx":
-                    return n switch {
-                        "a" => JOYPAD_A, "b" => JOYPAD_B,
-                        "option 1" => JOYPAD_SELECT, "option 2" => JOYPAD_START,
-                        "pause" => JOYPAD_L,
                         "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
                         "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
                         _ => uint.MaxValue
@@ -3043,7 +3035,7 @@ namespace Emutastic.Views
         private void OverlayEditControls_Click(object sender, RoutedEventArgs e)
         {
             OverlayMenu.Visibility = Visibility.Collapsed;
-            var win = new ControllerMappingWindow(_game.Console, _configService)
+            var win = new PreferencesWindow(_db!, _controllerManager, _configService)
                 { Owner = this };
             win.ShowDialog();
             LoadKeyboardMappings();
@@ -3083,6 +3075,7 @@ namespace Emutastic.Views
             _isClosing = true;
             _timer?.Stop();
             _overlayTimer?.Stop();
+            _mousePoller?.Stop();
             _audioPlayer?.Stop();
 
             System.Diagnostics.Trace.WriteLine("EmulatorWindow closing — deferring cleanup to background");

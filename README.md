@@ -41,7 +41,6 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 | PlayStation Portable | PSP | ppsspp | No |
 | TurboGrafx-16 / PC Engine | TG16 | mednafen_pce → mednafen_pce_fast | No |
 | TurboGrafx-CD / PC Engine CD | TGCD | mednafen_pce → mednafen_pce_fast | `syscard3.pce` |
-| PC-FX | PCFX | mednafen_pcfx | `pcfx.rom` |
 | Neo Geo Pocket / Color | NGP | mednafen_ngp | No |
 | Atari 2600 | Atari2600 | stella | No |
 | Atari 7800 | Atari7800 | prosystem | No |
@@ -97,9 +96,6 @@ Both files are required:
 ### 3DO
 Any one of: `panafz10.bin` (Panasonic), `panafz1j.bin` (Japan), `goldstar.bin` (GoldStar)
 
-### PC-FX
-`pcfx.rom` (1 MB)
-
 ### Famicom Disk System
 `disksys.rom`
 
@@ -120,7 +116,7 @@ Drag and drop ROM files onto the library window or use **File → Import ROM**. 
 |---|---|
 | `.chd` | Sega CD, Saturn, PS1, TurboGrafx-CD, 3DO |
 | `.iso` | PSP, GameCube, 3DO |
-| `.cue` | Sega CD, Saturn, PS1, TurboGrafx-CD, PC-FX, 3DO |
+| `.cue` | Sega CD, Saturn, PS1, TurboGrafx-CD, 3DO |
 
 ---
 
@@ -210,7 +206,7 @@ Controller artwork is primarily sourced from the [OpenEmu](https://github.com/Op
 | **David McLeod** ([@Mucx](https://twitter.com/Mucx/)) | 32X, Famicom Disk System, Game Boy, Game Boy Advance, Game Gear, Master System, NES/Famicom, Sega CD, Sega Genesis/Mega Drive, SNES/Super Famicom |
 | **Ricky Romero** ([@RickyRomero](https://twitter.com/RickyRomero/)) | Atari 2600, Atari 5200, Intellivision, Nintendo 64, Nintendo DS, Odyssey², PlayStation, PSP, Sega Saturn, SG-1000, Vectrex, Virtual Boy |
 | **Craig Erskine** ([@qrayg](https://twitter.com/qrayg/)) | GameCube, Neo Geo Pocket, PC Engine, PC Engine CD, TurboGrafx-16 |
-| **Salvo Zummo** ([@noisymemories](https://twitter.com/noisymemories/)) | Atari 7800, Atari Lynx, PC-FX |
+| **Salvo Zummo** ([@noisymemories](https://twitter.com/noisymemories/)) | Atari 7800 |
 | **David Everly** ([@selfproclaim](https://twitter.com/selfproclaim/)) | 3DO |
 | **Kate Schroeder** ([@medgno](https://twitter.com/medgno/)) | ColecoVision |
 

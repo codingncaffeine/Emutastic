@@ -203,6 +203,68 @@
                 </Style.Triggers>
             </Style>
 
+            <!-- Accent (red) button -->
+            <Style x:Key="AccentButton" TargetType="Button">
+                <Setter Property="Background"      Value="#E03535"/>
+                <Setter Property="Foreground"      Value="White"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="Padding"         Value="18,8"/>
+                <Setter Property="FontSize"        Value="13"/>
+                <Setter Property="FontWeight"      Value="SemiBold"/>
+                <Setter Property="Cursor"          Value="Hand"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" CornerRadius="6"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+                <Style.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                        <Setter Property="Background" Value="#C02020"/>
+                    </Trigger>
+                    <Trigger Property="IsEnabled" Value="False">
+                        <Setter Property="Background" Value="#6B2020"/>
+                        <Setter Property="Foreground" Value="#88FFFFFF"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+
+            <!-- Small outline button (for per-row download) -->
+            <Style x:Key="SmallOutlineButton" TargetType="Button">
+                <Setter Property="Background"      Value="Transparent"/>
+                <Setter Property="Foreground"      Value="{StaticResource TextPrimaryBrush}"/>
+                <Setter Property="BorderBrush"     Value="{StaticResource BorderNormalBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="Padding"         Value="10,4"/>
+                <Setter Property="FontSize"        Value="11"/>
+                <Setter Property="Cursor"          Value="Hand"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="4"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+                <Style.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                        <Setter Property="Background" Value="{StaticResource BgTertiaryBrush}"/>
+                    </Trigger>
+                    <Trigger Property="IsEnabled" Value="False">
+                        <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+
             <!-- macOS-style window button -->
             <Style x:Key="WinBtn" TargetType="Button">
                 <Setter Property="Width"  Value="13"/>

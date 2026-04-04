@@ -14,7 +14,6 @@ namespace Emutastic.Views
             { "Saturn",    "Sega Saturn"            },
             { "PS1",       "PlayStation"            },
             { "TGCD",      "TurboGrafx-CD"          },
-            { "PCFX",      "PC-FX"                  },
             { "PSP",       "PlayStation Portable"   },
             { "GameCube",  "Nintendo GameCube"      },
             { "3DO",       "3DO"                    },

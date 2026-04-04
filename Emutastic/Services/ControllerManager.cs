@@ -533,14 +533,6 @@ namespace Emutastic.Services
                         "up" => 4, "down" => 5, "left" => 6, "right" => 7,
                         _ => uint.MaxValue
                     };
-                case "PCFX":
-                    return n switch {
-                        "i" => 0, "ii" => 8, "iii" => 1, "iv" => 9, "v" => 10, "vi" => 11,
-                        "select" => 2, "run" => 3,
-                        "up" => 4, "down" => 5, "left" => 6, "right" => 7,
-                        _ => uint.MaxValue
-                    };
-
                 // ── Nintendo 64 ───────────────────────────────────────────────
                 case "N64":
                     return n switch {
@@ -577,12 +569,6 @@ namespace Emutastic.Services
                 case "Atari2600": case "Atari7800":
                     return n switch {
                         "fire" => 0, "fire 1" => 0, "fire 2" => 1,
-                        "up" => 4, "down" => 5, "left" => 6, "right" => 7,
-                        _ => uint.MaxValue
-                    };
-                case "AtariLynx":
-                    return n switch {
-                        "a" => 8, "b" => 0, "option 1" => 2, "option 2" => 3, "pause" => 10,
                         "up" => 4, "down" => 5, "left" => 6, "right" => 7,
                         _ => uint.MaxValue
                     };

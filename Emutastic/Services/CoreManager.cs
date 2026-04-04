@@ -49,13 +49,9 @@ namespace Emutastic.Services
                                      "mednafen_pce_fast_libretro.dll"        }},
             { "TGCD",        new[] { "mednafen_pce_libretro.dll",
                                      "mednafen_pce_fast_libretro.dll"        }},
-            { "PCFX",        new[] { "mednafen_pcfx_libretro.dll"       }},
             { "NGP",         new[] { "mednafen_ngp_libretro.dll"        }},
             { "Atari2600",   new[] { "stella_libretro.dll"              }},
             { "Atari7800",   new[] { "prosystem_libretro.dll"           }},
-            { "AtariLynx",   new[] { "holani_libretro.dll",
-                                     "gearlynx_libretro.dll",
-                                     "handy_libretro.dll"               }},
             { "Jaguar",      new[] { "virtualjaguar_libretro.dll"       }},
             { "ColecoVision",new[] { "gearcoleco_libretro.dll",
                                      "bluemsx_libretro.dll"             }},
@@ -108,8 +104,6 @@ namespace Emutastic.Services
                                   "scph1001.bin", "scph7001.bin"                         }},
             { "3DO",      new[] { "panafz10.bin", "panafz1j.bin", "goldstar.bin"          }},
             { "TGCD",     new[] { "syscard3.pce", "syscard2.pce", "syscard1.pce"          }},
-            { "PCFX",     new[] { "pcfx.rom"                                              }},
-            { "AtariLynx",new[] { "lynxboot.img"                                          }},
         };
 
         // Consoles that require ALL listed files (not just any one).

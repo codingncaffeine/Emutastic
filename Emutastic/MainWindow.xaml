@@ -225,7 +225,7 @@
                                FontSize="14"
                                VerticalAlignment="Center"
                                Margin="0,0,7,0"/>
-                    <TextBlock Text="OpenEmu"
+                    <TextBlock Text="Emutastic"
                                FontFamily="{StaticResource PrimaryFont}"
                                FontSize="13"
                                FontWeight="SemiBold"
@@ -359,7 +359,6 @@
                                 <Button Content="🎮  Atari 2600"   Style="{StaticResource SidebarItemStyle}" Click="NavConsole_Click" Tag="Atari2600"/>
                                 <Button Content="🎮  Atari 5200"   Style="{StaticResource SidebarItemStyle}" Click="NavConsole_Click" Tag="Atari5200"/>
                                 <Button Content="🎮  Atari 7800"   Style="{StaticResource SidebarItemStyle}" Click="NavConsole_Click" Tag="Atari7800"/>
-                                <Button Content="🎮  Atari Lynx"   Style="{StaticResource SidebarItemStyle}" Click="NavConsole_Click" Tag="AtariLynx"/>
                                 <Button Content="🎮  Atari Jaguar" Style="{StaticResource SidebarItemStyle}" Click="NavConsole_Click" Tag="Jaguar"/>
                             </StackPanel>
 
@@ -438,7 +437,6 @@
                             <StackPanel x:Name="NECSection">
                                 <Button Content="🎮  TurboGrafx-16" Style="{StaticResource SidebarItemStyle}" Click="NavConsole_Click" Tag="TG16"/>
                                 <Button Content="🎮  TurboGrafx-CD" Style="{StaticResource SidebarItemStyle}" Click="NavConsole_Click" Tag="TGCD"/>
-                                <Button Content="🎮  PC-FX"         Style="{StaticResource SidebarItemStyle}" Click="NavConsole_Click" Tag="PCFX"/>
                             </StackPanel>
 
                             <!-- SNK -->

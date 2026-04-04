@@ -13,7 +13,7 @@ namespace Emutastic.Services
         {
             { ".chd", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "3DO" } },
             { ".iso", new[] { "PSP", "GameCube", "3DO" } },
-            { ".cue", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "PCFX", "3DO" } },
+            { ".cue", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "3DO" } },
         };
 
         // ROM file extensions mapped to console names
@@ -54,7 +54,6 @@ namespace Emutastic.Services
             { ".a26",  "Atari2600"   },
             { ".a52",  "Atari5200"   },
             { ".a78",  "Atari7800"   },
-            { ".lnx",  "AtariLynx"   },
             { ".j64",  "Jaguar"      },
             { ".col",  "ColecoVision"},
             { ".int",  "Intellivision"},
@@ -77,10 +76,9 @@ namespace Emutastic.Services
             { "SG1000",       "Sega"       },
             { "PS1",          "Sony"       }, { "PSP",       "Sony"       },
             { "TG16",         "NEC"        }, { "TGCD",      "NEC"        },
-            { "PCFX",         "NEC"        },
             { "NGP",          "SNK"        },
             { "Atari2600",    "Atari"      }, { "Atari5200", "Atari"      },
-            { "Atari7800",    "Atari"      }, { "AtariLynx", "Atari"      },
+            { "Atari7800",    "Atari"      },
             { "Jaguar",       "Atari"      },
             { "ColecoVision", "Coleco"     },
             { "Intellivision","Mattel"     },

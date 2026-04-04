@@ -435,27 +435,6 @@ namespace Emutastic.Configuration
                     new("Run",    "Start",  285, 190, ButtonType.Button, 45, 20, GSystem),
                 }
             },
-            ["PCFX"] = new ControllerDefinition
-            {
-                Name = "PC-FX",
-                ControllerImage = "/Assets/images/PCFX/controller_pcfx@2x.png",
-                Buttons = new List<ButtonDefinition>
-                {
-                    new("Up",     "Up",     140,  70, ButtonType.DPad,   70, 70, GDPad),
-                    new("Down",   "Down",   140, 150, ButtonType.DPad,   70, 70, GDPad),
-                    new("Left",   "Left",   100, 110, ButtonType.DPad,   70, 70, GDPad),
-                    new("Right",  "Right",  180, 110, ButtonType.DPad,   70, 70, GDPad),
-                    new("I",      "I",      420, 130, ButtonType.Button, 35, 35, GFace),
-                    new("II",     "II",     380, 170, ButtonType.Button, 35, 35, GFace),
-                    new("III",    "III",    380,  90, ButtonType.Button, 35, 35, GFace),
-                    new("IV",     "IV",     340, 130, ButtonType.Button, 35, 35, GFace),
-                    new("V",      "V",      420,  90, ButtonType.Button, 35, 35, GFace),
-                    new("VI",     "VI",     460, 130, ButtonType.Button, 35, 35, GFace),
-                    new("Select", "Select", 230, 190, ButtonType.Button, 45, 20, GSystem),
-                    new("Run",    "Start",  285, 190, ButtonType.Button, 45, 20, GSystem),
-                }
-            },
-
             // ── SNK ───────────────────────────────────────────────────────────
             ["NGP"] = new ControllerDefinition
             {
@@ -499,23 +478,6 @@ namespace Emutastic.Configuration
                     new("Right",  "Right",  180, 110, ButtonType.DPad,   60, 60, GDPad),
                     new("Fire 1", "B",      380, 120, ButtonType.Button, 35, 35, GFace),
                     new("Fire 2", "Y",      340, 140, ButtonType.Button, 35, 35, GFace),
-                }
-            },
-            ["AtariLynx"] = new ControllerDefinition
-            {
-                Name = "Atari Lynx",
-                ControllerImage = "/Assets/images/Lynx/controller_lynx@2x.png",
-                Buttons = new List<ButtonDefinition>
-                {
-                    new("Up",       "Up",       140,  70, ButtonType.DPad,   60, 60, GDPad),
-                    new("Down",     "Down",     140, 150, ButtonType.DPad,   60, 60, GDPad),
-                    new("Left",     "Left",     100, 110, ButtonType.DPad,   60, 60, GDPad),
-                    new("Right",    "Right",    180, 110, ButtonType.DPad,   60, 60, GDPad),
-                    new("B",        "B",        340, 140, ButtonType.Button, 35, 35, GFace),
-                    new("A",        "A",        380, 120, ButtonType.Button, 35, 35, GFace),
-                    new("Option 1", "Option1",  230, 190, ButtonType.Button, 45, 20, GSystem),
-                    new("Option 2", "Option2",  285, 190, ButtonType.Button, 45, 20, GSystem),
-                    new("Pause",    "Pause",    260, 160, ButtonType.Button, 40, 20, GSystem),
                 }
             },
             ["Jaguar"] = new ControllerDefinition
