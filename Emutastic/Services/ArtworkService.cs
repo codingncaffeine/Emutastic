@@ -262,14 +262,18 @@ namespace Emutastic.Services
                 .Trim();
         }
 
-        public List<string> BuildLibretroUrlVariants(string console, string gameTitle)
+        private static readonly string[] ThumbnailCategories =
+            ["Named_Boxarts", "Named_Titles", "Named_Snaps"];
+
+        public List<string> BuildLibretroUrlVariants(string console, string gameTitle,
+            string category = "Named_Boxarts")
         {
             var urls = new List<string>();
             if (!LibretroSystemMap.TryGetValue(console, out string? systemFolder))
                 return urls;
 
             string encodedSystem = Uri.EscapeDataString(systemFolder);
-            string baseUrl = $"https://thumbnails.libretro.com/{encodedSystem}/Named_Boxarts/";
+            string baseUrl = $"https://thumbnails.libretro.com/{encodedSystem}/{category}/";
             string sanitized = SanitizeLibretroTitle(gameTitle);
 
             var variants = new[]
@@ -366,19 +370,24 @@ namespace Emutastic.Services
                         titleCandidates.Add(rawNoClean);
                 }
 
-                foreach (string titleCandidate in titleCandidates)
+                foreach (string category in ThumbnailCategories)
                 {
                     if (artworkPath != null) break;
 
-                    var urls = BuildLibretroUrlVariants(console, titleCandidate);
-                    foreach (string url in urls)
+                    foreach (string titleCandidate in titleCandidates)
                     {
-                        artworkPath = await DownloadArtworkAsync(url, md5Hash);
-                        if (artworkPath != null)
+                        if (artworkPath != null) break;
+
+                        var urls = BuildLibretroUrlVariants(console, titleCandidate, category);
+                        foreach (string url in urls)
                         {
-                            System.Diagnostics.Debug.WriteLine(
-                                $"Artwork found with variant: {url}");
-                            break;
+                            artworkPath = await DownloadArtworkAsync(url, md5Hash);
+                            if (artworkPath != null)
+                            {
+                                System.Diagnostics.Debug.WriteLine(
+                                    $"Artwork found ({category}): {url}");
+                                break;
+                            }
                         }
                     }
                 }

@@ -55,13 +55,15 @@ namespace Emutastic.Views
 
         // ── Constructors ──────────────────────────────────────────────────────
         public PreferencesWindow(DatabaseService db, ControllerManager controllerManager,
-            IConfigurationService configService, ILogger<PreferencesWindow>? logger = null)
+            IConfigurationService configService, ILogger<PreferencesWindow>? logger = null,
+            string? initialConsole = null)
         {
             InitializeComponent();
             _db              = db;
             _controllerManager = controllerManager;
             _configService   = configService;
             _logger          = logger;
+            if (initialConsole != null) _currentConsole = initialConsole;
 
             Loaded += OnLoaded;
             KeyDown += OnWindowKeyDown;

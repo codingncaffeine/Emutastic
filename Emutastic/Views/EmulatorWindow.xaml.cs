@@ -3036,7 +3036,8 @@ namespace Emutastic.Views
         private void OverlayEditControls_Click(object sender, RoutedEventArgs e)
         {
             OverlayMenu.Visibility = Visibility.Collapsed;
-            var win = new PreferencesWindow(_db!, _controllerManager, _configService)
+            var win = new PreferencesWindow(_db!, _controllerManager, _configService,
+                initialConsole: _game?.Console)
                 { Owner = this };
             win.ShowDialog();
             LoadKeyboardMappings();
