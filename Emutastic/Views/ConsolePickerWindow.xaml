@@ -1,0 +1,62 @@
+<Window x:Class="Emutastic.Views.ConsolePickerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Width="380" Height="Auto"
+        SizeToContent="Height"
+        WindowStartupLocation="CenterOwner">
+
+    <Border Background="{StaticResource BgSecondaryBrush}"
+            BorderBrush="{StaticResource BorderNormalBrush}"
+            BorderThickness="1"
+            CornerRadius="10">
+        <StackPanel Margin="24">
+
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                <TextBlock Text="❓"
+                           FontSize="16"
+                           VerticalAlignment="Center"
+                           Margin="0,0,8,0"/>
+                <TextBlock Text="Unknown Game"
+                           FontFamily="{StaticResource PrimaryFont}"
+                           FontSize="15"
+                           FontWeight="SemiBold"
+                           Foreground="{StaticResource TextPrimaryBrush}"
+                           VerticalAlignment="Center"/>
+            </StackPanel>
+
+            <TextBlock x:Name="FileNameText"
+                       FontFamily="{StaticResource PrimaryFont}"
+                       FontSize="12"
+                       Foreground="{StaticResource TextSecondaryBrush}"
+                       TextWrapping="Wrap"
+                       Margin="0,0,0,16"/>
+
+            <ItemsControl x:Name="ConsoleList">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Button Content="{Binding Label}"
+                                Style="{StaticResource PlayButtonStyle}"
+                                HorizontalAlignment="Stretch"
+                                Margin="0,0,0,6"
+                                Padding="0,8"
+                                Click="ConsoleButton_Click"
+                                Tag="{Binding Tag}"/>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <Button Content="Cancel"
+                    Style="{StaticResource SidebarItemStyle}"
+                    HorizontalAlignment="Stretch"
+                    Margin="0,8,0,0"
+                    Padding="0,8"
+                    Click="Cancel_Click"/>
+
+        </StackPanel>
+    </Border>
+</Window>

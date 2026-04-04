@@ -1,0 +1,195 @@
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Security.Cryptography;
+
+namespace Emutastic.Services
+{
+    public class RomService
+    {
+        // Extensions that could belong to multiple systems — require user disambiguation at import time.
+        // Ordered by most common system first (shown that way in the picker).
+        public static readonly Dictionary<string, string[]> AmbiguousExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            { ".chd", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "3DO" } },
+            { ".iso", new[] { "PSP", "GameCube", "3DO" } },
+            { ".cue", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "PCFX", "3DO" } },
+        };
+
+        // ROM file extensions mapped to console names
+        private static readonly Dictionary<string, string> ExtensionMap = new(StringComparer.OrdinalIgnoreCase)
+        {
+            { ".nes",  "NES"         },
+            { ".fds",  "FDS"         },
+            { ".snes", "SNES"        },
+            { ".sfc",  "SNES"        },
+            { ".smc",  "SNES"        },
+            { ".z64",  "N64"         },
+            { ".n64",  "N64"         },
+            { ".v64",  "N64"         },
+            { ".gcm",  "GameCube"    },
+            { ".rvz",  "GameCube"    },
+            { ".wbfs", "GameCube"    },
+            { ".gcz",  "GameCube"    },
+            { ".wia",  "GameCube"    },
+            { ".ciso", "GameCube"    },
+            { ".gb",   "GB"          },
+            { ".gbc",  "GBC"         },
+            { ".gba",  "GBA"         },
+            { ".nds",  "NDS"         },
+            { ".vb",   "VirtualBoy"  },
+            { ".md",   "Genesis"     },
+            { ".gen",  "Genesis"     },
+            { ".smd",  "Genesis"     },
+            { ".32x",  "Sega32X"     },
+            { ".sms",  "SMS"         },
+            { ".gg",   "GameGear"    },
+            { ".sg",   "SG1000"      },
+            { ".psx",  "PS1"         },
+            { ".pbp",  "PSP"         },
+            { ".cso",  "PSP"         },
+            { ".pce",  "TG16"        },
+            { ".ngp",  "NGP"         },
+            { ".ngc",  "NGP"         },
+            { ".a26",  "Atari2600"   },
+            { ".a52",  "Atari5200"   },
+            { ".a78",  "Atari7800"   },
+            { ".lnx",  "AtariLynx"   },
+            { ".j64",  "Jaguar"      },
+            { ".col",  "ColecoVision"},
+            { ".int",  "Intellivision"},
+            { ".vec",  "Vectrex"     },
+            { ".zip",  "ZIP"         },
+        };
+
+        // Console to manufacturer mapping
+        private static readonly Dictionary<string, string> ManufacturerMap = new()
+        {
+            { "NES",          "Nintendo"   }, { "FDS",       "Nintendo"   },
+            { "SNES",         "Nintendo"   }, { "N64",       "Nintendo"   },
+            { "GameCube",     "Nintendo"   }, { "GB",        "Nintendo"   },
+            { "GBC",          "Nintendo"   }, { "GBA",       "Nintendo"   },
+            { "NDS",          "Nintendo"   }, { "VirtualBoy","Nintendo"   },
+
+            { "Genesis",      "Sega"       }, { "SegaCD",    "Sega"       },
+            { "Sega32X",      "Sega"       }, { "Saturn",    "Sega"       },
+            { "SMS",          "Sega"       }, { "GameGear",  "Sega"       },
+            { "SG1000",       "Sega"       },
+            { "PS1",          "Sony"       }, { "PSP",       "Sony"       },
+            { "TG16",         "NEC"        }, { "TGCD",      "NEC"        },
+            { "PCFX",         "NEC"        },
+            { "NGP",          "SNK"        },
+            { "Atari2600",    "Atari"      }, { "Atari5200", "Atari"      },
+            { "Atari7800",    "Atari"      }, { "AtariLynx", "Atari"      },
+            { "Jaguar",       "Atari"      },
+            { "ColecoVision", "Coleco"     },
+            { "Intellivision","Mattel"     },
+            { "Vectrex",      "GCE"        },
+            { "3DO",          "3DO"        },
+        };
+
+        // Console to background/accent color mapping
+        private static readonly Dictionary<string, (string bg, string accent)> ConsoleColors = new()
+        {
+            { "NES",         ("#1A0A0A", "#C8102E") },
+            { "SNES",        ("#1A0A2E", "#7B2FBE") },
+            { "N64",         ("#0A1A2E", "#E03535") },
+            { "GameCube",    ("#0A1A1A", "#6A0DAD") },
+            { "GB",          ("#1A2E1A", "#8BC34A") },
+            { "GBC",         ("#1A2E1A", "#FF6B6B") },
+            { "GBA",         ("#1A1A2E", "#9C27B0") },
+            { "NDS",         ("#0A2E1A", "#4CAF50") },
+            { "Genesis",     ("#1A1A0A", "#2196F3") },
+            { "Saturn",      ("#2E1A0A", "#FF9800") },
+            { "SegaCD",      ("#0A2E2E", "#00BCD4") },
+            { "SMS",         ("#0A1A2E", "#3F51B5") },
+            { "GameGear",    ("#2E0A1A", "#E91E63") },
+            { "PS1",         ("#0A0A2E", "#2196F3") },
+            { "PSP",         ("#0A1A2E", "#00BCD4") },
+            { "Atari2600",   ("#2E1A0A", "#FF5722") },
+            { "TG16",        ("#1A2E2E", "#009688") },
+        };
+
+        public static bool IsRomFile(string filePath)
+        {
+            string ext = Path.GetExtension(filePath);
+            return ExtensionMap.ContainsKey(ext) || AmbiguousExtensions.ContainsKey(ext);
+        }
+
+        public static bool IsRomExtension(string ext)
+        {
+            return ExtensionMap.ContainsKey(ext) || AmbiguousExtensions.ContainsKey(ext);
+        }
+
+        /// <summary>Returns null for unambiguous extensions; returns the candidate list for ambiguous ones.</summary>
+        public static string[]? GetAmbiguousCandidates(string ext)
+            => AmbiguousExtensions.TryGetValue(ext, out string[]? c) ? c : null;
+
+        public static string DetectConsole(string filePath)
+        {
+            string ext = Path.GetExtension(filePath);
+            return ExtensionMap.TryGetValue(ext, out string? console)
+                ? console
+                : "Unknown";
+        }
+
+        /// <summary>
+        /// Detects the region from a filename using No-Intro/Redump naming conventions.
+        /// Returns "Japan", "USA", "Europe", "World", or "Unknown".
+        /// </summary>
+        public static string DetectRegion(string filePath)
+        {
+            string name = Path.GetFileNameWithoutExtension(filePath);
+            // Match the parenthesised region tag anywhere in the filename
+            if (System.Text.RegularExpressions.Regex.IsMatch(name,
+                    @"\(Japan\)|\(Japan,", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                return "Japan";
+            if (System.Text.RegularExpressions.Regex.IsMatch(name,
+                    @"\(USA\)|\(USA,|\(U\)", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                return "USA";
+            if (System.Text.RegularExpressions.Regex.IsMatch(name,
+                    @"\(Europe\)|\(Europe,|\(E\)", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                return "Europe";
+            if (System.Text.RegularExpressions.Regex.IsMatch(name,
+                    @"\(World\)", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                return "World";
+            return "Unknown";
+        }
+
+        public static string DetectManufacturer(string console)
+        {
+            return ManufacturerMap.TryGetValue(console, out string? manufacturer)
+                ? manufacturer
+                : "Unknown";
+        }
+
+        public static (string bg, string accent) GetConsoleColors(string console)
+        {
+            return ConsoleColors.TryGetValue(console, out var colors)
+                ? colors
+                : ("#1F1F21", "#E03535");
+        }
+
+        public static string HashRom(string filePath)
+        {
+            using var md5 = MD5.Create();
+            using var stream = File.OpenRead(filePath);
+            byte[] hash = md5.ComputeHash(stream);
+            return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+        }
+
+        public static string CleanTitle(string fileName)
+        {
+            string name = Path.GetFileNameWithoutExtension(fileName);
+
+            // Remove common ROM tags like (USA), [!], (Rev 1) etc.
+            name = System.Text.RegularExpressions.Regex.Replace(name, @"\(.*?\)", "");
+            name = System.Text.RegularExpressions.Regex.Replace(name, @"\[.*?\]", "");
+
+            // Clean up extra spaces
+            name = System.Text.RegularExpressions.Regex.Replace(name, @"\s+", " ").Trim();
+
+            return name;
+        }
+    }
+}

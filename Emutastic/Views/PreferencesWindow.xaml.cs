@@ -1,0 +1,1175 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Windows.Shapes;
+using Emutastic.Services;
+using Emutastic.Models;
+using Emutastic.Configuration;
+using Microsoft.Extensions.Logging;
+
+namespace Emutastic.Views
+{
+    public partial class PreferencesWindow : Window
+    {
+        // ── State ─────────────────────────────────────────────────────────────
+        private readonly DatabaseService _db;
+        private readonly ControllerManager? _controllerManager;
+        private readonly IConfigurationService _configService;
+        private readonly ILogger<PreferencesWindow>? _logger;
+
+        private string _currentConsole = "SNES";
+        private int    _currentPlayer  = 1;            // 1-based
+        private bool   _isKeyboardMode = true;
+        private string _selectedDevice = "Keyboard";
+
+        // Current mappings: buttonName → InputMapping
+        private Dictionary<string, InputMapping> _mappings = new();
+
+        // Rows built for the current console
+        private record MappingRow(string ButtonName, Border Box, TextBlock BoxLabel);
+        private List<MappingRow> _rows = new();
+        private int _waitingRowIndex = -1;             // index into _rows, or -1
+
+        // After capturing an analog direction, ignore all further analog events for
+        // this many milliseconds so the stick's return-to-center doesn't cascade.
+        private static readonly TimeSpan AnalogCooldown = TimeSpan.FromMilliseconds(600);
+        private DateTime _analogLastCapture = DateTime.MinValue;
+
+        // Brushes (resolved once after Loaded)
+        private SolidColorBrush _brushUnmapped  = new(Color.FromRgb(0x27, 0x27, 0x29));
+        private SolidColorBrush _brushMapped    = new(Color.FromRgb(0x1F, 0x1F, 0x21));
+        private SolidColorBrush _brushWaiting   = new(Color.FromRgb(0xE0, 0x35, 0x35));
+        private SolidColorBrush _brushText      = new(Color.FromRgb(0xF0, 0xF0, 0xF0));
+        private SolidColorBrush _brushTextMuted = new(Color.FromRgb(0x55, 0x55, 0x58));
+
+        // ── Section navigation ────────────────────────────────────────────────
+        private enum PrefSection { Controls, SystemFiles, Cores, Library }
+        private PrefSection _activeSection = PrefSection.Controls;
+
+        // ── Constructors ──────────────────────────────────────────────────────
+        public PreferencesWindow(DatabaseService db, ControllerManager controllerManager,
+            IConfigurationService configService, ILogger<PreferencesWindow>? logger = null)
+        {
+            InitializeComponent();
+            _db              = db;
+            _controllerManager = controllerManager;
+            _configService   = configService;
+            _logger          = logger;
+
+            Loaded += OnLoaded;
+            KeyDown += OnWindowKeyDown;
+            PreviewKeyDown += OnPreviewKeyDown;
+
+            if (_controllerManager != null)
+                _controllerManager.ButtonChanged += OnControllerButtonChanged;
+        }
+
+        public PreferencesWindow(DatabaseService db, ControllerManager controllerManager)
+            : this(db, controllerManager, App.Configuration
+                  ?? throw new InvalidOperationException("Configuration not initialized"))
+        { }
+
+        // ── Initialisation ────────────────────────────────────────────────────
+        private void OnLoaded(object sender, RoutedEventArgs e)
+        {
+            PopulateSystemComboBox();
+            PopulateInputDevices();
+            PlayerComboBox.SelectedIndex = 0;
+        }
+
+        private void PopulateSystemComboBox()
+        {
+            var consoles = ControllerDefinitions.GetSupportedConsoles();
+            SystemComboBox.ItemsSource = consoles
+                .Select(c => new ConsoleItem(c.Tag, c.Name))
+                .ToList();
+
+            // Select previously-used console or default to SNES
+            int idx = consoles.FindIndex(c => c.Tag == _currentConsole);
+            SystemComboBox.SelectedIndex = idx >= 0 ? idx : 0;
+        }
+
+        private void PopulateInputDevices()
+        {
+            var devices = new List<string> { "Keyboard" };
+            devices.AddRange(ControllerManager.GetConnectedControllers());
+
+            InputDeviceComboBox.ItemsSource = devices;
+
+            // Restore an explicit controller choice if it's still connected.
+            // "Keyboard" is only a passive default — if a controller is present prefer it.
+            if (_selectedDevice != "Keyboard" && devices.Contains(_selectedDevice))
+                InputDeviceComboBox.SelectedItem = _selectedDevice;
+            else if (devices.Count > 1)
+                InputDeviceComboBox.SelectedItem = devices[1];           // first controller
+            else
+                InputDeviceComboBox.SelectedItem = "Keyboard";
+        }
+
+        // ── Console / layout ──────────────────────────────────────────────────
+        private void LoadConsole(string consoleTag)
+        {
+            _currentConsole   = consoleTag;
+            _waitingRowIndex  = -1;
+
+            var def = ControllerDefinitions.GetControllerDefinition(consoleTag);
+            if (def == null) return;
+
+            // Controller image
+            try
+            {
+                ControllerImage.Source = new BitmapImage(new Uri(def.ControllerImage, UriKind.Relative));
+            }
+            catch { ControllerImage.Source = null; }
+
+            // Load saved mappings for this console+player
+            LoadMappingsFromConfig();
+
+            // Rebuild the button rows
+            RebuildButtonsPanel(def);
+        }
+
+        private void RebuildButtonsPanel(ControllerDefinition def)
+        {
+            ButtonsPanel.Children.Clear();
+            _rows.Clear();
+
+            // Group buttons by their Group property
+            var groups = def.Buttons
+                .GroupBy(b => string.IsNullOrEmpty(b.Group) ? "Buttons" : b.Group)
+                .ToList();
+
+            foreach (var group in groups)
+            {
+                // Group header
+                var header = new TextBlock
+                {
+                    Text       = group.Key.ToUpperInvariant(),
+                    Style      = (Style)FindResource("GroupHeader"),
+                };
+                ButtonsPanel.Children.Add(header);
+
+                // Divider under header
+                ButtonsPanel.Children.Add(new Rectangle
+                {
+                    Height  = 1,
+                    Fill    = (SolidColorBrush)FindResource("BorderNormalBrush"),
+                    Margin  = new Thickness(0, 0, 0, 6),
+                });
+
+                foreach (var btn in group)
+                {
+                    var row = BuildMappingRow(btn.Name);
+                    ButtonsPanel.Children.Add(row.grid);
+                    _rows.Add(new MappingRow(btn.Name, row.box, row.label));
+                }
+            }
+
+            // Refresh display text on all rows
+            RefreshAllRows();
+        }
+
+        private (Grid grid, Border box, TextBlock label) BuildMappingRow(string buttonName)
+        {
+            var grid = new Grid { Margin = new Thickness(0, 2, 0, 2) };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
+
+            // Button name label
+            var nameLabel = new TextBlock
+            {
+                Text               = buttonName,
+                Foreground         = _brushText,
+                FontSize           = 12,
+                VerticalAlignment  = VerticalAlignment.Center,
+                TextTrimming       = TextTrimming.CharacterEllipsis,
+            };
+            Grid.SetColumn(nameLabel, 0);
+
+            // Mapping box
+            var boxLabel = new TextBlock
+            {
+                Text              = "—",
+                Foreground        = _brushTextMuted,
+                FontSize          = 11,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment   = VerticalAlignment.Center,
+                TextTrimming        = TextTrimming.CharacterEllipsis,
+            };
+
+            var box = new Border
+            {
+                Background      = _brushUnmapped,
+                CornerRadius    = new CornerRadius(4),
+                Padding         = new Thickness(8, 4, 8, 4),
+                Cursor          = Cursors.Hand,
+                Child           = boxLabel,
+                Tag             = buttonName,
+            };
+            Grid.SetColumn(box, 1);
+
+            box.MouseLeftButtonDown += MappingBox_Click;
+
+            grid.Children.Add(nameLabel);
+            grid.Children.Add(box);
+
+            return (grid, box, boxLabel);
+        }
+
+        // ── Mapping persistence ───────────────────────────────────────────────
+        private string ConfigKey => $"{_currentConsole}_P{_currentPlayer}";
+
+        private void LoadMappingsFromConfig()
+        {
+            _mappings.Clear();
+            var config = _configService.GetInputConfiguration(ConfigKey);
+
+            var source = _isKeyboardMode ? config.KeyboardMappings : config.ControllerMappings;
+            foreach (var m in source)
+            {
+                _mappings[m.ButtonName] = new InputMapping
+                {
+                    ConsoleName         = _currentConsole,
+                    ButtonName          = m.ButtonName,
+                    InputType           = _isKeyboardMode ? Services.InputType.Keyboard : Services.InputType.Controller,
+                    Key                 = _isKeyboardMode && Enum.TryParse<Key>(m.InputIdentifier, out var k) ? k : Key.None,
+                    ControllerButtonId  = !_isKeyboardMode && uint.TryParse(m.InputIdentifier, out var bid) ? bid : 0,
+                    DisplayText         = m.DisplayName,
+                };
+            }
+        }
+
+        private void SaveMappingsToConfig()
+        {
+            var config = _configService.GetInputConfiguration(ConfigKey);
+
+            if (_isKeyboardMode)
+            {
+                config.KeyboardMappings.Clear();
+                foreach (var m in _mappings.Values.Where(m => m.InputType == Services.InputType.Keyboard && m.Key != Key.None))
+                {
+                    config.KeyboardMappings.Add(new ButtonMapping
+                    {
+                        ButtonName      = m.ButtonName,
+                        InputIdentifier = m.Key.ToString(),
+                        InputType       = Configuration.InputType.Keyboard,
+                        DisplayName     = m.DisplayText,
+                    });
+                }
+            }
+            else
+            {
+                config.ControllerMappings.Clear();
+                foreach (var m in _mappings.Values.Where(m => m.InputType == Services.InputType.Controller))
+                {
+                    config.ControllerMappings.Add(new ButtonMapping
+                    {
+                        ButtonName      = m.ButtonName,
+                        InputIdentifier = m.ControllerButtonId.ToString(),
+                        InputType       = Configuration.InputType.Controller,
+                        DisplayName     = m.DisplayText,
+                    });
+                }
+            }
+
+            _configService.SetInputConfiguration(ConfigKey, config);
+        }
+
+        // ── Row display ───────────────────────────────────────────────────────
+        private void RefreshAllRows()
+        {
+            for (int i = 0; i < _rows.Count; i++)
+                RefreshRow(i);
+        }
+
+        private void RefreshRow(int idx)
+        {
+            var row = _rows[idx];
+            bool waiting = idx == _waitingRowIndex;
+
+            if (waiting)
+            {
+                row.Box.Background   = _brushWaiting;
+                row.BoxLabel.Text       = "Press a button…";
+                row.BoxLabel.Foreground = Brushes.White;
+                return;
+            }
+
+            if (_mappings.TryGetValue(row.ButtonName, out var m) && !string.IsNullOrEmpty(m.DisplayText) && m.DisplayText != "Not mapped")
+            {
+                row.Box.Background      = _brushMapped;
+                row.BoxLabel.Text       = m.DisplayText;
+                row.BoxLabel.Foreground = _brushText;
+            }
+            else
+            {
+                row.Box.Background      = _brushUnmapped;
+                row.BoxLabel.Text       = "—";
+                row.BoxLabel.Foreground = _brushTextMuted;
+            }
+        }
+
+        // ── Input capture flow ────────────────────────────────────────────────
+        private void StartWaiting(int rowIndex)
+        {
+            int prev = _waitingRowIndex;
+            _waitingRowIndex = rowIndex;
+            if (prev >= 0 && prev < _rows.Count) RefreshRow(prev);
+            RefreshRow(rowIndex);
+        }
+
+        private void StopWaiting()
+        {
+            int prev = _waitingRowIndex;
+            _waitingRowIndex    = -1;
+            _analogLastCapture  = DateTime.MinValue;
+            if (prev >= 0 && prev < _rows.Count) RefreshRow(prev);
+        }
+
+        private void CommitMapping(string buttonName, string displayText,
+            Key key = Key.None, uint controllerId = 0, bool skipAutoAdvance = false)
+        {
+            _mappings[buttonName] = new InputMapping
+            {
+                ConsoleName        = _currentConsole,
+                ButtonName         = buttonName,
+                InputType          = _isKeyboardMode ? Services.InputType.Keyboard : Services.InputType.Controller,
+                Key                = key,
+                ControllerButtonId = controllerId,
+                DisplayText        = displayText,
+            };
+
+            int cur = _waitingRowIndex;
+            _waitingRowIndex = -1;  // clear BEFORE RefreshRow so row shows new mapping, not "Press a button…"
+            RefreshRow(cur);
+
+            if (!skipAutoAdvance)
+                AdvanceFromRow(cur);
+        }
+
+        private void AdvanceFromRow(int from)
+        {
+            for (int i = from + 1; i < _rows.Count; i++)
+            {
+                if (!_mappings.TryGetValue(_rows[i].ButtonName, out var existing)
+                    || string.IsNullOrEmpty(existing.DisplayText)
+                    || existing.DisplayText == "Not mapped")
+                {
+                    StartWaiting(i);
+                    return;
+                }
+            }
+            // All mapped — leave _waitingRowIndex = -1
+        }
+
+        // ── Event: mapping box clicked ────────────────────────────────────────
+        private void MappingBox_Click(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is not Border box || box.Tag is not string btnName) return;
+            int idx = _rows.FindIndex(r => r.ButtonName == btnName);
+            if (idx < 0) return;
+            StartWaiting(idx);
+            Focus(); // ensure window has keyboard focus
+        }
+
+        // ── Event: key pressed ────────────────────────────────────────────────
+        private void OnPreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (_isKeyboardMode && _waitingRowIndex >= 0)
+                e.Handled = true; // prevent system handling
+        }
+
+        private void OnWindowKeyDown(object sender, KeyEventArgs e)
+        {
+            if (!_isKeyboardMode || _waitingRowIndex < 0) return;
+
+            Key key = e.Key == Key.System ? e.SystemKey : e.Key;
+            if (key == Key.Escape) { StopWaiting(); return; }
+
+            string display = KeyToDisplayString(key);
+            string btnName = _rows[_waitingRowIndex].ButtonName;
+            CommitMapping(btnName, display, key: key);
+        }
+
+        private void OnControllerButtonChanged(uint buttonId, bool isPressed)
+        {
+            if (_isKeyboardMode) return;
+
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (!isPressed || _waitingRowIndex < 0) return;
+
+                bool isAnalogDir = buttonId >= ControllerManager.ANALOG_LEFT_UP;
+
+                // After capturing an analog direction, ignore further analog events for
+                // a short cooldown so the stick returning to centre doesn't cascade.
+                if (isAnalogDir && (DateTime.UtcNow - _analogLastCapture) < AnalogCooldown)
+                    return;
+
+                string btnName = _rows[_waitingRowIndex].ButtonName;
+                string display = isAnalogDir ? AnalogDirToString(buttonId) : $"Button {buttonId}";
+
+                CommitMapping(btnName, display, controllerId: buttonId);
+
+                if (isAnalogDir)
+                    _analogLastCapture = DateTime.UtcNow;
+            });
+        }
+
+        private static string AnalogDirToString(uint buttonId) => buttonId switch
+        {
+            ControllerManager.ANALOG_LEFT_UP    => "L Stick ↑",
+            ControllerManager.ANALOG_LEFT_DOWN  => "L Stick ↓",
+            ControllerManager.ANALOG_LEFT_LEFT  => "L Stick ←",
+            ControllerManager.ANALOG_LEFT_RIGHT => "L Stick →",
+            ControllerManager.ANALOG_RIGHT_UP   => "R Stick ↑",
+            ControllerManager.ANALOG_RIGHT_DOWN => "R Stick ↓",
+            ControllerManager.ANALOG_RIGHT_LEFT => "R Stick ←",
+            ControllerManager.ANALOG_RIGHT_RIGHT=> "R Stick →",
+            _ => $"Analog {buttonId}"
+        };
+
+        private static string KeyToDisplayString(Key key) => key switch
+        {
+            Key.Space       => "Space",
+            Key.Return      => "Enter",
+            Key.Back        => "Backspace",
+            Key.Escape      => "Escape",
+            Key.Tab         => "Tab",
+            Key.LeftShift   => "L Shift",
+            Key.RightShift  => "R Shift",
+            Key.LeftCtrl    => "L Ctrl",
+            Key.RightCtrl   => "R Ctrl",
+            Key.LeftAlt     => "L Alt",
+            Key.RightAlt    => "R Alt",
+            Key.Up          => "↑",
+            Key.Down        => "↓",
+            Key.Left        => "←",
+            Key.Right       => "→",
+            _               => key.ToString(),
+        };
+
+        // ── Combo-box event handlers ──────────────────────────────────────────
+        private void SystemComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (SystemComboBox.SelectedItem is not ConsoleItem item) return;
+            StopWaiting();
+            LoadConsole(item.Tag);
+        }
+
+        private void PlayerComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            _currentPlayer = PlayerComboBox.SelectedIndex + 1;
+            StopWaiting();
+            LoadMappingsFromConfig();
+            RefreshAllRows();
+        }
+
+        private void InputDeviceComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (InputDeviceComboBox.SelectedItem is not string device) return;
+            _selectedDevice  = device;
+            _isKeyboardMode  = device == "Keyboard";
+            StopWaiting();
+            LoadMappingsFromConfig();
+            RefreshAllRows();
+        }
+
+        private void RefreshDevicesButton_Click(object sender, RoutedEventArgs e)
+            => PopulateInputDevices();
+
+        // ── Title bar ─────────────────────────────────────────────────────────
+        private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+            => DragMove();
+
+        private void CloseButton_Click(object sender, RoutedEventArgs e)
+            => Close();
+
+        private void MinimizeButton_Click(object sender, RoutedEventArgs e)
+            => WindowState = WindowState.Minimized;
+
+        private void MaximizeButton_Click(object sender, RoutedEventArgs e)
+            => WindowState = WindowState == WindowState.Maximized
+                ? WindowState.Normal
+                : WindowState.Maximized;
+
+        // ── Save / Reset ──────────────────────────────────────────────────────
+        private void SaveButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                SaveMappingsToConfig();
+                _configService.SaveAsync();
+                Close();
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Failed to save preferences");
+                MessageBox.Show($"Failed to save: {ex.Message}", "Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void ResetDefaultsButton_Click(object sender, RoutedEventArgs e)
+        {
+            _mappings.Clear();
+
+            var defaults = _isKeyboardMode
+                ? ConfigurationExtensions.GetDefaultKeyboardMappings(_currentConsole)
+                : ConfigurationExtensions.GetDefaultControllerMappings(_currentConsole);
+
+            foreach (var d in defaults)
+            {
+                _mappings[d.ButtonName] = new InputMapping
+                {
+                    ConsoleName        = _currentConsole,
+                    ButtonName         = d.ButtonName,
+                    InputType          = _isKeyboardMode ? Services.InputType.Keyboard : Services.InputType.Controller,
+                    Key                = _isKeyboardMode && Enum.TryParse<Key>(d.InputIdentifier, out var k) ? k : Key.None,
+                    ControllerButtonId = !_isKeyboardMode && uint.TryParse(d.InputIdentifier, out var bid) ? bid : 0,
+                    DisplayText        = d.DisplayName,
+                };
+            }
+
+            StopWaiting();
+            RefreshAllRows();
+        }
+
+        // ── Section navigation ────────────────────────────────────────────────
+        private void NavBtn_Checked(object sender, RoutedEventArgs e)
+        {
+            if (sender == NavControls)         ShowSection(PrefSection.Controls);
+            else if (sender == NavSystemFiles)  ShowSection(PrefSection.SystemFiles);
+            else if (sender == NavCores)        ShowSection(PrefSection.Cores);
+            else if (sender == NavLibrary)      ShowSection(PrefSection.Library);
+        }
+
+        private void ShowSection(PrefSection section)
+        {
+            if (PanelControls == null) return; // fired during InitializeComponent before panels exist
+            _activeSection = section;
+            PanelControls.Visibility    = section == PrefSection.Controls    ? Visibility.Visible : Visibility.Collapsed;
+            PanelSystemFiles.Visibility = section == PrefSection.SystemFiles ? Visibility.Visible : Visibility.Collapsed;
+            PanelCores.Visibility       = section == PrefSection.Cores       ? Visibility.Visible : Visibility.Collapsed;
+            PanelLibrary.Visibility     = section == PrefSection.Library     ? Visibility.Visible : Visibility.Collapsed;
+
+            if (section == PrefSection.SystemFiles) BuildBiosPanel();
+            if (section == PrefSection.Cores)       BuildCoresPanel();
+            if (section == PrefSection.Library)     LoadLibrarySettings();
+        }
+
+        // ── BIOS panel ────────────────────────────────────────────────────────
+        private void BuildBiosPanel()
+        {
+            BiosPanel.Children.Clear();
+            string sysDir = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "OpenEmuWindows", "System");
+
+            // Info banner
+            var accent = (Color)FindResource("AccentColor");
+            var banner = new Border
+            {
+                Background  = new SolidColorBrush(Color.FromArgb(0x18, accent.R, accent.G, accent.B)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(0x40, accent.R, accent.G, accent.B)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6),
+                Padding  = new Thickness(14, 10, 14, 10),
+                Margin   = new Thickness(0, 0, 0, 16)
+            };
+            var bannerStack = new StackPanel();
+            bannerStack.Children.Add(new TextBlock
+            {
+                Text = "Where to place BIOS files",
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = _brushText,
+                Margin = new Thickness(0, 0, 0, 4)
+            });
+            bannerStack.Children.Add(new TextBlock
+            {
+                Text = $"System folder (recommended):  {sysDir}",
+                FontSize = 11,
+                Foreground = _brushTextMuted,
+                FontFamily = new FontFamily("Consolas"),
+                TextWrapping = TextWrapping.Wrap
+            });
+            bannerStack.Children.Add(new TextBlock
+            {
+                Text = "Alternatively, place a BIOS file in the same folder as the ROMs for that system — it will be found automatically.",
+                FontSize = 11,
+                Foreground = _brushTextMuted,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 4, 0, 0)
+            });
+            banner.Child = bannerStack;
+            BiosPanel.Children.Add(banner);
+
+            // Collect unique ROM directories per console tag from the library.
+            var allGames = _db.GetAllGames();
+            var romDirsByConsole = allGames
+                .Where(g => !string.IsNullOrEmpty(g.RomPath))
+                .GroupBy(g => g.Console)
+                .ToDictionary(
+                    grp => grp.Key,
+                    grp => grp
+                        .Select(g => System.IO.Path.GetDirectoryName(g.RomPath))
+                        .Where(d => !string.IsNullOrEmpty(d))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToArray()
+                );
+
+            var groups = KnownBios.All.GroupBy(b => b.ConsoleDisplay);
+            foreach (var group in groups)
+            {
+                // Console group header
+                var header = new TextBlock
+                {
+                    Text = group.Key.ToUpperInvariant(),
+                    FontSize = 10,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = _brushTextMuted,
+                    Margin = new Thickness(0, 14, 0, 6)
+                };
+                BiosPanel.Children.Add(header);
+
+                // Gather ROM dirs for this console group (may span multiple console tags)
+                var consoleTags = KnownBios.All
+                    .Where(b => b.ConsoleDisplay == group.Key)
+                    .Select(b => b.Console)
+                    .Distinct();
+                var romDirs = consoleTags
+                    .SelectMany(tag => romDirsByConsole.TryGetValue(tag, out var dirs) ? dirs : Array.Empty<string>())
+                    .Where(d => d != null)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+
+                foreach (var entry in group)
+                {
+                    BiosPanel.Children.Add(BuildBiosRow(entry, sysDir, romDirs!));
+                }
+            }
+        }
+
+        private UIElement BuildBiosRow(BiosEntry entry, string sysDir, string[]? romDirs = null)
+        {
+            string fullPath = System.IO.Path.Combine(sysDir, entry.Filename);
+            bool existsInSysDir = System.IO.File.Exists(fullPath);
+            bool existsInRomDir = !existsInSysDir && (romDirs?.Any(dir =>
+                System.IO.File.Exists(System.IO.Path.Combine(dir, System.IO.Path.GetFileName(entry.Filename)))) == true);
+            bool exists = existsInSysDir || existsInRomDir;
+
+            bool verified = false;
+            string? foundPath = existsInSysDir ? fullPath
+                : existsInRomDir ? romDirs!.Select(dir =>
+                    System.IO.Path.Combine(dir, System.IO.Path.GetFileName(entry.Filename)))
+                    .FirstOrDefault(System.IO.File.Exists)
+                : null;
+            if (foundPath != null && entry.Md5 != null)
+                verified = VerifyMd5(foundPath, entry.Md5);
+            else if (exists)
+                verified = true; // presence-only check
+
+            var row = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(0x1F, 0x1F, 0x21)),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(12, 8, 12, 8),
+                Margin = new Thickness(0, 0, 0, 4)
+            };
+
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(24) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, MinWidth = 200 });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            // Status icon
+            var icon = new TextBlock
+            {
+                Text = verified ? "✓" : "⚠",
+                FontSize = 14,
+                FontWeight = FontWeights.Bold,
+                Foreground = verified
+                    ? new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58))
+                    : new SolidColorBrush(Color.FromRgb(0xE0, 0x35, 0x35)),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(icon, 0);
+
+            // Filename
+            var filename = new TextBlock
+            {
+                Text = System.IO.Path.GetFileName(entry.Filename),
+                FontSize = 13,
+                Foreground = _brushText,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(4, 0, 16, 0)
+            };
+            Grid.SetColumn(filename, 1);
+
+            // Description
+            string descText = entry.Description;
+            if (!exists) descText += (descText.Length > 0 ? " — " : "") + "Missing";
+            else if (entry.Md5 != null && !verified) descText += (descText.Length > 0 ? " — " : "") + "Hash mismatch";
+            else if (existsInRomDir) descText += (descText.Length > 0 ? " — " : "") + "found in game folder";
+            var desc = new TextBlock
+            {
+                Text = descText,
+                FontSize = 12,
+                Foreground = _brushTextMuted,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(desc, 2);
+
+            // Size
+            var size = new TextBlock
+            {
+                Text = $"{entry.ExpectedSize / 1024} KB",
+                FontSize = 12,
+                Foreground = _brushTextMuted,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(16, 0, 0, 0)
+            };
+            Grid.SetColumn(size, 3);
+
+            // Hash — truncated by default, click to reveal full MD5
+            string shortHash = entry.Md5 != null ? entry.Md5[..8] + "…" : "any";
+            string fullHash  = entry.Md5 != null ? entry.Md5 : "any";
+            bool expanded = false;
+            var hash = new TextBlock
+            {
+                Text = $"MD5: {shortHash}",
+                FontSize = 11,
+                Foreground = _brushTextMuted,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(16, 0, 0, 0),
+                FontFamily = new FontFamily("Consolas"),
+                Cursor = entry.Md5 != null ? System.Windows.Input.Cursors.Hand : null,
+                ToolTip = entry.Md5 != null ? "Click to reveal full MD5" : null
+            };
+            if (entry.Md5 != null)
+            {
+                hash.MouseLeftButtonUp += (_, _) =>
+                {
+                    expanded = !expanded;
+                    hash.Text = expanded ? $"MD5: {fullHash}" : $"MD5: {shortHash}";
+                    hash.ToolTip = expanded ? "Click to hide" : "Click to reveal full MD5";
+                };
+            }
+            Grid.SetColumn(hash, 4);
+
+            grid.Children.Add(icon);
+            grid.Children.Add(filename);
+            grid.Children.Add(desc);
+            grid.Children.Add(size);
+            grid.Children.Add(hash);
+            row.Child = grid;
+            return row;
+        }
+
+        private static bool VerifyMd5(string path, string expectedMd5)
+        {
+            try
+            {
+                using var md5 = System.Security.Cryptography.MD5.Create();
+                using var stream = System.IO.File.OpenRead(path);
+                byte[] hash = md5.ComputeHash(stream);
+                string actual = BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+                return string.Equals(actual, expectedMd5, StringComparison.OrdinalIgnoreCase);
+            }
+            catch { return false; }
+        }
+
+        // ── Cores panel ───────────────────────────────────────────────────────
+
+        // Per-console plugin/option definitions
+        private static readonly Dictionary<string, List<(string Key, string Label, List<string> Values, string Default, Dictionary<string, string> Descs)>> CoreSpecificOptions = new()
+        {
+            ["N64"] = new()
+            {
+                (
+                    Key:     "parallel-n64-gfxplugin",
+                    Label:   "GFX Plugin",
+                    Values:  new() { "glide64", "angrylion", "rice" },
+                    Default: "glide64",
+                    Descs:   new() {
+                        ["glide64"]    = "GPU renderer — good balance of speed and accuracy",
+                        ["angrylion"]  = "Software renderer — most accurate, very slow",
+                        ["rice"]       = "GPU renderer — fastest, least accurate",
+                    }
+                )
+            }
+        };
+
+        private void BuildCoresPanel()
+        {
+            CoresListPanel.Children.Clear();
+            string coresFolder = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Cores");
+            var prefs = _configService.GetCorePreferences();
+
+            bool anyConsole = false;
+
+            foreach (var kv in Services.CoreManager.ConsoleCoreMap.OrderBy(x => x.Key))
+            {
+                string consoleName = kv.Key;
+                string[] candidates = kv.Value;
+
+                // Gather installed cores for this console
+                var installed = candidates
+                    .Select(dll => new {
+                        Dll = dll,
+                        Path = System.IO.Path.Combine(coresFolder, dll),
+                        Friendly = FormatCoreName(dll)
+                    })
+                    .Where(c => System.IO.File.Exists(c.Path))
+                    .ToList();
+
+                if (installed.Count == 0) continue;
+                anyConsole = true;
+
+                // ── Console section header ──
+                CoresListPanel.Children.Add(new TextBlock
+                {
+                    Text = consoleName,
+                    FontSize = 10,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = _brushTextMuted,
+                    Margin = new Thickness(0, 16, 0, 6)
+                });
+
+                var card = new Border
+                {
+                    Background = new SolidColorBrush(Color.FromRgb(0x1F, 0x1F, 0x21)),
+                    CornerRadius = new CornerRadius(6),
+                    Padding = new Thickness(14, 12, 14, 12),
+                    Margin = new Thickness(0, 0, 0, 4)
+                };
+                var cardStack = new StackPanel();
+
+                // ── Core rows ──
+                foreach (var core in installed)
+                {
+                    string version = GetCoreVersion(core.Path);
+                    var coreRow = new Grid { Margin = new Thickness(0, 0, 0, 4) };
+                    coreRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(220) });
+                    coreRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                    coreRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                    var nameStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+                    nameStack.Children.Add(new TextBlock { Text = core.Friendly, FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = _brushText });
+                    nameStack.Children.Add(new TextBlock { Text = core.Dll, FontSize = 10, Foreground = _brushTextMuted, FontFamily = new FontFamily("Consolas"), Margin = new Thickness(0, 2, 0, 0) });
+                    Grid.SetColumn(nameStack, 0);
+
+                    var installedBadge = new Border
+                    {
+                        Background = new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58)),
+                        CornerRadius = new CornerRadius(4),
+                        Padding = new Thickness(8, 3, 8, 3),
+                        VerticalAlignment = VerticalAlignment.Center
+                    };
+                    installedBadge.Child = new TextBlock { Text = "Installed", FontSize = 10, Foreground = new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58)) };
+                    Grid.SetColumn(installedBadge, 1);
+
+                    var versionBlock = new TextBlock
+                    {
+                        Text = version,
+                        FontSize = 11,
+                        Foreground = _brushTextMuted,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        FontFamily = new FontFamily("Consolas"),
+                        ToolTip = version.Length == 10 && version[4] == '-' ? "File last modified (no version resource)" : null
+                    };
+                    Grid.SetColumn(versionBlock, 2);
+
+                    coreRow.Children.Add(nameStack);
+                    coreRow.Children.Add(installedBadge);
+                    coreRow.Children.Add(versionBlock);
+                    cardStack.Children.Add(coreRow);
+                }
+
+                // ── Preferred core picker (only when >1 installed) ──
+                if (installed.Count > 1)
+                {
+                    cardStack.Children.Add(new Rectangle { Height = 1, Fill = new SolidColorBrush(Color.FromRgb(0x30, 0x30, 0x33)), Margin = new Thickness(0, 10, 0, 10) });
+
+                    var pickerRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+                    pickerRow.Children.Add(new TextBlock
+                    {
+                        Text = "Preferred Core",
+                        FontSize = 12,
+                        Foreground = _brushText,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Width = 140
+                    });
+
+                    var preferredCombo = new ComboBox
+                    {
+                        Style = (Style)FindResource("PrefComboBox"),
+                        Width = 220,
+                        ItemsSource = installed.Select(c => c.Friendly).ToList()
+                    };
+
+                    // Select current preference or first installed
+                    string? savedPref = prefs.PreferredCores.TryGetValue(consoleName, out var p) ? p : null;
+                    int prefIdx = installed.FindIndex(c => c.Dll == savedPref);
+                    preferredCombo.SelectedIndex = prefIdx >= 0 ? prefIdx : 0;
+
+                    preferredCombo.SelectionChanged += (_, _) =>
+                    {
+                        int idx = preferredCombo.SelectedIndex;
+                        if (idx < 0 || idx >= installed.Count) return;
+                        var current = _configService.GetCorePreferences();
+                        current.PreferredCores[consoleName] = installed[idx].Dll;
+                        _configService.SetCorePreferences(current);
+                        _ = _configService.SaveAsync();
+                    };
+
+                    pickerRow.Children.Add(preferredCombo);
+                    cardStack.Children.Add(pickerRow);
+                }
+
+                // ── Console-specific plugin options (e.g. N64 GFX plugin) ──
+                if (CoreSpecificOptions.TryGetValue(consoleName, out var options))
+                {
+                    prefs.CoreOptionOverrides.TryGetValue(consoleName, out var savedOverrides);
+
+                    foreach (var opt in options)
+                    {
+                        cardStack.Children.Add(new Rectangle { Height = 1, Fill = new SolidColorBrush(Color.FromRgb(0x30, 0x30, 0x33)), Margin = new Thickness(0, 10, 0, 10) });
+
+                        var optRow = new StackPanel { Orientation = Orientation.Horizontal };
+                        optRow.Children.Add(new TextBlock
+                        {
+                            Text = opt.Label,
+                            FontSize = 12,
+                            Foreground = _brushText,
+                            VerticalAlignment = VerticalAlignment.Center,
+                            Width = 140
+                        });
+
+                        var optStack = new StackPanel();
+                        var optCombo = new ComboBox
+                        {
+                            Style = (Style)FindResource("PrefComboBox"),
+                            Width = 220,
+                            ItemsSource = opt.Values
+                        };
+
+                        string currentVal = savedOverrides != null && savedOverrides.TryGetValue(opt.Key, out var sv) ? sv : opt.Default;
+                        optCombo.SelectedIndex = opt.Values.IndexOf(opt.Values.Contains(currentVal) ? currentVal : opt.Default);
+
+                        var descBlock = new TextBlock
+                        {
+                            Text = opt.Descs.TryGetValue(currentVal, out var d) ? d : "",
+                            FontSize = 11,
+                            Foreground = _brushTextMuted,
+                            Margin = new Thickness(0, 4, 0, 0),
+                            TextWrapping = TextWrapping.Wrap,
+                            Width = 220
+                        };
+
+                        optCombo.SelectionChanged += (_, _) =>
+                        {
+                            string val = opt.Values[optCombo.SelectedIndex];
+                            descBlock.Text = opt.Descs.TryGetValue(val, out var desc) ? desc : "";
+                            var current = _configService.GetCorePreferences();
+                            if (!current.CoreOptionOverrides.TryGetValue(consoleName, out var overrides))
+                                current.CoreOptionOverrides[consoleName] = overrides = new();
+                            overrides[opt.Key] = val;
+                            _configService.SetCorePreferences(current);
+                            _ = _configService.SaveAsync();
+                        };
+
+                        optStack.Children.Add(optCombo);
+                        optStack.Children.Add(descBlock);
+                        optRow.Children.Add(optStack);
+                        cardStack.Children.Add(optRow);
+                    }
+                }
+
+                card.Child = cardStack;
+                CoresListPanel.Children.Add(card);
+            }
+
+            if (!anyConsole)
+            {
+                CoresListPanel.Children.Add(new TextBlock
+                {
+                    Text = "No cores found in the Cores folder.",
+                    FontSize = 13,
+                    Foreground = _brushTextMuted,
+                    Margin = new Thickness(0, 8, 0, 0)
+                });
+            }
+        }
+
+        private static string GetCoreVersion(string path)
+        {
+            try
+            {
+                var vi = System.Diagnostics.FileVersionInfo.GetVersionInfo(path);
+                if (!string.IsNullOrWhiteSpace(vi.FileVersion)) return vi.FileVersion;
+            }
+            catch { }
+            try { return System.IO.File.GetLastWriteTime(path).ToString("yyyy-MM-dd"); }
+            catch { return "—"; }
+        }
+
+        private static string FormatCoreName(string dllName)
+        {
+            string name = dllName.Replace("_libretro.dll", "", StringComparison.OrdinalIgnoreCase);
+            return name switch
+            {
+                "nestopia"          => "Nestopia",
+                "fceumm"            => "FCE Ultra MM",
+                "quicknes"          => "QuickNES",
+                "snes9x"            => "Snes9x",
+                "snes9x2002"        => "Snes9x 2002",
+                "snes9x2005"        => "Snes9x 2005",
+                "snes9x2005_plus"   => "Snes9x 2005 Plus",
+                "snes9x2010"        => "Snes9x 2010",
+                "bsnes"             => "bsnes",
+                "parallel_n64"      => "Parallel N64",
+                "mupen64plus_next"  => "Mupen64Plus-Next",
+                "dolphin"           => "Dolphin",
+                "mgba"              => "mGBA",
+                "gambatte"          => "Gambatte",
+                "sameboy"           => "SameBoy",
+                "desmume"           => "DeSmuME",
+                "melonds"           => "melonDS",
+                "mednafen_vb"       => "Mednafen Virtual Boy",
+                "genesis_plus_gx"   => "Genesis Plus GX",
+                "picodrive"         => "PicoDrive",
+                "kronos"            => "Kronos",
+                "mednafen_saturn"   => "Mednafen Saturn",
+                "yabause"           => "Yabause",
+                "mednafen_psx"      => "Mednafen PSX (Beetle)",
+                "pcsx_rearmed"      => "PCSX-ReARMed",
+                "ppsspp"            => "PPSSPP",
+                "mednafen_pce"      => "Mednafen PCE",
+                "mednafen_pce_fast" => "Mednafen PCE Fast",
+                "mednafen_pcfx"     => "Mednafen PC-FX",
+                "mednafen_ngp"      => "Mednafen Neo Geo Pocket",
+                "gearcoleco"        => "GearColeco",
+                "gearlynx"          => "GearLynx",
+                "holani"            => "Holani",
+                "handy"             => "Handy",
+                "stella"            => "Stella",
+                "stella2014"        => "Stella 2014",
+                "stella2023"        => "Stella 2023",
+                "prosystem"         => "ProSystem",
+                "virtualjaguar"     => "Virtual Jaguar",
+                "bluemsx"           => "blueMSX",
+                "freeintv"          => "FreeIntv",
+                "vecx"              => "Vecx",
+                "opera"             => "Opera (3DO)",
+                "smsplus"           => "SMS Plus",
+                _ => char.ToUpper(name[0]) + name[1..].Replace("_", " ")
+            };
+        }
+
+        // ── Library panel ─────────────────────────────────────────────────────
+        private void LoadLibrarySettings()
+        {
+            var lib = _configService.GetLibraryConfiguration();
+            LibraryPathText.Text = string.IsNullOrEmpty(lib.LibraryPath) ? "Not set" : lib.LibraryPath;
+            LibraryPathText.Foreground = string.IsNullOrEmpty(lib.LibraryPath) ? _brushTextMuted : _brushText;
+            LibraryCopyFiles.IsChecked = lib.CopyToLibrary;
+            LibraryKeepInPlace.IsChecked = !lib.CopyToLibrary;
+            LibraryOrganizeByConsole.IsChecked = lib.OrganizeByConsole;
+            LibraryOrganizeByConsole.IsEnabled = lib.CopyToLibrary;
+            LibraryCopyFiles.Checked += (_, _) => LibraryOrganizeByConsole.IsEnabled = true;
+            LibraryKeepInPlace.Checked += (_, _) => LibraryOrganizeByConsole.IsEnabled = false;
+        }
+
+        private void BrowseLibraryBtn_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new Microsoft.Win32.OpenFolderDialog
+            {
+                Title = "Select game library folder",
+            };
+            var lib = _configService.GetLibraryConfiguration();
+            if (!string.IsNullOrEmpty(lib.LibraryPath) && System.IO.Directory.Exists(lib.LibraryPath))
+                dialog.InitialDirectory = lib.LibraryPath;
+
+            if (dialog.ShowDialog() == true)
+            {
+                LibraryPathText.Text = dialog.FolderName;
+                LibraryPathText.Foreground = _brushText;
+            }
+        }
+
+        private void LibrarySaveBtn_Click(object sender, RoutedEventArgs e)
+        {
+            var lib = _configService.GetLibraryConfiguration();
+            lib.LibraryPath = LibraryPathText.Text == "Not set" ? "" : LibraryPathText.Text;
+            lib.CopyToLibrary = LibraryCopyFiles.IsChecked == true;
+            lib.OrganizeByConsole = LibraryOrganizeByConsole.IsChecked == true;
+            _configService.SetLibraryConfiguration(lib);
+            _ = _configService.SaveAsync();
+        }
+    }
+
+    // Small data class for the system combo box
+    public record ConsoleItem(string Tag, string Name)
+    {
+        public override string ToString() => Name;
+    }
+
+    // ── BIOS data ─────────────────────────────────────────────────────────────
+    internal record BiosEntry(
+        string Console,
+        string ConsoleDisplay,
+        string Filename,
+        string Description,
+        long ExpectedSize,
+        string? Md5);      // null = presence-only check
+
+    internal static class KnownBios
+    {
+        public static readonly List<BiosEntry> All = new()
+        {
+            // PlayStation
+            new("PS1","PlayStation","scph5501.bin","USA v3.0 (recommended)",524288,"490f666e1afb15b7362b406ed1cea246"),
+            new("PS1","PlayStation","scph5500.bin","Japan v3.0",524288,"8dd7d5296a650fac7319bce665a6a53c"),
+            new("PS1","PlayStation","scph5502.bin","Europe v3.0",524288,"32736f17079d0b2b7024407c39bd3050"),
+            new("PS1","PlayStation","scph1001.bin","USA v2.2",524288,"37157331b6d4d325cb9f597ea42cd597"),
+            new("PS1","PlayStation","scph7001.bin","USA v4.1",524288,"502224b6d23561a46e5a7ba01a1fed62"),
+            // Sega CD
+            new("SegaCD","Sega CD","bios_CD_U.bin","USA",131072,"2efd74e3232ff260e371b99f84024f7f"),
+            new("SegaCD","Sega CD","bios_CD_J.bin","Japan",131072,"278a9397d192149e84e820ac621a8edd"),
+            new("SegaCD","Sega CD","bios_CD_E.bin","Europe",131072,"e66fa1dc5820d254611fdcdba0662372"),
+            // Saturn
+            new("Saturn","Saturn","sega_101.bin","Japan v1.00",524288,"85ec9ca47d8f6807718151cbcca8b964"),
+            new("Saturn","Saturn","mpr-17933.bin","Japan v1.01",524288,"3240872c70984b6cbfda1586cab68dbe"),
+            new("Saturn","Saturn","mpr-17941.bin","USA/Europe v1.01 (recommended)",524288,"4df44ac9af0e58fc63b0e2af9cec25a9"),
+            new("Saturn","Saturn","kronos/saturn_bios.bin","Kronos (any region)",524288,null),
+            // Famicom Disk System
+            new("FDS","Famicom Disk System","disksys.rom","",8192,"ca30b50f880eb660a320674ed365ef7a"),
+            // TurboGrafx-CD
+            new("TGCD","TurboGrafx-CD","syscard3.pce","System Card v3.0 (recommended)",262144,"0754f903b52e3b3342202bdafb13efa5"),
+            new("TGCD","TurboGrafx-CD","syscard2.pce","System Card v2.1",131072,null),
+            new("TGCD","TurboGrafx-CD","syscard1.pce","System Card v1.0",131072,null),
+            // 3DO
+            new("3DO","3DO","panafz10.bin","Panasonic FZ-10",1048576,"51f2f43ae2f3508a14d9f56597e2d3ce"),
+            new("3DO","3DO","panafz1j.bin","Panasonic FZ-1 (Japan)",1048576,null),
+            new("3DO","3DO","goldstar.bin","GoldStar",1048576,null),
+            // Intellivision (FreeIntv — both files required)
+            new("Intellivision","Intellivision","exec.bin","Executive ROM",8192,"62e761035cb657903761800f4437b8af"),
+            new("Intellivision","Intellivision","grom.bin","Graphics ROM",2048,"0cd5946c6473e42e8e4c2137785e427f"),
+            // PC-FX
+            new("PCFX","PC-FX","pcfx.rom","PC-FX BIOS v1.00",1048576,"08e36edbea28a017f79f8d4f7ff9b6d7"),
+            // Atari Lynx
+            new("AtariLynx","Atari Lynx","lynxboot.img","Boot ROM",512,"fcd403db69f54290b51035d82f835e7b"),
+            // Game Boy Advance (optional — mgba has built-in HLE BIOS)
+            new("GBA","Game Boy Advance","gba_bios.bin","BIOS (optional, improves compatibility)",16384,"a860e8c0b6d573d191e4ec7db1b1e4f6"),
+        };
+    }
+}

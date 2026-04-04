@@ -1,0 +1,26 @@
+# Build output
+bin/
+obj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Cores — large binary DLLs, not source code
+Emutastic/Cores/*.dll
+Emutastic/Cores/*.rom
+Emutastic/Cores/dolphin-emu/
+
+# Large database asset
+Emutastic/Assets/openvgdb.sqlite
+
+# Logs
+*.log
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store

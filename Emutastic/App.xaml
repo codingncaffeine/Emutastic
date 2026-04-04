@@ -1,0 +1,19 @@
+﻿<Application x:Class="Emutastic.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Emutastic"
+             xmlns:converters="clr-namespace:Emutastic.Converters">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Themes/DarkTheme.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+            <converters:BoolToVisibilityConverter    x:Key="BoolToVisibility"/>
+            <converters:CountToVisibilityConverter   x:Key="CountToVisibility"/>
+            <converters:NullToVisibilityConverter    x:Key="NullToVisibility"/>
+            <converters:NotNullToVisibilityConverter x:Key="NotNullToVisibility"/>
+            <converters:StringToColorConverter       x:Key="StringToColor"/>
+            <converters:PathToImageConverter         x:Key="PathToImage"/>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>
