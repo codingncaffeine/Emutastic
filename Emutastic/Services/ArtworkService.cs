@@ -43,6 +43,7 @@ namespace Emutastic.Services
             { "SMS",          "Sega - Master System - Mark III"                },
             { "GameGear",     "Sega - Game Gear"                               },
             { "SG1000",       "Sega - SG-1000"                                 },
+            { "Dreamcast",    "Sega - Dreamcast"                               },
             { "PS1",          "Sony - PlayStation"                             },
             { "PSP",          "Sony - PlayStation Portable"                    },
             { "TG16",         "NEC - PC Engine - TurboGrafx 16"               },

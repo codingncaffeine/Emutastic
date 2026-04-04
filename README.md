@@ -209,6 +209,7 @@ Controller artwork is primarily sourced from the [OpenEmu](https://github.com/Op
 | **Salvo Zummo** ([@noisymemories](https://twitter.com/noisymemories/)) | Atari 7800 |
 | **David Everly** ([@selfproclaim](https://twitter.com/selfproclaim/)) | 3DO |
 | **Kate Schroeder** ([@medgno](https://twitter.com/medgno/)) | ColecoVision |
+| **Unknown** | Dreamcast |
 
 ### Inspiration
 This project is inspired by [OpenEmu](https://openemu.org/) for macOS. Emutastic is an independent project and is not affiliated with or endorsed by the OpenEmu team.

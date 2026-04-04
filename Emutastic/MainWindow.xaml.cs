@@ -666,10 +666,11 @@ namespace Emutastic
 
             var delItem = MakeMenuItem("🗑  Delete", () =>
             {
-                var result = MessageBox.Show(
-                    $"Delete save state \"{s.Name}\"?\n\nThis cannot be undone.",
-                    "Delete Save State", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-                if (result != MessageBoxResult.Yes) return;
+                var dlg = new ConfirmDialog(
+                    "Delete Save State",
+                    $"Delete \"{s.Name}\"? This cannot be undone.")
+                { Owner = this };
+                if (dlg.ShowDialog() != true) return;
 
                 try { if (File.Exists(s.StatePath))      File.Delete(s.StatePath);      } catch { }
                 try { if (File.Exists(s.ScreenshotPath)) File.Delete(s.ScreenshotPath); } catch { }

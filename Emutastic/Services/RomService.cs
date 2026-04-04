@@ -11,7 +11,7 @@ namespace Emutastic.Services
         // Ordered by most common system first (shown that way in the picker).
         public static readonly Dictionary<string, string[]> AmbiguousExtensions = new(StringComparer.OrdinalIgnoreCase)
         {
-            { ".chd", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "3DO" } },
+            { ".chd", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "3DO", "Dreamcast" } },
             { ".iso", new[] { "PSP", "GameCube", "3DO" } },
             { ".cue", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "3DO" } },
         };
@@ -58,6 +58,8 @@ namespace Emutastic.Services
             { ".col",  "ColecoVision"},
             { ".int",  "Intellivision"},
             { ".vec",  "Vectrex"     },
+            { ".gdi",  "Dreamcast"   },
+            { ".cdi",  "Dreamcast"   },
             { ".zip",  "ZIP"         },
         };
 
@@ -73,7 +75,7 @@ namespace Emutastic.Services
             { "Genesis",      "Sega"       }, { "SegaCD",    "Sega"       },
             { "Sega32X",      "Sega"       }, { "Saturn",    "Sega"       },
             { "SMS",          "Sega"       }, { "GameGear",  "Sega"       },
-            { "SG1000",       "Sega"       },
+            { "SG1000",       "Sega"       }, { "Dreamcast", "Sega"       },
             { "PS1",          "Sony"       }, { "PSP",       "Sony"       },
             { "TG16",         "NEC"        }, { "TGCD",      "NEC"        },
             { "NGP",          "SNK"        },
@@ -106,6 +108,7 @@ namespace Emutastic.Services
             { "PSP",         ("#0A1A2E", "#00BCD4") },
             { "Atari2600",   ("#2E1A0A", "#FF5722") },
             { "TG16",        ("#1A2E2E", "#009688") },
+            { "Dreamcast",   ("#1A0A0A", "#FF6600") },
         };
 
         public static bool IsRomFile(string filePath)

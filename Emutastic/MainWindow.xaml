@@ -405,6 +405,7 @@
                                 <Button Content="🎮  Sega Saturn"        Style="{StaticResource SidebarItemStyle}" Click="NavConsole_Click" Tag="Saturn"/>
                                 <Button Content="🎮  Sega Game Gear"     Style="{StaticResource SidebarItemStyle}" Click="NavConsole_Click" Tag="GameGear"/>
                                 <Button Content="🎮  SG-1000"            Style="{StaticResource SidebarItemStyle}" Click="NavConsole_Click" Tag="SG1000"/>
+                                <Button Content="🎮  Dreamcast"          Style="{StaticResource SidebarItemStyle}" Click="NavConsole_Click" Tag="Dreamcast"/>
                             </StackPanel>
 
                             <!-- Sony -->

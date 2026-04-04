@@ -42,6 +42,7 @@ namespace Emutastic.Services
                                      "picodrive_libretro.dll"           }},
             { "GameGear",    new[] { "genesis_plus_gx_libretro.dll"    }},
             { "SG1000",      new[] { "genesis_plus_gx_libretro.dll"    }},
+            { "Dreamcast",   new[] { "flycast_libretro.dll"             }},
             { "PS1",         new[] { "mednafen_psx_libretro.dll",
                                      "pcsx_rearmed_libretro.dll"        }},
             { "PSP",         new[] { "ppsspp_libretro.dll"             }},

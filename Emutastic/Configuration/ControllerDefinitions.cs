@@ -520,6 +520,31 @@ namespace Emutastic.Configuration
                 }
             },
 
+            // ── Sega ──────────────────────────────────────────────────────────
+            ["Dreamcast"] = new ControllerDefinition
+            {
+                Name = "Sega Dreamcast",
+                ControllerImage = "/Assets/images/Dreamcast/dreamcast.png",
+                Buttons = new List<ButtonDefinition>
+                {
+                    new("Up",               "Up",               140,  70, ButtonType.DPad,            70, 70, GDPad),
+                    new("Down",             "Down",             140, 150, ButtonType.DPad,            70, 70, GDPad),
+                    new("Left",             "Left",             100, 110, ButtonType.DPad,            70, 70, GDPad),
+                    new("Right",            "Right",            180, 110, ButtonType.DPad,            70, 70, GDPad),
+                    new("A",                "A",                420, 150, ButtonType.Button,          35, 35, GFace),
+                    new("B",                "B",                460, 110, ButtonType.Button,          35, 35, GFace),
+                    new("X",                "X",                380, 110, ButtonType.Button,          35, 35, GFace),
+                    new("Y",                "Y",                420,  70, ButtonType.Button,          35, 35, GFace),
+                    new("Start",            "Start",            285, 190, ButtonType.Button,          45, 20, GSystem),
+                    new("L Trigger",        "L2",                60,  30, ButtonType.Button,          70, 25, GTrigger),
+                    new("R Trigger",        "R2",               430,  30, ButtonType.Button,          70, 25, GTrigger),
+                    new("Left Analog Up",   "LeftAnalogUp",     140,  50, ButtonType.AnalogDirection, 30, 30, GLAnalog),
+                    new("Left Analog Down", "LeftAnalogDown",   140,  90, ButtonType.AnalogDirection, 30, 30, GLAnalog),
+                    new("Left Analog Left", "LeftAnalogLeft",   120,  70, ButtonType.AnalogDirection, 30, 30, GLAnalog),
+                    new("Left Analog Right","LeftAnalogRight",  160,  70, ButtonType.AnalogDirection, 30, 30, GLAnalog),
+                }
+            },
+
             // ── Others ────────────────────────────────────────────────────────
             ["ColecoVision"] = new ControllerDefinition
             {

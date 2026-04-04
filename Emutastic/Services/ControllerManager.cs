@@ -587,6 +587,14 @@ namespace Emutastic.Services
                         "up" => 4, "down" => 5, "left" => 6, "right" => 7,
                         _ => uint.MaxValue
                     };
+                case "Dreamcast":
+                    return n switch {
+                        "a" => 0, "b" => 8, "x" => 9, "y" => 10,
+                        "start" => 3,
+                        "l trigger" => 12, "r trigger" => 13,
+                        "up" => 4, "down" => 5, "left" => 6, "right" => 7,
+                        _ => uint.MaxValue  // analog directions handled via RETRO_DEVICE_ANALOG path
+                    };
 
                 // ── Others ────────────────────────────────────────────────────
                 case "ColecoVision":

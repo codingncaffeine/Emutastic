@@ -1337,6 +1337,7 @@ namespace Emutastic.Views
                 "stella2014"        => "Stella 2014",
                 "stella2023"        => "Stella 2023",
                 "prosystem"         => "ProSystem",
+                "flycast"           => "Flycast (Dreamcast)",
                 "virtualjaguar"     => "Virtual Jaguar",
                 "bluemsx"           => "blueMSX",
                 "freeintv"          => "FreeIntv",

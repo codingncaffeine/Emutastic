@@ -52,10 +52,11 @@ namespace Emutastic.Views
         private const uint RETRO_DEVICE_POINTER  = 6;
 
         // RETRO_DEVICE_ANALOG index / id constants
-        private const uint RETRO_DEVICE_INDEX_ANALOG_LEFT  = 0;
-        private const uint RETRO_DEVICE_INDEX_ANALOG_RIGHT = 1;
-        private const uint RETRO_DEVICE_ID_ANALOG_X        = 0;
-        private const uint RETRO_DEVICE_ID_ANALOG_Y        = 1;
+        private const uint RETRO_DEVICE_INDEX_ANALOG_LEFT   = 0;
+        private const uint RETRO_DEVICE_INDEX_ANALOG_RIGHT  = 1;
+        private const uint RETRO_DEVICE_INDEX_ANALOG_BUTTON = 2;  // analog triggers (Dreamcast L/R via Flycast)
+        private const uint RETRO_DEVICE_ID_ANALOG_X         = 0;
+        private const uint RETRO_DEVICE_ID_ANALOG_Y         = 1;
 
         // Joypad button IDs
         private readonly bool[] _inputState = new bool[16];
@@ -71,6 +72,8 @@ namespace Emutastic.Views
         private const uint JOYPAD_X      = 9;
         private const uint JOYPAD_L      = 10;
         private const uint JOYPAD_R      = 11;
+        private const uint JOYPAD_L2     = 12;
+        private const uint JOYPAD_R2     = 13;
 
         // Keyboard analog axis state — used when no controller is connected.
         // Values follow libretro convention: up/left = negative, down/right = positive.
@@ -701,7 +704,14 @@ namespace Emutastic.Views
                 _mousePoller.Start();
 
                 StatusText.Text = "Starting emulator...";
-                _emuThread = new System.Threading.Thread(StartEmulator, 32 * 1024 * 1024) { IsBackground = true, Name = "EmuThread" };
+                _emuThread = new System.Threading.Thread(StartEmulator, 32 * 1024 * 1024)
+                {
+                    IsBackground = true,
+                    Name         = "EmuThread",
+                    // AboveNormal reduces Windows scheduling jitter that causes mid-frame preemption.
+                    // Avoids Highest/TimeCritical which can starve system threads.
+                    Priority     = System.Threading.ThreadPriority.AboveNormal,
+                };
                 _emuThread.SetApartmentState(System.Threading.ApartmentState.MTA);
                 _emuThread.Start();
             }
@@ -2350,32 +2360,45 @@ namespace Emutastic.Views
                 return pressed ? (short)1 : (short)0;
             }
 
-            if (device == RETRO_DEVICE_ANALOG &&
-                (id == RETRO_DEVICE_ID_ANALOG_X || id == RETRO_DEVICE_ID_ANALOG_Y))
+            if (device == RETRO_DEVICE_ANALOG)
             {
-                if (_controllerManager != null && _controllerManager.IsConnected)
+                // Analog triggers — index=2 (RETRO_DEVICE_INDEX_ANALOG_BUTTON), id=L2(12)/R2(13).
+                // Flycast queries Dreamcast L/R triggers this way. Returns 0..32767.
+                if (index == RETRO_DEVICE_INDEX_ANALOG_BUTTON)
                 {
-                    // index = 0 (left stick) or 1 (right stick)
-                    // id    = 0 (X) or 1 (Y)
-                    short raw = _controllerManager.GetAnalogAxisValue(index, id);
-
-                    // Negate Y: XInput up = +32767, libretro up = -32768
-                    if (id == RETRO_DEVICE_ID_ANALOG_Y)
-                        raw = raw == short.MinValue ? short.MaxValue : (short)-raw;
-
-                    return raw;
-                }
-                else
-                {
-                    // Keyboard fallback — already in libretro convention
-                    return (index, id) switch
+                    if (_controllerManager != null && _controllerManager.IsConnected)
                     {
-                        (0, 0) => _keyLeftStickX,
-                        (0, 1) => _keyLeftStickY,
-                        (1, 0) => _keyRightStickX,
-                        (1, 1) => _keyRightStickY,
-                        _      => 0
-                    };
+                        if (id == JOYPAD_L2) return _controllerManager.GetTriggerValue(0);
+                        if (id == JOYPAD_R2) return _controllerManager.GetTriggerValue(1);
+                    }
+                    return 0;
+                }
+
+                // Analog sticks — index=0 (left) or 1 (right), id=0 (X) or 1 (Y).
+                if (id == RETRO_DEVICE_ID_ANALOG_X || id == RETRO_DEVICE_ID_ANALOG_Y)
+                {
+                    if (_controllerManager != null && _controllerManager.IsConnected)
+                    {
+                        short raw = _controllerManager.GetAnalogAxisValue(index, id);
+
+                        // Negate Y: XInput up = +32767, libretro up = -32768
+                        if (id == RETRO_DEVICE_ID_ANALOG_Y)
+                            raw = raw == short.MinValue ? short.MaxValue : (short)-raw;
+
+                        return raw;
+                    }
+                    else
+                    {
+                        // Keyboard fallback — already in libretro convention
+                        return (index, id) switch
+                        {
+                            (0, 0) => _keyLeftStickX,
+                            (0, 1) => _keyLeftStickY,
+                            (1, 0) => _keyRightStickX,
+                            (1, 1) => _keyRightStickY,
+                            _      => 0
+                        };
+                    }
                 }
             }
 
@@ -2550,6 +2573,15 @@ namespace Emutastic.Views
                         "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
                         "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
                         _ => uint.MaxValue
+                    };
+                case "Dreamcast":
+                    return n switch {
+                        "a" => JOYPAD_B, "b" => JOYPAD_A, "x" => JOYPAD_Y, "y" => JOYPAD_X,
+                        "start" => JOYPAD_START,
+                        "l trigger" => JOYPAD_L2, "r trigger" => JOYPAD_R2,
+                        "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
+                        "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
+                        _ => uint.MaxValue  // analog directions handled via RETRO_DEVICE_ANALOG path
                     };
 
                 // ── Others ────────────────────────────────────────────────────
@@ -2761,8 +2793,8 @@ namespace Emutastic.Views
 
                 File.WriteAllBytes(statePath, data);
 
-                // Screenshot
-                if (screenshotPixels != null && ssWidth > 0 && ssHeight > 0)
+                // Screenshot — HW cores pre-capture pixels on emu thread; SW cores capture from bitmap on UI thread below.
+                if (!isHw || (screenshotPixels != null && ssWidth > 0 && ssHeight > 0))
                 {
                     try
                     {
@@ -2790,10 +2822,17 @@ namespace Emutastic.Views
                             });
                             if (swPixels != null && swW > 0)
                             {
-                                // Convert RGB565 → BGRA32 if needed (SNES uses Bgr565).
-                                // Must index by row×stride+col×2 because stride ≠ swW*2 in general.
-                                if (_pixelFormat == RETRO_PIXEL_FORMAT_RGB565)
+                                if (_pixelFormat == RETRO_PIXEL_FORMAT_XRGB8888)
                                 {
+                                    // Bgr32 raw data: bytes are [B, G, R, X] where X=0.
+                                    // Set X→0xFF so BitmapSource.Create(Bgra32) gets fully opaque alpha.
+                                    for (int i = 3; i < swPixels.Length; i += 4)
+                                        swPixels[i] = 0xFF;
+                                }
+                                else if (_pixelFormat == RETRO_PIXEL_FORMAT_RGB565)
+                                {
+                                    // Convert Bgr565 → Bgra32.
+                                    // Must index by row×stride+col×2 because stride ≠ swW*2 in general.
                                     var bgra = new byte[swW * swH * 4];
                                     for (int y = 0; y < swH; y++)
                                     for (int x = 0; x < swW; x++)

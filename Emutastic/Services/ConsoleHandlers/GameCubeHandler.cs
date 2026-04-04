@@ -46,22 +46,42 @@ namespace Emutastic.Services.ConsoleHandlers
         public override Dictionary<string, string> GetDefaultCoreOptions() => new()
         {
             // Single-threaded: CPU runs on retro_run thread, no shared GL context needed
-            ["dolphin_main_cpu_thread"] = "disabled",
+            ["dolphin_main_cpu_thread"]        = "disabled",
             // No VEH-based MMIO tricks
-            ["dolphin_fastmem"]         = "disabled",
+            ["dolphin_fastmem"]                = "disabled",
             // No 4 GB arena reservation inside a .NET process
-            ["dolphin_fastmem_arena"]   = "disabled",
+            ["dolphin_fastmem_arena"]          = "disabled",
             // dolphin_cpu_core: NOT pre-seeded — OnVariableAnnounced picks the safest
             // non-JIT value from the core's own valid list at runtime
-            ["dolphin_dsp_jit"]         = "disabled",
-            ["dolphin_dsp_enable_jit"]  = "disabled",
-            ["dolphin_dsp_hle"]         = "enabled",
-            ["dolphin_skip_gc_bios"]    = "enabled",
+            ["dolphin_dsp_jit"]                = "disabled",
+            ["dolphin_dsp_enable_jit"]         = "disabled",
+            ["dolphin_dsp_hle"]                = "enabled",
+            ["dolphin_skip_gc_bios"]           = "enabled",
             // Force OpenGL — only a GL context is set up
-            ["dolphin_gfx_backend"]     = "OGL",
-            ["dolphin_renderer"]        = "Hardware",
-            // 1x native resolution to reduce GPU load during bringup
-            ["dolphin_efb_scale"]       = "1",
+            ["dolphin_gfx_backend"]            = "OGL",
+            ["dolphin_renderer"]               = "Hardware",
+            // 1x native resolution
+            ["dolphin_efb_scale"]              = "1",
+
+            // ── Performance options ──────────────────────────────────────────
+            // EFB copies to texture instead of RAM: avoids expensive VRAM→RAM→VRAM roundtrip.
+            // This alone can be worth 20-30% for GC titles that use EFB effects heavily.
+            ["dolphin_efb_copy_method"]        = "Texture",
+            ["dolphin_efb_copy_to_texture"]    = "enabled",   // alternate key name (core version dependent)
+            // Disable CPU reads from EFB — expensive synchronous stall, most games don't need it.
+            ["dolphin_efb_access_enable"]      = "disabled",
+            ["dolphin_efb_access"]             = "disabled",  // alternate key name
+            // GPU-side texture decode — offloads format conversion from CPU to GPU.
+            ["dolphin_gpu_texture_decode"]     = "enabled",
+            // No texture filtering at 1x — eliminates bilinear sampling overhead.
+            ["dolphin_texture_filtering"]      = "Nearest",
+            // No anisotropic filtering.
+            ["dolphin_max_anisotropy"]         = "0",
+            // No MSAA.
+            ["dolphin_video_multisampling"]    = "disabled",
+            ["dolphin_msaa"]                   = "disabled",
+            // Widescreen hack adds a clip-space transform pass — skip it.
+            ["dolphin_widescreen_hack"]        = "disabled",
         };
 
         // =====================================================================
@@ -77,28 +97,46 @@ namespace Emutastic.Services.ConsoleHandlers
         }
 
         // =====================================================================
-        // Variable announcement — dolphin_cpu_core auto-select
+        // CPU core mode — toggle at runtime via UseJit property
         // =====================================================================
+
+        /// <summary>
+        /// When true, selects JIT64 for full-speed emulation.
+        /// JIT64 requires fastmem=disabled and fastmem_arena=disabled (already set above)
+        /// to avoid SEH chain conflicts with .NET's own exception handling.
+        /// If the game crashes on launch, set this back to false.
+        /// </summary>
+        public bool UseJit { get; set; } = true;
+
         public override void OnVariableAnnounced(string key, string[] validValues,
             Dictionary<string, string> coreOptions)
         {
             if (key != "dolphin_cpu_core" || validValues.Length == 0)
                 return;
 
-            // Numeric: 0=Interpreter, 5=CachedInterpreter, 1=JIT64
-            // String:  "Interpreter", "CachedInterpreter"/"Cached Interpreter", "JIT64"
-            // Pick CachedInterpreter > Interpreter > anything that isn't JIT
-            string? pick =
-                validValues.FirstOrDefault(v => v == "5")
-             ?? validValues.FirstOrDefault(v => v.IndexOf("cachedinterpreter",    StringComparison.OrdinalIgnoreCase) >= 0)
-             ?? validValues.FirstOrDefault(v => v.IndexOf("cached interpreter",   StringComparison.OrdinalIgnoreCase) >= 0)
-             ?? validValues.FirstOrDefault(v => v == "0")
-             ?? validValues.FirstOrDefault(v => v.IndexOf("interpreter",          StringComparison.OrdinalIgnoreCase) >= 0
-                                             && v.IndexOf("jit",                  StringComparison.OrdinalIgnoreCase) <  0);
+            string? pick;
+            if (UseJit)
+            {
+                // JIT64: native recompilation, ~5x faster than CachedInterpreter.
+                // fastmem is already disabled above so the VEH/SEH conflict is avoided.
+                pick = validValues.FirstOrDefault(v => v == "1")
+                    ?? validValues.FirstOrDefault(v => v.IndexOf("jit64", StringComparison.OrdinalIgnoreCase) >= 0)
+                    ?? validValues.FirstOrDefault(v => v.IndexOf("jit",   StringComparison.OrdinalIgnoreCase) >= 0);
+            }
+            else
+            {
+                // CachedInterpreter: safe fallback if JIT64 is unstable.
+                pick = validValues.FirstOrDefault(v => v == "5")
+                    ?? validValues.FirstOrDefault(v => v.IndexOf("cachedinterpreter",  StringComparison.OrdinalIgnoreCase) >= 0)
+                    ?? validValues.FirstOrDefault(v => v.IndexOf("cached interpreter", StringComparison.OrdinalIgnoreCase) >= 0)
+                    ?? validValues.FirstOrDefault(v => v == "0")
+                    ?? validValues.FirstOrDefault(v => v.IndexOf("interpreter",        StringComparison.OrdinalIgnoreCase) >= 0
+                                                    && v.IndexOf("jit",                StringComparison.OrdinalIgnoreCase) <  0);
+            }
 
             string selected = pick ?? validValues[0];
             coreOptions[key] = selected;
-            System.Diagnostics.Trace.WriteLine($"[GameCubeHandler] dolphin_cpu_core AUTO-SELECT: '{selected}' from [{string.Join(", ", validValues)}]");
+            System.Diagnostics.Trace.WriteLine($"[GameCubeHandler] dolphin_cpu_core SELECT (UseJit={UseJit}): '{selected}' from [{string.Join(", ", validValues)}]");
         }
 
         // =====================================================================
