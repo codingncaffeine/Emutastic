@@ -6,7 +6,7 @@
         xmlns:local="clr-namespace:Emutastic"
         mc:Ignorable="d"
         Title="Emutastic"
-        Icon="Assets/banners and icons/emutastic-logo.ico"
+        Icon="Assets/banners and icons/emutastic-logo.png"
         Height="720" Width="1100"
         MinHeight="500" MinWidth="800"
         Background="Transparent"
