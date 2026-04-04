@@ -45,7 +45,6 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 | Neo Geo Pocket / Color | NGP | mednafen_ngp | No |
 | Atari 2600 | Atari2600 | stella | No |
 | Atari 7800 | Atari7800 | prosystem | No |
-| Atari Lynx | AtariLynx | holani → gearlynx → handy | `lynxboot.img` |
 | Atari Jaguar | Jaguar | virtualjaguar | No |
 | ColecoVision | ColecoVision | gearcoleco → bluemsx | No |
 | Intellivision | Intellivision | freeintv | `exec.bin` + `grom.bin` (both required) |
@@ -97,9 +96,6 @@ Both files are required:
 
 ### 3DO
 Any one of: `panafz10.bin` (Panasonic), `panafz1j.bin` (Japan), `goldstar.bin` (GoldStar)
-
-### Atari Lynx
-`lynxboot.img` (512 bytes)
 
 ### PC-FX
 `pcfx.rom` (1 MB)
@@ -187,9 +183,6 @@ App data is stored at `%AppData%\Roaming\Emutastic\`:
 
 ### PSP (PPSSPP)
 - The OpenGL context destruction step is skipped on window close to prevent a crash in the libretro context_destroy callback.
-
-### Atari Lynx
-- `lynxboot.img` must be placed in the `system\` folder — not the `Cores\` folder.
 
 ---
 
