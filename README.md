@@ -1,3 +1,5 @@
+![Emutastic](Emutastic/Assets/banners%20and%20icons/emutastic-banner-scaled.png)
+
 # Emutastic
 
 A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired by [OpenEmu](https://openemu.org/) on macOS. Games are organized by console in a clean library interface. Emulation is handled by [libretro](https://www.libretro.com/) cores loaded at runtime — no cores are bundled.

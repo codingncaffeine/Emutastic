@@ -40,5 +40,6 @@
   <ItemGroup>
     <Resource Include="Assets\images\**\*.png" />
     <Resource Include="Assets\buttons\**\*.png" />
+    <Resource Include="Assets\banners and icons\*.png" />
   </ItemGroup>
 </Project>
