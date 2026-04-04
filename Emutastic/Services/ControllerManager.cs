@@ -566,9 +566,10 @@ namespace Emutastic.Services
                     };
 
                 // ── Atari ─────────────────────────────────────────────────────
-                case "Atari2600": case "Atari7800":
+                case "Atari2600": case "Atari5200": case "Atari7800":
                     return n switch {
                         "fire" => 0, "fire 1" => 0, "fire 2" => 1,
+                        "pause" => 3, "reset" => 2,
                         "up" => 4, "down" => 5, "left" => 6, "right" => 7,
                         _ => uint.MaxValue
                     };

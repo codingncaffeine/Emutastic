@@ -2513,9 +2513,10 @@ namespace Emutastic.Views
                     };
 
                 // ── Atari ─────────────────────────────────────────────────────
-                case "Atari2600": case "Atari7800":
+                case "Atari2600": case "Atari5200": case "Atari7800":
                     return n switch {
                         "fire" => JOYPAD_B, "fire 1" => JOYPAD_B, "fire 2" => JOYPAD_Y,
+                        "pause" => JOYPAD_START, "reset" => JOYPAD_SELECT,
                         "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
                         "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
                         _ => uint.MaxValue

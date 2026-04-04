@@ -1327,6 +1327,7 @@ namespace Emutastic.Views
                 "mednafen_ngp"      => "Mednafen Neo Geo Pocket",
                 "gearcoleco"        => "GearColeco",
                 "stella"            => "Stella",
+                "a5200"             => "a5200",
                 "stella2014"        => "Stella 2014",
                 "stella2023"        => "Stella 2023",
                 "prosystem"         => "ProSystem",

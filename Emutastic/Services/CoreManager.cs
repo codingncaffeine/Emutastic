@@ -51,6 +51,7 @@ namespace Emutastic.Services
                                      "mednafen_pce_fast_libretro.dll"        }},
             { "NGP",         new[] { "mednafen_ngp_libretro.dll"        }},
             { "Atari2600",   new[] { "stella_libretro.dll"              }},
+            { "Atari5200",   new[] { "a5200_libretro.dll"               }},
             { "Atari7800",   new[] { "prosystem_libretro.dll"           }},
             { "Jaguar",      new[] { "virtualjaguar_libretro.dll"       }},
             { "ColecoVision",new[] { "gearcoleco_libretro.dll",

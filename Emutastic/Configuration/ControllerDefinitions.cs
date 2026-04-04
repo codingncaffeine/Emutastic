@@ -466,6 +466,22 @@ namespace Emutastic.Configuration
                     new("Fire",  "B",     380, 140, ButtonType.Button, 35, 35, GFace),
                 }
             },
+            ["Atari5200"] = new ControllerDefinition
+            {
+                Name = "Atari 5200",
+                ControllerImage = "/Assets/images/Atari 5200/controller_5200@2x.png",
+                Buttons = new List<ButtonDefinition>
+                {
+                    new("Up",     "Up",     140,  70, ButtonType.DPad,   60, 60, GDPad),
+                    new("Down",   "Down",   140, 150, ButtonType.DPad,   60, 60, GDPad),
+                    new("Left",   "Left",   100, 110, ButtonType.DPad,   60, 60, GDPad),
+                    new("Right",  "Right",  180, 110, ButtonType.DPad,   60, 60, GDPad),
+                    new("Fire 1", "B",      380, 120, ButtonType.Button, 35, 35, GFace),
+                    new("Fire 2", "Y",      340, 140, ButtonType.Button, 35, 35, GFace),
+                    new("Pause",  "Start",  260, 190, ButtonType.Button, 45, 20, GSystem),
+                    new("Reset",  "Select", 210, 190, ButtonType.Button, 45, 20, GSystem),
+                }
+            },
             ["Atari7800"] = new ControllerDefinition
             {
                 Name = "Atari 7800",
