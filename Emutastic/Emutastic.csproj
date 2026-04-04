@@ -8,6 +8,7 @@
     <UseWPF>true</UseWPF>
     <PlatformTarget>x64</PlatformTarget>
     <AssemblyName>Emutastic</AssemblyName>
+    <ApplicationIcon>Assets\banners and icons\emutastic-logo.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <None Remove="Assets\openvgdb.sqlite" />
