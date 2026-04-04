@@ -1,8 +1,10 @@
-# OpenEmu for Windows — Session Handoff
-**Last updated:** 2026-03-31
+# Emutastic — Session Handoff
+**Last updated:** 2026-04-04
 **Project:** WPF/.NET 8 multi-system emulator frontend using libretro cores
-**Solution root:** `C:\Users\gamer\source\repos\OpenEmu for Windows\`
-**Main project:** `OpenEmu for Windows\OpenEmu for Windows\`
+**Solution root:** `C:\Users\gamer\source\repos\Emutastic\`
+**Main project:** `Emutastic\Emutastic\`
+**GitHub:** https://github.com/codingncaffeine/Emutastic (private)
+**Namespace:** `Emutastic` (previously `OpenEmu_for_Windows`)
 
 ---
 
@@ -15,8 +17,8 @@ A Windows clone of OpenEmu (macOS). It provides a game library browser (WPF UI) 
 ## Project Structure
 
 ```
-OpenEmu for Windows\
-├── OpenEmu for Windows\          ← main project
+Emutastic\
+├── Emutastic\                    ← main project
 │   ├── App.xaml.cs               ← logging, config init
 │   ├── MainWindow.xaml.cs        ← game library UI, navigation, launching
 │   ├── Views\
@@ -283,7 +285,7 @@ The project targets `net8.0-windows`.
 - **GCHandle pinning:** All libretro callback delegates must be kept alive with `GCHandle.Alloc(..., GCHandleType.Normal)`. If GC moves/collects them the core will crash with an access violation.
 - **VEH handler:** Installed on every emulation start. Catches access violations, identifies the faulting module, and attempts a NULL pointer fixup for low-address reads/writes.
 - **D3D11 blocking (GameCube only):** Patches `D3D11CreateDevice` in-memory to return `E_FAIL` during `context_reset`. Restored immediately after. Lives in `GameCubeHandler`.
-- **`NativeMethods2`:** `internal static class` at the bottom of `EmulatorWindow.xaml.cs` (namespace `OpenEmu_for_Windows.Views`). Has `LoadLibrary`, `GetProcAddress`, `VirtualProtect`. `GameCubeHandler` has its own duplicate p/invoke declarations to avoid a Views→Services dependency.
+- **`NativeMethods2`:** `internal static class` at the bottom of `EmulatorWindow.xaml.cs` (namespace `Emutastic.Views`). Has `LoadLibrary`, `GetProcAddress`, `VirtualProtect`. `GameCubeHandler` has its own duplicate p/invoke declarations to avoid a Views→Services dependency.
 - **Libretro option values must be strings**, not numerics — confirmed hard way with Dolphin.
 
 ---
