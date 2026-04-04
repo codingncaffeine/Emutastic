@@ -784,6 +784,12 @@ namespace Emutastic.Views
                     return;
                 }
 
+                // Game loaded — record play count and last played on both the DB and the
+                // in-memory Game object so the detail card shows fresh stats after closing.
+                _db?.UpdatePlayCount(_game.Id);
+                _game.PlayCount++;
+                _game.LastPlayed = DateTime.Now;
+
                 // Call retro_set_controller_port_device for all active ports.
                 // Handler decides how many ports to configure (GameCube needs all 4).
                 _consoleHandler.ConfigureControllerPorts(_core);
@@ -2953,6 +2959,8 @@ namespace Emutastic.Views
                 else
                 {
                     ss.Id = _db?.InsertSaveState(ss) ?? 0;
+                    _db?.RecalcSaveCount(_game.Id);
+                    _game.SaveCount++;
                 }
 
                 Dispatcher.BeginInvoke(() =>

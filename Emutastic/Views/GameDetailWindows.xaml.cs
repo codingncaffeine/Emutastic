@@ -1,8 +1,9 @@
-﻿using Emutastic.Models;
+using Emutastic.Models;
 using Emutastic.Services;
 using Emutastic.Views;
 using System;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -13,6 +14,7 @@ namespace Emutastic.Views
     public partial class GameDetailWindow : Window
     {
         private Game _game;
+        private readonly DatabaseService _db = new();
 
         public GameDetailWindow(Game game)
         {
@@ -43,6 +45,13 @@ namespace Emutastic.Views
             {
                 ArtBgBrush.Color = color;
             }
+        }
+
+        private void RefreshStats()
+        {
+            StatPlayed.Text = _game.PlayCount.ToString();
+            StatSaves.Text = _game.SaveCount.ToString();
+            StatLastPlayed.Text = _game.LastPlayedDisplay;
         }
 
         private async System.Threading.Tasks.Task LoadHeaderImageAsync()
@@ -92,8 +101,6 @@ namespace Emutastic.Views
             var coreManager = new CoreManager(App.Configuration);
 
             // Check for missing BIOS before attempting to launch.
-            // Pass the game's region so the check is specific — having a Japan BIOS
-            // shouldn't suppress the warning when launching a USA game.
             string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             string systemDir = System.IO.Path.Combine(appData, "OpenEmuWindows", "System");
             string region = RomService.DetectRegion(_game.RomPath);
@@ -130,19 +137,14 @@ namespace Emutastic.Views
 
             try
             {
-                System.Diagnostics.Debug.WriteLine("Creating emulator for " + _game.Console);
                 string corePath = coreManager.GetCorePath(_game.Console)!;
-                System.Diagnostics.Debug.WriteLine("Core path: " + corePath);
-                
                 var core = new LibretroCore(corePath);
-                System.Diagnostics.Debug.WriteLine("LibretroCore created successfully");
-                
                 var emulator = new EmulatorWindow(_game, core);
-                System.Diagnostics.Debug.WriteLine("EmulatorWindow created successfully");
-                
                 emulator.ShowDialog();
-                System.Diagnostics.Debug.WriteLine("EmulatorWindow closed");
-                Close(); // Close this window after emulator is done
+
+                // Refresh stats — EmulatorWindow updates _game.PlayCount / LastPlayed / SaveCount
+                // on the shared object, so the card shows accurate numbers immediately.
+                RefreshStats();
             }
             catch (Exception ex)
             {
@@ -157,6 +159,7 @@ namespace Emutastic.Views
         private void FavoriteButton_Click(object sender, RoutedEventArgs e)
         {
             _game.IsFavorite = !_game.IsFavorite;
+            _db.ToggleFavorite(_game.Id, _game.IsFavorite);
             FavoriteButton.Content = _game.IsFavorite ? "♥  Favorited" : "♡  Favorite";
             FavoriteBadge.Visibility = _game.IsFavorite
                 ? Visibility.Visible
@@ -165,7 +168,51 @@ namespace Emutastic.Views
 
         private void MoreButton_Click(object sender, RoutedEventArgs e)
         {
-            // Context menu — file info, delete, etc.
+            var menu = new ContextMenu();
+
+            var showInExplorer = new MenuItem { Header = "Show in Explorer" };
+            showInExplorer.Click += (_, _) =>
+            {
+                if (System.IO.File.Exists(_game.RomPath))
+                    System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{_game.RomPath}\"");
+            };
+
+            var rename = new MenuItem { Header = "Rename" };
+            rename.Click += (_, _) =>
+            {
+                var dialog = new RenameWindow(_game.Title) { Owner = this };
+                if (dialog.ShowDialog() == true)
+                {
+                    _game.Title = dialog.NewTitle;
+                    _db.UpdateTitle(_game.Id, _game.Title);
+                    GameTitle.Text = _game.Title;
+                    ArtPlaceholderText.Text = _game.Title;
+                }
+            };
+
+            var remove = new MenuItem { Header = "Remove from Library" };
+            remove.Click += (_, _) =>
+            {
+                var confirm = new ConfirmDialog(
+                    "Remove Game",
+                    $"Remove \"{_game.Title}\" from your library?\n\nThis will not delete the ROM file.",
+                    "Remove",
+                    danger: true) { Owner = this };
+                if (confirm.ShowDialog() == true)
+                {
+                    _db.DeleteGame(_game.Id);
+                    Close();
+                }
+            };
+
+            menu.Items.Add(showInExplorer);
+            menu.Items.Add(rename);
+            menu.Items.Add(new Separator());
+            menu.Items.Add(remove);
+
+            menu.PlacementTarget = (UIElement)sender;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+            menu.IsOpen = true;
         }
     }
 }

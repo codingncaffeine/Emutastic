@@ -147,6 +147,19 @@ namespace Emutastic.Services
             cmd.ExecuteNonQuery();
         }
 
+        public void RecalcSaveCount(int gameId)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = @"
+                UPDATE Games
+                SET SaveCount = (SELECT COUNT(*) FROM SaveStates WHERE GameId = $id)
+                WHERE Id = $id;";
+            cmd.Parameters.AddWithValue("$id", gameId);
+            cmd.ExecuteNonQuery();
+        }
+
         public void UpdateCoverArt(int gameId, string coverArtPath)
         {
             using var connection = new SqliteConnection(_connectionString);
