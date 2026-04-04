@@ -1,4 +1,4 @@
-# OpenEmu for Windows
+# Emutastic
 
 A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired by [OpenEmu](https://openemu.org/) on macOS. Games are organized by console in a clean library interface. Emulation is handled by [libretro](https://www.libretro.com/) cores loaded at runtime — no cores are bundled.
 
@@ -57,7 +57,7 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 
 ## BIOS Files
 
-Place BIOS files in `%AppData%\Roaming\OpenEmuWindows\system\`. The app will also check the ROM folder for a given system, so you can co-locate BIOS files with your ROMs if preferred.
+Place BIOS files in `%AppData%\Roaming\Emutastic\system\`. The app will also check the ROM folder for a given system, so you can co-locate BIOS files with your ROMs if preferred.
 
 ### Sega CD
 Filenames must match exactly:
@@ -142,7 +142,7 @@ Button mappings are configurable per-controller in **Preferences → Input**.
 ## Folder Layout
 
 ```
-OpenEmu for Windows.exe
+Emutastic.exe
 SDL3.dll
 Cores\
     snes9x_libretro.dll
@@ -157,9 +157,9 @@ DATs\
     ... (No-Intro / Redump DAT files, named by console tag)
 ```
 
-App data is stored at `%AppData%\Roaming\OpenEmuWindows\`:
+App data is stored at `%AppData%\Roaming\Emutastic\`:
 ```
-%AppData%\Roaming\OpenEmuWindows\
+%AppData%\Roaming\Emutastic\
     library.db         (SQLite game library)
     system\            (BIOS files go here)
     saves\             (save states and SRAM)
@@ -200,8 +200,27 @@ Requires Visual Studio 2022 with the **.NET desktop development** workload.
 
 ```
 git clone <repo>
-cd "OpenEmu for Windows"
+cd "Emutastic"
 dotnet build
 ```
 
 No NuGet packages beyond the standard WPF/.NET 8 SDK are required. libretro cores and SDL3 are runtime dependencies only and are not referenced at build time.
+
+---
+
+## Credits
+
+### Controller Illustrations
+Controller artwork is primarily sourced from the [OpenEmu](https://github.com/OpenEmu/OpenEmu) project for macOS and used with attribution per their [ILLUSTRATIONS.md](https://github.com/OpenEmu/OpenEmu/blob/master/ILLUSTRATIONS.md). Some additional controller images are from unknown sources — if you are the original artist and would like credit or removal, please open an issue.
+
+| Artist | Controllers |
+|---|---|
+| **David McLeod** ([@Mucx](https://twitter.com/Mucx/)) | 32X, Famicom Disk System, Game Boy, Game Boy Advance, Game Gear, Master System, NES/Famicom, Sega CD, Sega Genesis/Mega Drive, SNES/Super Famicom |
+| **Ricky Romero** ([@RickyRomero](https://twitter.com/RickyRomero/)) | Atari 2600, Atari 5200, Intellivision, Nintendo 64, Nintendo DS, Odyssey², PlayStation, PSP, Sega Saturn, SG-1000, Vectrex, Virtual Boy |
+| **Craig Erskine** ([@qrayg](https://twitter.com/qrayg/)) | GameCube, Neo Geo Pocket, PC Engine, PC Engine CD, TurboGrafx-16 |
+| **Salvo Zummo** ([@noisymemories](https://twitter.com/noisymemories/)) | Atari 7800, Atari Lynx, PC-FX |
+| **David Everly** ([@selfproclaim](https://twitter.com/selfproclaim/)) | 3DO |
+| **Kate Schroeder** ([@medgno](https://twitter.com/medgno/)) | ColecoVision |
+
+### Inspiration
+This project is inspired by [OpenEmu](https://openemu.org/) for macOS. Emutastic is an independent project and is not affiliated with or endorsed by the OpenEmu team.
