@@ -52,6 +52,12 @@
                             </Border.Background>
                         </Border>
 
+                        <!-- Snap / screenshot image (landscape, fills header) -->
+                        <Image x:Name="HeaderImage"
+                               Stretch="UniformToFill"
+                               RenderOptions.BitmapScalingMode="HighQuality"
+                               Visibility="Collapsed"/>
+
                         <!-- Gradient overlay -->
                         <Border>
                             <Border.Background>

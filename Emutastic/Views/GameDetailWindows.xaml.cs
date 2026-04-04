@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Imaging;
 
 namespace Emutastic.Views
 {
@@ -19,6 +20,7 @@ namespace Emutastic.Views
             _game = game;
             PopulateData();
             AnimateIn();
+            _ = LoadHeaderImageAsync();
         }
 
         private void PopulateData()
@@ -41,6 +43,30 @@ namespace Emutastic.Views
             {
                 ArtBgBrush.Color = color;
             }
+        }
+
+        private async System.Threading.Tasks.Task LoadHeaderImageAsync()
+        {
+            try
+            {
+                var artworkService = new ArtworkService();
+                string? snapPath = await artworkService.FetchSnapAsync(
+                    _game.RomHash, _game.RomPath, _game.Console);
+
+                if (snapPath == null || !System.IO.File.Exists(snapPath)) return;
+
+                var bitmap = new BitmapImage();
+                bitmap.BeginInit();
+                bitmap.UriSource = new Uri(snapPath, UriKind.Absolute);
+                bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                bitmap.EndInit();
+                bitmap.Freeze();
+
+                HeaderImage.Source = bitmap;
+                HeaderImage.Visibility = Visibility.Visible;
+                ArtPlaceholderText.Visibility = Visibility.Collapsed;
+            }
+            catch { /* artwork is cosmetic — silently ignore failures */ }
         }
 
         private void AnimateIn()

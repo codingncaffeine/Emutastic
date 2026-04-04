@@ -333,6 +333,42 @@ namespace Emutastic.Services
             }
         }
 
+        /// <summary>
+        /// Fetches a landscape-friendly image for the game detail header.
+        /// Tries Named_Snaps first (gameplay screenshots), then Named_Titles (title screens).
+        /// Box art is intentionally skipped — it's portrait and doesn't fit the header area.
+        /// </summary>
+        public async Task<string?> FetchSnapAsync(string romHash, string? romPath, string console)
+        {
+            var titleCandidates = new List<string>();
+
+            if (!string.IsNullOrWhiteSpace(romPath))
+            {
+                titleCandidates.Add(Path.GetFileNameWithoutExtension(romPath));
+                string cleaned = RomService.CleanTitle(Path.GetFileName(romPath));
+                if (!titleCandidates.Contains(cleaned))
+                    titleCandidates.Add(cleaned);
+            }
+
+            if (titleCandidates.Count == 0) return null;
+
+            foreach (string category in new[] { "Named_Snaps", "Named_Titles" })
+            {
+                foreach (string title in titleCandidates)
+                {
+                    var urls = BuildLibretroUrlVariants(console, title, category);
+                    foreach (string url in urls)
+                    {
+                        string cacheKey = $"{romHash}_{category}";
+                        string? path = await DownloadArtworkAsync(url, cacheKey);
+                        if (path != null) return path;
+                    }
+                }
+            }
+
+            return null;
+        }
+
         public async Task<(string? artworkPath, ArtworkResult? metadata)> FetchArtworkAsync(
             string md5Hash, string? romPath = null, string? console = null)
         {
