@@ -292,7 +292,7 @@ namespace Emutastic.Services
                 // ------------------------------------------------------------------
                 // Digital buttons
                 // ------------------------------------------------------------------
-                if (_inputConfig?.ControllerMappings != null && _inputConfig.ControllerMappings.Count > 0)
+                if (!RawMode && _inputConfig?.ControllerMappings != null && _inputConfig.ControllerMappings.Count > 0)
                 {
                     foreach (var mapping in _inputConfig.ControllerMappings)
                     {
@@ -466,6 +466,13 @@ namespace Emutastic.Services
         }
 
         public bool IsConnected => _isConnected;
+
+        /// <summary>
+        /// When true the polling loop ignores stored input mappings and always
+        /// fires raw physical button IDs (0-15). Used by PreferencesWindow while
+        /// capturing new mappings so unmapped buttons still produce events.
+        /// </summary>
+        public bool RawMode { get; set; } = false;
 
         public void SetVibration(ushort leftSpeed, ushort rightSpeed)
         {

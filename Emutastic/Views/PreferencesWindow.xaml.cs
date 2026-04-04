@@ -71,6 +71,15 @@ namespace Emutastic.Views
 
             if (_controllerManager != null)
                 _controllerManager.ButtonChanged += OnControllerButtonChanged;
+
+            Closed += (_, _) =>
+            {
+                if (_controllerManager != null)
+                {
+                    _controllerManager.RawMode = false;
+                    _controllerManager.ButtonChanged -= OnControllerButtonChanged;
+                }
+            };
         }
 
         public PreferencesWindow(DatabaseService db, ControllerManager controllerManager)
@@ -323,6 +332,7 @@ namespace Emutastic.Views
         {
             int prev = _waitingRowIndex;
             _waitingRowIndex = rowIndex;
+            if (_controllerManager != null) _controllerManager.RawMode = true;
             if (prev >= 0 && prev < _rows.Count) RefreshRow(prev);
             RefreshRow(rowIndex);
         }
@@ -332,6 +342,7 @@ namespace Emutastic.Views
             int prev = _waitingRowIndex;
             _waitingRowIndex    = -1;
             _analogLastCapture  = DateTime.MinValue;
+            if (_controllerManager != null) _controllerManager.RawMode = false;
             if (prev >= 0 && prev < _rows.Count) RefreshRow(prev);
         }
 
