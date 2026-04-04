@@ -49,7 +49,6 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 | Atari Jaguar | Jaguar | virtualjaguar | No |
 | ColecoVision | ColecoVision | gearcoleco → bluemsx | No |
 | Intellivision | Intellivision | freeintv | `exec.bin` + `grom.bin` (both required) |
-| MSX | MSX | bluemsx | No |
 | Vectrex | Vectrex | vecx | No |
 | 3DO | 3DO | opera | `panafz10.bin` / `panafz1j.bin` / `goldstar.bin` |
 
