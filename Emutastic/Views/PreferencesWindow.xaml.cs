@@ -358,17 +358,10 @@ namespace Emutastic.Views
 
         private void AdvanceFromRow(int from)
         {
-            for (int i = from + 1; i < _rows.Count; i++)
-            {
-                if (!_mappings.TryGetValue(_rows[i].ButtonName, out var existing)
-                    || string.IsNullOrEmpty(existing.DisplayText)
-                    || existing.DisplayText == "Not mapped")
-                {
-                    StartWaiting(i);
-                    return;
-                }
-            }
-            // All mapped — leave _waitingRowIndex = -1
+            int next = from + 1;
+            if (next < _rows.Count)
+                StartWaiting(next);
+            // else end of list — leave _waitingRowIndex = -1
         }
 
         // ── Event: mapping box clicked ────────────────────────────────────────
