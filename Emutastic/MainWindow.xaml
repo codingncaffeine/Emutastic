@@ -222,10 +222,11 @@
                             Orientation="Horizontal"
                             VerticalAlignment="Center"
                             Margin="14,0,0,0">
-                    <TextBlock Text="🕹"
-                               FontSize="14"
-                               VerticalAlignment="Center"
-                               Margin="0,0,7,0"/>
+                    <Image Source="Assets/banners and icons/emutastic-logo.png"
+                           Width="20" Height="20"
+                           VerticalAlignment="Center"
+                           Margin="0,0,7,0"
+                           RenderOptions.BitmapScalingMode="HighQuality"/>
                     <TextBlock Text="Emutastic"
                                FontFamily="{StaticResource PrimaryFont}"
                                FontSize="13"
