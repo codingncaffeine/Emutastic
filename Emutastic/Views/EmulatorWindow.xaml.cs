@@ -1073,6 +1073,14 @@ namespace Emutastic.Views
 
                 var frameTimer = System.Diagnostics.Stopwatch.StartNew();
 
+                // HW cores (Dreamcast, GameCube, N64 etc.) use audio sync timing:
+                // after retro_run, wait until the audio buffer drains back to prefillMs.
+                // If retro_run advanced N game frames (e.g. 2 for a 30fps Dreamcast game),
+                // it produced N frames of audio, so we wait N frame-times → correct speed
+                // regardless of how many frames the core advances per call.
+                // SW cores keep the Stopwatch path.
+                bool isHwCore = _consoleHandler.PreferredHwContext != -1;
+
                 while (_timer != null && _core != null && !_isClosing)
                 {
                     // Pause: sleep 16ms and skip the frame when the user has paused.
@@ -1119,15 +1127,31 @@ namespace Emutastic.Views
                         break;
                     }
 
-                    // Primary timing: sleep the bulk of the remaining frame budget, then
-                    // spin the last ~1ms for sub-millisecond precision.
-                    double elapsed = frameTimer.Elapsed.TotalMilliseconds;
-                    double remaining = _targetFrameMs - elapsed;
-                    if (remaining > 1.5)
-                        System.Threading.Thread.Sleep((int)(remaining - 1.0));
-                    while (frameTimer.Elapsed.TotalMilliseconds < _targetFrameMs)
-                        System.Threading.Thread.SpinWait(10);
-                    frameTimer.Restart();
+                    // Primary timing:
+                    // HW cores (Dreamcast, GameCube, N64): audio-sync — wait until the buffer
+                    // drains back to prefillMs. If retro_run advanced N game frames it produced
+                    // N frames of audio, so the drain takes N frame-times → correct speed for
+                    // any per-call frame count (handles 30fps games running at 60Hz VBL, etc.).
+                    // A Stopwatch cap of 4× targetFrameMs guards against silent scenes.
+                    // SW cores: classic Stopwatch sleep+spin for sub-millisecond accuracy.
+                    if (isHwCore && _audioPlayer != null)
+                    {
+                        frameTimer.Restart();
+                        while (_audioPlayer.GetBufferedMs() > prefillMs &&
+                               frameTimer.Elapsed.TotalMilliseconds < _targetFrameMs * 4)
+                            System.Threading.Thread.Sleep(1);
+                        frameTimer.Restart();
+                    }
+                    else
+                    {
+                        double elapsed = frameTimer.Elapsed.TotalMilliseconds;
+                        double remaining = _targetFrameMs - elapsed;
+                        if (remaining > 1.5)
+                            System.Threading.Thread.Sleep((int)(remaining - 1.0));
+                        while (frameTimer.Elapsed.TotalMilliseconds < _targetFrameMs)
+                            System.Threading.Thread.SpinWait(10);
+                        frameTimer.Restart();
+                    }
 
                     // Drain any Win32 messages queued to this thread's windows.
                     // NVIDIA's GL driver posts synchronization messages (e.g. during
