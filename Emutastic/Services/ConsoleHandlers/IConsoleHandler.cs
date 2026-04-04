@@ -36,6 +36,16 @@ namespace Emutastic.Services.ConsoleHandlers
         /// </summary>
         double GetDisplayAspectRatio(uint baseWidth, uint baseHeight, float coreAspectRatio);
 
+        /// <summary>
+        /// Override the emulation loop's target fps regardless of what the core reports via
+        /// retro_get_system_av_info. Return -1 to use the core-reported value (default).
+        /// Dreamcast returns 60 because the DC hardware always runs at 60Hz VBL; Flycast
+        /// reports the game's rendered fps (30 for Hydro Thunder etc.) which, if used as
+        /// the retro_run rate, halves the VBL interrupt frequency and makes the game run
+        /// at half speed.
+        /// </summary>
+        double HardwareTargetFps { get; }
+
         /// <summary>Called immediately before retro_hw_context_reset is invoked.</summary>
         void OnBeforeContextReset();
 

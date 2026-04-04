@@ -108,6 +108,10 @@ namespace Emutastic.Views
         // Console handler — all console-specific behaviour delegated here
         private readonly IConsoleHandler _consoleHandler;
 
+        // Target frame budget in ms — written once at startup, updated by SET_SYSTEM_AV_INFO.
+        // Read on emu thread each frame; written from env callback (also emu thread) → no lock needed.
+        private double _targetFrameMs = 1000.0 / 60.0;
+
         // Actual frame counter for real FPS display (not the core's target rate)
         private int  _frameCount        = 0;
         private long _coreRunTotalTicks  = 0;   // sum of Stopwatch ticks spent inside _core.Run()
@@ -802,6 +806,11 @@ namespace Emutastic.Views
 
                 double fps = _core.AvInfo.timing.fps;
                 if (double.IsNaN(fps) || double.IsInfinity(fps) || fps <= 0 || fps > 1000) fps = 60;
+                // Handler can force a hardware-native rate regardless of what the core reports.
+                // Dreamcast: Flycast reports game fps (30 for some titles) but the DC hardware
+                // is always 60Hz — using 30 halves the VBL rate and games run at half speed.
+                double hwFps = _consoleHandler.HardwareTargetFps;
+                if (hwFps > 0) fps = hwFps;
 
                 // Reinitialise audio with the sample rate the core actually reported.
                 // Dolphin uses ~32029 Hz for GameCube DMA audio, not the 44100 Hz
@@ -1038,7 +1047,9 @@ namespace Emutastic.Views
             const int prefillMs    = 150;   // fill to this level before starting the Stopwatch loop
             const int lowWatermark = 80;    // run an extra retro_run if buffer dips this low
             const int backpressureMs = 300; // pause if buffer exceeds this (core running too fast)
-            double targetFrameMs = 1000.0 / targetFps;
+            // Seed the shared field — SET_SYSTEM_AV_INFO may update it mid-run (e.g. Flycast
+            // switches from 60fps menus to 30fps gameplay for titles like Hydro Thunder).
+            _targetFrameMs = 1000.0 / targetFps;
 
             // Force 1ms Windows timer resolution for the emulation thread so that
             // Thread.Sleep(1) in the frame-budget sleep actually sleeps ~1ms rather
@@ -1085,15 +1096,11 @@ namespace Emutastic.Views
                         _sw.Stop();
                         System.Threading.Interlocked.Add(ref _coreRunTotalTicks, _sw.ElapsedTicks);
                         System.Threading.Interlocked.Increment(ref _coreRunSampleCount);
-                        System.Threading.Interlocked.Increment(ref _frameCount);
 
                         // Low-watermark catch-up: if the buffer dipped below the safe cushion,
                         // run one extra frame to refill before sleeping the frame budget.
                         if ((_audioPlayer?.GetBufferedMs() ?? lowWatermark) < lowWatermark)
-                        {
                             _core.Run();
-                            System.Threading.Interlocked.Increment(ref _frameCount);
-                        }
 
                         // Pending save/load — executed between retro_run calls for thread safety.
                         if (_saveStatePending) ExecuteSaveOnEmuThread();
@@ -1115,10 +1122,10 @@ namespace Emutastic.Views
                     // Primary timing: sleep the bulk of the remaining frame budget, then
                     // spin the last ~1ms for sub-millisecond precision.
                     double elapsed = frameTimer.Elapsed.TotalMilliseconds;
-                    double remaining = targetFrameMs - elapsed;
+                    double remaining = _targetFrameMs - elapsed;
                     if (remaining > 1.5)
                         System.Threading.Thread.Sleep((int)(remaining - 1.0));
-                    while (frameTimer.Elapsed.TotalMilliseconds < targetFrameMs)
+                    while (frameTimer.Elapsed.TotalMilliseconds < _targetFrameMs)
                         System.Threading.Thread.SpinWait(10);
                     frameTimer.Restart();
 
@@ -1567,6 +1574,7 @@ namespace Emutastic.Views
                     _pboReady   = true;
 
                     if (!hasData) return;  // first frame: PBO not yet filled, nothing to display yet
+                    System.Threading.Interlocked.Increment(ref _frameCount);
                 }
                 else
                 {
@@ -1579,6 +1587,7 @@ namespace Emutastic.Views
                         _glBindFramebuffer?.Invoke(GL_READ_FRAMEBUFFER, 0);
                     }
                     finally { pin.Free(); }
+                    System.Threading.Interlocked.Increment(ref _frameCount);
                 }
 
                 int stride = (int)w * 4;
@@ -1944,6 +1953,17 @@ namespace Emutastic.Views
                         var av = Marshal.PtrToStructure<retro_system_av_info>(data);
                         // No FBO resize needed — same reasoning as SET_GEOMETRY above.
                         UpdateDisplayAspectRatio(av.geometry.base_width, av.geometry.base_height, av.geometry.aspect_ratio);
+                        // Update loop timing only if the handler doesn't force a hardware rate.
+                        // (Dreamcast forces 60Hz so Flycast's per-game fps reports are ignored.)
+                        if (_consoleHandler.HardwareTargetFps <= 0)
+                        {
+                            double newFps = av.timing.fps;
+                            if (newFps > 0 && newFps <= 1000 && !double.IsNaN(newFps))
+                            {
+                                _targetFrameMs = 1000.0 / newFps;
+                                System.Diagnostics.Trace.WriteLine($"SET_SYSTEM_AV_INFO: fps={newFps:F2} → targetFrameMs={_targetFrameMs:F2}");
+                            }
+                        }
                         return true;
                     }
 
@@ -2175,6 +2195,7 @@ namespace Emutastic.Views
                 return;
             }
             if (data == IntPtr.Zero) return;
+            System.Threading.Interlocked.Increment(ref _frameCount);
             try
             {
                 PixelFormat pixFmt = _pixelFormat == RETRO_PIXEL_FORMAT_XRGB8888

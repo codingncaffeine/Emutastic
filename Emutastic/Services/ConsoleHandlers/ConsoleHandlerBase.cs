@@ -32,6 +32,8 @@ namespace Emutastic.Services.ConsoleHandlers
             return 0;
         }
 
+        public virtual double HardwareTargetFps => -1;
+
         public virtual void OnBeforeContextReset() { }
         public virtual void OnAfterContextReset() { }
 
