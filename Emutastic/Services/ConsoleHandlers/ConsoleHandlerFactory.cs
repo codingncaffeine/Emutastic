@@ -14,6 +14,7 @@ namespace Emutastic.Services.ConsoleHandlers
             "N64"            => new N64Handler(),
             "GameCube"       => new GameCubeHandler(),
             "TG16" or "TGCD" => new Tg16Handler(console),
+            "Dreamcast"      => new DreamcastHandler(),
             _                => new GenericHandler(console),
         };
     }

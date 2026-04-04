@@ -70,5 +70,12 @@ namespace Emutastic.Services.ConsoleHandlers
         /// dolphin-emu\Sys\ can be placed alongside the DLL rather than in AppData.
         /// </summary>
         string ResolveSystemDirectory(string defaultDir, string coreDllDir);
+
+        /// <summary>
+        /// Called after the save/battery directory is created. Allows a handler to
+        /// create required sub-directories or perform other pre-load setup.
+        /// Dreamcast overrides this to create the dc/ sub-folder the core expects.
+        /// </summary>
+        void PrepareSaveDirectory(string saveDir);
     }
 }

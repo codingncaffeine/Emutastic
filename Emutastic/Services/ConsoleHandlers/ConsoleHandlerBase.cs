@@ -41,5 +41,7 @@ namespace Emutastic.Services.ConsoleHandlers
 
         public virtual string ResolveSystemDirectory(string defaultDir, string coreDllDir)
             => defaultDir;
+
+        public virtual void PrepareSaveDirectory(string saveDir) { }
     }
 }

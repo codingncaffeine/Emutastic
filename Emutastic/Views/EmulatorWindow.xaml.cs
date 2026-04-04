@@ -124,6 +124,13 @@ namespace Emutastic.Views
 
         // Overlay HUD
         private bool _isPaused = false;
+
+        // Rumble interface no-op stub — Reicast/Flycast gates VMU sub-peripheral
+        // init on whether the frontend supplies a rumble interface. A valid function
+        // pointer (even one that does nothing) is sufficient.
+        [System.Runtime.InteropServices.UnmanagedFunctionPointer(System.Runtime.InteropServices.CallingConvention.Cdecl)]
+        private delegate bool SetRumbleStateDelegate(uint port, uint effect, ushort strength);
+        private readonly SetRumbleStateDelegate _rumbleStateDelegate = (_, _, _) => true;
         private DispatcherTimer? _overlayTimer;
         private DispatcherTimer? _mousePoller;
         private System.Windows.Point _lastMousePos = new(-1, -1);
@@ -590,6 +597,7 @@ namespace Emutastic.Views
                 string batteryDir  = Path.Combine(appData, "OpenEmuWindows", "BatterySaves", game.Console);
                 Directory.CreateDirectory(sysDir);
                 Directory.CreateDirectory(batteryDir);
+                _consoleHandler.PrepareSaveDirectory(batteryDir);
 
                 // Per-game .srm file named after the ROM file stem (not the DB title),
                 // matching how RetroArch and most frontends identify saves.
@@ -1967,8 +1975,21 @@ namespace Emutastic.Views
                             Marshal.WriteIntPtr(data, Marshal.GetFunctionPointerForDelegate(_logCb));
                         return true;
 
-                    case RETRO_ENVIRONMENT_SET_AUDIO_CALLBACK:
                     case RETRO_ENVIRONMENT_SET_CONTROLLER_INFO:
+                        // Must return true — Reicast/Flycast uses a false response here
+                        // as a signal to skip ALL sub-peripheral (VMU/Purupuru) init,
+                        // causing games to report "No VMU Found".
+                        return true;
+
+                    case RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE:
+                        // Provide a no-op rumble stub so Reicast initialises maple bus
+                        // sub-peripherals (VMU, Purupuru) for all ports. A missing
+                        // rumble interface also blocks sub-peripheral setup.
+                        if (data != IntPtr.Zero)
+                            Marshal.WriteIntPtr(data, Marshal.GetFunctionPointerForDelegate(_rumbleStateDelegate));
+                        return true;
+
+                    case RETRO_ENVIRONMENT_SET_AUDIO_CALLBACK:
                     case RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS:
                     case RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME:
                     case RETRO_ENVIRONMENT_GET_USERNAME:
