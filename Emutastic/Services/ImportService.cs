@@ -56,6 +56,42 @@ namespace Emutastic.Services
 
         private async Task ImportFolderAsync(string folderPath)
         {
+            // If the folder contains archives with .bin files, ask once upfront
+            // before importing anything rather than interrupting mid-import.
+            bool hasBinArchives = Directory.EnumerateFiles(folderPath, "*.7z", SearchOption.TopDirectoryOnly).Any()
+                               || Directory.EnumerateFiles(folderPath, "*.zip", SearchOption.TopDirectoryOnly).Any();
+
+            if (hasBinArchives && !_folderBinConsole.ContainsKey(folderPath))
+            {
+                // Check folder name first — no dialog needed if we can auto-detect
+                string fromFolder = RomService.DetectConsoleFromFolderName(folderPath + Path.DirectorySeparatorChar + "x");
+                if (!string.IsNullOrEmpty(fromFolder))
+                {
+                    _folderBinConsole[folderPath] = fromFolder;
+                }
+                else
+                {
+                    // Peek at the first archive to confirm it actually contains .bin
+                    string? firstArchive = Directory.EnumerateFiles(folderPath, "*.7z", SearchOption.TopDirectoryOnly)
+                        .Concat(Directory.EnumerateFiles(folderPath, "*.zip", SearchOption.TopDirectoryOnly))
+                        .FirstOrDefault();
+
+                    if (firstArchive != null)
+                    {
+                        string detected = await DetectConsoleFromZipAsync(firstArchive);
+                        if (detected == "BIN_AMBIGUOUS" && AmbiguousConsoleResolver != null)
+                        {
+                            string folderName = Path.GetFileName(folderPath);
+                            string? picked = await AmbiguousConsoleResolver(
+                                $"All games in \"{folderName}\"",
+                                RomService.AmbiguousExtensions[".bin"]);
+                            if (picked != null)
+                                _folderBinConsole[folderPath] = picked;
+                        }
+                    }
+                }
+            }
+
             foreach (string file in Directory.EnumerateFiles(folderPath, "*.*",
                          SearchOption.AllDirectories))
             {
