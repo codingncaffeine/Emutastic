@@ -282,6 +282,60 @@ namespace Emutastic
             }
         }
 
+        private void SidebarPanel_RightClick(object sender, MouseButtonEventArgs e)
+        {
+            // Walk up from the element that was clicked to find a console Button with a Tag
+            var source = e.OriginalSource as DependencyObject;
+            while (source != null && source != SidebarPanel)
+            {
+                if (source is Button btn && btn.Tag is string console && !string.IsNullOrEmpty(console))
+                {
+                    e.Handled = true;
+                    string displayName = console;
+                    // Try to get a friendly name from the button content
+                    if (btn.Content is StackPanel sp)
+                    {
+                        var tb = sp.Children.OfType<TextBlock>().LastOrDefault();
+                        if (tb != null) displayName = tb.Text;
+                    }
+                    else if (btn.Content is string s)
+                    {
+                        displayName = s;
+                    }
+
+                    int count = _db.GetGameCountForConsole(console);
+                    if (count == 0) return;
+
+                    var menu = new ContextMenu();
+                    var item = new MenuItem
+                    {
+                        Header = $"🗑  Remove all {displayName} games ({count})"
+                    };
+                    item.Foreground = new System.Windows.Media.SolidColorBrush(
+                        (System.Windows.Media.Color)System.Windows.Media.ColorConverter
+                        .ConvertFromString("#FF5F57")!);
+                    item.Click += (_, _) =>
+                    {
+                        var result = MessageBox.Show(
+                            $"Remove all {count} {displayName} games from your library?\n\nThis will not delete ROM files from your computer.",
+                            "Remove All Games",
+                            MessageBoxButton.YesNo,
+                            MessageBoxImage.Warning);
+                        if (result != MessageBoxResult.Yes) return;
+                        _db.DeleteAllGamesForConsole(console);
+                        _vm.Reload();
+                        UpdateToolbarTitle(_vm.SelectedConsole);
+                    };
+                    menu.Items.Add(item);
+                    menu.PlacementTarget = btn;
+                    menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+                    menu.IsOpen = true;
+                    return;
+                }
+                source = VisualTreeHelper.GetParent(source);
+            }
+        }
+
         private void NavRecentlyAdded_Click(object sender, RoutedEventArgs e)
         {
             SelectNavButton((Button)sender);

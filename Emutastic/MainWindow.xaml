@@ -315,7 +315,8 @@
                     <ScrollViewer Style="{StaticResource MinimalScrollViewer}"
                                   VerticalScrollBarVisibility="Auto"
                                   Padding="0,8,0,8">
-                        <StackPanel x:Name="SidebarPanel">
+                        <StackPanel x:Name="SidebarPanel"
+                                    MouseRightButtonUp="SidebarPanel_RightClick">
 
                             <!-- Library -->
                             <TextBlock Text="LIBRARY"

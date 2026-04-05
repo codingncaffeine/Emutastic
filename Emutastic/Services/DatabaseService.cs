@@ -272,6 +272,26 @@ namespace Emutastic.Services
             cmd.ExecuteNonQuery();
         }
 
+        public int GetGameCountForConsole(string console)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT COUNT(*) FROM Games WHERE Console = $console;";
+            cmd.Parameters.AddWithValue("$console", console);
+            return Convert.ToInt32(cmd.ExecuteScalar());
+        }
+
+        public void DeleteAllGamesForConsole(string console)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "DELETE FROM Games WHERE Console = $console;";
+            cmd.Parameters.AddWithValue("$console", console);
+            cmd.ExecuteNonQuery();
+        }
+
         public List<Game> GetGamesWithoutArtwork()
         {
             var games = new List<Game>();
