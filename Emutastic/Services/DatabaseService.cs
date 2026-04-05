@@ -92,6 +92,12 @@ namespace Emutastic.Services
                 idxCmd.ExecuteNonQuery();
             }
 
+            // One-time cleanup: remove Arcade-tagged entries that aren't .zip files.
+            // FBNeo arcade ROMs are always .zip; anything else was misidentified on import.
+            var cleanCmd = connection.CreateCommand();
+            cleanCmd.CommandText = "DELETE FROM Games WHERE Console = 'Arcade' AND RomPath NOT LIKE '%.zip';";
+            cleanCmd.ExecuteNonQuery();
+
             TryAddColumn(connection, "Games", "Rating", "INTEGER DEFAULT 0");
             TryAddColumn(connection, "Games", "Collection", "TEXT DEFAULT ''");
 
