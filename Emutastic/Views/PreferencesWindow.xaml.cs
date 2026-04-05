@@ -1343,6 +1343,12 @@ namespace Emutastic.Views
                 "freeintv"          => "FreeIntv",
                 "vecx"              => "Vecx",
                 "opera"             => "Opera (3DO)",
+                "fbneo"             => "FBNeo (Final Burn Neo)",
+                "fbalpha2012"       => "FB Alpha 2012",
+                "fbalpha2012_cps1"  => "FB Alpha 2012 CPS-1",
+                "fbalpha2012_cps2"  => "FB Alpha 2012 CPS-2",
+                "fbalpha2012_cps3"  => "FB Alpha 2012 CPS-3",
+                "fbalpha2012_neogeo"=> "FB Alpha 2012 Neo Geo",
                 "smsplus"           => "SMS Plus",
                 _ => char.ToUpper(name[0]) + name[1..].Replace("_", " ")
             };

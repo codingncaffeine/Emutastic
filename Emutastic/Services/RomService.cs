@@ -60,7 +60,8 @@ namespace Emutastic.Services
             { ".vec",  "Vectrex"     },
             { ".gdi",  "Dreamcast"   },
             { ".cdi",  "Dreamcast"   },
-            { ".zip",  "ZIP"         },
+            { ".zip",  "Arcade"      },
+            { ".7z",   "Arcade"      },
         };
 
         // Console to manufacturer mapping
@@ -86,6 +87,7 @@ namespace Emutastic.Services
             { "Intellivision","Mattel"     },
             { "Vectrex",      "GCE"        },
             { "3DO",          "3DO"        },
+            { "Arcade",       "Arcade"     },
         };
 
         // Console to background/accent color mapping
@@ -109,6 +111,7 @@ namespace Emutastic.Services
             { "Atari2600",   ("#2E1A0A", "#FF5722") },
             { "TG16",        ("#1A2E2E", "#009688") },
             { "Dreamcast",   ("#1A0A0A", "#FF6600") },
+            { "Arcade",      ("#0A0A0A", "#E03535") },
         };
 
         public static bool IsRomFile(string filePath)

@@ -346,6 +346,13 @@
                                        Style="{StaticResource LabelMuted}"
                                        Margin="16,4,0,4"/>
 
+                            <Button Style="{StaticResource SidebarItemStyle}" Click="NavConsole_Click" Tag="Arcade">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="🕹" FontSize="16" Width="20" TextAlignment="Center" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <TextBlock Text="Arcade" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+
                             <!-- Atari -->
                             <Button Style="{StaticResource SidebarItemStyle}"
                                     Click="ToggleSection_Click"

@@ -60,6 +60,8 @@ namespace Emutastic.Services
             { "Intellivision",new[]{ "freeintv_libretro.dll"            }},
             { "Vectrex",     new[] { "vecx_libretro.dll"                }},
             { "3DO",         new[] { "opera_libretro.dll"               }},
+            { "Arcade",      new[] { "fbneo_libretro.dll",
+                                     "fbalpha2012_libretro.dll"          }},
         };
 
         // Region-specific BIOS requirements for consoles where the BIOS must match the game region.

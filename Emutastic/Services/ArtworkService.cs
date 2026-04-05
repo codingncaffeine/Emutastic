@@ -57,6 +57,7 @@ namespace Emutastic.Services
             { "Intellivision","Mattel - Intellivision"                         },
             { "Vectrex",      "GCE - Vectrex"                                  },
             { "3DO",          "The 3DO Company - 3DO"                          },
+            { "Arcade",       "FBNeo - Arcade Games"                           },
         };
 
         public ArtworkService()
