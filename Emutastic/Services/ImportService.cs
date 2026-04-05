@@ -1,4 +1,5 @@
-﻿using ICSharpCode.SharpZipLib.Zip;
+﻿using SharpCompress.Archives;
+using SharpCompress.Common;
 using Emutastic.Models;
 using Emutastic.Services;
 using System;
@@ -196,34 +197,33 @@ namespace Emutastic.Services
             });
         }
 
-        private async Task<string> DetectConsoleFromZipAsync(string zipPath)
+        private async Task<string> DetectConsoleFromZipAsync(string archivePath)
         {
             try
             {
-                System.Diagnostics.Debug.WriteLine($"Detecting console from ZIP: {zipPath}");
-                
-                using var zip = new ZipFile(zipPath);
-                
-                foreach (ZipEntry entry in zip)
+                System.Diagnostics.Debug.WriteLine($"Detecting console from archive: {archivePath}");
+
+                using var archive = ArchiveFactory.Open(archivePath);
+                foreach (var entry in archive.Entries)
                 {
-                    if (!entry.IsFile) continue;
-                    string ext = Path.GetExtension(entry.Name);
-                    System.Diagnostics.Debug.WriteLine($"Found file in ZIP: {entry.Name} with extension {ext}");
-                    
+                    if (entry.IsDirectory) continue;
+                    string ext = Path.GetExtension(entry.Key ?? string.Empty);
+                    System.Diagnostics.Debug.WriteLine($"Found file in archive: {entry.Key} with extension {ext}");
+
                     if (RomService.IsRomExtension(ext))
                     {
-                        string console = RomService.DetectConsole(entry.Name);
-                        System.Diagnostics.Debug.WriteLine($"Detected console: {console} from file {entry.Name}");
+                        string console = RomService.DetectConsole(entry.Key!);
+                        System.Diagnostics.Debug.WriteLine($"Detected console: {console} from file {entry.Key}");
                         return console;
                     }
                 }
-                
-                System.Diagnostics.Debug.WriteLine("No ROM files found in ZIP");
+
+                System.Diagnostics.Debug.WriteLine("No ROM files found in archive");
                 return string.Empty;
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error detecting console from ZIP {zipPath}: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Error detecting console from archive {archivePath}: {ex.Message}");
                 return string.Empty;
             }
         }
@@ -257,28 +257,28 @@ namespace Emutastic.Services
             }
         }
 
-        private async Task<string?> ExtractZipRomAsync(string zipPath)
+        private async Task<string?> ExtractZipRomAsync(string archivePath)
         {
             string tempFolder = Path.Combine(Path.GetTempPath(), "OpenEmuWindows");
             Directory.CreateDirectory(tempFolder);
 
-            using var zip = new ZipFile(zipPath);
+            using var archive = ArchiveFactory.Open(archivePath);
 
-            var romEntries = new List<ZipEntry>();
-            foreach (ZipEntry entry in zip)
+            var romEntries = new List<IArchiveEntry>();
+            foreach (var entry in archive.Entries)
             {
-                if (!entry.IsFile) continue;
-                string ext = Path.GetExtension(entry.Name);
+                if (entry.IsDirectory) continue;
+                string ext = Path.GetExtension(entry.Key ?? string.Empty);
                 if (RomService.IsRomExtension(ext))
                     romEntries.Add(entry);
             }
 
             if (romEntries.Count != 1) return null;
 
-            ZipEntry romEntry = romEntries[0];
-            string outputPath = Path.Combine(tempFolder, romEntry.Name);
+            var romEntry = romEntries[0];
+            string outputPath = Path.Combine(tempFolder, Path.GetFileName(romEntry.Key!));
 
-            using var inputStream = zip.GetInputStream(romEntry);
+            using var inputStream = romEntry.OpenEntryStream();
             using var outputStream = File.Create(outputPath);
             await inputStream.CopyToAsync(outputStream);
 
