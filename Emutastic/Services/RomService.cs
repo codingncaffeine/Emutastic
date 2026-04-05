@@ -14,6 +14,7 @@ namespace Emutastic.Services
             { ".chd", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "3DO", "Dreamcast" } },
             { ".iso", new[] { "PSP", "GameCube", "3DO" } },
             { ".cue", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "3DO" } },
+            { ".bin", new[] { "Atari7800", "Atari2600", "Genesis", "Sega32X", "SegaCD", "ColecoVision", "Intellivision", "NES" } },
         };
 
         // ROM file extensions mapped to console names

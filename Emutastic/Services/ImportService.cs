@@ -35,6 +35,9 @@ namespace Emutastic.Services
         /// </summary>
         public Func<string, string[], Task<string?>>? AmbiguousConsoleResolver { get; set; }
 
+        // Per-folder cache for .bin archives: ask once per folder, apply to the rest.
+        private readonly Dictionary<string, string> _folderBinConsole = new(StringComparer.OrdinalIgnoreCase);
+
         public async Task ImportFilesAsync(IEnumerable<string> filePaths)
         {
             foreach (string path in filePaths)
@@ -73,9 +76,28 @@ namespace Emutastic.Services
                 // Peek inside to see if it contains a known ROM extension.
                 // Arcade ROMs (FBNeo) contain chip dumps with no standard ROM extension,
                 // so if nothing recognized is found inside we treat the archive as-is.
-                StatusChanged?.Invoke($"Scanning {fileName}…");
                 string innerConsole = await DetectConsoleFromZipAsync(romPath);
-                StatusChanged?.Invoke($"  → detected: {(string.IsNullOrEmpty(innerConsole) ? "Arcade (no ROM extension found)" : innerConsole)}");
+
+                // .bin inside an archive is ambiguous — ask once per folder, cache the answer.
+                if (innerConsole == "BIN_AMBIGUOUS")
+                {
+                    string folderKey = Path.GetDirectoryName(romPath) ?? "";
+                    if (!_folderBinConsole.TryGetValue(folderKey, out innerConsole!))
+                    {
+                        var binCandidates = RomService.AmbiguousExtensions[".bin"];
+                        string? picked = AmbiguousConsoleResolver == null
+                            ? null
+                            : await AmbiguousConsoleResolver(fileName, binCandidates);
+                        if (picked == null)
+                        {
+                            StatusChanged?.Invoke($"Skipped {fileName} — console not selected");
+                            return;
+                        }
+                        _folderBinConsole[folderKey] = picked;
+                        innerConsole = picked;
+                    }
+                }
+
                 if (string.IsNullOrEmpty(innerConsole))
                 {
                     await ImportRomFileAsync(romPath, "Arcade", fileName);
@@ -222,6 +244,12 @@ namespace Emutastic.Services
                 {
                     string entryName = entry.Key ?? string.Empty;
                     string ext = Path.GetExtension(entryName);
+                    // .bin is ambiguous — signal caller to ask the user rather than guess
+                    if (ext.Equals(".bin", StringComparison.OrdinalIgnoreCase))
+                    {
+                        ImportLog($"  → .bin found, returning BIN_AMBIGUOUS");
+                        return "BIN_AMBIGUOUS";
+                    }
                     bool recognized = RomService.IsRomExtension(ext);
                     ImportLog($"  entry='{entryName}' ext='{ext}' recognized={recognized}");
                     if (recognized)
