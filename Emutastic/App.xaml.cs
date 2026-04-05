@@ -62,7 +62,7 @@ namespace Emutastic
                 InitializeLogging();
                 Logger?.LogInformation("Application starting up...");
                 
-                InitializeConfigurationAsync().GetAwaiter().GetResult();
+                Task.Run(() => InitializeConfigurationAsync()).GetAwaiter().GetResult();
                 
                 // Managed unhandled exceptions on background threads (e.g. Task.Run without await).
                 // IsTerminating=true means the CLR has already decided to exit — we can't stop it,
