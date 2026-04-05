@@ -6,6 +6,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 
 namespace Emutastic.ViewModels
 {
@@ -18,15 +19,26 @@ namespace Emutastic.ViewModels
         public ObservableCollection<Game> Games
         {
             get => _games;
-            set { _games = value; OnPropertyChanged(); }
+            set
+            {
+                // Skip PropertyChanged (and the expensive WPF rebind) if it's the same collection.
+                if (ReferenceEquals(_games, value)) return;
+                _games = value;
+                OnPropertyChanged();
+            }
         }
 
         private string _selectedConsole = "All Games";
         public string SelectedConsole
         {
             get => _selectedConsole;
-            set { _selectedConsole = value; OnPropertyChanged(); FilterGames(); }
+            set { _selectedConsole = value; OnPropertyChanged(); }
         }
+
+        // Cached "All Games" flat-list result — reused across console-switch round trips.
+        // Invalidated whenever games are added, removed, or reloaded.
+        private ObservableCollection<Game>? _cachedAllGames;
+        private bool _filterDirty = true;
 
         private string _gameCountText = "";
         public string GameCountText
@@ -39,7 +51,12 @@ namespace Emutastic.ViewModels
         public ObservableCollection<ConsoleGroup> GroupedGames
         {
             get => _groupedGames;
-            set { _groupedGames = value; OnPropertyChanged(); }
+            set
+            {
+                if (ReferenceEquals(_groupedGames, value)) return;
+                _groupedGames = value;
+                OnPropertyChanged();
+            }
         }
 
         private bool _isGroupedView;
@@ -52,21 +69,23 @@ namespace Emutastic.ViewModels
         public MainViewModel(DatabaseService db)
         {
             _db = db;
-            Reload();
+            // Data is loaded asynchronously by the caller via Reload() + FilterGamesAsync().
         }
 
         public void Reload()
         {
-            _allGames = new ObservableCollection<Game>(_db.GetAllGames());
-            if (_allGames.Count == 0)
-                _allGames = new ObservableCollection<Game>(GetSampleGames());
-            FilterGames();
+            var games = _db.GetAllGames();
+            _allGames = games.Count == 0
+                ? new ObservableCollection<Game>(GetSampleGames())
+                : new ObservableCollection<Game>(games);
+            InvalidateCache();
         }
 
         public void AddGame(Game game)
         {
             _allGames.Add(game);
-            FilterGames();
+            InvalidateCache();
+            // Filter update is handled by the caller (RefreshGame covers UI updates during import).
         }
 
         public void RefreshGame(Game updated)
@@ -92,42 +111,39 @@ namespace Emutastic.ViewModels
             var inView = Games.FirstOrDefault(g => g.Id == game.Id);
             if (inAll != null) _allGames.Remove(inAll);
             if (inView != null) Games.Remove(inView);
+            InvalidateCache();
             UpdateCount();
         }
 
-        public void FilterGames()
+        public async Task FilterGamesAsync()
         {
-            if (SelectedConsole == "All Games")
+            var console = _selectedConsole;
+
+            // Cache hit for "All Games" flat list.
+            if (console == "All Games" && !_filterDirty && _cachedAllGames != null)
             {
-                var allSorted = _allGames
-                    .OrderBy(g => g.Console)
-                    .ThenBy(g => g.Title)
-                    .ToList();
-
-                Games = new ObservableCollection<Game>(allSorted);
-
-                var groups = allSorted
-                    .GroupBy(g => g.Console)
-                    .Select(grp => new ConsoleGroup
-                    {
-                        ConsoleName = grp.Key,
-                        Games = new ObservableCollection<Game>(grp)
-                    });
-                GroupedGames = new ObservableCollection<ConsoleGroup>(groups);
-                IsGroupedView = true;
-            }
-            else
-            {
-                var filtered = _allGames
-                    .Where(g => g.Console == SelectedConsole)
-                    .OrderBy(g => g.Title)
-                    .ToList();
-
-                Games = new ObservableCollection<Game>(filtered);
-                GroupedGames = new ObservableCollection<ConsoleGroup>();
-                IsGroupedView = false;
+                Games = _cachedAllGames;
+                UpdateCount();
+                return;
             }
 
+            List<Game> result = null!;
+            await Task.Run(() =>
+            {
+                result = console == "All Games"
+                    ? _allGames.OrderBy(g => g.Console).ThenBy(g => g.Title).ToList()
+                    : _allGames.Where(g => g.Console == console).OrderBy(g => g.Title).ToList();
+            });
+
+            var oc = new ObservableCollection<Game>(result);
+            if (console == "All Games")
+            {
+                _cachedAllGames = oc;
+                _filterDirty    = false;
+            }
+
+            Games         = oc;
+            IsGroupedView = false;
             UpdateCount();
         }
 
@@ -136,6 +152,7 @@ namespace Emutastic.ViewModels
             var favs = db.GetFavorites();
             Games = new ObservableCollection<Game>(favs);
             IsGroupedView = false;
+            InvalidateCache();
             UpdateCount();
         }
 
@@ -144,12 +161,13 @@ namespace Emutastic.ViewModels
             var recent = db.GetRecentlyPlayed();
             Games = new ObservableCollection<Game>(recent);
             IsGroupedView = false;
+            InvalidateCache();
             UpdateCount();
         }
 
         public void SearchGames(string query)
         {
-            if (string.IsNullOrWhiteSpace(query)) { FilterGames(); return; }
+            if (string.IsNullOrWhiteSpace(query)) { _ = FilterGamesAsync(); return; }
             var filtered = _allGames
                 .Where(g => g.Title.Contains(query, StringComparison.OrdinalIgnoreCase)
                          || g.Console.Contains(query, StringComparison.OrdinalIgnoreCase))
@@ -157,6 +175,12 @@ namespace Emutastic.ViewModels
             Games = new ObservableCollection<Game>(filtered);
             IsGroupedView = false;
             GameCountText = filtered.Count == 1 ? "1 result" : $"{filtered.Count} results";
+        }
+
+        private void InvalidateCache()
+        {
+            _filterDirty    = true;
+            _cachedAllGames = null;
         }
 
         private void UpdateCount()

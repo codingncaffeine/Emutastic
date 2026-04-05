@@ -16,7 +16,7 @@ namespace Emutastic
 
         private static Mutex? _singleInstanceMutex;
 
-        protected override void OnStartup(StartupEventArgs e)
+        protected override async void OnStartup(StartupEventArgs e)
         {
             // Single-instance guard: if Emutastic is already running, bring it to
             // the front and exit this process instead of launching a second copy.
@@ -61,12 +61,8 @@ namespace Emutastic
                 // Initialize logging
                 InitializeLogging();
                 Logger?.LogInformation("Application starting up...");
-                
-                Task.Run(() => InitializeConfigurationAsync()).GetAwaiter().GetResult();
-                
+
                 // Managed unhandled exceptions on background threads (e.g. Task.Run without await).
-                // IsTerminating=true means the CLR has already decided to exit — we can't stop it,
-                // but we log it and show a message so the user knows what happened.
                 AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
                 {
                     var ex = args.ExceptionObject as Exception;
@@ -75,8 +71,6 @@ namespace Emutastic
 
                     if (args.IsTerminating)
                     {
-                        // Last chance before the CLR shuts down — show a non-blocking message
-                        // on the UI thread so the user isn't left staring at a vanished window.
                         try
                         {
                             Dispatcher?.Invoke(() =>
@@ -101,13 +95,15 @@ namespace Emutastic
                 };
 
                 base.OnStartup(e);
-                
-                // Initialize and show main window
+
+                // Show the window immediately — don't block on config loading.
                 Logger?.LogInformation("Creating main window...");
                 var mainWindow = new MainWindow();
-                Logger?.LogInformation("Showing main window...");
                 mainWindow.Show();
-                Logger?.LogInformation("Main window shown successfully");
+                Logger?.LogInformation("Main window shown");
+
+                // Load config after window is visible (reads JSON file, fast but non-zero).
+                await InitializeConfigurationAsync();
             }
             catch (Exception ex)
             {

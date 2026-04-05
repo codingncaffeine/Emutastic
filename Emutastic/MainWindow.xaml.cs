@@ -36,26 +36,24 @@ namespace Emutastic
 
             // Everything else deferred to Loaded so the window appears immediately.
             Loaded += OnLoaded;
-            Loaded += async (s, e) => await RetryMissingArtworkAsync();
         }
 
-        private void OnLoaded(object sender, RoutedEventArgs e)
+        private async void OnLoaded(object sender, RoutedEventArgs e)
         {
             Loaded -= OnLoaded; // fire once
 
-            _db         = new DatabaseService();
-            _artwork    = new ArtworkService();
+            // ── Phase 1: synchronous, fast — window becomes interactive immediately ──
+            _db          = new DatabaseService();   // schema init (CREATE TABLE / indexes)
+            _artwork     = new ArtworkService();
             _coreManager = new CoreManager(App.Configuration);
-            _importer   = new ImportService(_db, _coreManager);
-            _vm         = new MainViewModel(_db);
-            DataContext = _vm;
+            _importer    = new ImportService(_db, _coreManager);
+            _vm          = new MainViewModel(_db);  // empty _allGames until Reload() runs
+            DataContext  = _vm;                     // _vm is now non-null; clicks work
 
             _importer.StatusChanged += msg =>
                 Dispatcher.Invoke(() => ToolbarTitle.Text = msg);
-
             _importer.GameImported += game =>
                 Dispatcher.Invoke(() => _vm.RefreshGame(game));
-
             _importer.AmbiguousConsoleResolver = (fileName, candidates) =>
             {
                 var tcs = new System.Threading.Tasks.TaskCompletionSource<string?>();
@@ -67,10 +65,14 @@ namespace Emutastic
                 return tcs.Task;
             };
 
-            _vm.Reload();
             UpdateTabStyles(libraryActive: true);
             RefreshCollectionsSidebar();
-            SelectNavButton(NavAllGames);
+
+            // ── Phase 2: load data off UI thread, then filter on UI thread ──
+            await Task.Run(() => _vm.Reload());  // GetAllGames() — stays off UI thread
+            await _vm.FilterGamesAsync();        // sort/group in background, assign on UI thread
+
+            _ = RetryMissingArtworkAsync();
         }
 
         private void InitializeControllerManager()
@@ -86,7 +88,7 @@ namespace Emutastic
         // doesn't block the UI thread or hammer the server on large libraries.
         private async Task RetryMissingArtworkAsync()
         {
-            var missing = _db.GetGamesWithoutArtwork();
+            var missing = await Task.Run(() => _db.GetGamesWithoutArtwork());
             if (missing.Count == 0) return;
 
             var batch = missing
@@ -261,16 +263,64 @@ namespace Emutastic
             {
                 _selectedNavButton.Background = System.Windows.Media.Brushes.Transparent;
                 _selectedNavButton.Foreground = (System.Windows.Media.Brush)FindResource("TextSecondaryBrush");
+                ClearNavCount(_selectedNavButton);
             }
             _selectedNavButton = btn;
             btn.Background = (System.Windows.Media.Brush)FindResource("BgQuaternaryBrush");
             btn.Foreground = (System.Windows.Media.Brush)FindResource("TextPrimaryBrush");
         }
 
-        private void NavAllGames_Click(object sender, RoutedEventArgs e)
+        private void ClearNavCount(Button btn)
+        {
+            if (btn.Content is StackPanel sp)
+            {
+                var countBlock = sp.Children.OfType<TextBlock>()
+                    .FirstOrDefault(tb => tb.Tag?.ToString() == "NavCount");
+                if (countBlock != null) sp.Children.Remove(countBlock);
+            }
+        }
+
+        private void ShowNavCount(Button btn, int count)
+        {
+            if (btn.Content is not StackPanel sp) return;
+            ClearNavCount(btn);
+            sp.Children.Add(new TextBlock
+            {
+                Text = count.ToString("N0"),
+                Tag  = "NavCount",
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin   = new Thickness(6, 0, 0, 0),
+                FontSize = 10,
+                Foreground = new System.Windows.Media.SolidColorBrush(
+                    System.Windows.Media.Color.FromRgb(0x88, 0x88, 0x88)),
+                Opacity = 0.9
+            });
+        }
+
+        private async void GroupSeeAll_Click(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is FrameworkElement el && el.Tag is string console)
+            {
+                _vm.SelectedConsole = console;
+                await _vm.FilterGamesAsync();
+                UpdateToolbarTitle(console);
+                // Find and highlight the matching sidebar button if present
+                foreach (var child in SidebarPanel.Children.OfType<Button>())
+                {
+                    if (child.Tag is string t && t == console)
+                    {
+                        SelectNavButton(child);
+                        break;
+                    }
+                }
+            }
+        }
+
+        private async void NavAllGames_Click(object sender, RoutedEventArgs e)
         {
             SelectNavButton((Button)sender);
             _vm.SelectedConsole = "All Games";
+            await _vm.FilterGamesAsync();
             UpdateToolbarTitle("All Games");
         }
 
@@ -288,13 +338,17 @@ namespace Emutastic
             UpdateToolbarTitle("Favorites");
         }
 
-        private void NavConsole_Click(object sender, RoutedEventArgs e)
+        private async void NavConsole_Click(object sender, RoutedEventArgs e)
         {
             if (sender is Button btn && btn.Tag is string tag)
             {
                 SelectNavButton(btn);
                 _vm.SelectedConsole = tag;
-                string name = btn.Content?.ToString()?.Replace("🎮  ", "") ?? tag;
+                await _vm.FilterGamesAsync();
+                ShowNavCount(btn, _vm.Games.Count);
+                string name = btn.Content is StackPanel sp
+                    ? sp.Children.OfType<TextBlock>().FirstOrDefault()?.Text ?? tag
+                    : tag;
                 UpdateToolbarTitle(name);
             }
         }
@@ -340,8 +394,12 @@ namespace Emutastic
                             MessageBoxImage.Warning);
                         if (result != MessageBoxResult.Yes) return;
                         _db.DeleteAllGamesForConsole(console);
-                        _vm.Reload();
-                        UpdateToolbarTitle(_vm.SelectedConsole);
+                        _ = Task.Run(() => _vm.Reload()).ContinueWith(_ =>
+                            Dispatcher.Invoke(async () =>
+                            {
+                                await _vm.FilterGamesAsync();
+                                UpdateToolbarTitle(_vm.SelectedConsole);
+                            }));
                     };
                     menu.Items.Add(item);
                     menu.PlacementTarget = btn;

@@ -323,17 +323,8 @@
                                        Margin="16,10,0,4"/>
                             <Button Style="{StaticResource SidebarItemStyle}"
                                     x:Name="NavAllGames"
-                                    Click="NavAllGames_Click">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="⊞  All Games" VerticalAlignment="Center"/>
-                                    <TextBlock x:Name="SidebarGameCount"
-                                               Text="{Binding GameCountText}"
-                                               FontSize="10"
-                                               Foreground="#888888"
-                                               VerticalAlignment="Center"
-                                               Margin="6,0,0,0"/>
-                                </StackPanel>
-                            </Button>
+                                    Click="NavAllGames_Click"
+                                    Visibility="Collapsed"/>
                             <Button Content="◷  Recently Played"
                                     Style="{StaticResource SidebarItemStyle}"
                                     Click="NavRecent_Click"/>
@@ -651,6 +642,7 @@
                              SelectionMode="Extended"
                              VirtualizingPanel.IsVirtualizing="True"
                              VirtualizingPanel.VirtualizationMode="Recycling"
+                             VirtualizingPanel.ScrollUnit="Item"
                              VirtualizingPanel.CacheLengthUnit="Page"
                              VirtualizingPanel.CacheLength="0.5,0.5"
                              ScrollViewer.CanContentScroll="True"
@@ -770,11 +762,25 @@
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <StackPanel Margin="0,0,0,24">
-                                            <!-- Console section header -->
-                                            <TextBlock Text="{Binding ConsoleName}"
-                                                       Style="{StaticResource LabelMuted}"
-                                                       Margin="0,0,0,10"/>
-                                            <!-- Games in this console group -->
+                                            <!-- Console section header with total count -->
+                                            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                                <TextBlock Style="{StaticResource LabelMuted}">
+                                                    <Run Text="{Binding ConsoleName}"/>
+                                                    <Run Text=" "/>
+                                                    <Run Text="{Binding TotalCount, StringFormat='({0})'}" Foreground="#666"/>
+                                                </TextBlock>
+                                                <TextBlock Margin="12,0,0,0"
+                                                           Cursor="Hand"
+                                                           Foreground="#E03535"
+                                                           FontSize="11"
+                                                           VerticalAlignment="Center"
+                                                           Tag="{Binding ConsoleName}"
+                                                           MouseLeftButtonDown="GroupSeeAll_Click"
+                                                           Visibility="{Binding HasMore, Converter={StaticResource BoolToVisibility}}">
+                                                    <Run Text="{Binding MoreText}"/>
+                                                </TextBlock>
+                                            </StackPanel>
+                                            <!-- Games preview (up to 8 per console) -->
                                             <ItemsControl ItemsSource="{Binding Games}">
                                                 <ItemsControl.ItemsPanel>
                                                     <ItemsPanelTemplate>
