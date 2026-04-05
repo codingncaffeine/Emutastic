@@ -201,24 +201,42 @@ namespace Emutastic.Services
             });
         }
 
+        private static readonly string _importLogPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "OpenEmuWindows", "import_debug.log");
+
+        private void ImportLog(string message)
+        {
+            try { File.AppendAllText(_importLogPath, $"{DateTime.Now:HH:mm:ss.fff}  {message}\n"); }
+            catch { }
+        }
+
         private async Task<string> DetectConsoleFromZipAsync(string archivePath)
         {
             try
             {
                 using var archive = ArchiveFactory.Open(archivePath);
                 var entries = archive.Entries.Where(e => !e.IsDirectory).ToList();
-                StatusChanged?.Invoke($"  Archive has {entries.Count} file(s): {string.Join(", ", entries.Take(3).Select(e => e.Key ?? "null"))}");
+                ImportLog($"[{Path.GetFileName(archivePath)}] {entries.Count} entries: {string.Join(", ", entries.Take(5).Select(e => e.Key ?? "null"))}");
                 foreach (var entry in entries)
                 {
                     string entryName = entry.Key ?? string.Empty;
                     string ext = Path.GetExtension(entryName);
-                    if (RomService.IsRomExtension(ext))
-                        return RomService.DetectConsole(entryName);
+                    bool recognized = RomService.IsRomExtension(ext);
+                    ImportLog($"  entry='{entryName}' ext='{ext}' recognized={recognized}");
+                    if (recognized)
+                    {
+                        string console = RomService.DetectConsole(entryName);
+                        ImportLog($"  → console={console}");
+                        return console;
+                    }
                 }
+                ImportLog($"  → no ROM extension found, routing to Arcade");
                 return string.Empty;
             }
             catch (Exception ex)
             {
+                ImportLog($"[{Path.GetFileName(archivePath)}] EXCEPTION: {ex.Message}");
                 StatusChanged?.Invoke($"Could not open archive {Path.GetFileName(archivePath)}: {ex.Message}");
                 return string.Empty;
             }
