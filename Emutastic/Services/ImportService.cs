@@ -1,5 +1,6 @@
 ﻿using SharpCompress.Archives;
 using SharpCompress.Common;
+using System.Linq;
 using Emutastic.Models;
 using Emutastic.Services;
 using System;
@@ -72,7 +73,9 @@ namespace Emutastic.Services
                 // Peek inside to see if it contains a known ROM extension.
                 // Arcade ROMs (FBNeo) contain chip dumps with no standard ROM extension,
                 // so if nothing recognized is found inside we treat the archive as-is.
+                StatusChanged?.Invoke($"Scanning {fileName}…");
                 string innerConsole = await DetectConsoleFromZipAsync(romPath);
+                StatusChanged?.Invoke($"  → detected: {(string.IsNullOrEmpty(innerConsole) ? "Arcade (no ROM extension found)" : innerConsole)}");
                 if (string.IsNullOrEmpty(innerConsole))
                 {
                     await ImportRomFileAsync(romPath, "Arcade", fileName);
@@ -203,9 +206,10 @@ namespace Emutastic.Services
             try
             {
                 using var archive = ArchiveFactory.Open(archivePath);
-                foreach (var entry in archive.Entries)
+                var entries = archive.Entries.Where(e => !e.IsDirectory).ToList();
+                StatusChanged?.Invoke($"  Archive has {entries.Count} file(s): {string.Join(", ", entries.Take(3).Select(e => e.Key ?? "null"))}");
+                foreach (var entry in entries)
                 {
-                    if (entry.IsDirectory) continue;
                     string entryName = entry.Key ?? string.Empty;
                     string ext = Path.GetExtension(entryName);
                     if (RomService.IsRomExtension(ext))
