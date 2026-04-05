@@ -12,6 +12,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Media;
 
 namespace Emutastic
 {
@@ -104,6 +105,40 @@ namespace Emutastic
 
             ToolbarTitle.Text = "All Games";
             _vm.Reload();
+        }
+
+        // ── Game grid scrolling ───────────────────────────────────────────────
+        // Override mouse wheel on both views so the system WheelScrollLines setting
+        // is respected and scaled to card-appropriate pixel sizes (~80px per line).
+
+        private void GameGridView_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            // The ListBox owns its internal ScrollViewer — find it and drive it directly.
+            var sv = FindVisualChild<ScrollViewer>(GameGridView);
+            if (sv == null) return;
+            double lines = e.Delta / 120.0 * SystemParameters.WheelScrollLines;
+            sv.ScrollToVerticalOffset(sv.VerticalOffset - lines * 80);
+            e.Handled = true;
+        }
+
+        private void LibraryView_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            var sv = (ScrollViewer)sender;
+            double lines = e.Delta / 120.0 * SystemParameters.WheelScrollLines;
+            sv.ScrollToVerticalOffset(sv.VerticalOffset - lines * 80);
+            e.Handled = true;
+        }
+
+        private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
+        {
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+                if (child is T match) return match;
+                var result = FindVisualChild<T>(child);
+                if (result != null) return result;
+            }
+            return null;
         }
 
         // ── Windows chrome mode ───────────────────────────────────────────────

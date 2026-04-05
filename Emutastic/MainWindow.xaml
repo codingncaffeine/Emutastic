@@ -4,6 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:Emutastic"
+        xmlns:vwp="clr-namespace:WpfToolkit.Controls;assembly=VirtualizingWrapPanel"
         mc:Ignorable="d"
         Title="Emutastic"
         Icon="Assets/banners and icons/emutastic-logo.png"
@@ -639,95 +640,112 @@
                     </Border>
 
                     <!-- Game grid (Library view) -->
-                    <ScrollViewer x:Name="LibraryView"
-                                  Grid.Row="1"
-                                  Style="{StaticResource MinimalScrollViewer}"
-                                  VerticalScrollBarVisibility="Auto">
-                        <StackPanel Margin="{DynamicResource LibraryGridPadding}">
+                    <Grid Grid.Row="1">
 
-
-                            <!-- Game cards (grid view) -->
-                            <ItemsControl x:Name="GameGridView"
-                                          ItemsSource="{Binding Games}"
-                                          Visibility="{Binding IsGroupedView, Converter={StaticResource InverseBoolToVisibility}}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <WrapPanel/>
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Border Width="148"
-                                                Margin="{DynamicResource LibraryCardMargin}"
-                                                CornerRadius="8"
-                                                ClipToBounds="True"
+                    <!-- ── Flat grid: virtualized ListBox + VirtualizingWrapPanel ─────────────── -->
+                    <!-- Only ~60 card visuals exist at any time regardless of library size.       -->
+                    <ListBox x:Name="GameGridView"
+                             ItemsSource="{Binding Games}"
+                             Visibility="{Binding IsGroupedView, Converter={StaticResource InverseBoolToVisibility}}"
+                             VirtualizingPanel.IsVirtualizing="True"
+                             VirtualizingPanel.VirtualizationMode="Recycling"
+                             VirtualizingPanel.CacheLengthUnit="Page"
+                             VirtualizingPanel.CacheLength="0.5,0.5"
+                             ScrollViewer.CanContentScroll="True"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             Margin="{DynamicResource LibraryGridPadding}"
+                             PreviewMouseWheel="GameGridView_PreviewMouseWheel">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Padding" Value="0"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <ContentPresenter/>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <vwp:VirtualizingWrapPanel/>
+                            </ItemsPanelTemplate>
+                        </ListBox.ItemsPanel>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Border Width="148"
+                                        Margin="{DynamicResource LibraryCardMargin}"
+                                        CornerRadius="8"
+                                        ClipToBounds="True"
+                                        Background="Transparent"
+                                        Cursor="Hand"
+                                        MouseLeftButtonDown="GameCard_Click"
+                                        MouseRightButtonDown="GameCard_RightClick">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Style.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter Property="Effect">
+                                                        <Setter.Value>
+                                                            <DropShadowEffect BlurRadius="16"
+                                                                              ShadowDepth="4"
+                                                                              Opacity="0.5"
+                                                                              Color="#000000"/>
+                                                        </Setter.Value>
+                                                    </Setter>
+                                                </Trigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <StackPanel>
+                                        <Border Height="{Binding Console, Converter={StaticResource ConsoleToArtHeight}}"
                                                 Background="Transparent"
-                                                Cursor="Hand"
-                                                MouseLeftButtonDown="GameCard_Click"
-                                                MouseRightButtonDown="GameCard_RightClick">
-                                            <Border.Style>
-                                                <Style TargetType="Border">
-                                                    <Style.Triggers>
-                                                        <Trigger Property="IsMouseOver" Value="True">
-                                                            <Setter Property="Effect">
-                                                                <Setter.Value>
-                                                                    <DropShadowEffect BlurRadius="16"
-                                                                                      ShadowDepth="4"
-                                                                                      Opacity="0.5"
-                                                                                      Color="#000000"/>
-                                                                </Setter.Value>
-                                                            </Setter>
-                                                        </Trigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </Border.Style>
-                                            <StackPanel>
-                                                <!-- Art area — height driven by console box aspect ratio -->
-                                                <Border Height="{Binding Console, Converter={StaticResource ConsoleToArtHeight}}"
-                                                        Background="Transparent"
-                                                        ClipToBounds="True">
-                                                    <Grid>
-                                                        <!-- Console color base + gradient — only visible when no artwork -->
-                                                        <Border Visibility="{Binding CoverArtPath, Converter={StaticResource NullToVisibility}}">
-                                                            <Border.Background>
-                                                                <SolidColorBrush Color="{Binding BackgroundColor, Converter={StaticResource StringToColor}}"/>
-                                                            </Border.Background>
-                                                        </Border>
-                                                        <Border Visibility="{Binding CoverArtPath, Converter={StaticResource NullToVisibility}}">
-                                                            <Border.Background>
-                                                                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                                                                    <GradientStop Color="#33FFFFFF" Offset="0"/>
-                                                                    <GradientStop Color="#00FFFFFF" Offset="1"/>
-                                                                </LinearGradientBrush>
-                                                            </Border.Background>
-                                                        </Border>
-
-                                                        <!-- Placeholder title text — hidden when artwork exists -->
-                                                        <TextBlock Text="{Binding Title}"
-                                                                   FontFamily="{StaticResource PrimaryFont}"
-                                                                   FontSize="13" FontWeight="SemiBold"
-                                                                   Foreground="#CCFFFFFF"
-                                                                   TextWrapping="Wrap" TextAlignment="Center"
-                                                                   VerticalAlignment="Center" HorizontalAlignment="Center"
-                                                                   Margin="12"
-                                                                   Visibility="{Binding CoverArtPath, Converter={StaticResource NullToVisibility}}"/>
-
-                                                        <!-- Actual box art image — transparent background lets bars vanish into app background -->
-                                                        <Image Source="{Binding CoverArtPath, Converter={StaticResource PathToImage}}"
-                                                               Stretch="Uniform"
-                                                               Visibility="{Binding CoverArtPath, Converter={StaticResource NotNullToVisibility}}"/>
-
-                                                        <!-- Favorite heart -->
-                                                        <TextBlock Text="♥" FontSize="14" Foreground="#FFFF6B6B"
-                                                                   VerticalAlignment="Top" HorizontalAlignment="Right" Margin="0,8,8,0"
-                                                                   Visibility="{Binding IsFavorite, Converter={StaticResource BoolToVisibility}}"/>
-                                                    </Grid>
+                                                ClipToBounds="True">
+                                            <Grid>
+                                                <Border Visibility="{Binding CoverArtPath, Converter={StaticResource NullToVisibility}}">
+                                                    <Border.Background>
+                                                        <SolidColorBrush Color="{Binding BackgroundColor, Converter={StaticResource StringToColor}}"/>
+                                                    </Border.Background>
                                                 </Border>
-                                            </StackPanel>
+                                                <Border Visibility="{Binding CoverArtPath, Converter={StaticResource NullToVisibility}}">
+                                                    <Border.Background>
+                                                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                                            <GradientStop Color="#33FFFFFF" Offset="0"/>
+                                                            <GradientStop Color="#00FFFFFF" Offset="1"/>
+                                                        </LinearGradientBrush>
+                                                    </Border.Background>
+                                                </Border>
+                                                <TextBlock Text="{Binding Title}"
+                                                           FontFamily="{StaticResource PrimaryFont}"
+                                                           FontSize="13" FontWeight="SemiBold"
+                                                           Foreground="#CCFFFFFF"
+                                                           TextWrapping="Wrap" TextAlignment="Center"
+                                                           VerticalAlignment="Center" HorizontalAlignment="Center"
+                                                           Margin="12"
+                                                           Visibility="{Binding CoverArtPath, Converter={StaticResource NullToVisibility}}"/>
+                                                <Image Source="{Binding CoverArtPath, Converter={StaticResource PathToImage}}"
+                                                       Stretch="Uniform"
+                                                       Visibility="{Binding CoverArtPath, Converter={StaticResource NotNullToVisibility}}"/>
+                                                <TextBlock Text="♥" FontSize="14" Foreground="#FFFF6B6B"
+                                                           VerticalAlignment="Top" HorizontalAlignment="Right" Margin="0,8,8,0"
+                                                           Visibility="{Binding IsFavorite, Converter={StaticResource BoolToVisibility}}"/>
+                                            </Grid>
                                         </Border>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <!-- ── Grouped / list views: per-console sections + list view ── -->
+                    <ScrollViewer x:Name="LibraryView"
+                                  Visibility="{Binding IsGroupedView, Converter={StaticResource BoolToVisibility}}"
+                                  VerticalScrollBarVisibility="Auto"
+                                  PreviewMouseWheel="LibraryView_PreviewMouseWheel">
+                        <StackPanel Margin="{DynamicResource LibraryGridPadding}">
 
                             <!-- Game grid grouped (All Games view — one section per console) -->
                             <ItemsControl x:Name="GameGridGroupedView"
@@ -870,31 +888,33 @@
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
 
-                            <!-- Empty state -->
-                            <StackPanel HorizontalAlignment="Center"
-                                        Margin="0,80,0,0"
-                                        Visibility="{Binding Games.Count,
-                                            Converter={StaticResource CountToVisibility}}">
-                                <TextBlock Text="🕹"
-                                           FontSize="48"
-                                           HorizontalAlignment="Center"/>
-                                <TextBlock Text="No games here yet"
-                                           FontFamily="{StaticResource PrimaryFont}"
-                                           FontSize="16"
-                                           FontWeight="SemiBold"
-                                           Foreground="{StaticResource TextSecondaryBrush}"
-                                           HorizontalAlignment="Center"
-                                           Margin="0,12,0,0"/>
-                                <TextBlock Text="Drop ROM files anywhere to import them"
-                                           FontFamily="{StaticResource PrimaryFont}"
-                                           FontSize="13"
-                                           Foreground="{StaticResource TextMutedBrush}"
-                                           HorizontalAlignment="Center"
-                                           Margin="0,6,0,0"/>
-                            </StackPanel>
-
                         </StackPanel>
                     </ScrollViewer>
+
+                    <!-- Empty state — sits above both views, visible only when library is empty -->
+                    <StackPanel HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Visibility="{Binding Games.Count,
+                                    Converter={StaticResource CountToVisibility}}">
+                        <TextBlock Text="🕹"
+                                   FontSize="48"
+                                   HorizontalAlignment="Center"/>
+                        <TextBlock Text="No games here yet"
+                                   FontFamily="{StaticResource PrimaryFont}"
+                                   FontSize="16"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   HorizontalAlignment="Center"
+                                   Margin="0,12,0,0"/>
+                        <TextBlock Text="Drop ROM files anywhere to import them"
+                                   FontFamily="{StaticResource PrimaryFont}"
+                                   FontSize="13"
+                                   Foreground="{StaticResource TextMutedBrush}"
+                                   HorizontalAlignment="Center"
+                                   Margin="0,6,0,0"/>
+                    </StackPanel>
+
+                    </Grid>
 
                     <!-- Save States view -->
                     <ScrollViewer x:Name="SaveStatesView"
