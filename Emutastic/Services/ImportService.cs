@@ -64,10 +64,20 @@ namespace Emutastic.Services
             string fileName = Path.GetFileName(romPath);
             string ext = Path.GetExtension(romPath);
 
-            // Handle zip files
-            if (ext.Equals(".zip", StringComparison.OrdinalIgnoreCase))
+            // Handle zip / 7z files
+            if (ext.Equals(".zip", StringComparison.OrdinalIgnoreCase) ||
+                ext.Equals(".7z",  StringComparison.OrdinalIgnoreCase))
             {
-                // For now, always extract ZIP files to avoid core checking issues
+                // Arcade ROMs (FBNeo) ARE the zip — the core reads chip dumps inside directly.
+                // Import the zip as-is without extraction.
+                string detectedConsole = RomService.DetectConsole(romPath);
+                if (detectedConsole == "Arcade")
+                {
+                    await ImportRomFileAsync(romPath, "Arcade", fileName);
+                    return;
+                }
+
+                // Non-arcade zips: extract and re-import the inner ROM file.
                 StatusChanged?.Invoke($"Extracting {fileName}…");
                 string? extractedPath = await ExtractZipRomAsync(romPath);
 
