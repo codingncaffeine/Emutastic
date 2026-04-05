@@ -13,7 +13,8 @@
         Background="Transparent"
         WindowStyle="None"
         AllowsTransparency="True"
-        ResizeMode="CanResizeWithGrip">
+        ResizeMode="CanResizeWithGrip"
+        PreviewKeyDown="Window_PreviewKeyDown">
 
     <Window.Resources>
         <DropShadowEffect x:Key="WindowShadow"
@@ -647,6 +648,7 @@
                     <ListBox x:Name="GameGridView"
                              ItemsSource="{Binding Games}"
                              Visibility="{Binding IsGroupedView, Converter={StaticResource InverseBoolToVisibility}}"
+                             SelectionMode="Extended"
                              VirtualizingPanel.IsVirtualizing="True"
                              VirtualizingPanel.VirtualizationMode="Recycling"
                              VirtualizingPanel.CacheLengthUnit="Page"
@@ -663,7 +665,21 @@
                                 <Setter Property="Template">
                                     <Setter.Value>
                                         <ControlTemplate TargetType="ListBoxItem">
-                                            <ContentPresenter/>
+                                            <Grid>
+                                                <ContentPresenter/>
+                                                <!-- Selection ring overlay -->
+                                                <Border x:Name="SelectionRing"
+                                                        CornerRadius="8"
+                                                        BorderThickness="2"
+                                                        BorderBrush="#E03535"
+                                                        Visibility="Collapsed"
+                                                        IsHitTestVisible="False"/>
+                                            </Grid>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="SelectionRing" Property="Visibility" Value="Visible"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
                                         </ControlTemplate>
                                     </Setter.Value>
                                 </Setter>
@@ -683,7 +699,7 @@
                                         Background="Transparent"
                                         Cursor="Hand"
                                         MouseLeftButtonDown="GameCard_Click"
-                                        MouseRightButtonDown="GameCard_RightClick">
+                                        MouseRightButtonUp="GameCard_RightClick">
                                     <Border.Style>
                                         <Style TargetType="Border">
                                             <Style.Triggers>
@@ -774,7 +790,7 @@
                                                                 Background="Transparent"
                                                                 Cursor="Hand"
                                                                 MouseLeftButtonDown="GameCard_Click"
-                                                                MouseRightButtonDown="GameCard_RightClick">
+                                                                MouseRightButtonUp="GameCard_RightClick">
                                                             <Border.Style>
                                                                 <Style TargetType="Border">
                                                                     <Style.Triggers>
@@ -841,7 +857,7 @@
                                         <Border Padding="8,6"
                                                 Cursor="Hand"
                                                 MouseLeftButtonDown="GameCard_Click"
-                                                MouseRightButtonDown="GameCard_RightClick">
+                                                MouseRightButtonUp="GameCard_RightClick">
                                             <Border.Style>
                                                 <Style TargetType="Border">
                                                     <Style.Triggers>

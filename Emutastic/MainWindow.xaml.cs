@@ -372,9 +372,12 @@ namespace Emutastic
         // ── Game card right click ──
         private void GameCard_RightClick(object sender, MouseButtonEventArgs e)
         {
+            e.Handled = true;
             if (sender is FrameworkElement fe && fe.DataContext is Game game)
             {
                 var menu = BuildContextMenu(game);
+                menu.PlacementTarget = fe;
+                menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
                 menu.IsOpen = true;
             }
         }
@@ -525,6 +528,48 @@ namespace Emutastic
                 }
             }));
 
+            // ── Select All / bulk delete (flat view only) ──
+            int selectedCount = GameGridView.SelectedItems.Count;
+            if (GameGridView.Visibility == Visibility.Visible)
+            {
+                menu.Items.Add(new Separator());
+
+                menu.Items.Add(MakeMenuItem("☑  Select All", () =>
+                {
+                    GameGridView.SelectAll();
+                }));
+
+                if (selectedCount > 1)
+                {
+                    var bulkDeleteItem = MakeMenuItem($"🗑  Delete Selected ({selectedCount})", () =>
+                    {
+                        var toDelete = GameGridView.SelectedItems.Cast<Game>().ToList();
+                        string msg = toDelete.Count == 1
+                            ? $"Remove \"{toDelete[0].Title}\" from your library?"
+                            : $"Remove {toDelete.Count} games from your library?";
+                        var result = MessageBox.Show(
+                            msg + "\n\nThis will not delete ROM files from your computer.",
+                            "Delete Games",
+                            MessageBoxButton.YesNo,
+                            MessageBoxImage.Warning);
+                        if (result == MessageBoxResult.Yes)
+                        {
+                            foreach (var g in toDelete)
+                            {
+                                _db.DeleteGame(g.Id);
+                                _vm.RemoveGame(g);
+                            }
+                        }
+                    });
+                    bulkDeleteItem.Foreground = new System.Windows.Media.SolidColorBrush(
+                        (System.Windows.Media.Color)System.Windows.Media.ColorConverter
+                        .ConvertFromString("#FF5F57")!);
+                    menu.Items.Add(bulkDeleteItem);
+                }
+            }
+
+            menu.Items.Add(new Separator());
+
             // ── Delete Game ──
             var deleteItem = MakeMenuItem("🗑  Delete Game", () =>
             {
@@ -562,6 +607,18 @@ namespace Emutastic
             var item = new MenuItem { Header = header };
             item.Click += async (s, e) => await onClick();
             return item;
+        }
+
+        // ── Keyboard shortcuts ──
+        private void Window_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key == System.Windows.Input.Key.A &&
+                (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control) != 0 &&
+                GameGridView.Visibility == Visibility.Visible)
+            {
+                GameGridView.SelectAll();
+                e.Handled = true;
+            }
         }
 
         // ── Tab switching ──
