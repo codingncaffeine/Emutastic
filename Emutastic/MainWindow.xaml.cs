@@ -58,6 +58,7 @@ namespace Emutastic
 
             Loaded += (s, e) =>
             {
+                _vm.Reload();
                 UpdateTabStyles(libraryActive: true);
                 RefreshCollectionsSidebar();
                 SelectNavButton(NavAllGames);
@@ -74,17 +75,23 @@ namespace Emutastic
         }
 
         // ── Artwork retry on startup ──
+        // Runs after the grid is already visible. Capped at 25 per session so it
+        // doesn't block the UI thread or hammer the server on large libraries.
         private async Task RetryMissingArtworkAsync()
         {
             var missing = _db.GetGamesWithoutArtwork();
             if (missing.Count == 0) return;
 
-            ToolbarTitle.Text = $"Fetching artwork for {missing.Count} games…";
+            var batch = missing
+                .Where(g => !string.IsNullOrWhiteSpace(g.RomHash))
+                .Take(25)
+                .ToList();
 
-            foreach (var game in missing)
+            ToolbarTitle.Text = $"Fetching artwork ({batch.Count} of {missing.Count} pending)…";
+
+            int fetched = 0;
+            foreach (var game in batch)
             {
-                if (string.IsNullOrWhiteSpace(game.RomHash)) continue;
-
                 var (artworkPath, metadata) = await _artwork.FetchArtworkAsync(
                     game.RomHash, game.RomPath, game.Console);
 
@@ -92,6 +99,7 @@ namespace Emutastic
                 {
                     _db.UpdateCoverArt(game.Id, artworkPath);
                     game.CoverArtPath = artworkPath;
+                    fetched++;
 
                     if (metadata != null && !string.IsNullOrWhiteSpace(metadata.Title))
                     {
@@ -103,8 +111,10 @@ namespace Emutastic
                 }
             }
 
-            ToolbarTitle.Text = "All Games";
-            _vm.Reload();
+            int remaining = missing.Count - batch.Count;
+            ToolbarTitle.Text = remaining > 0
+                ? $"Artwork: {fetched} fetched, {remaining} still pending (relaunch to continue)"
+                : fetched > 0 ? $"Artwork: {fetched} fetched" : "";
         }
 
         // ── Game grid scrolling ───────────────────────────────────────────────
