@@ -69,22 +69,23 @@ namespace Emutastic.Services
             if (ext.Equals(".zip", StringComparison.OrdinalIgnoreCase) ||
                 ext.Equals(".7z",  StringComparison.OrdinalIgnoreCase))
             {
-                // Arcade ROMs (FBNeo) ARE the zip — the core reads chip dumps inside directly.
-                // Import the zip as-is without extraction.
-                string detectedConsole = RomService.DetectConsole(romPath);
-                if (detectedConsole == "Arcade")
+                // Peek inside to see if it contains a known ROM extension.
+                // Arcade ROMs (FBNeo) contain chip dumps with no standard ROM extension,
+                // so if nothing recognized is found inside we treat the archive as-is.
+                string innerConsole = await DetectConsoleFromZipAsync(romPath);
+                if (string.IsNullOrEmpty(innerConsole))
                 {
                     await ImportRomFileAsync(romPath, "Arcade", fileName);
                     return;
                 }
 
-                // Non-arcade zips: extract and re-import the inner ROM file.
+                // Non-arcade archives: extract the single ROM file and re-import it.
                 StatusChanged?.Invoke($"Extracting {fileName}…");
                 string? extractedPath = await ExtractZipRomAsync(romPath);
 
                 if (extractedPath == null)
                 {
-                    StatusChanged?.Invoke($"Skipped {fileName} — zip must contain exactly one ROM");
+                    StatusChanged?.Invoke($"Skipped {fileName} — archive must contain exactly one ROM");
                     return;
                 }
 
