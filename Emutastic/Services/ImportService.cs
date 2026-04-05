@@ -145,6 +145,8 @@ namespace Emutastic.Services
         private async Task ImportRomFileAsync(string romPath, string console, string fileName,
             string? overrideTitle = null)
         {
+            if (_db.RomPathExists(romPath)) return;
+
             StatusChanged?.Invoke($"Importing {fileName}…");
 
             string manufacturer = RomService.DetectManufacturer(console);

@@ -647,7 +647,8 @@
 
                             <!-- Game cards (grid view) -->
                             <ItemsControl x:Name="GameGridView"
-                                          ItemsSource="{Binding Games}">
+                                          ItemsSource="{Binding Games}"
+                                          Visibility="{Binding IsGroupedView, Converter={StaticResource InverseBoolToVisibility}}">
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>
                                         <WrapPanel/>
@@ -659,12 +660,10 @@
                                                 Margin="0,0,12,12"
                                                 CornerRadius="8"
                                                 ClipToBounds="True"
+                                                Background="Transparent"
                                                 Cursor="Hand"
                                                 MouseLeftButtonDown="GameCard_Click"
                                                 MouseRightButtonDown="GameCard_RightClick">
-                                            <Border.Background>
-                                                <SolidColorBrush Color="{Binding BackgroundColor, Converter={StaticResource StringToColor}}"/>
-                                            </Border.Background>
                                             <Border.Style>
                                                 <Style TargetType="Border">
                                                     <Style.Triggers>
@@ -682,14 +681,18 @@
                                                 </Style>
                                             </Border.Style>
                                             <StackPanel>
-                                                <!-- Art area -->
-                                                <Border Height="180" ClipToBounds="True">
-                                                    <Border.Background>
-                                                        <SolidColorBrush Color="{Binding BackgroundColor, Converter={StaticResource StringToColor}}"/>
-                                                    </Border.Background>
+                                                <!-- Art area — height driven by console box aspect ratio -->
+                                                <Border Height="{Binding Console, Converter={StaticResource ConsoleToArtHeight}}"
+                                                        Background="Transparent"
+                                                        ClipToBounds="True">
                                                     <Grid>
-                                                        <!-- Colored placeholder shown when no artwork -->
-                                                        <Border>
+                                                        <!-- Console color base + gradient — only visible when no artwork -->
+                                                        <Border Visibility="{Binding CoverArtPath, Converter={StaticResource NullToVisibility}}">
+                                                            <Border.Background>
+                                                                <SolidColorBrush Color="{Binding BackgroundColor, Converter={StaticResource StringToColor}}"/>
+                                                            </Border.Background>
+                                                        </Border>
+                                                        <Border Visibility="{Binding CoverArtPath, Converter={StaticResource NullToVisibility}}">
                                                             <Border.Background>
                                                                 <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
                                                                     <GradientStop Color="#33FFFFFF" Offset="0"/>
@@ -700,37 +703,112 @@
 
                                                         <!-- Placeholder title text — hidden when artwork exists -->
                                                         <TextBlock Text="{Binding Title}"
-                   FontFamily="{StaticResource PrimaryFont}"
-                   FontSize="13"
-                   FontWeight="SemiBold"
-                   Foreground="#CCFFFFFF"
-                   TextWrapping="Wrap"
-                   TextAlignment="Center"
-                   VerticalAlignment="Center"
-                   HorizontalAlignment="Center"
-                   Margin="12"
-                   Visibility="{Binding CoverArtPath,
-                       Converter={StaticResource NullToVisibility}}"/>
+                                                                   FontFamily="{StaticResource PrimaryFont}"
+                                                                   FontSize="13" FontWeight="SemiBold"
+                                                                   Foreground="#CCFFFFFF"
+                                                                   TextWrapping="Wrap" TextAlignment="Center"
+                                                                   VerticalAlignment="Center" HorizontalAlignment="Center"
+                                                                   Margin="12"
+                                                                   Visibility="{Binding CoverArtPath, Converter={StaticResource NullToVisibility}}"/>
 
-                                                        <!-- Actual box art image -->
+                                                        <!-- Actual box art image — transparent background lets bars vanish into app background -->
                                                         <Image Source="{Binding CoverArtPath, Converter={StaticResource PathToImage}}"
-       Stretch="UniformToFill"
-       Visibility="{Binding CoverArtPath,
-           Converter={StaticResource NotNullToVisibility}}"/>
+                                                               Stretch="Uniform"
+                                                               Visibility="{Binding CoverArtPath, Converter={StaticResource NotNullToVisibility}}"/>
 
                                                         <!-- Favorite heart -->
-                                                        <TextBlock Text="♥"
-                   FontSize="14"
-                   Foreground="#FFFF6B6B"
-                   VerticalAlignment="Top"
-                   HorizontalAlignment="Right"
-                   Margin="0,8,8,0"
-                   Visibility="{Binding IsFavorite,
-                       Converter={StaticResource BoolToVisibility}}"/>
+                                                        <TextBlock Text="♥" FontSize="14" Foreground="#FFFF6B6B"
+                                                                   VerticalAlignment="Top" HorizontalAlignment="Right" Margin="0,8,8,0"
+                                                                   Visibility="{Binding IsFavorite, Converter={StaticResource BoolToVisibility}}"/>
                                                     </Grid>
                                                 </Border>
                                             </StackPanel>
                                         </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <!-- Game grid grouped (All Games view — one section per console) -->
+                            <ItemsControl x:Name="GameGridGroupedView"
+                                          ItemsSource="{Binding GroupedGames}"
+                                          Visibility="{Binding IsGroupedView, Converter={StaticResource BoolToVisibility}}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Margin="0,0,0,24">
+                                            <!-- Console section header -->
+                                            <TextBlock Text="{Binding ConsoleName}"
+                                                       Style="{StaticResource LabelMuted}"
+                                                       Margin="0,0,0,10"/>
+                                            <!-- Games in this console group -->
+                                            <ItemsControl ItemsSource="{Binding Games}">
+                                                <ItemsControl.ItemsPanel>
+                                                    <ItemsPanelTemplate>
+                                                        <WrapPanel/>
+                                                    </ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Border Width="148"
+                                                                Margin="0,0,12,12"
+                                                                CornerRadius="8"
+                                                                ClipToBounds="True"
+                                                                Background="Transparent"
+                                                                Cursor="Hand"
+                                                                MouseLeftButtonDown="GameCard_Click"
+                                                                MouseRightButtonDown="GameCard_RightClick">
+                                                            <Border.Style>
+                                                                <Style TargetType="Border">
+                                                                    <Style.Triggers>
+                                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                                            <Setter Property="Effect">
+                                                                                <Setter.Value>
+                                                                                    <DropShadowEffect BlurRadius="16" ShadowDepth="4" Opacity="0.5" Color="#000000"/>
+                                                                                </Setter.Value>
+                                                                            </Setter>
+                                                                        </Trigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </Border.Style>
+                                                            <StackPanel>
+                                                                <Border Height="{Binding Console, Converter={StaticResource ConsoleToArtHeight}}"
+                                                                        Background="Transparent"
+                                                                        ClipToBounds="True">
+                                                                    <Grid>
+                                                                        <Border Visibility="{Binding CoverArtPath, Converter={StaticResource NullToVisibility}}">
+                                                                            <Border.Background>
+                                                                                <SolidColorBrush Color="{Binding BackgroundColor, Converter={StaticResource StringToColor}}"/>
+                                                                            </Border.Background>
+                                                                        </Border>
+                                                                        <Border Visibility="{Binding CoverArtPath, Converter={StaticResource NullToVisibility}}">
+                                                                            <Border.Background>
+                                                                                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                                                                    <GradientStop Color="#33FFFFFF" Offset="0"/>
+                                                                                    <GradientStop Color="#00FFFFFF" Offset="1"/>
+                                                                                </LinearGradientBrush>
+                                                                            </Border.Background>
+                                                                        </Border>
+                                                                        <TextBlock Text="{Binding Title}"
+                                                                                   FontFamily="{StaticResource PrimaryFont}"
+                                                                                   FontSize="13" FontWeight="SemiBold"
+                                                                                   Foreground="#CCFFFFFF"
+                                                                                   TextWrapping="Wrap" TextAlignment="Center"
+                                                                                   VerticalAlignment="Center" HorizontalAlignment="Center"
+                                                                                   Margin="12"
+                                                                                   Visibility="{Binding CoverArtPath, Converter={StaticResource NullToVisibility}}"/>
+                                                                        <Image Source="{Binding CoverArtPath, Converter={StaticResource PathToImage}}"
+                                                                               Stretch="Uniform"
+                                                                               Visibility="{Binding CoverArtPath, Converter={StaticResource NotNullToVisibility}}"/>
+                                                                        <TextBlock Text="♥" FontSize="14" Foreground="#FFFF6B6B"
+                                                                                   VerticalAlignment="Top" HorizontalAlignment="Right" Margin="0,8,8,0"
+                                                                                   Visibility="{Binding IsFavorite, Converter={StaticResource BoolToVisibility}}"/>
+                                                                    </Grid>
+                                                                </Border>
+                                                            </StackPanel>
+                                                        </Border>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
@@ -768,7 +846,7 @@
                                                         <SolidColorBrush Color="{Binding BackgroundColor, Converter={StaticResource StringToColor}}"/>
                                                     </Border.Background>
                                                     <Image Source="{Binding CoverArtPath, Converter={StaticResource PathToImage}}"
-                                                           Stretch="UniformToFill"
+                                                           Stretch="Uniform"
                                                            Visibility="{Binding CoverArtPath, Converter={StaticResource NotNullToVisibility}}"/>
                                                 </Border>
                                                 <StackPanel Grid.Column="1"

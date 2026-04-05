@@ -167,6 +167,47 @@ namespace Emutastic.Services
                 : "Unknown";
         }
 
+        // Box art aspect ratios (width / height) sourced from actual Libretro thumbnail repository.
+        // Values below 1.0 = portrait, above 1.0 = landscape.
+        private static readonly Dictionary<string, double> ConsoleBoxRatios = new()
+        {
+            { "NES",          0.64 },  // US clamshell / Famicom vertical box
+            { "FDS",          0.64 },  // same box as NES
+            { "SNES",         0.68 },  // large Nintendo clamshell
+            { "N64",          1.37 },  // famously wide N64 cardboard box (landscape)
+            { "GameCube",     0.73 },  // DVD keepcase
+            { "GB",           0.81 },  // Game Boy clamshell
+            { "GBC",          0.82 },  // same physical box as GB
+            { "GBA",          0.98 },  // GBA clamshell (near-square)
+            { "NDS",          0.95 },  // DS keepcase
+            { "VirtualBoy",   0.90 },  // Virtual Boy box
+            { "Genesis",      0.66 },  // Genesis clamshell
+            { "SegaCD",       0.66 },  // same Genesis clamshell
+            { "Sega32X",      0.66 },  // same Genesis clamshell
+            { "Saturn",       0.63 },  // tall custom Sega Saturn jewel case
+            { "SMS",          0.73 },  // Master System box
+            { "GameGear",     0.73 },  // Game Gear clamshell
+            { "SG1000",       1.03 },  // SG-1000 box (near-square)
+            { "Dreamcast",    0.93 },  // GD-ROM jewel case
+            { "PS1",          0.95 },  // CD jewel case
+            { "PSP",          0.70 },  // UMD keepcase
+            { "TG16",         0.90 },  // HuCard box
+            { "TGCD",         0.90 },  // same as TG16
+            { "NGP",          1.28 },  // Neo Geo Pocket hang-tab card (landscape)
+            { "Atari2600",    0.83 },  // 2600 box
+            { "Atari5200",    0.83 },  // 5200 box
+            { "Atari7800",    0.88 },  // 7800 box
+            { "Jaguar",       0.73 },  // Jaguar box
+            { "ColecoVision", 0.73 },  // ColecoVision box
+            { "Intellivision",0.73 },  // Intellivision box
+            { "Vectrex",      0.75 },  // Vectrex box
+            { "3DO",          0.58 },  // exceptionally tall 3DO slipcase
+            { "Arcade",       0.73 },  // arcade flyer art
+        };
+
+        public static double GetBoxRatio(string console)
+            => ConsoleBoxRatios.TryGetValue(console, out var r) ? r : 0.73;
+
         public static (string bg, string accent) GetConsoleColors(string console)
         {
             return ConsoleColors.TryGetValue(console, out var colors)

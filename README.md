@@ -22,7 +22,7 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 
 | System | Console Tag | Core (priority order) | BIOS Required |
 |---|---|---|---|
-| Arcade | Arcade | fbneo → fbalpha2012 | No (game ROMs in ZIP/7z) |
+| Arcade | Arcade | fbneo *(recommended)* → fbalpha2012 → fbalpha2012_cps1/2/3/neogeo → mame2003_plus → mame2003 → mame2010 → mame2015 → mame2016 → mame → mame2000 | No (game ROMs in ZIP/7z) |
 | Nintendo Entertainment System | NES | nestopia → quicknes → fceumm | No |
 | Famicom Disk System | FDS | nestopia | `disksys.rom` |
 | Super Nintendo | SNES | snes9x → bsnes | No |

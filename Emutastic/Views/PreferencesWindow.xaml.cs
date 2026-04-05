@@ -1349,6 +1349,13 @@ namespace Emutastic.Views
                 "fbalpha2012_cps2"  => "FB Alpha 2012 CPS-2",
                 "fbalpha2012_cps3"  => "FB Alpha 2012 CPS-3",
                 "fbalpha2012_neogeo"=> "FB Alpha 2012 Neo Geo",
+                "mame"              => "MAME (current)",
+                "mame2000"          => "MAME 2000 (0.37b5)",
+                "mame2003"          => "MAME 2003 (0.78)",
+                "mame2003_plus"     => "MAME 2003 Plus",
+                "mame2010"          => "MAME 2010 (0.139)",
+                "mame2015"          => "MAME 2015 (0.160)",
+                "mame2016"          => "MAME 2016 (0.174)",
                 "smsplus"           => "SMS Plus",
                 _ => char.ToUpper(name[0]) + name[1..].Replace("_", " ")
             };

@@ -14,6 +14,8 @@
             <converters:NotNullToVisibilityConverter x:Key="NotNullToVisibility"/>
             <converters:StringToColorConverter       x:Key="StringToColor"/>
             <converters:PathToImageConverter         x:Key="PathToImage"/>
+            <converters:ConsoleToArtHeightConverter       x:Key="ConsoleToArtHeight"/>
+            <converters:InverseBoolToVisibilityConverter   x:Key="InverseBoolToVisibility"/>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

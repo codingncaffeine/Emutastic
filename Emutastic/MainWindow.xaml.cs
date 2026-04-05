@@ -23,6 +23,7 @@ namespace Emutastic
         private ArtworkService _artwork;
         private ControllerManager? _controllerManager;
         private CoreManager _coreManager;
+        private Button? _selectedNavButton;
 
         public MainWindow()
         {
@@ -57,6 +58,7 @@ namespace Emutastic
             {
                 UpdateTabStyles(libraryActive: true);
                 RefreshCollectionsSidebar();
+                SelectNavButton(NavAllGames);
             };
             Loaded += async (s, e) => await RetryMissingArtworkAsync();
         }
@@ -173,20 +175,35 @@ namespace Emutastic
         }
 
         // ── Navigation ──
+        private void SelectNavButton(Button btn)
+        {
+            if (_selectedNavButton != null)
+            {
+                _selectedNavButton.Background = System.Windows.Media.Brushes.Transparent;
+                _selectedNavButton.Foreground = (System.Windows.Media.Brush)FindResource("TextSecondaryBrush");
+            }
+            _selectedNavButton = btn;
+            btn.Background = (System.Windows.Media.Brush)FindResource("BgQuaternaryBrush");
+            btn.Foreground = (System.Windows.Media.Brush)FindResource("TextPrimaryBrush");
+        }
+
         private void NavAllGames_Click(object sender, RoutedEventArgs e)
         {
+            SelectNavButton((Button)sender);
             _vm.SelectedConsole = "All Games";
             UpdateToolbarTitle("All Games");
         }
 
         private void NavRecent_Click(object sender, RoutedEventArgs e)
         {
+            SelectNavButton((Button)sender);
             _vm.LoadRecent(_db);
             UpdateToolbarTitle("Recently Played");
         }
 
         private void NavFavorites_Click(object sender, RoutedEventArgs e)
         {
+            SelectNavButton((Button)sender);
             _vm.LoadFavorites(_db);
             UpdateToolbarTitle("Favorites");
         }
@@ -195,6 +212,7 @@ namespace Emutastic
         {
             if (sender is Button btn && btn.Tag is string tag)
             {
+                SelectNavButton(btn);
                 _vm.SelectedConsole = tag;
                 string name = btn.Content?.ToString()?.Replace("🎮  ", "") ?? tag;
                 UpdateToolbarTitle(name);
@@ -203,8 +221,10 @@ namespace Emutastic
 
         private void NavRecentlyAdded_Click(object sender, RoutedEventArgs e)
         {
+            SelectNavButton((Button)sender);
             var games = _db.GetRecentlyAdded(25);
             _vm.Games = new ObservableCollection<Game>(games);
+            _vm.IsGroupedView = false;
             _vm.GameCountText = $"{games.Count} games";
             UpdateToolbarTitle("Recently Added");
         }
@@ -212,8 +232,10 @@ namespace Emutastic
         private void NavUserCollection_Click(object sender, RoutedEventArgs e)
         {
             if (sender is not Button btn || btn.Tag is not string tag) return;
+            SelectNavButton(btn);
             var games = _db.GetByCollection(tag);
             _vm.Games = new ObservableCollection<Game>(games);
+            _vm.IsGroupedView = false;
             _vm.GameCountText = $"{games.Count} games";
             UpdateToolbarTitle(tag);
         }

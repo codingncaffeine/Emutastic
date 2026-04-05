@@ -1,6 +1,7 @@
 ﻿using Emutastic.Models;
 using Emutastic.Services;
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
@@ -32,6 +33,20 @@ namespace Emutastic.ViewModels
         {
             get => _gameCountText;
             set { _gameCountText = value; OnPropertyChanged(); }
+        }
+
+        private ObservableCollection<ConsoleGroup> _groupedGames = new();
+        public ObservableCollection<ConsoleGroup> GroupedGames
+        {
+            get => _groupedGames;
+            set { _groupedGames = value; OnPropertyChanged(); }
+        }
+
+        private bool _isGroupedView;
+        public bool IsGroupedView
+        {
+            get => _isGroupedView;
+            set { _isGroupedView = value; OnPropertyChanged(); }
         }
 
         public MainViewModel(DatabaseService db)
@@ -82,11 +97,37 @@ namespace Emutastic.ViewModels
 
         public void FilterGames()
         {
-            var filtered = SelectedConsole == "All Games"
-                ? _allGames.ToList()
-                : _allGames.Where(g => g.Console == SelectedConsole).ToList();
+            if (SelectedConsole == "All Games")
+            {
+                var allSorted = _allGames
+                    .OrderBy(g => g.Console)
+                    .ThenBy(g => g.Title)
+                    .ToList();
 
-            Games = new ObservableCollection<Game>(filtered);
+                Games = new ObservableCollection<Game>(allSorted);
+
+                var groups = allSorted
+                    .GroupBy(g => g.Console)
+                    .Select(grp => new ConsoleGroup
+                    {
+                        ConsoleName = grp.Key,
+                        Games = new ObservableCollection<Game>(grp)
+                    });
+                GroupedGames = new ObservableCollection<ConsoleGroup>(groups);
+                IsGroupedView = true;
+            }
+            else
+            {
+                var filtered = _allGames
+                    .Where(g => g.Console == SelectedConsole)
+                    .OrderBy(g => g.Title)
+                    .ToList();
+
+                Games = new ObservableCollection<Game>(filtered);
+                GroupedGames = new ObservableCollection<ConsoleGroup>();
+                IsGroupedView = false;
+            }
+
             UpdateCount();
         }
 
@@ -94,6 +135,7 @@ namespace Emutastic.ViewModels
         {
             var favs = db.GetFavorites();
             Games = new ObservableCollection<Game>(favs);
+            IsGroupedView = false;
             UpdateCount();
         }
 
@@ -101,6 +143,7 @@ namespace Emutastic.ViewModels
         {
             var recent = db.GetRecentlyPlayed();
             Games = new ObservableCollection<Game>(recent);
+            IsGroupedView = false;
             UpdateCount();
         }
 
@@ -112,6 +155,7 @@ namespace Emutastic.ViewModels
                          || g.Console.Contains(query, StringComparison.OrdinalIgnoreCase))
                 .ToList();
             Games = new ObservableCollection<Game>(filtered);
+            IsGroupedView = false;
             GameCountText = filtered.Count == 1 ? "1 result" : $"{filtered.Count} results";
         }
 

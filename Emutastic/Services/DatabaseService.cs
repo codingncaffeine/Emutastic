@@ -132,6 +132,16 @@ namespace Emutastic.Services
             game.Id = (int)(long)idCmd.ExecuteScalar()!;
         }
 
+        public bool RomPathExists(string romPath)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT COUNT(*) FROM Games WHERE RomPath = $romPath;";
+            cmd.Parameters.AddWithValue("$romPath", romPath);
+            return (long)cmd.ExecuteScalar()! > 0;
+        }
+
         public void UpdatePlayCount(int gameId)
         {
             using var connection = new SqliteConnection(_connectionString);

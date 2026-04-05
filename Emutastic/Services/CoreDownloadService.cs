@@ -57,6 +57,21 @@ namespace Emutastic.Services
             new() { FileName = "vecx_libretro.dll",             DisplayName = "Vecx",                  Systems = ["Vectrex"],                           Recommended = true  },
             new() { FileName = "opera_libretro.dll",            DisplayName = "Opera (3DO)",            Systems = ["3DO"],                               Recommended = true  },
             new() { FileName = "flycast_libretro.dll",          DisplayName = "Flycast",               Systems = ["Dreamcast"],                         Recommended = true  },
+
+            // Arcade
+            new() { FileName = "fbneo_libretro.dll",            DisplayName = "FBNeo (Final Burn Neo)", Systems = ["Arcade"],                            Recommended = true  },
+            new() { FileName = "fbalpha2012_libretro.dll",      DisplayName = "FB Alpha 2012",          Systems = ["Arcade"],                            Recommended = false },
+            new() { FileName = "fbalpha2012_cps1_libretro.dll", DisplayName = "FB Alpha 2012 CPS-1",    Systems = ["Arcade"],                            Recommended = false },
+            new() { FileName = "fbalpha2012_cps2_libretro.dll", DisplayName = "FB Alpha 2012 CPS-2",    Systems = ["Arcade"],                            Recommended = false },
+            new() { FileName = "fbalpha2012_cps3_libretro.dll", DisplayName = "FB Alpha 2012 CPS-3",    Systems = ["Arcade"],                            Recommended = false },
+            new() { FileName = "fbalpha2012_neogeo_libretro.dll",DisplayName = "FB Alpha 2012 Neo Geo", Systems = ["Arcade"],                            Recommended = false },
+            new() { FileName = "mame_libretro.dll",             DisplayName = "MAME (current)",         Systems = ["Arcade"],                            Recommended = false },
+            new() { FileName = "mame2000_libretro.dll",         DisplayName = "MAME 2000 (0.37b5)",     Systems = ["Arcade"],                            Recommended = false },
+            new() { FileName = "mame2003_libretro.dll",         DisplayName = "MAME 2003 (0.78)",       Systems = ["Arcade"],                            Recommended = false },
+            new() { FileName = "mame2003_plus_libretro.dll",    DisplayName = "MAME 2003 Plus",         Systems = ["Arcade"],                            Recommended = false },
+            new() { FileName = "mame2010_libretro.dll",         DisplayName = "MAME 2010 (0.139)",      Systems = ["Arcade"],                            Recommended = false },
+            new() { FileName = "mame2015_libretro.dll",         DisplayName = "MAME 2015 (0.160)",      Systems = ["Arcade"],                            Recommended = false },
+            new() { FileName = "mame2016_libretro.dll",         DisplayName = "MAME 2016 (0.174)",      Systems = ["Arcade"],                            Recommended = false },
         };
 
         // ── Infrastructure ────────────────────────────────────────────────────
