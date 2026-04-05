@@ -8,7 +8,7 @@
     <UseWPF>true</UseWPF>
     <PlatformTarget>x64</PlatformTarget>
     <AssemblyName>Emutastic</AssemblyName>
-    <ApplicationIcon>Assets\banners and icons\emutastic-logo.ico</ApplicationIcon>
+    <ApplicationIcon>Assets\emutastic-logo.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <None Remove="Assets\openvgdb.sqlite" />
@@ -44,6 +44,7 @@
     <Resource Include="Assets\buttons\**\*.png" />
     <Resource Include="Assets\banners and icons\*.png" />
     <Resource Include="Assets\banners and icons\*.ico" />
+    <Resource Include="Assets\emutastic-logo.ico" />
     <Resource Include="Assets\system_icons\*.jpg" />
   </ItemGroup>
 </Project>

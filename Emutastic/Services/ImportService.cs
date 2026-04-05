@@ -161,7 +161,7 @@ namespace Emutastic.Services
                     return;
                 }
 
-                await ImportSingleRomAsync(extractedPath);
+                await ImportRomFileAsync(extractedPath, innerConsole, Path.GetFileName(extractedPath));
                 return;
             }
 

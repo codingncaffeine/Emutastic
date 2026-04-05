@@ -29,6 +29,8 @@ namespace Emutastic
         public MainWindow()
         {
             InitializeComponent();
+            Icon = System.Windows.Media.Imaging.BitmapFrame.Create(
+                new Uri("pack://application:,,,/Assets/emutastic-logo.ico"));
             ApplyWindowsChrome();
             AllowDrop = true;
 
