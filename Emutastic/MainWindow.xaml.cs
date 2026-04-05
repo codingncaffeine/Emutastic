@@ -333,7 +333,7 @@ namespace Emutastic
             {
                 Multiselect = true,
                 Title = "Import ROMs",
-                Filter = "ROM Files|*.nes;*.sfc;*.smc;*.z64;*.n64;*.gb;*.gbc;*.gba;*.nds;*.md;*.gen;*.sms;*.gg;*.pce;*.iso;*.pbp;*.cso;*.a26;*.a52;*.a78;*.lnx;*.zip|All Files|*.*"
+                Filter = "ROM Files|*.nes;*.sfc;*.smc;*.z64;*.n64;*.gb;*.gbc;*.gba;*.nds;*.md;*.gen;*.sms;*.gg;*.pce;*.iso;*.pbp;*.cso;*.a26;*.a52;*.a78;*.lnx;*.zip;*.7z|All Files|*.*"
             };
             if (dialog.ShowDialog() == true)
                 _ = _importer.ImportFilesAsync(dialog.FileNames);

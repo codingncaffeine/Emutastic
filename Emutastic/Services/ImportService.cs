@@ -202,29 +202,20 @@ namespace Emutastic.Services
         {
             try
             {
-                System.Diagnostics.Debug.WriteLine($"Detecting console from archive: {archivePath}");
-
                 using var archive = ArchiveFactory.Open(archivePath);
                 foreach (var entry in archive.Entries)
                 {
                     if (entry.IsDirectory) continue;
-                    string ext = Path.GetExtension(entry.Key ?? string.Empty);
-                    System.Diagnostics.Debug.WriteLine($"Found file in archive: {entry.Key} with extension {ext}");
-
+                    string entryName = entry.Key ?? string.Empty;
+                    string ext = Path.GetExtension(entryName);
                     if (RomService.IsRomExtension(ext))
-                    {
-                        string console = RomService.DetectConsole(entry.Key!);
-                        System.Diagnostics.Debug.WriteLine($"Detected console: {console} from file {entry.Key}");
-                        return console;
-                    }
+                        return RomService.DetectConsole(entryName);
                 }
-
-                System.Diagnostics.Debug.WriteLine("No ROM files found in archive");
                 return string.Empty;
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error detecting console from archive {archivePath}: {ex.Message}");
+                StatusChanged?.Invoke($"Could not open archive {Path.GetFileName(archivePath)}: {ex.Message}");
                 return string.Empty;
             }
         }
@@ -260,30 +251,38 @@ namespace Emutastic.Services
 
         private async Task<string?> ExtractZipRomAsync(string archivePath)
         {
-            string tempFolder = Path.Combine(Path.GetTempPath(), "OpenEmuWindows");
-            Directory.CreateDirectory(tempFolder);
-
-            using var archive = ArchiveFactory.Open(archivePath);
-
-            var romEntries = new List<IArchiveEntry>();
-            foreach (var entry in archive.Entries)
+            try
             {
-                if (entry.IsDirectory) continue;
-                string ext = Path.GetExtension(entry.Key ?? string.Empty);
-                if (RomService.IsRomExtension(ext))
-                    romEntries.Add(entry);
+                string tempFolder = Path.Combine(Path.GetTempPath(), "OpenEmuWindows");
+                Directory.CreateDirectory(tempFolder);
+
+                using var archive = ArchiveFactory.Open(archivePath);
+
+                var romEntries = new List<IArchiveEntry>();
+                foreach (var entry in archive.Entries)
+                {
+                    if (entry.IsDirectory) continue;
+                    string ext = Path.GetExtension(entry.Key ?? string.Empty);
+                    if (RomService.IsRomExtension(ext))
+                        romEntries.Add(entry);
+                }
+
+                if (romEntries.Count != 1) return null;
+
+                var romEntry = romEntries[0];
+                string outputPath = Path.Combine(tempFolder, Path.GetFileName(romEntry.Key!));
+
+                using var inputStream = romEntry.OpenEntryStream();
+                using var outputStream = File.Create(outputPath);
+                await inputStream.CopyToAsync(outputStream);
+
+                return outputPath;
             }
-
-            if (romEntries.Count != 1) return null;
-
-            var romEntry = romEntries[0];
-            string outputPath = Path.Combine(tempFolder, Path.GetFileName(romEntry.Key!));
-
-            using var inputStream = romEntry.OpenEntryStream();
-            using var outputStream = File.Create(outputPath);
-            await inputStream.CopyToAsync(outputStream);
-
-            return outputPath;
+            catch (Exception ex)
+            {
+                StatusChanged?.Invoke($"Extraction failed for {Path.GetFileName(archivePath)}: {ex.Message}");
+                return null;
+            }
         }
     }
 }
