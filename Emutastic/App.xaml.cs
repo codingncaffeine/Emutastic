@@ -1,5 +1,6 @@
 ﻿using System.Configuration;
 using System.Data;
+using System.Threading;
 using System.Windows;
 using Emutastic.Configuration;
 using Microsoft.Extensions.Logging;
@@ -13,8 +14,31 @@ namespace Emutastic
         public static IConfigurationService? Configuration { get; private set; }
         public static ILogger? Logger { get; private set; }
 
+        private static Mutex? _singleInstanceMutex;
+
         protected override void OnStartup(StartupEventArgs e)
         {
+            // Single-instance guard: if Emutastic is already running, bring it to
+            // the front and exit this process instead of launching a second copy.
+            _singleInstanceMutex = new Mutex(true, "Emutastic_SingleInstance_v1", out bool isFirstInstance);
+            if (!isFirstInstance)
+            {
+                // Find the existing window and activate it.
+                var existing = System.Diagnostics.Process.GetProcessesByName(
+                    System.Diagnostics.Process.GetCurrentProcess().ProcessName);
+                foreach (var proc in existing)
+                {
+                    if (proc.Id == System.Diagnostics.Process.GetCurrentProcess().Id) continue;
+                    if (proc.MainWindowHandle != IntPtr.Zero)
+                    {
+                        NativeMethods.ShowWindow(proc.MainWindowHandle, 9); // SW_RESTORE
+                        NativeMethods.SetForegroundWindow(proc.MainWindowHandle);
+                    }
+                }
+                Shutdown();
+                return;
+            }
+
             try
             {
                 // Trace.WriteLine (used throughout libretro callbacks) internally calls
@@ -137,17 +161,22 @@ namespace Emutastic
             try
             {
                 if (Configuration != null)
-                {
                     await Configuration.SaveAsync();
-                    Logger?.LogInformation("Configuration saved on application exit");
-                }
             }
-            catch (Exception ex)
-            {
-                Logger?.LogError(ex, "Failed to save configuration on exit");
-            }
+            catch { }
 
+            _singleInstanceMutex?.ReleaseMutex();
+            _singleInstanceMutex?.Dispose();
             base.OnExit(e);
+        }
+
+        private static class NativeMethods
+        {
+            [System.Runtime.InteropServices.DllImport("user32.dll")]
+            public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+            [System.Runtime.InteropServices.DllImport("user32.dll")]
+            public static extern bool SetForegroundWindow(IntPtr hWnd);
         }
     }
 }

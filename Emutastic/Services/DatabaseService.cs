@@ -78,6 +78,20 @@ namespace Emutastic.Services
                 );";
             cmd.ExecuteNonQuery();
 
+            // Indexes for common query patterns — safe to run every launch (IF NOT EXISTS).
+            foreach (var ddl in new[]
+            {
+                "CREATE INDEX IF NOT EXISTS idx_games_console    ON Games(Console);",
+                "CREATE INDEX IF NOT EXISTS idx_games_title      ON Games(Title COLLATE NOCASE);",
+                "CREATE INDEX IF NOT EXISTS idx_games_last_played ON Games(LastPlayed DESC);",
+                "CREATE INDEX IF NOT EXISTS idx_games_date_added  ON Games(DateAdded DESC);"
+            })
+            {
+                var idxCmd = connection.CreateCommand();
+                idxCmd.CommandText = ddl;
+                idxCmd.ExecuteNonQuery();
+            }
+
             TryAddColumn(connection, "Games", "Rating", "INTEGER DEFAULT 0");
             TryAddColumn(connection, "Games", "Collection", "TEXT DEFAULT ''");
 
