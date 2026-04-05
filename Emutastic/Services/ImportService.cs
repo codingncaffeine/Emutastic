@@ -78,23 +78,34 @@ namespace Emutastic.Services
                 // so if nothing recognized is found inside we treat the archive as-is.
                 string innerConsole = await DetectConsoleFromZipAsync(romPath);
 
-                // .bin inside an archive is ambiguous — ask once per folder, cache the answer.
+                // .bin inside an archive is ambiguous — try folder name first, then ask once per folder.
                 if (innerConsole == "BIN_AMBIGUOUS")
                 {
                     string folderKey = Path.GetDirectoryName(romPath) ?? "";
                     if (!_folderBinConsole.TryGetValue(folderKey, out innerConsole!))
                     {
-                        var binCandidates = RomService.AmbiguousExtensions[".bin"];
-                        string? picked = AmbiguousConsoleResolver == null
-                            ? null
-                            : await AmbiguousConsoleResolver(fileName, binCandidates);
-                        if (picked == null)
+                        // Try to infer from the folder structure (e.g. "Atari 7800", "Genesis")
+                        string fromFolder = RomService.DetectConsoleFromFolderName(romPath);
+                        if (!string.IsNullOrEmpty(fromFolder))
                         {
-                            StatusChanged?.Invoke($"Skipped {fileName} — console not selected");
-                            return;
+                            _folderBinConsole[folderKey] = fromFolder;
+                            innerConsole = fromFolder;
                         }
-                        _folderBinConsole[folderKey] = picked;
-                        innerConsole = picked;
+                        else
+                        {
+                            // Folder name gave no hint — ask the user once for this folder
+                            var binCandidates = RomService.AmbiguousExtensions[".bin"];
+                            string? picked = AmbiguousConsoleResolver == null
+                                ? null
+                                : await AmbiguousConsoleResolver(fileName, binCandidates);
+                            if (picked == null)
+                            {
+                                StatusChanged?.Invoke($"Skipped {fileName} — console not selected");
+                                return;
+                            }
+                            _folderBinConsole[folderKey] = picked;
+                            innerConsole = picked;
+                        }
                     }
                 }
 

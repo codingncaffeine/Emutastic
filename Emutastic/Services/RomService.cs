@@ -138,6 +138,67 @@ namespace Emutastic.Services
                 : "Unknown";
         }
 
+        // Keyword → console tag. Checked against each folder segment (case-insensitive).
+        private static readonly (string keyword, string console)[] FolderKeywords =
+        [
+            ("atari 7800",    "Atari7800"),
+            ("atari7800",     "Atari7800"),
+            ("7800",          "Atari7800"),
+            ("atari 2600",    "Atari2600"),
+            ("atari2600",     "Atari2600"),
+            ("2600",          "Atari2600"),
+            ("atari 5200",    "Atari5200"),
+            ("atari5200",     "Atari5200"),
+            ("5200",          "Atari5200"),
+            ("mega drive",    "Genesis"),
+            ("genesis",       "Genesis"),
+            ("sega 32x",      "Sega32X"),
+            ("32x",           "Sega32X"),
+            ("sega cd",       "SegaCD"),
+            ("segacd",        "SegaCD"),
+            ("mega-cd",       "SegaCD"),
+            ("colecovision",  "ColecoVision"),
+            ("coleco",        "ColecoVision"),
+            ("intellivision", "Intellivision"),
+            ("nintendo entertainment", "NES"),
+            (" nes",          "NES"),
+            ("famicom",       "NES"),
+            ("super nintendo","SNES"),
+            ("snes",          "SNES"),
+            ("super famicom", "SNES"),
+            ("game boy advance","GBA"),
+            ("game boy color","GBC"),
+            ("game boy",      "GB"),
+            ("nintendo 64",   "N64"),
+            ("n64",           "N64"),
+            ("nintendo ds",   "NDS"),
+            ("turbografx",    "TG16"),
+            ("pc engine",     "TG16"),
+            ("neo geo pocket","NGP"),
+        ];
+
+        /// <summary>
+        /// Tries to identify the console from folder names in the given path.
+        /// Returns empty string if no match is found.
+        /// </summary>
+        public static string DetectConsoleFromFolderName(string filePath)
+        {
+            // Walk each directory component and check against keywords.
+            string? dir = Path.GetDirectoryName(filePath);
+            while (!string.IsNullOrEmpty(dir))
+            {
+                string folderName = Path.GetFileName(dir) ?? "";
+                string lower = folderName.ToLowerInvariant();
+                foreach (var (keyword, console) in FolderKeywords)
+                {
+                    if (lower.Contains(keyword))
+                        return console;
+                }
+                dir = Path.GetDirectoryName(dir);
+            }
+            return string.Empty;
+        }
+
         /// <summary>
         /// Detects the region from a filename using No-Intro/Redump naming conventions.
         /// Returns "Japan", "USA", "Europe", "World", or "Unknown".
