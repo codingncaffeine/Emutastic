@@ -38,19 +38,7 @@ namespace Emutastic
                 InitializeLogging();
                 Logger?.LogInformation("Application starting up...");
                 
-                // Initialize configuration system synchronously to avoid async issues
-                Task.Run(async () => 
-                {
-                    try
-                    {
-                        await InitializeConfigurationAsync();
-                        Logger?.LogInformation("Configuration system initialized");
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger?.LogError(ex, "Failed to initialize configuration system");
-                    }
-                }).Wait();
+                InitializeConfigurationAsync().GetAwaiter().GetResult();
                 
                 // Managed unhandled exceptions on background threads (e.g. Task.Run without await).
                 // IsTerminating=true means the CLR has already decided to exit — we can't stop it,
@@ -107,11 +95,7 @@ namespace Emutastic
 
         private void InitializeLogging()
         {
-            // Create simple logger for now
-            using var loggerFactory = LoggerFactory.Create(builder =>
-            {
-                builder.AddConsole().AddDebug();
-            });
+            var loggerFactory = LoggerFactory.Create(builder => builder.AddDebug());
             Logger = loggerFactory.CreateLogger<App>();
         }
 

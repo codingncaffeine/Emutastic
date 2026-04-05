@@ -18,23 +18,34 @@ namespace Emutastic
 {
     public partial class MainWindow : Window
     {
-        private MainViewModel _vm;
-        private DatabaseService _db;
-        private ImportService _importer;
-        private ArtworkService _artwork;
+        private MainViewModel _vm = null!;
+        private DatabaseService _db = null!;
+        private ImportService _importer = null!;
+        private ArtworkService _artwork = null!;
         private ControllerManager? _controllerManager;
-        private CoreManager _coreManager;
+        private CoreManager _coreManager = null!;
         private Button? _selectedNavButton;
 
         public MainWindow()
         {
             InitializeComponent();
             ApplyWindowsChrome();
-            _db = new DatabaseService();
-            _artwork = new ArtworkService();
+            AllowDrop = true;
+
+            // Everything else deferred to Loaded so the window appears immediately.
+            Loaded += OnLoaded;
+            Loaded += async (s, e) => await RetryMissingArtworkAsync();
+        }
+
+        private void OnLoaded(object sender, RoutedEventArgs e)
+        {
+            Loaded -= OnLoaded; // fire once
+
+            _db         = new DatabaseService();
+            _artwork    = new ArtworkService();
             _coreManager = new CoreManager(App.Configuration);
-            _importer = new ImportService(_db, _coreManager);
-            _vm = new MainViewModel(_db);
+            _importer   = new ImportService(_db, _coreManager);
+            _vm         = new MainViewModel(_db);
             DataContext = _vm;
 
             _importer.StatusChanged += msg =>
@@ -54,16 +65,10 @@ namespace Emutastic
                 return tcs.Task;
             };
 
-            AllowDrop = true;
-
-            Loaded += (s, e) =>
-            {
-                _vm.Reload();
-                UpdateTabStyles(libraryActive: true);
-                RefreshCollectionsSidebar();
-                SelectNavButton(NavAllGames);
-            };
-            Loaded += async (s, e) => await RetryMissingArtworkAsync();
+            _vm.Reload();
+            UpdateTabStyles(libraryActive: true);
+            RefreshCollectionsSidebar();
+            SelectNavButton(NavAllGames);
         }
 
         private void InitializeControllerManager()
