@@ -265,6 +265,41 @@
                 </Style.Triggers>
             </Style>
 
+            <!-- Toggle switch (pill-style) -->
+            <Style x:Key="ToggleSwitch" TargetType="ToggleButton">
+                <Setter Property="Width"  Value="44"/>
+                <Setter Property="Height" Value="24"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ToggleButton">
+                            <Grid>
+                                <Border x:Name="track"
+                                        Background="#3A3A3E"
+                                        CornerRadius="12"/>
+                                <Border x:Name="thumb"
+                                        Width="18" Height="18"
+                                        CornerRadius="9"
+                                        Background="White"
+                                        HorizontalAlignment="Left"
+                                        Margin="3,0,0,0"
+                                        VerticalAlignment="Center"/>
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="track" Property="Background" Value="{StaticResource AccentBrush}"/>
+                                    <Setter TargetName="thumb" Property="HorizontalAlignment" Value="Right"/>
+                                    <Setter TargetName="thumb" Property="Margin" Value="0,0,3,0"/>
+                                </Trigger>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="track" Property="Opacity" Value="0.85"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
             <!-- macOS-style window button -->
             <Style x:Key="WinBtn" TargetType="Button">
                 <Setter Property="Width"  Value="13"/>
@@ -324,7 +359,8 @@
     </Window.Resources>
 
     <!-- Outer border gives the drop shadow + rounded corners -->
-    <Border Margin="10"
+    <Border x:Name="OuterBorder"
+            Margin="10"
             CornerRadius="10"
             Background="{StaticResource BgPrimaryBrush}"
             BorderBrush="{StaticResource BorderNormalBrush}"
@@ -333,7 +369,7 @@
             <DropShadowEffect BlurRadius="30" ShadowDepth="0" Opacity="0.6" Color="#000000"/>
         </Border.Effect>
 
-        <Grid>
+        <Grid x:Name="RootGrid">
             <Grid.RowDefinitions>
                 <RowDefinition Height="38"/>
                 <RowDefinition Height="46"/>
@@ -341,7 +377,8 @@
             </Grid.RowDefinitions>
 
             <!-- ═══ TITLE BAR ══════════════════════════════════════════════ -->
-            <Grid Grid.Row="0"
+            <Grid x:Name="CustomTitleBar"
+                  Grid.Row="0"
                   Background="{StaticResource BgSecondaryBrush}"
                   MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
                 <Grid.ColumnDefinitions>
@@ -402,6 +439,11 @@
                                  Checked="NavBtn_Checked"/>
                     <RadioButton x:Name="NavLibrary"
                                  Content="Library"
+                                 GroupName="NavGroup"
+                                 Style="{StaticResource NavBtn}"
+                                 Checked="NavBtn_Checked"/>
+                    <RadioButton x:Name="NavTheme"
+                                 Content="Theme"
                                  GroupName="NavGroup"
                                  Style="{StaticResource NavBtn}"
                                  Checked="NavBtn_Checked"/>
@@ -611,6 +653,125 @@
                                 HorizontalAlignment="Left" Margin="0,24,0,0"
                                 Click="LibrarySaveBtn_Click"/>
                     </StackPanel>
+                </Grid>
+
+                <!-- ── PANEL: Theme ─────────────────────────────────────────── -->
+                <Grid x:Name="PanelTheme" Visibility="Collapsed">
+                    <ScrollViewer Margin="32,24,32,24" VerticalScrollBarVisibility="Auto">
+                        <StackPanel MaxWidth="560" HorizontalAlignment="Left">
+
+                            <!-- Layout section -->
+                            <TextBlock Text="LAYOUT" Style="{StaticResource PrefLabel}"/>
+                            <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,0,0,16"/>
+
+                            <!-- Grid Padding -->
+                            <Grid Margin="0,0,0,20">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Grid edge padding"
+                                               FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                    <TextBlock Text="Space between the grid and the window edge."
+                                               FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                                               Margin="0,2,0,8" TextWrapping="Wrap"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="40"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Slider x:Name="PaddingSlider"
+                                                Grid.Column="0"
+                                                Minimum="8" Maximum="64" TickFrequency="2"
+                                                IsSnapToTickEnabled="True"
+                                                VerticalAlignment="Center"
+                                                ValueChanged="PaddingSlider_ValueChanged"/>
+                                        <TextBlock x:Name="PaddingValueLabel"
+                                                   Grid.Column="1"
+                                                   FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                                                   VerticalAlignment="Center"
+                                                   HorizontalAlignment="Right"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- Card Spacing -->
+                            <Grid Margin="0,0,0,20">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Card spacing"
+                                               FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                    <TextBlock Text="Gap between individual game cards."
+                                               FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                                               Margin="0,2,0,8" TextWrapping="Wrap"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="40"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Slider x:Name="SpacingSlider"
+                                                Grid.Column="0"
+                                                Minimum="4" Maximum="48" TickFrequency="2"
+                                                IsSnapToTickEnabled="True"
+                                                VerticalAlignment="Center"
+                                                ValueChanged="SpacingSlider_ValueChanged"/>
+                                        <TextBlock x:Name="SpacingValueLabel"
+                                                   Grid.Column="1"
+                                                   FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                                                   VerticalAlignment="Center"
+                                                   HorizontalAlignment="Right"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Grid>
+
+                            <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,4,0,20"/>
+
+                            <!-- Window style section -->
+                            <TextBlock Text="WINDOW STYLE" Style="{StaticResource PrefLabel}"/>
+                            <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,0,0,16"/>
+
+                            <!-- Windows Chrome toggle -->
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                                    <TextBlock Text="Use Windows chrome"
+                                               FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                    <TextBlock FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                                               Margin="0,4,0,0" TextWrapping="Wrap">
+                                        <Run>Replaces the custom macOS-style title bar and window buttons with the standard Windows chrome — including snap layouts and the native minimize, maximize and close buttons.</Run>
+                                    </TextBlock>
+                                    <TextBlock x:Name="ChromeRestartNote"
+                                               Text="&#x26A0;&#xFE0F;  Takes effect after restarting Emutastic."
+                                               FontSize="11" Foreground="#FFB347"
+                                               Margin="0,6,0,0"
+                                               Visibility="Collapsed"/>
+                                </StackPanel>
+                                <ToggleButton x:Name="WindowsChromeToggle"
+                                              Grid.Column="1"
+                                              Style="{StaticResource ToggleSwitch}"
+                                              VerticalAlignment="Top"
+                                              Margin="0,2,0,0"
+                                              Checked="WindowsChromeToggle_Changed"
+                                              Unchecked="WindowsChromeToggle_Changed"/>
+                            </Grid>
+
+                            <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,20,0,20"/>
+
+                            <Button x:Name="ThemeSaveBtn"
+                                    Content="Save"
+                                    Style="{StaticResource ActionBtn}"
+                                    HorizontalAlignment="Left"
+                                    Click="ThemeSaveBtn_Click"/>
+
+                        </StackPanel>
+                    </ScrollViewer>
                 </Grid>
 
             </Grid>

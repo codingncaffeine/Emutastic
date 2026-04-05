@@ -28,6 +28,7 @@ namespace Emutastic
         public MainWindow()
         {
             InitializeComponent();
+            ApplyWindowsChrome();
             _db = new DatabaseService();
             _artwork = new ArtworkService();
             _coreManager = new CoreManager(App.Configuration);
@@ -103,6 +104,33 @@ namespace Emutastic
 
             ToolbarTitle.Text = "All Games";
             _vm.Reload();
+        }
+
+        // ── Windows chrome mode ───────────────────────────────────────────────
+        /// <summary>
+        /// Applies Windows system chrome when the theme setting is on.
+        /// Must be called after InitializeComponent() and before Show().
+        /// </summary>
+        private void ApplyWindowsChrome()
+        {
+            var theme = App.Configuration?.GetThemeConfiguration();
+            if (theme?.UseWindowsChrome != true) return;
+
+            // Switch to Windows system title bar. AllowsTransparency must be false
+            // for WindowStyle other than None — change both before the HWND is created.
+            WindowStyle = System.Windows.WindowStyle.SingleBorderWindow;
+            AllowsTransparency = false;
+            ResizeMode = ResizeMode.CanResize;
+
+            // Strip the custom frameless styling from the outer border.
+            OuterBorder.Margin = new Thickness(0);
+            OuterBorder.CornerRadius = new CornerRadius(0);
+            OuterBorder.BorderThickness = new Thickness(0);
+            OuterBorder.Effect = null;
+
+            // Hide the custom title bar row; system chrome provides its own.
+            CustomTitleBar.Visibility = Visibility.Collapsed;
+            RootGrid.RowDefinitions[0].Height = new GridLength(0);
         }
 
         // ── Window chrome ──

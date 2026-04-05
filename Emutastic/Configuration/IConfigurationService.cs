@@ -32,5 +32,8 @@ namespace Emutastic.Configuration
 
         LibraryConfiguration GetLibraryConfiguration();
         void SetLibraryConfiguration(LibraryConfiguration config);
+
+        ThemeConfiguration GetThemeConfiguration();
+        void SetThemeConfiguration(ThemeConfiguration config);
     }
 }

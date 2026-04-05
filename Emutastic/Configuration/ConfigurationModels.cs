@@ -64,6 +64,21 @@ namespace Emutastic.Configuration
         public List<string> FavoriteConsoles { get; set; } = new();
     }
 
+    // Theme configuration
+    public class ThemeConfiguration : ConfigurationBase
+    {
+        /// <summary>Grid edge padding in pixels. Clamped 8–64 by the UI.</summary>
+        public int GridPadding { get; set; } = 28;
+        /// <summary>Right + bottom gap between game cards in pixels. Clamped 4–48 by the UI.</summary>
+        public int CardSpacing { get; set; } = 20;
+        /// <summary>
+        /// When true, uses standard Windows chrome (system title bar + min/max/close buttons)
+        /// instead of the custom macOS-style frameless window.
+        /// Applied on next launch.
+        /// </summary>
+        public bool UseWindowsChrome { get; set; } = false;
+    }
+
     // Library configuration
     public class LibraryConfiguration : ConfigurationBase
     {

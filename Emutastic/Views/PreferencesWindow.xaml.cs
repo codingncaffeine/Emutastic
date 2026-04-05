@@ -50,7 +50,7 @@ namespace Emutastic.Views
         private SolidColorBrush _brushTextMuted = new(Color.FromRgb(0x55, 0x55, 0x58));
 
         // ── Section navigation ────────────────────────────────────────────────
-        private enum PrefSection { Controls, SystemFiles, Cores, Library }
+        private enum PrefSection { Controls, SystemFiles, Cores, Library, Theme }
         private PrefSection _activeSection = PrefSection.Controls;
 
         // ── Constructors ──────────────────────────────────────────────────────
@@ -59,6 +59,7 @@ namespace Emutastic.Views
             string? initialConsole = null)
         {
             InitializeComponent();
+            ApplyWindowsChrome();
             _db              = db;
             _controllerManager = controllerManager;
             _configService   = configService;
@@ -491,6 +492,25 @@ namespace Emutastic.Views
         private void RefreshDevicesButton_Click(object sender, RoutedEventArgs e)
             => PopulateInputDevices();
 
+        // ── Windows chrome mode ───────────────────────────────────────────────
+        private void ApplyWindowsChrome()
+        {
+            var theme = App.Configuration?.GetThemeConfiguration();
+            if (theme?.UseWindowsChrome != true) return;
+
+            WindowStyle = System.Windows.WindowStyle.SingleBorderWindow;
+            AllowsTransparency = false;
+            ResizeMode = ResizeMode.CanResize;
+
+            OuterBorder.Margin = new Thickness(0);
+            OuterBorder.CornerRadius = new CornerRadius(0);
+            OuterBorder.BorderThickness = new Thickness(0);
+            OuterBorder.Effect = null;
+
+            CustomTitleBar.Visibility = Visibility.Collapsed;
+            RootGrid.RowDefinitions[0].Height = new GridLength(0);
+        }
+
         // ── Title bar ─────────────────────────────────────────────────────────
         private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
             => DragMove();
@@ -555,6 +575,7 @@ namespace Emutastic.Views
             else if (sender == NavSystemFiles)  ShowSection(PrefSection.SystemFiles);
             else if (sender == NavCores)        ShowSection(PrefSection.Cores);
             else if (sender == NavLibrary)      ShowSection(PrefSection.Library);
+            else if (sender == NavTheme)        ShowSection(PrefSection.Theme);
         }
 
         private void ShowSection(PrefSection section)
@@ -565,10 +586,12 @@ namespace Emutastic.Views
             PanelSystemFiles.Visibility = section == PrefSection.SystemFiles ? Visibility.Visible : Visibility.Collapsed;
             PanelCores.Visibility       = section == PrefSection.Cores       ? Visibility.Visible : Visibility.Collapsed;
             PanelLibrary.Visibility     = section == PrefSection.Library     ? Visibility.Visible : Visibility.Collapsed;
+            PanelTheme.Visibility       = section == PrefSection.Theme       ? Visibility.Visible : Visibility.Collapsed;
 
             if (section == PrefSection.SystemFiles) BuildBiosPanel();
             if (section == PrefSection.Cores)       BuildCoresPanel();
             if (section == PrefSection.Library)     LoadLibrarySettings();
+            if (section == PrefSection.Theme)       LoadThemeSettings();
         }
 
         // ── BIOS panel ────────────────────────────────────────────────────────
@@ -1400,6 +1423,50 @@ namespace Emutastic.Views
             lib.OrganizeByConsole = LibraryOrganizeByConsole.IsChecked == true;
             _configService.SetLibraryConfiguration(lib);
             _ = _configService.SaveAsync();
+        }
+
+        // ── Theme panel ───────────────────────────────────────────────────────
+        private void LoadThemeSettings()
+        {
+            var theme = _configService.GetThemeConfiguration();
+
+            // Clamp to valid range in case config was edited manually.
+            PaddingSlider.Value = Math.Clamp(theme.GridPadding, 8, 64);
+            SpacingSlider.Value = Math.Clamp(theme.CardSpacing, 4, 48);
+            WindowsChromeToggle.IsChecked = theme.UseWindowsChrome;
+            UpdateSliderLabels();
+            ChromeRestartNote.Visibility = Visibility.Collapsed;
+        }
+
+        private void UpdateSliderLabels()
+        {
+            if (PaddingValueLabel != null) PaddingValueLabel.Text = $"{(int)PaddingSlider.Value}px";
+            if (SpacingValueLabel != null) SpacingValueLabel.Text = $"{(int)SpacingSlider.Value}px";
+        }
+
+        private void PaddingSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+            => UpdateSliderLabels();
+
+        private void SpacingSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+            => UpdateSliderLabels();
+
+        private void WindowsChromeToggle_Changed(object sender, RoutedEventArgs e)
+        {
+            // Show a reminder that chrome changes need a restart to take effect.
+            ChromeRestartNote.Visibility = Visibility.Visible;
+        }
+
+        private void ThemeSaveBtn_Click(object sender, RoutedEventArgs e)
+        {
+            var theme = _configService.GetThemeConfiguration();
+            theme.GridPadding     = Math.Clamp((int)PaddingSlider.Value, 8, 64);
+            theme.CardSpacing     = Math.Clamp((int)SpacingSlider.Value, 4, 48);
+            theme.UseWindowsChrome = WindowsChromeToggle.IsChecked == true;
+            _configService.SetThemeConfiguration(theme);
+            _ = _configService.SaveAsync();
+
+            // Apply layout changes immediately to the running app.
+            App.ApplyThemeResources();
         }
     }
 

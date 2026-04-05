@@ -194,7 +194,8 @@
 
     </Window.Resources>
 
-    <Border Background="{StaticResource BgPrimaryBrush}"
+    <Border x:Name="OuterBorder"
+            Background="{StaticResource BgPrimaryBrush}"
             BorderBrush="{StaticResource BorderSubtleBrush}"
             BorderThickness="1"
             CornerRadius="10"
@@ -207,7 +208,8 @@
             </Grid.RowDefinitions>
 
             <!-- ══ TITLE BAR ══ -->
-            <Grid Grid.Row="0"
+            <Grid x:Name="CustomTitleBar"
+                  Grid.Row="0"
                   Background="{StaticResource BgSecondaryBrush}"
                   MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
 
@@ -640,9 +642,8 @@
                     <ScrollViewer x:Name="LibraryView"
                                   Grid.Row="1"
                                   Style="{StaticResource MinimalScrollViewer}"
-                                  VerticalScrollBarVisibility="Auto"
-                                  Padding="16">
-                        <StackPanel>
+                                  VerticalScrollBarVisibility="Auto">
+                        <StackPanel Margin="{DynamicResource LibraryGridPadding}">
 
 
                             <!-- Game cards (grid view) -->
@@ -657,7 +658,7 @@
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <Border Width="148"
-                                                Margin="0,0,12,12"
+                                                Margin="{DynamicResource LibraryCardMargin}"
                                                 CornerRadius="8"
                                                 ClipToBounds="True"
                                                 Background="Transparent"

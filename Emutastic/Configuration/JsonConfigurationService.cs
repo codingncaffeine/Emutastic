@@ -21,6 +21,7 @@ namespace Emutastic.Configuration
         public EmulatorConfiguration EmulatorConfiguration { get; set; } = new();
         public CorePreferences CorePreferences { get; set; } = new();
         public LibraryConfiguration LibraryConfiguration { get; set; } = new();
+        public ThemeConfiguration ThemeConfiguration { get; set; } = new();
         // Per-console input configs keyed by ConfigKey (e.g. "SNES_P1")
         public Dictionary<string, InputConfiguration> InputConfigurations { get; set; } = new();
         // Generic string→JsonElement store for arbitrary SetValue<T> callers
@@ -140,6 +141,13 @@ namespace Emutastic.Configuration
         {
             config.LastModified = DateTime.UtcNow;
             _data.LibraryConfiguration = config;
+        }
+
+        public ThemeConfiguration GetThemeConfiguration() => _data.ThemeConfiguration;
+        public void SetThemeConfiguration(ThemeConfiguration config)
+        {
+            config.LastModified = DateTime.UtcNow;
+            _data.ThemeConfiguration = config;
         }
 
         // ── Generic key/value (for arbitrary callers) ─────────────────────────

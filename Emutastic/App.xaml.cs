@@ -121,14 +121,31 @@ namespace Emutastic
             {
                 Configuration = new JsonConfigurationService(Logger as ILogger<JsonConfigurationService>);
                 await Configuration.LoadAsync();
+                ApplyThemeResources();
                 Logger?.LogInformation("Configuration system initialized successfully");
             }
             catch (Exception ex)
             {
                 Logger?.LogError(ex, "Failed to initialize configuration system");
-                // Don't throw - continue with default configuration
                 Configuration = new JsonConfigurationService(null);
             }
+        }
+
+        /// <summary>
+        /// Pushes saved theme layout values into Application.Current.Resources so that all
+        /// {DynamicResource} bindings (grid padding, card spacing) update immediately.
+        /// Safe to call from any thread before or after the window is shown.
+        /// </summary>
+        public static void ApplyThemeResources()
+        {
+            var theme = Configuration?.GetThemeConfiguration() ?? new Emutastic.Configuration.ThemeConfiguration();
+
+            // Clamp to safe limits so malformed config can't break the layout.
+            int padding = Math.Clamp(theme.GridPadding, 8, 64);
+            int spacing = Math.Clamp(theme.CardSpacing, 4, 48);
+
+            Current.Resources["LibraryGridPadding"] = new System.Windows.Thickness(padding);
+            Current.Resources["LibraryCardMargin"]  = new System.Windows.Thickness(0, 0, spacing, spacing);
         }
 
         protected override async void OnExit(ExitEventArgs e)
