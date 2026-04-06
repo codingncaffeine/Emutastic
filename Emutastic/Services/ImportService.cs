@@ -192,6 +192,36 @@ namespace Emutastic.Services
                     }
                 }
 
+                // Ambiguous inner extension (e.g. .iso → PSP / GameCube / 3DO) —
+                // use the same folder-cache + user-prompt flow as BIN_AMBIGUOUS.
+                if (innerConsole.StartsWith("AMBIGUOUS:"))
+                {
+                    string innerExt = innerConsole.Substring("AMBIGUOUS:".Length);
+                    string folderKey = Path.GetDirectoryName(romPath) ?? "";
+                    if (!_folderBinConsole.TryGetValue(folderKey, out innerConsole!))
+                    {
+                        string fromFolder = RomService.DetectConsoleFromFolderName(romPath);
+                        var isoCandidates = RomService.GetAmbiguousCandidates(innerExt);
+                        if (!string.IsNullOrEmpty(fromFolder) && isoCandidates != null && isoCandidates.Contains(fromFolder))
+                        {
+                            _folderBinConsole[folderKey] = fromFolder;
+                            innerConsole = fromFolder;
+                        }
+                        else
+                        {
+                            string? picked = AmbiguousConsoleResolver == null ? null
+                                : await AmbiguousConsoleResolver(fileName, isoCandidates ?? Array.Empty<string>());
+                            if (picked == null)
+                            {
+                                StatusChanged?.Invoke($"Skipped {fileName} — console not selected");
+                                return;
+                            }
+                            _folderBinConsole[folderKey] = picked;
+                            innerConsole = picked;
+                        }
+                    }
+                }
+
                 if (string.IsNullOrEmpty(innerConsole))
                 {
                     await ImportRomFileAsync(romPath, "Arcade", fileName);
@@ -380,15 +410,28 @@ namespace Emutastic.Services
                     if (recognized)
                     {
                         string console = RomService.DetectConsole(entryName);
-                        if (string.IsNullOrEmpty(console))
+                        // DetectConsole returns "Unknown" for ambiguous extensions (.iso, .cue, etc.)
+                        // that live in AmbiguousExtensions rather than ExtensionMap.
+                        var candidates = RomService.GetAmbiguousCandidates(ext);
+                        if (candidates != null || console == "Unknown" || string.IsNullOrEmpty(console))
                         {
                             // Ambiguous extension inside archive (e.g. .iso, .cue) —
-                            // try folder name before falling back to Arcade.
-                            console = RomService.DetectConsoleFromFolderName(archivePath);
-                            // Verify folder result is valid for this extension
-                            var candidates = RomService.GetAmbiguousCandidates(ext);
-                            if (candidates != null && !candidates.Contains(console))
-                                console = string.Empty;
+                            // try folder name before falling back to asking the user.
+                            string fromFolder = RomService.DetectConsoleFromFolderName(archivePath);
+                            if (candidates != null && candidates.Contains(fromFolder))
+                            {
+                                console = fromFolder;
+                            }
+                            else if (candidates != null)
+                            {
+                                // Folder name gave no hint — signal caller to ask user
+                                ImportLog($"  → ambiguous {ext}, returning AMBIGUOUS signal");
+                                return $"AMBIGUOUS:{ext}";
+                            }
+                            else
+                            {
+                                console = fromFolder;
+                            }
                         }
                         ImportLog($"  → console={console}");
                         return console;
