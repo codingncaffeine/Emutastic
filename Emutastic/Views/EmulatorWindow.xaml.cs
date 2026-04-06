@@ -132,12 +132,30 @@ namespace Emutastic.Views
         // Overlay HUD
         private bool _isPaused = false;
 
-        // Rumble interface no-op stub — Reicast/Flycast gates VMU sub-peripheral
-        // init on whether the frontend supplies a rumble interface. A valid function
-        // pointer (even one that does nothing) is sufficient.
+        // Rumble interface — Reicast/Flycast gates VMU sub-peripheral init on whether
+        // the frontend supplies a rumble interface, so this must always return a valid
+        // function pointer.  The callback also drives actual controller vibration:
+        // effect 0 = strong (left motor), effect 1 = weak (right motor).
         [System.Runtime.InteropServices.UnmanagedFunctionPointer(System.Runtime.InteropServices.CallingConvention.Cdecl)]
         private delegate bool SetRumbleStateDelegate(uint port, uint effect, ushort strength);
-        private readonly SetRumbleStateDelegate _rumbleStateDelegate = (_, _, _) => true;
+        private SetRumbleStateDelegate? _rumbleStateDelegate;
+
+        private ushort _rumbleStrong = 0; // left/low-freq motor
+        private ushort _rumbleWeak   = 0; // right/high-freq motor
+
+        private bool OnSetRumbleState(uint port, uint effect, ushort strength)
+        {
+            if (port == 0 && _controllerManager != null)
+            {
+                // effect 0 = RETRO_RUMBLE_STRONG (left/low-freq motor)
+                // effect 1 = RETRO_RUMBLE_WEAK   (right/high-freq motor)
+                // Cores send each motor independently; accumulate both before applying.
+                if (effect == 0) _rumbleStrong = strength;
+                else             _rumbleWeak   = strength;
+                _controllerManager.SetVibration(_rumbleStrong, _rumbleWeak);
+            }
+            return true;
+        }
         private DispatcherTimer? _overlayTimer;
         private DispatcherTimer? _mousePoller;
         private System.Windows.Point _lastMousePos = new(-1, -1);
@@ -652,6 +670,7 @@ namespace Emutastic.Views
                 _configService     = App.Configuration ?? throw new InvalidOperationException("Configuration not initialized");
                 _controllerManager = new ControllerManager(_configService, null, game.Console);
                 _controllerManager.ButtonChanged += OnControllerButtonChanged;
+                _rumbleStateDelegate = OnSetRumbleState; // must be assigned after _controllerManager exists; field keeps it GC-rooted
 
                 LoadKeyboardMappings();
                 _audioPlayer = new AudioPlayer(44100);
@@ -2152,10 +2171,11 @@ namespace Emutastic.Views
                         return true;
 
                     case RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE:
-                        // Provide a no-op rumble stub so Reicast initialises maple bus
+                        // Provide a rumble callback so Reicast initialises maple bus
                         // sub-peripherals (VMU, Purupuru) for all ports. A missing
                         // rumble interface also blocks sub-peripheral setup.
-                        if (data != IntPtr.Zero)
+                        // The same callback drives real XInput vibration.
+                        if (data != IntPtr.Zero && _rumbleStateDelegate != null)
                             Marshal.WriteIntPtr(data, Marshal.GetFunctionPointerForDelegate(_rumbleStateDelegate));
                         return true;
 
