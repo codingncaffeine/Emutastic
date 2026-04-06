@@ -67,6 +67,44 @@
             </Setter>
         </Style>
 
+        <Style x:Key="TabToggleMiddleStyle" TargetType="ToggleButton">
+            <Setter Property="Foreground" Value="#E0E0E0"/>
+            <Setter Property="FontFamily" Value="{StaticResource PrimaryFont}"/>
+            <Setter Property="FontSize"   Value="12"/>
+            <Setter Property="Padding"    Value="12,6"/>
+            <Setter Property="Cursor"     Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="pill"
+                                Background="#2D2D2D"
+                                BorderBrush="#1A1A1A"
+                                BorderThickness="0,1,0,1"
+                                CornerRadius="0"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              TextElement.Foreground="#E0E0E0"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="pill" Property="Background" Value="#555555"/>
+                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsMouseOver" Value="True"/>
+                                    <Condition Property="IsChecked"   Value="False"/>
+                                </MultiTrigger.Conditions>
+                                <MultiTrigger.Setters>
+                                    <Setter TargetName="pill" Property="Background" Value="#3D3D3D"/>
+                                </MultiTrigger.Setters>
+                            </MultiTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style x:Key="TabToggleRightStyle" TargetType="ToggleButton">
             <Setter Property="Foreground" Value="#E0E0E0"/>
             <Setter Property="FontFamily" Value="{StaticResource PrimaryFont}"/>
@@ -215,102 +253,109 @@
             <!-- ══ TITLE BAR ══ -->
             <Grid x:Name="CustomTitleBar"
                   Grid.Row="0"
-                  Background="{StaticResource BgSecondaryBrush}"
                   MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
 
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="220"/>
                     <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- App name -->
-                <StackPanel Grid.Column="0"
-                            Orientation="Horizontal"
-                            VerticalAlignment="Center"
-                            Margin="14,0,0,0">
-                    <Image Source="Assets/banners and icons/emutastic-logo.png"
-                           Width="20" Height="20"
-                           VerticalAlignment="Center"
-                           Margin="0,0,7,0"
-                           RenderOptions.BitmapScalingMode="HighQuality"/>
-                    <TextBlock Text="Emutastic"
-                               FontFamily="{StaticResource PrimaryFont}"
-                               FontSize="13"
-                               FontWeight="SemiBold"
-                               Foreground="{StaticResource TextPrimaryBrush}"
-                               VerticalAlignment="Center"/>
-                </StackPanel>
-
-                <!-- Drag zone + status text -->
-                <Grid Grid.Column="1">
-                    <Rectangle Fill="Transparent"/>
-                    <TextBlock x:Name="StatusText"
-                               Text=""
-                               FontFamily="{StaticResource PrimaryFont}"
-                               FontSize="11"
-                               Foreground="{StaticResource TextMutedBrush}"
-                               HorizontalAlignment="Center"
+                <!-- Left: transparent strip aligned with sidebar -->
+                <Border Grid.Column="0" Background="#B3181819">
+                    <StackPanel Orientation="Horizontal"
+                                VerticalAlignment="Center"
+                                Margin="14,0,0,0">
+                        <Image Source="Assets/banners and icons/emutastic-logo.png"
+                               Width="20" Height="20"
                                VerticalAlignment="Center"
-                               IsHitTestVisible="False"/>
-                </Grid>
+                               Margin="0,0,7,0"
+                               RenderOptions.BitmapScalingMode="HighQuality"/>
+                        <TextBlock Text="Emutastic"
+                                   FontFamily="{StaticResource PrimaryFont}"
+                                   FontSize="13"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextPrimaryBrush}"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
 
-                <!-- Window buttons -->
-                <StackPanel Grid.Column="2"
-                            Orientation="Horizontal"
-                            VerticalAlignment="Center"
-                            Margin="0,0,10,0">
-                    <Button x:Name="MinimizeButton"
-                            Width="13" Height="13"
-                            Margin="0,0,6,0"
-                            Cursor="Hand"
-                            Click="MinimizeButton_Click"
-                            ToolTip="Minimize">
-                        <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Ellipse x:Name="circle" Fill="#FEBC2E"/>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="circle" Property="Fill" Value="#E5A800"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Button.Template>
-                    </Button>
-                    <Button x:Name="MaximizeButton"
-                            Width="13" Height="13"
-                            Margin="0,0,6,0"
-                            Cursor="Hand"
-                            Click="MaximizeButton_Click"
-                            ToolTip="Maximize">
-                        <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Ellipse x:Name="circle" Fill="#28C840"/>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="circle" Property="Fill" Value="#1FA832"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Button.Template>
-                    </Button>
-                    <Button x:Name="CloseButton"
-                            Width="13" Height="13"
-                            Cursor="Hand"
-                            Click="CloseButton_Click"
-                            ToolTip="Close">
-                        <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Ellipse x:Name="circle" Fill="#FF5F57"/>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="circle" Property="Fill" Value="#E5453D"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Button.Template>
-                    </Button>
-                </StackPanel>
+                <!-- Right: normal title bar with drag zone + window buttons -->
+                <Grid Grid.Column="1" Background="{StaticResource BgSecondaryBrush}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Drag zone + status text -->
+                    <Grid Grid.Column="0">
+                        <Rectangle Fill="Transparent"/>
+                        <TextBlock x:Name="StatusText"
+                                   Text=""
+                                   FontFamily="{StaticResource PrimaryFont}"
+                                   FontSize="11"
+                                   Foreground="{StaticResource TextMutedBrush}"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   IsHitTestVisible="False"/>
+                    </Grid>
+
+                    <!-- Window buttons -->
+                    <StackPanel Grid.Column="1"
+                                Orientation="Horizontal"
+                                VerticalAlignment="Center"
+                                Margin="0,0,10,0">
+                        <Button x:Name="MinimizeButton"
+                                Width="13" Height="13"
+                                Margin="0,0,6,0"
+                                Cursor="Hand"
+                                Click="MinimizeButton_Click"
+                                ToolTip="Minimize">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Ellipse x:Name="circle" Fill="#FEBC2E"/>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="circle" Property="Fill" Value="#E5A800"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+                        <Button x:Name="MaximizeButton"
+                                Width="13" Height="13"
+                                Margin="0,0,6,0"
+                                Cursor="Hand"
+                                Click="MaximizeButton_Click"
+                                ToolTip="Maximize">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Ellipse x:Name="circle" Fill="#28C840"/>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="circle" Property="Fill" Value="#1FA832"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+                        <Button x:Name="CloseButton"
+                                Width="13" Height="13"
+                                Cursor="Hand"
+                                Click="CloseButton_Click"
+                                ToolTip="Close">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Ellipse x:Name="circle" Fill="#FF5F57"/>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="circle" Property="Fill" Value="#E5453D"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+                    </StackPanel>
+                </Grid>
             </Grid>
 
             <!-- ══ BODY ══ -->
@@ -322,7 +367,7 @@
 
                 <!-- ── SIDEBAR ── -->
                 <Border Grid.Column="0"
-                        Background="{StaticResource BgSecondaryBrush}"
+                        Background="#B3181819"
                         BorderBrush="{StaticResource BorderSubtleBrush}"
                         BorderThickness="0,1,1,0">
                     <ScrollViewer Style="{StaticResource MinimalScrollViewer}"
@@ -578,9 +623,14 @@
                                                   Tag="Library"/>
                                     <ToggleButton x:Name="TabSaveStates"
                                                   Content="Save States"
-                                                  Style="{StaticResource TabToggleRightStyle}"
+                                                  Style="{StaticResource TabToggleMiddleStyle}"
                                                   Click="Tab_Click"
                                                   Tag="SaveStates"/>
+                                    <ToggleButton x:Name="TabScreenshots"
+                                                  Content="Screenshots"
+                                                  Style="{StaticResource TabToggleRightStyle}"
+                                                  Click="Tab_Click"
+                                                  Tag="Screenshots"/>
                                 </StackPanel>
                             </Border>
 
@@ -961,6 +1011,42 @@
                     </StackPanel>
 
                     </Grid>
+
+                    <!-- Screenshots view -->
+                    <ScrollViewer x:Name="ScreenshotsView"
+                                  Grid.Row="1"
+                                  Visibility="Collapsed"
+                                  Style="{StaticResource MinimalScrollViewer}"
+                                  VerticalScrollBarVisibility="Auto"
+                                  Padding="16">
+                        <StackPanel>
+                            <!-- Empty state -->
+                            <StackPanel x:Name="ScreenshotsEmptyState"
+                                        HorizontalAlignment="Center"
+                                        Margin="0,60,0,0"
+                                        Visibility="Collapsed">
+                                <TextBlock Text="📷"
+                                           FontSize="48"
+                                           HorizontalAlignment="Center"
+                                           Margin="0,0,0,12"/>
+                                <TextBlock Text="Screenshots will appear here when they've been saved."
+                                           FontFamily="{StaticResource PrimaryFont}"
+                                           FontSize="13"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           HorizontalAlignment="Center"/>
+                                <TextBlock Text="To take a screenshot, press Print Screen or F12 while in a game."
+                                           FontFamily="{StaticResource PrimaryFont}"
+                                           FontSize="12"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           HorizontalAlignment="Center"
+                                           Opacity="0.6"
+                                           Margin="0,6,0,0"/>
+                            </StackPanel>
+                            <!-- Grid of screenshot cards -->
+                            <WrapPanel x:Name="ScreenshotsPanel"
+                                       Orientation="Horizontal"/>
+                        </StackPanel>
+                    </ScrollViewer>
 
                     <!-- Save States view -->
                     <ScrollViewer x:Name="SaveStatesView"

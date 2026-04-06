@@ -26,6 +26,7 @@ namespace Emutastic
         private CoreManager _coreManager = null!;
         private Button? _selectedNavButton;
         private Game?   _selectionAnchor;   // anchor for Shift+click range selection
+        private readonly HashSet<string> _selectedScreenshots = new(); // selected file paths
 
         public MainWindow()
         {
@@ -46,7 +47,7 @@ namespace Emutastic
             // ── Phase 1: synchronous, fast — window becomes interactive immediately ──
             _db          = new DatabaseService();   // schema init (CREATE TABLE / indexes)
             _artwork     = new ArtworkService();
-            _coreManager = new CoreManager(App.Configuration);
+            _coreManager = new CoreManager(App.Configuration!);
             _importer    = new ImportService(_db, _coreManager);
             _vm          = new MainViewModel(_db);  // empty _allGames until Reload() runs
             DataContext  = _vm;                     // _vm is now non-null; clicks work
@@ -79,7 +80,7 @@ namespace Emutastic
                 return tcs.Task;
             };
 
-            UpdateTabStyles(libraryActive: true);
+            UpdateTabStyles("Library");
             RefreshCollectionsSidebar();
 
             // ── Phase 2: load data off UI thread, then filter on UI thread ──
@@ -519,6 +520,17 @@ namespace Emutastic
                     var artItem = new MenuItem { Header = "⬇  Download Missing Artwork" };
                     artItem.Click += async (_, _) => await FetchMissingArtworkForConsoleAsync(console, displayName);
                     menu.Items.Add(artItem);
+                    var editControlsItem = new MenuItem { Header = "🎮  Edit Controls…" };
+                    editControlsItem.Click += (_, _) =>
+                    {
+                        var win = new Views.PreferencesWindow(_db, _controllerManager!, App.Configuration!,
+                            initialConsole: console)
+                        { Owner = this };
+                        win.ShowDialog();
+                    };
+                    menu.Items.Insert(0, editControlsItem);
+                    menu.Items.Insert(1, new Separator());
+
                     menu.PlacementTarget = btn;
                     menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
                     menu.IsOpen = true;
@@ -569,7 +581,7 @@ namespace Emutastic
         private void NavPreferences_Click(object sender, RoutedEventArgs e) 
         { 
             InitializeControllerManager();
-            var prefs = new PreferencesWindow(_db, _controllerManager, App.Configuration) { Owner = this };
+            var prefs = new PreferencesWindow(_db, _controllerManager!, App.Configuration!) { Owner = this };
             prefs.ShowDialog();
         }
 
@@ -940,6 +952,15 @@ namespace Emutastic
                 var toDelete = GameGridView.SelectedItems.OfType<Game>().ToList();
                 _ = DeleteGamesWithConfirmAsync(toDelete);
             }
+
+            // Delete — delete selected screenshots
+            if (e.Key == Key.Delete &&
+                ScreenshotsView.Visibility == Visibility.Visible &&
+                _selectedScreenshots.Count > 0)
+            {
+                e.Handled = true;
+                DeleteScreenshotsWithConfirm(_selectedScreenshots.ToList());
+            }
         }
 
         private async Task DeleteGamesWithConfirmAsync(List<Game> toDelete)
@@ -964,20 +985,22 @@ namespace Emutastic
         {
             if (sender is System.Windows.Controls.Primitives.ToggleButton btn && btn.Tag is string tag)
             {
-                bool isLibrary = tag == "Library";
-                GameContentGrid.Visibility = isLibrary ? Visibility.Visible   : Visibility.Collapsed;
-                SaveStatesView.Visibility  = isLibrary ? Visibility.Collapsed : Visibility.Visible;
+                GameContentGrid.Visibility = tag == "Library"     ? Visibility.Visible : Visibility.Collapsed;
+                SaveStatesView.Visibility  = tag == "SaveStates"  ? Visibility.Visible : Visibility.Collapsed;
+                ScreenshotsView.Visibility = tag == "Screenshots" ? Visibility.Visible : Visibility.Collapsed;
 
-                if (!isLibrary) PopulateSaveStatesView();
+                if (tag == "SaveStates")  PopulateSaveStatesView();
+                if (tag == "Screenshots") PopulateScreenshotsView();
 
-                UpdateTabStyles(isLibrary);
+                UpdateTabStyles(tag);
             }
         }
 
-        private void UpdateTabStyles(bool libraryActive)
+        private void UpdateTabStyles(string activeTag)
         {
-            TabLibrary.IsChecked    = libraryActive;
-            TabSaveStates.IsChecked = !libraryActive;
+            TabLibrary.IsChecked     = activeTag == "Library";
+            TabSaveStates.IsChecked  = activeTag == "SaveStates";
+            TabScreenshots.IsChecked = activeTag == "Screenshots";
         }
 
         private void PopulateSaveStatesView()
@@ -1019,6 +1042,168 @@ namespace Emutastic
                 }
                 SaveStatesPanel.Children.Add(wrap);
             }
+        }
+
+        private void PopulateScreenshotsView()
+        {
+            ScreenshotsPanel.Children.Clear();
+            _selectedScreenshots.Clear();
+
+            var service     = new Services.ScreenshotService();
+            var screenshots = service.GetAll();
+
+            if (screenshots.Count == 0)
+            {
+                ScreenshotsEmptyState.Visibility = Visibility.Visible;
+                return;
+            }
+            ScreenshotsEmptyState.Visibility = Visibility.Collapsed;
+
+            foreach (var ss in screenshots)
+                ScreenshotsPanel.Children.Add(BuildScreenshotCard(ss));
+        }
+
+        private FrameworkElement BuildScreenshotCard(Models.Screenshot ss)
+        {
+            var selectedBrush = new System.Windows.Media.SolidColorBrush(
+                (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#E03535")!);
+            var normalBrush = System.Windows.Media.Brushes.Transparent;
+
+            var card = new Border
+            {
+                Width        = 240,
+                Margin       = new Thickness(0, 0, 12, 12),
+                CornerRadius = new CornerRadius(8),
+                ClipToBounds = false,
+                Cursor       = Cursors.Hand,
+                BorderThickness = new Thickness(2),
+                BorderBrush  = normalBrush,
+            };
+
+            var innerBorder = new Border
+            {
+                CornerRadius = new CornerRadius(8),
+                ClipToBounds = true,
+                Background   = new System.Windows.Media.SolidColorBrush(
+                    (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#1F1F21")!),
+            };
+
+            var stack = new StackPanel();
+
+            // Console label
+            stack.Children.Add(new TextBlock
+            {
+                Text       = ss.Console,
+                FontFamily = (System.Windows.Media.FontFamily)FindResource("PrimaryFont"),
+                FontSize   = 10,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = (System.Windows.Media.Brush)FindResource("AccentBrush"),
+                Margin     = new Thickness(8, 6, 8, 4),
+            });
+
+            // Screenshot image
+            var imgBorder = new Border { Height = 135, ClipToBounds = true, Background = System.Windows.Media.Brushes.Black };
+            if (System.IO.File.Exists(ss.FilePath))
+            {
+                try
+                {
+                    var bmp = new System.Windows.Media.Imaging.BitmapImage();
+                    bmp.BeginInit();
+                    bmp.UriSource        = new Uri(ss.FilePath, UriKind.Absolute);
+                    bmp.CacheOption      = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                    bmp.DecodePixelWidth = 240;
+                    bmp.EndInit();
+                    bmp.Freeze();
+                    imgBorder.Child = new System.Windows.Controls.Image { Source = bmp, Stretch = System.Windows.Media.Stretch.UniformToFill };
+                }
+                catch { /* leave black */ }
+            }
+            stack.Children.Add(imgBorder);
+
+            stack.Children.Add(new TextBlock
+            {
+                Text         = ss.GameTitle,
+                FontFamily   = (System.Windows.Media.FontFamily)FindResource("PrimaryFont"),
+                FontSize     = 12,
+                FontWeight   = FontWeights.SemiBold,
+                Foreground   = (System.Windows.Media.Brush)FindResource("TextPrimaryBrush"),
+                Margin       = new Thickness(8, 6, 8, 2),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            });
+
+            stack.Children.Add(new TextBlock
+            {
+                Text       = ss.TakenAtDisplay,
+                FontFamily = (System.Windows.Media.FontFamily)FindResource("PrimaryFont"),
+                FontSize   = 10,
+                Foreground = (System.Windows.Media.Brush)FindResource("TextMutedBrush"),
+                Margin     = new Thickness(8, 0, 8, 8),
+            });
+
+            innerBorder.Child = stack;
+            card.Child        = innerBorder;
+
+            // Shift+click → toggle selection
+            card.MouseLeftButtonUp += (_, e) =>
+            {
+                if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))
+                {
+                    if (_selectedScreenshots.Contains(ss.FilePath))
+                    {
+                        _selectedScreenshots.Remove(ss.FilePath);
+                        card.BorderBrush = normalBrush;
+                    }
+                    else
+                    {
+                        _selectedScreenshots.Add(ss.FilePath);
+                        card.BorderBrush = selectedBrush;
+                    }
+                    e.Handled = true;
+                }
+                else
+                {
+                    // Normal click — open full-size
+                    try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(ss.FilePath) { UseShellExecute = true }); }
+                    catch { }
+                }
+            };
+
+            // Right-click → context menu
+            card.MouseRightButtonUp += (_, e) =>
+            {
+                var paths = _selectedScreenshots.Count > 0
+                    ? _selectedScreenshots.ToList()
+                    : new List<string> { ss.FilePath };
+
+                string label = paths.Count == 1
+                    ? "🗑  Delete Screenshot"
+                    : $"🗑  Delete {paths.Count} Screenshots";
+
+                var menu = new ContextMenu();
+                menu.Items.Add(MakeMenuItem(label, () => DeleteScreenshotsWithConfirm(paths)));
+                menu.IsOpen = true;
+                e.Handled   = true;
+            };
+
+            return card;
+        }
+
+        private void DeleteScreenshotsWithConfirm(List<string> paths)
+        {
+            string msg = paths.Count == 1
+                ? "Delete this screenshot?"
+                : $"Delete {paths.Count} screenshots?";
+
+            var confirm = new Views.ConfirmDialog("Delete Screenshots", msg) { Owner = this };
+            if (confirm.ShowDialog() != true) return;
+
+            foreach (string path in paths)
+            {
+                try { System.IO.File.Delete(path); } catch { }
+            }
+
+            _selectedScreenshots.Clear();
+            PopulateScreenshotsView();
         }
 
         private FrameworkElement BuildSaveStateCard(Models.SaveState s)

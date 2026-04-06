@@ -167,14 +167,14 @@ namespace Emutastic.Configuration
                 if (_data.Extra.TryGetValue(key, out var element))
                 {
                     var result = JsonSerializer.Deserialize<T>(element.GetRawText(), _jsonOptions);
-                    return result ?? defaultValue;
+                    return result ?? defaultValue!;
                 }
             }
             catch (Exception ex)
             {
                 _logger?.LogError(ex, $"Error getting value for key '{key}'");
             }
-            return defaultValue;
+            return defaultValue!;
         }
 
         public void SetValue<T>(string key, T value)

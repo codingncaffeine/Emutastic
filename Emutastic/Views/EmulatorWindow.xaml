@@ -316,6 +316,10 @@
                                 <Button Content="Core Options…"
                                         Style="{StaticResource OverlayMenuItemStyle}"
                                         Click="OverlayCoreOptions_Click"/>
+                                <Button x:Name="OverlayFlipBtn"
+                                        Content="Flip Display"
+                                        Style="{StaticResource OverlayMenuItemStyle}"
+                                        Click="OverlayFlip_Click"/>
                                 <Rectangle Height="1" Fill="#33FFFFFF" Margin="6,2,6,2"/>
                                 <TextBlock x:Name="OverlayCoreLabel"
                                            Foreground="#99FFFFFF"
