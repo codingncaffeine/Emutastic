@@ -369,6 +369,15 @@ namespace Emutastic.Services
 
             if (!string.IsNullOrWhiteSpace(romPath))
             {
+                // For Arcade, resolve short ROM name to full title via FBNeo DAT first
+                if (console == "Arcade")
+                {
+                    string romName = Path.GetFileNameWithoutExtension(romPath);
+                    string? arcadeTitle = _datMatcher.LookupArcadeTitle(romName);
+                    if (!string.IsNullOrWhiteSpace(arcadeTitle))
+                        titleCandidates.Add(arcadeTitle);
+                }
+
                 titleCandidates.Add(Path.GetFileNameWithoutExtension(romPath));
                 string cleaned = RomService.CleanTitle(Path.GetFileName(romPath));
                 if (!titleCandidates.Contains(cleaned))
