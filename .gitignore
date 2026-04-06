@@ -14,6 +14,17 @@ Emutastic/Cores/*.dll
 Emutastic/Cores/*.rom
 Emutastic/Cores/dolphin-emu/
 
+# BIOS files — must never be committed (copyrighted firmware)
+Emutastic/BIOS/
+Emutastic/Bios/
+**/*.bin
+**/bios*.rom
+**/scph*.bin
+**/saturn*.bin
+**/mpr-*.bin
+**/dc_boot.bin
+**/dc_flash.bin
+
 # Large database asset
 Emutastic/Assets/openvgdb.sqlite
 

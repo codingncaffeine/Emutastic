@@ -238,8 +238,18 @@
                                VerticalAlignment="Center"/>
                 </StackPanel>
 
-                <!-- Drag zone -->
-                <Rectangle Grid.Column="1" Fill="Transparent"/>
+                <!-- Drag zone + status text -->
+                <Grid Grid.Column="1">
+                    <Rectangle Fill="Transparent"/>
+                    <TextBlock x:Name="StatusText"
+                               Text=""
+                               FontFamily="{StaticResource PrimaryFont}"
+                               FontSize="11"
+                               Foreground="{StaticResource TextMutedBrush}"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               IsHitTestVisible="False"/>
+                </Grid>
 
                 <!-- Window buttons -->
                 <StackPanel Grid.Column="2"
@@ -361,7 +371,7 @@
                             </Button>
                             <StackPanel x:Name="AtariSection">
                                 <Button Style="{StaticResource SidebarItemStyle}" Click="NavConsole_Click" Tag="Atari2600"><StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/atari2600.jpg"        Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Atari 2600"   VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button Style="{StaticResource SidebarItemStyle}" Click="NavConsole_Click" Tag="Atari5200"><StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/atari5200.jpg"        Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Atari 5200"   VerticalAlignment="Center"/></StackPanel></Button>
+
                                 <Button Style="{StaticResource SidebarItemStyle}" Click="NavConsole_Click" Tag="Atari7800"><StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/atari7800.jpg"        Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Atari 7800"   VerticalAlignment="Center"/></StackPanel></Button>
                                 <Button Style="{StaticResource SidebarItemStyle}" Click="NavConsole_Click" Tag="Jaguar">  <StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/systemicons1_13.jpg" Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Atari Jaguar" VerticalAlignment="Center"/></StackPanel></Button>
                             </StackPanel>
@@ -473,7 +483,7 @@
                             <StackPanel x:Name="OtherSection">
                                 <Button Style="{StaticResource SidebarItemStyle}" Click="NavConsole_Click" Tag="3DO">         <StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/3d0.jpg"          Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="3DO"           VerticalAlignment="Center"/></StackPanel></Button>
                                 <Button Style="{StaticResource SidebarItemStyle}" Click="NavConsole_Click" Tag="ColecoVision"><StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/coleco.jpg"        Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="ColecoVision"  VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button Style="{StaticResource SidebarItemStyle}" Click="NavConsole_Click" Tag="Intellivision"><StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/intellivision.jpg" Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Intellivision" VerticalAlignment="Center"/></StackPanel></Button>
+
                                 <Button Style="{StaticResource SidebarItemStyle}" Click="NavConsole_Click" Tag="Vectrex">     <StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/vectrex.jpg"       Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Vectrex"       VerticalAlignment="Center"/></StackPanel></Button>
                             </StackPanel>
 
@@ -632,7 +642,7 @@
                     </Border>
 
                     <!-- Game grid (Library view) -->
-                    <Grid Grid.Row="1">
+                    <Grid x:Name="GameContentGrid" Grid.Row="1">
 
                     <!-- ── Flat grid: virtualized ListBox + VirtualizingWrapPanel ─────────────── -->
                     <!-- Only ~60 card visuals exist at any time regardless of library size.       -->

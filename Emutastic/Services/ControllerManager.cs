@@ -200,6 +200,8 @@ namespace Emutastic.Services
         // -------------------------------------------------------------------------
         // Configuration helpers
         // -------------------------------------------------------------------------
+        public void ReloadInputConfiguration() => LoadInputConfiguration();
+
         private void LoadInputConfiguration()
         {
             try
@@ -573,7 +575,7 @@ namespace Emutastic.Services
                     };
 
                 // ── Atari ─────────────────────────────────────────────────────
-                case "Atari2600": case "Atari5200": case "Atari7800":
+                case "Atari2600": case "Atari7800":
                     return n switch {
                         "fire" => 0, "fire 1" => 0, "fire 2" => 1,
                         "pause" => 3, "reset" => 2,
@@ -603,13 +605,7 @@ namespace Emutastic.Services
                         "up" => 4, "down" => 5, "left" => 6, "right" => 7,
                         _ => uint.MaxValue
                     };
-                case "Intellivision":
-                    return n switch {
-                        "top" => 8, "left side" => 0, "right side" => 1,
-                        "1" => 10, "2" => 11, "3" => 9,
-                        "up" => 4, "down" => 5, "left" => 6, "right" => 7,
-                        _ => uint.MaxValue
-                    };
+
                 case "Vectrex":
                     return n switch {
                         "1" => 8, "2" => 0, "3" => 9, "4" => 1,
@@ -670,8 +666,8 @@ namespace Emutastic.Services
                 9  => (wButtons & XINPUT_GAMEPAD_X) != 0,
                 10 => (wButtons & XINPUT_GAMEPAD_LEFT_SHOULDER) != 0,
                 11 => (wButtons & XINPUT_GAMEPAD_RIGHT_SHOULDER) != 0,
-                12 => false,
-                13 => false,
+                12 => _leftTrigger  > 64,
+                13 => _rightTrigger > 64,
                 14 => (wButtons & XINPUT_GAMEPAD_LEFT_THUMB) != 0,
                 15 => (wButtons & XINPUT_GAMEPAD_RIGHT_THUMB) != 0,
                 _  => false

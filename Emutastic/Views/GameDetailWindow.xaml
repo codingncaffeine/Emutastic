@@ -6,7 +6,7 @@
         Background="Transparent"
         ResizeMode="NoResize"
         ShowInTaskbar="False"
-        Width="520" Height="620"
+        Width="520" Height="740"
         WindowStartupLocation="CenterOwner">
 
     <Window.Resources>
@@ -34,8 +34,8 @@
                 HorizontalAlignment="Center">
             <Grid>
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="220"/>
-                    <!-- Art -->
+                    <RowDefinition Height="345"/>
+                    <!-- Art: 460×345 = 4:3 -->
                     <RowDefinition Height="*"/>
                     <!-- Info -->
                 </Grid.RowDefinitions>
@@ -52,11 +52,21 @@
                             </Border.Background>
                         </Border>
 
-                        <!-- Snap / screenshot image (landscape, fills header) -->
+                        <!-- Snap / screenshot image (static fallback) -->
                         <Image x:Name="HeaderImage"
                                Stretch="UniformToFill"
                                RenderOptions.BitmapScalingMode="HighQuality"
                                Visibility="Collapsed"/>
+
+                        <!-- Video snap (ScreenScraper .mp4, 4:3, silent loop) -->
+                        <MediaElement x:Name="SnapVideo"
+                                      Stretch="Uniform"
+                                      IsMuted="True"
+                                      LoadedBehavior="Manual"
+                                      UnloadedBehavior="Stop"
+                                      Visibility="Collapsed"
+                                      MediaEnded="SnapVideo_MediaEnded"
+                                      MediaOpened="SnapVideo_MediaOpened"/>
 
                         <!-- Gradient overlay -->
                         <Border>

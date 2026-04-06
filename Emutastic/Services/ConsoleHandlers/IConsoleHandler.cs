@@ -87,5 +87,6 @@ namespace Emutastic.Services.ConsoleHandlers
         /// Dreamcast overrides this to create the dc/ sub-folder the core expects.
         /// </summary>
         void PrepareSaveDirectory(string saveDir);
+
     }
 }

@@ -148,6 +148,8 @@
                 <Grid x:Name="GameViewport">
                     <Image x:Name="GameScreen"
                            Stretch="Uniform"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
                            RenderOptions.BitmapScalingMode="NearestNeighbor"/>
 
                     <!-- Inline load-state picker (shown above HUD, right-aligned) -->

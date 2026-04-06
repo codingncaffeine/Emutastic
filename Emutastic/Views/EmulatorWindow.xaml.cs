@@ -575,11 +575,11 @@ namespace Emutastic.Views
             {
                 // ----------------------------------------------------------
                 // File log — works in Release builds (Trace is not stripped)
-                // Written to %APPDATA%\OpenEmuWindows\Logs\emulator.log
+                // Written to %APPDATA%\Emutastic\Logs\emulator.log
                 // ----------------------------------------------------------
                 try
                 {
-                    string logDir  = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "OpenEmuWindows", "Logs");
+                    string logDir  = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Emutastic", "Logs");
                     Directory.CreateDirectory(logDir);
                     string logPath = Path.Combine(logDir, "emulator.log");
                     var traceListener = new System.Diagnostics.TextWriterTraceListener(logPath, "FileLog")
@@ -600,8 +600,8 @@ namespace Emutastic.Views
                 Title = $"{game.Title} - {game.Console}";
 
                 string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-                string sysDir      = Path.Combine(appData, "OpenEmuWindows", "System");
-                string batteryDir  = Path.Combine(appData, "OpenEmuWindows", "BatterySaves", game.Console);
+                string sysDir      = Path.Combine(appData, "Emutastic", "System");
+                string batteryDir  = Path.Combine(appData, "Emutastic", "BatterySaves", game.Console);
                 Directory.CreateDirectory(sysDir);
                 Directory.CreateDirectory(batteryDir);
                 _consoleHandler.PrepareSaveDirectory(batteryDir);
@@ -611,7 +611,7 @@ namespace Emutastic.Views
                 string romStem = Path.GetFileNameWithoutExtension(game.RomPath);
                 _srmPath = Path.Combine(batteryDir, SanitizeFileName(romStem) + ".srm");
 
-                _saveStatePath = Path.Combine(appData, "OpenEmuWindows", "Save States",
+                _saveStatePath = Path.Combine(appData, "Emutastic", "Save States",
                     SanitizeFileName(game.Console), SanitizeFileName(game.Title));
                 Directory.CreateDirectory(_saveStatePath);
                 _pendingLoadStatePath = pendingLoadStatePath;
@@ -862,6 +862,25 @@ namespace Emutastic.Views
                     // For single-threaded cores it makes the context current for retro_run.
                     wglMakeCurrent(_hdc, _hglrc);
                     System.Diagnostics.Trace.WriteLine($"Pre-context_reset: wglMakeCurrent _hglrc=0x{_hglrc:X}");
+
+                    // Resize FBO to final dimensions BEFORE context_reset.  The initial
+                    // FBO is only 640×480 (created during SET_HW_RENDER mid-LoadGame).
+                    // Cores like vecx query the FBO size during context_reset to set up
+                    // their GL viewport; if the FBO is still 640×480, the viewport clips
+                    // game content that extends beyond 640×480 — causing the top and right
+                    // edges to be cut off for the lifetime of the session.
+                    if (!_consoleHandler.AllowHwSharedContext && !_consoleHandler.UseEmbeddedWindow)
+                    {
+                        var geom = _core.AvInfo.geometry;
+                        uint needW = geom.max_width  > 0 ? geom.max_width  : geom.base_width;
+                        uint needH = geom.max_height > 0 ? geom.max_height : geom.base_height;
+                        if (needW > _fboWidth || needH > _fboHeight)
+                        {
+                            System.Diagnostics.Trace.WriteLine(
+                                $"Pre-context_reset FBO resize: {_fboWidth}x{_fboHeight} → {needW}x{needH}");
+                            CreateFBO(needW, needH);
+                        }
+                    }
 
                     _consoleHandler.OnBeforeContextReset();
                     System.Diagnostics.Trace.WriteLine("Calling context_reset (post-LoadGame, per libretro spec)...");
@@ -1997,6 +2016,23 @@ namespace Emutastic.Views
                         return true;
                     }
 
+                    case RETRO_ENVIRONMENT_SET_ROTATION:
+                    {
+                        if (data == IntPtr.Zero) return false;
+                        uint rotation = (uint)Marshal.ReadInt32(data);  // 0=0°, 1=90°, 2=180°, 3=270°
+                        System.Diagnostics.Trace.WriteLine($"[Env] SET_ROTATION={rotation} ({rotation * 90}°)");
+                        _coreRotation = rotation;
+                        // Re-apply AR/rotation when geometry is next reported, or force it now
+                        // if geometry is already known (covers cores that set rotation after load).
+                        var avInfo = _core?.AvInfo;
+                        if (avInfo.HasValue)
+                        {
+                            var g = avInfo.Value.geometry;
+                            UpdateDisplayAspectRatio(g.base_width, g.base_height, g.aspect_ratio);
+                        }
+                        return true;
+                    }
+
                     // ------------------------------------------------------------------
                     // Misc
                     // ------------------------------------------------------------------
@@ -2155,13 +2191,18 @@ namespace Emutastic.Views
         }
 
         // =========================================================================
-        // Aspect ratio
+        // Aspect ratio / rotation
         // =========================================================================
+        private uint _coreRotation = 0;  // value from RETRO_ENVIRONMENT_SET_ROTATION (0-3)
+
         private void UpdateDisplayAspectRatio(uint baseWidth, uint baseHeight, float coreAr)
         {
-            // HW cores render directly to the HwndHost window (fills the grid); no layout transform needed.
-            if (_hwRenderActive) return;
+            // Dolphin (UseEmbeddedWindow) renders directly into the HwndHost Win32 window;
+            // WPF layout does not control the image size, so no transform is needed.
+            if (_hwRenderActive && _consoleHandler.UseEmbeddedWindow) return;
 
+            // All other paths (software cores + HW readback cores like N64, Vectrex) write
+            // frames into the GameScreen WriteableBitmap, so normal AR correction applies.
             Dispatcher.BeginInvoke(() =>
             {
                 double displayAr = _consoleHandler.GetDisplayAspectRatio(baseWidth, baseHeight, coreAr);
@@ -2172,24 +2213,24 @@ namespace Emutastic.Views
                 GameScreen.Stretch = Stretch.Uniform;
 
                 double bitmapAr = baseHeight > 0 ? (double)baseWidth / baseHeight : displayAr;
-                GameScreen.LayoutTransform = new ScaleTransform(displayAr / bitmapAr, 1.0);
+                double scaleX   = displayAr / bitmapAr;
+
+                // Apply both the AR correction scale and any rotation the core requested.
+                var group = new TransformGroup();
+                group.Children.Add(new ScaleTransform(scaleX, 1.0));
+                if (_coreRotation != 0)
+                    group.Children.Add(new RotateTransform(_coreRotation * 90.0));
+                GameScreen.LayoutTransform = group;
             });
         }
 
         // =========================================================================
         // Video refresh — software cores
         // =========================================================================
-        private int _hwFrameCount = 0;
         private void OnVideoRefresh(IntPtr data, uint width, uint height, UIntPtr pitch)
         {
             if (_hwRenderActive)
             {
-                // Log first 3 HW frames so we can confirm the path is reached and check dimensions.
-                if (++_hwFrameCount <= 3)
-                    System.Diagnostics.Trace.WriteLine(
-                        $"HWVideo frame={_hwFrameCount} data=0x{data:X} w={width} h={height} " +
-                        $"AllowShared={_consoleHandler.AllowHwSharedContext} fboId={_fboId}");
-
                 // data == (void*)-1 means RETRO_HW_FRAME_BUFFER_VALID.
                 if (_consoleHandler.UseEmbeddedWindow)
                 {
@@ -2214,13 +2255,12 @@ namespace Emutastic.Views
                 }
                 else
                 {
-                    // Single-threaded HW core (GameCube/Dolphin with AllowHwSharedContext=false):
-                    // _emuThread has context current; core rendered into _fboId as requested by
-                    // GetCurrentFramebuffer.  ReadBackFromCurrentContext — no wglMakeCurrent
-                    // needed, context stays current for the next retro_run call.
-                    uint rw = width  > 0 ? width  : _fboWidth;
-                    uint rh = height > 0 ? height : _fboHeight;
-                    ReadBackFromCurrentContext(_fboId, rw, rh);
+                    // Single-threaded HW core: core rendered into our FBO.
+                    // Always read the FULL FBO — cores like vecx render to the entire
+                    // texture (e.g. 1024×1024 square) and rely on aspect_ratio to
+                    // display it as portrait.  Reading only base_width × base_height
+                    // (824×1024) clips the right side of the game content.
+                    ReadBackFromCurrentContext(_fboId, _fboWidth, _fboHeight);
                 }
                 return;
             }
@@ -2608,7 +2648,7 @@ namespace Emutastic.Views
                     };
 
                 // ── Atari ─────────────────────────────────────────────────────
-                case "Atari2600": case "Atari5200": case "Atari7800":
+                case "Atari2600": case "Atari7800":
                     return n switch {
                         "fire" => JOYPAD_B, "fire 1" => JOYPAD_B, "fire 2" => JOYPAD_Y,
                         "pause" => JOYPAD_START, "reset" => JOYPAD_SELECT,
@@ -2644,14 +2684,7 @@ namespace Emutastic.Views
                         "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
                         _ => uint.MaxValue
                     };
-                case "Intellivision":
-                    return n switch {
-                        "top" => JOYPAD_A, "left side" => JOYPAD_B, "right side" => JOYPAD_Y,
-                        "1" => JOYPAD_L, "2" => JOYPAD_R, "3" => JOYPAD_X,
-                        "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
-                        "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
-                        _ => uint.MaxValue
-                    };
+
                 case "Vectrex":
                     return n switch {
                         "1" => JOYPAD_A, "2" => JOYPAD_B, "3" => JOYPAD_X, "4" => JOYPAD_Y,
@@ -3154,6 +3187,7 @@ namespace Emutastic.Views
                 { Owner = this };
             win.ShowDialog();
             LoadKeyboardMappings();
+            _controllerManager?.ReloadInputConfiguration();
             ResetOverlayTimer();
         }
 

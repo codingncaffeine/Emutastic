@@ -49,11 +49,12 @@ namespace Emutastic.Services
             new() { FileName = "mednafen_pce_fast_libretro.dll",DisplayName = "Mednafen PCE Fast",     Systems = ["TG16", "TGCD"],                      Recommended = false },
             new() { FileName = "mednafen_ngp_libretro.dll",     DisplayName = "Mednafen Neo Geo Pocket",Systems = ["NGP"],                              Recommended = true  },
             new() { FileName = "stella_libretro.dll",           DisplayName = "Stella",                Systems = ["Atari2600"],                         Recommended = true  },
-            new() { FileName = "a5200_libretro.dll",            DisplayName = "a5200",                 Systems = ["Atari5200"],                         Recommended = true  },
+
             new() { FileName = "prosystem_libretro.dll",        DisplayName = "ProSystem",             Systems = ["Atari7800"],                         Recommended = true  },
             new() { FileName = "virtualjaguar_libretro.dll",    DisplayName = "Virtual Jaguar",        Systems = ["Jaguar"],                            Recommended = true  },
             new() { FileName = "gearcoleco_libretro.dll",       DisplayName = "GearColeco",            Systems = ["ColecoVision"],                      Recommended = true  },
-            new() { FileName = "freeintv_libretro.dll",         DisplayName = "FreeIntv",              Systems = ["Intellivision"],                     Recommended = true  },
+            new() { FileName = "bluemsx_libretro.dll",          DisplayName = "BlueMSX",               Systems = ["ColecoVision"],                      Recommended = false },
+
             new() { FileName = "vecx_libretro.dll",             DisplayName = "Vecx",                  Systems = ["Vectrex"],                           Recommended = true  },
             new() { FileName = "opera_libretro.dll",            DisplayName = "Opera (3DO)",            Systems = ["3DO"],                               Recommended = true  },
             new() { FileName = "flycast_libretro.dll",          DisplayName = "Flycast",               Systems = ["Dreamcast"],                         Recommended = true  },

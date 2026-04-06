@@ -114,6 +114,22 @@ namespace Emutastic.Configuration
                     new() { ButtonName = "C Left", InputIdentifier = "J", InputType = InputType.Keyboard, DisplayName = "J" },
                     new() { ButtonName = "C Right", InputIdentifier = "L", InputType = InputType.Keyboard, DisplayName = "L" },
                 },
+                "Saturn" or "SegaCD" or "Sega32X" => new List<ButtonMapping>
+                {
+                    new() { ButtonName = "Up",     InputIdentifier = "Up",         InputType = InputType.Keyboard, DisplayName = "↑" },
+                    new() { ButtonName = "Down",   InputIdentifier = "Down",       InputType = InputType.Keyboard, DisplayName = "↓" },
+                    new() { ButtonName = "Left",   InputIdentifier = "Left",       InputType = InputType.Keyboard, DisplayName = "←" },
+                    new() { ButtonName = "Right",  InputIdentifier = "Right",      InputType = InputType.Keyboard, DisplayName = "→" },
+                    new() { ButtonName = "Start",  InputIdentifier = "Return",     InputType = InputType.Keyboard, DisplayName = "Enter" },
+                    new() { ButtonName = "A",      InputIdentifier = "Z",          InputType = InputType.Keyboard, DisplayName = "Z" },
+                    new() { ButtonName = "B",      InputIdentifier = "X",          InputType = InputType.Keyboard, DisplayName = "X" },
+                    new() { ButtonName = "C",      InputIdentifier = "C",          InputType = InputType.Keyboard, DisplayName = "C" },
+                    new() { ButtonName = "X",      InputIdentifier = "A",          InputType = InputType.Keyboard, DisplayName = "A" },
+                    new() { ButtonName = "Y",      InputIdentifier = "S",          InputType = InputType.Keyboard, DisplayName = "S" },
+                    new() { ButtonName = "Z",      InputIdentifier = "D",          InputType = InputType.Keyboard, DisplayName = "D" },
+                    new() { ButtonName = "L",      InputIdentifier = "Q",          InputType = InputType.Keyboard, DisplayName = "Q" },
+                    new() { ButtonName = "R",      InputIdentifier = "W",          InputType = InputType.Keyboard, DisplayName = "W" },
+                },
                 // Add more console defaults as needed
                 _ => GetDefaultKeyboardMappings("NES") // Default to NES layout
             };
@@ -189,6 +205,22 @@ namespace Emutastic.Configuration
                     new() { ButtonName = "C Down", InputIdentifier = "15", InputType = InputType.Controller, DisplayName = "C Down" },
                     new() { ButtonName = "C Left", InputIdentifier = "16", InputType = InputType.Controller, DisplayName = "C Left" },
                     new() { ButtonName = "C Right", InputIdentifier = "17", InputType = InputType.Controller, DisplayName = "C Right" },
+                },
+                "Saturn" or "SegaCD" or "Sega32X" => new List<ButtonMapping>
+                {
+                    new() { ButtonName = "Up",     InputIdentifier = "4",  InputType = InputType.Controller, DisplayName = "D-Pad Up" },
+                    new() { ButtonName = "Down",   InputIdentifier = "5",  InputType = InputType.Controller, DisplayName = "D-Pad Down" },
+                    new() { ButtonName = "Left",   InputIdentifier = "6",  InputType = InputType.Controller, DisplayName = "D-Pad Left" },
+                    new() { ButtonName = "Right",  InputIdentifier = "7",  InputType = InputType.Controller, DisplayName = "D-Pad Right" },
+                    new() { ButtonName = "Start",  InputIdentifier = "3",  InputType = InputType.Controller, DisplayName = "Start" },
+                    new() { ButtonName = "A",      InputIdentifier = "8",  InputType = InputType.Controller, DisplayName = "A" },
+                    new() { ButtonName = "B",      InputIdentifier = "0",  InputType = InputType.Controller, DisplayName = "B" },
+                    new() { ButtonName = "C",      InputIdentifier = "9",  InputType = InputType.Controller, DisplayName = "X" },
+                    new() { ButtonName = "X",      InputIdentifier = "1",  InputType = InputType.Controller, DisplayName = "Y" },
+                    new() { ButtonName = "Y",      InputIdentifier = "10", InputType = InputType.Controller, DisplayName = "LB" },
+                    new() { ButtonName = "Z",      InputIdentifier = "11", InputType = InputType.Controller, DisplayName = "RB" },
+                    new() { ButtonName = "L",      InputIdentifier = "12", InputType = InputType.Controller, DisplayName = "LT" },
+                    new() { ButtonName = "R",      InputIdentifier = "13", InputType = InputType.Controller, DisplayName = "RT" },
                 },
                 // Add more console defaults as needed
                 _ => GetDefaultControllerMappings("NES") // Default to NES layout

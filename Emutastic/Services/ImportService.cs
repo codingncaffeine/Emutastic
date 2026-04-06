@@ -17,6 +17,10 @@ namespace Emutastic.Services
         private readonly CoreManager _coreManager;
         private readonly DatMatchService _datMatcher;
 
+        // Limits concurrent hash+artwork background tasks so SQLite isn't hammered by
+        // hundreds of simultaneous writers during a large import (e.g. 200 N64 ROMs).
+        private readonly System.Threading.SemaphoreSlim _hashSemaphore = new(6, 6);
+
         public ImportService(DatabaseService db, CoreManager coreManager)
         {
             _db = db;
@@ -27,6 +31,13 @@ namespace Emutastic.Services
 
         public event Action<string>? StatusChanged;
         public event Action<Game>? GameImported;
+        public event Action<int, int>? ProgressChanged; // (current, total)
+
+        private int _progressCurrent;
+        private int _progressTotal;
+        private int _artworkTotal;
+        private int _artworkDone;
+        private int _artworkSession; // incremented on each new import; tasks check this before reporting
 
         /// <summary>
         /// Set by the UI layer to resolve ambiguous extensions (e.g. .chd which could be
@@ -40,7 +51,29 @@ namespace Emutastic.Services
 
         public async Task ImportFilesAsync(IEnumerable<string> filePaths)
         {
-            foreach (string path in filePaths)
+            var paths = filePaths.ToList();
+
+            // Bump session so any still-running background tasks from a previous import
+            // stop reporting progress and don't corrupt the new counters.
+            int session = System.Threading.Interlocked.Increment(ref _artworkSession);
+
+            // Pre-count all ROM files so we can report accurate progress.
+            _progressCurrent = 0;
+            _progressTotal   = 0;
+            _artworkTotal    = 0;
+            _artworkDone     = 0;
+            foreach (string path in paths)
+            {
+                if (Directory.Exists(path))
+                    _progressTotal += Directory.EnumerateFiles(path, "*.*", SearchOption.AllDirectories)
+                                               .Count(RomService.IsRomFile);
+                else if (File.Exists(path) && RomService.IsRomFile(path))
+                    _progressTotal++;
+            }
+
+            ProgressChanged?.Invoke(0, _progressTotal);
+
+            foreach (string path in paths)
             {
                 if (Directory.Exists(path))
                 {
@@ -51,7 +84,11 @@ namespace Emutastic.Services
                 if (!File.Exists(path)) continue;
 
                 await ImportSingleRomAsync(path);
+                _progressCurrent++;
+                ProgressChanged?.Invoke(_progressCurrent, _progressTotal);
             }
+
+            ProgressChanged?.Invoke(_progressTotal, _progressTotal);
         }
 
         private async Task ImportFolderAsync(string folderPath)
@@ -95,8 +132,10 @@ namespace Emutastic.Services
             foreach (string file in Directory.EnumerateFiles(folderPath, "*.*",
                          SearchOption.AllDirectories))
             {
-                if (RomService.IsRomFile(file))
-                    await ImportSingleRomAsync(file);
+                if (!RomService.IsRomFile(file)) continue;
+                await ImportSingleRomAsync(file);
+                _progressCurrent++;
+                ProgressChanged?.Invoke(_progressCurrent, _progressTotal);
             }
         }
 
@@ -104,6 +143,14 @@ namespace Emutastic.Services
         {
             string fileName = Path.GetFileName(romPath);
             string ext = Path.GetExtension(romPath);
+
+            // .bin paired with a .cue in the same folder — skip it; the .cue is the entry point.
+            // This covers PS1/SegaCD multi-track dumps where each track is a separate .bin.
+            if (ext.Equals(".bin", StringComparison.OrdinalIgnoreCase))
+            {
+                string cuePath = Path.ChangeExtension(romPath, ".cue");
+                if (File.Exists(cuePath)) return;
+            }
 
             // Handle zip / 7z files
             if (ext.Equals(".zip", StringComparison.OrdinalIgnoreCase) ||
@@ -154,6 +201,7 @@ namespace Emutastic.Services
                 // Non-arcade archives: extract the single ROM file and re-import it.
                 StatusChanged?.Invoke($"Extracting {fileName}…");
                 string? extractedPath = await ExtractZipRomAsync(romPath);
+                ImportLog($"[{fileName}] extract → {(extractedPath ?? "null (skipped)")}");
 
                 if (extractedPath == null)
                 {
@@ -161,6 +209,7 @@ namespace Emutastic.Services
                     return;
                 }
 
+                ImportLog($"[{fileName}] RomPathExists={_db.RomPathExists(extractedPath)} → calling ImportRomFileAsync as {innerConsole}");
                 await ImportRomFileAsync(extractedPath, innerConsole, Path.GetFileName(extractedPath));
                 return;
             }
@@ -197,7 +246,15 @@ namespace Emutastic.Services
                     return;
                 }
 
-                // 2. DAT lookup failed — ask the user.
+                // 2. DAT lookup failed — try folder name before prompting the user.
+                string fromFolder = RomService.DetectConsoleFromFolderName(romPath);
+                if (!string.IsNullOrEmpty(fromFolder) && candidates.Contains(fromFolder))
+                {
+                    await ImportRomFileAsync(romPath, fromFolder, fileName);
+                    return;
+                }
+
+                // 3. Folder name gave no hint — ask the user.
                 if (AmbiguousConsoleResolver == null)
                 {
                     StatusChanged?.Invoke($"Skipped {fileName} — could not identify system");
@@ -219,7 +276,7 @@ namespace Emutastic.Services
         private async Task ImportRomFileAsync(string romPath, string console, string fileName,
             string? overrideTitle = null)
         {
-            if (_db.RomPathExists(romPath)) return;
+            if (_db.RomPathExists(romPath)) { ImportLog($"[{fileName}] SKIPPED — path already in DB"); return; }
 
             StatusChanged?.Invoke($"Importing {fileName}…");
 
@@ -240,12 +297,23 @@ namespace Emutastic.Services
 
             // Insert immediately so it appears in the library without waiting for hash/artwork
             _db.InsertGame(game);
+            ImportLog($"[{fileName}] INSERTED as {console} (id={game.Id})");
             GameImported?.Invoke(game);
-            StatusChanged?.Invoke($"Added {title} — hashing & fetching artwork…");
 
-            // Hash and artwork fetch in background (hash can be slow for large files)
+            // Reserve a slot in the artwork counter before firing the background task so the
+            // denominator is always >= the numerator even if tasks complete out of order.
+            System.Threading.Interlocked.Increment(ref _artworkTotal);
+
+            // Capture session so this task can detect if a newer import has started.
+            int taskSession = _artworkSession;
+
+            // Hash and artwork fetch in background — semaphore caps concurrent writers to 4
+            // so SQLite isn't locked solid during a large bulk import.
             _ = Task.Run(async () =>
             {
+                await _hashSemaphore.WaitAsync();
+                try
+                {
                 string hash = RomService.HashRom(romPath);
                 game.RomHash = hash;
                 _db.UpdateHash(game.Id, hash);
@@ -260,19 +328,29 @@ namespace Emutastic.Services
                     if (metadata != null && !string.IsNullOrWhiteSpace(metadata.Title))
                         game.Title = metadata.Title;
 
-                    StatusChanged?.Invoke($"Artwork found for {game.Title}");
                     GameImported?.Invoke(game);
                 }
                 else
                 {
-                    StatusChanged?.Invoke($"No artwork found for {title}");
+                    _db.IncrementArtworkAttempts(game.Id);
                 }
+
+                // Only report progress if no newer import has started since this task was spawned.
+                if (taskSession == _artworkSession)
+                {
+                    int done  = System.Threading.Interlocked.Increment(ref _artworkDone);
+                    int total = _artworkTotal;
+                    int pct   = (int)((done / (double)total) * 100);
+                    StatusChanged?.Invoke($"Artwork — {pct}%  ({done} of {total})  {game.Title}");
+                }
+                }
+                finally { _hashSemaphore.Release(); }
             });
         }
 
         private static readonly string _importLogPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "OpenEmuWindows", "import_debug.log");
+            "Emutastic", "import_debug.log");
 
         private void ImportLog(string message)
         {
@@ -302,6 +380,16 @@ namespace Emutastic.Services
                     if (recognized)
                     {
                         string console = RomService.DetectConsole(entryName);
+                        if (string.IsNullOrEmpty(console))
+                        {
+                            // Ambiguous extension inside archive (e.g. .iso, .cue) —
+                            // try folder name before falling back to Arcade.
+                            console = RomService.DetectConsoleFromFolderName(archivePath);
+                            // Verify folder result is valid for this extension
+                            var candidates = RomService.GetAmbiguousCandidates(ext);
+                            if (candidates != null && !candidates.Contains(console))
+                                console = string.Empty;
+                        }
                         ImportLog($"  → console={console}");
                         return console;
                     }
@@ -350,7 +438,7 @@ namespace Emutastic.Services
         {
             try
             {
-                string tempFolder = Path.Combine(Path.GetTempPath(), "OpenEmuWindows");
+                string tempFolder = Path.Combine(Path.GetTempPath(), "Emutastic");
                 Directory.CreateDirectory(tempFolder);
 
                 using var archive = ArchiveFactory.Open(archivePath);

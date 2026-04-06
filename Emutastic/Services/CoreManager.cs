@@ -52,12 +52,12 @@ namespace Emutastic.Services
                                      "mednafen_pce_fast_libretro.dll"        }},
             { "NGP",         new[] { "mednafen_ngp_libretro.dll"        }},
             { "Atari2600",   new[] { "stella_libretro.dll"              }},
-            { "Atari5200",   new[] { "a5200_libretro.dll"               }},
+
             { "Atari7800",   new[] { "prosystem_libretro.dll"           }},
             { "Jaguar",      new[] { "virtualjaguar_libretro.dll"       }},
             { "ColecoVision",new[] { "gearcoleco_libretro.dll",
                                      "bluemsx_libretro.dll"             }},
-            { "Intellivision",new[]{ "freeintv_libretro.dll"            }},
+
             { "Vectrex",     new[] { "vecx_libretro.dll"                }},
             { "3DO",         new[] { "opera_libretro.dll"               }},
             { "Arcade",      new[] { "fbneo_libretro.dll",
@@ -124,7 +124,6 @@ namespace Emutastic.Services
         // Consoles that require ALL listed files (not just any one).
         public static readonly Dictionary<string, string[]> ConsoleBiosRequireAll = new()
         {
-            { "Intellivision", new[] { "exec.bin", "grom.bin" } },
         };
 
         /// <summary>

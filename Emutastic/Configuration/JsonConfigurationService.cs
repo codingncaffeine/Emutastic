@@ -23,6 +23,7 @@ namespace Emutastic.Configuration
         public LibraryConfiguration LibraryConfiguration { get; set; } = new();
         public ThemeConfiguration ThemeConfiguration { get; set; } = new();
         // Per-console input configs keyed by ConfigKey (e.g. "SNES_P1")
+        public SnapConfiguration SnapConfiguration { get; set; } = new();
         public Dictionary<string, InputConfiguration> InputConfigurations { get; set; } = new();
         // Generic string→JsonElement store for arbitrary SetValue<T> callers
         public Dictionary<string, JsonElement> Extra { get; set; } = new();
@@ -41,7 +42,7 @@ namespace Emutastic.Configuration
             _logger = logger;
 
             string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            string appFolder = Path.Combine(appData, "OpenEmuWindows");
+            string appFolder = Path.Combine(appData, "Emutastic");
             Directory.CreateDirectory(appFolder);
             _configPath = Path.Combine(appFolder, "config.json");
 
@@ -148,6 +149,13 @@ namespace Emutastic.Configuration
         {
             config.LastModified = DateTime.UtcNow;
             _data.ThemeConfiguration = config;
+        }
+
+        public SnapConfiguration GetSnapConfiguration() => _data.SnapConfiguration;
+        public void SetSnapConfiguration(SnapConfiguration config)
+        {
+            config.LastModified = DateTime.UtcNow;
+            _data.SnapConfiguration = config;
         }
 
         // ── Generic key/value (for arbitrary callers) ─────────────────────────

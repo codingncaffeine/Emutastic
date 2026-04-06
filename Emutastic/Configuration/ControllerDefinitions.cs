@@ -466,22 +466,7 @@ namespace Emutastic.Configuration
                     new("Fire",  "B",     380, 140, ButtonType.Button, 35, 35, GFace),
                 }
             },
-            ["Atari5200"] = new ControllerDefinition
-            {
-                Name = "Atari 5200",
-                ControllerImage = "/Assets/images/Atari 5200/controller_5200@2x.png",
-                Buttons = new List<ButtonDefinition>
-                {
-                    new("Up",     "Up",     140,  70, ButtonType.DPad,   60, 60, "Joystick"),
-                    new("Down",   "Down",   140, 150, ButtonType.DPad,   60, 60, "Joystick"),
-                    new("Left",   "Left",   100, 110, ButtonType.DPad,   60, 60, "Joystick"),
-                    new("Right",  "Right",  180, 110, ButtonType.DPad,   60, 60, "Joystick"),
-                    new("Fire 1", "B",      380, 120, ButtonType.Button, 35, 35, GFace),
-                    new("Fire 2", "Y",      340, 140, ButtonType.Button, 35, 35, GFace),
-                    new("Pause",  "Start",  260, 190, ButtonType.Button, 45, 20, GSystem),
-                    new("Reset",  "Select", 210, 190, ButtonType.Button, 45, 20, GSystem),
-                }
-            },
+
             ["Atari7800"] = new ControllerDefinition
             {
                 Name = "Atari 7800",
@@ -564,24 +549,7 @@ namespace Emutastic.Configuration
                     new("4",     "Y",     420, 160, ButtonType.Button, 30, 30, "Keypad"),
                 }
             },
-            ["Intellivision"] = new ControllerDefinition
-            {
-                Name = "Intellivision",
-                ControllerImage = "/Assets/images/Intellivision/controller_intellivision@2x.png",
-                Buttons = new List<ButtonDefinition>
-                {
-                    new("Up",        "Up",    140,  70, ButtonType.DPad,   60, 60, GDPad),
-                    new("Down",      "Down",  140, 150, ButtonType.DPad,   60, 60, GDPad),
-                    new("Left",      "Left",  100, 110, ButtonType.DPad,   60, 60, GDPad),
-                    new("Right",     "Right", 180, 110, ButtonType.DPad,   60, 60, GDPad),
-                    new("Top",       "A",     380, 120, ButtonType.Button, 35, 35, GFace),
-                    new("Left Side", "B",     340, 140, ButtonType.Button, 35, 35, GFace),
-                    new("Right Side","Y",     420, 140, ButtonType.Button, 35, 35, GFace),
-                    new("1",         "L",     180, 220, ButtonType.Button, 30, 30, "Keypad"),
-                    new("2",         "R",     220, 220, ButtonType.Button, 30, 30, "Keypad"),
-                    new("3",         "X",     260, 220, ButtonType.Button, 30, 30, "Keypad"),
-                }
-            },
+
             ["Vectrex"] = new ControllerDefinition
             {
                 Name = "Vectrex",

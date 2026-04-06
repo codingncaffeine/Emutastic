@@ -355,6 +355,94 @@
                 </Setter>
             </Style>
 
+            <!-- Provider pill toggle (ScreenScraper / EmuMovies selector) -->
+            <Style x:Key="ProviderPill" TargetType="RadioButton">
+                <Setter Property="Foreground"   Value="{StaticResource TextSecondaryBrush}"/>
+                <Setter Property="Background"   Value="Transparent"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="Padding"      Value="16,6"/>
+                <Setter Property="FontSize"     Value="12"/>
+                <Setter Property="FontWeight"   Value="SemiBold"/>
+                <Setter Property="Cursor"       Value="Hand"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="RadioButton">
+                            <Border x:Name="bd" Background="Transparent" CornerRadius="6"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="bd" Property="Background" Value="#3A3A3E"/>
+                                </Trigger>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                                    <Setter TargetName="bd" Property="Background" Value="#4A4A4F"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- Dark-themed TextBox -->
+            <Style x:Key="DarkTextBox" TargetType="TextBox">
+                <Setter Property="Background"   Value="{StaticResource BgTertiaryBrush}"/>
+                <Setter Property="Foreground"   Value="{StaticResource TextPrimaryBrush}"/>
+                <Setter Property="BorderBrush"  Value="{StaticResource BorderNormalBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="Padding"      Value="10,8"/>
+                <Setter Property="FontSize"     Value="13"/>
+                <Setter Property="CaretBrush"   Value="{StaticResource TextPrimaryBrush}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="TextBox">
+                            <Border Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="6"
+                                    Padding="{TemplateBinding Padding}">
+                                <ScrollViewer x:Name="PART_ContentHost" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsFocused" Value="True">
+                                    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- Dark-themed PasswordBox -->
+            <Style x:Key="DarkPasswordBox" TargetType="PasswordBox">
+                <Setter Property="Background"   Value="{StaticResource BgTertiaryBrush}"/>
+                <Setter Property="Foreground"   Value="{StaticResource TextPrimaryBrush}"/>
+                <Setter Property="BorderBrush"  Value="{StaticResource BorderNormalBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="Padding"      Value="10,8"/>
+                <Setter Property="FontSize"     Value="13"/>
+                <Setter Property="CaretBrush"   Value="{StaticResource TextPrimaryBrush}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="PasswordBox">
+                            <Border Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="6"
+                                    Padding="{TemplateBinding Padding}">
+                                <ScrollViewer x:Name="PART_ContentHost" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsFocused" Value="True">
+                                    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
         </ResourceDictionary>
     </Window.Resources>
 
@@ -444,6 +532,11 @@
                                  Checked="NavBtn_Checked"/>
                     <RadioButton x:Name="NavTheme"
                                  Content="Theme"
+                                 GroupName="NavGroup"
+                                 Style="{StaticResource NavBtn}"
+                                 Checked="NavBtn_Checked"/>
+                    <RadioButton x:Name="NavSnaps"
+                                 Content="Snaps"
                                  GroupName="NavGroup"
                                  Style="{StaticResource NavBtn}"
                                  Checked="NavBtn_Checked"/>
@@ -769,6 +862,138 @@
                                     Style="{StaticResource ActionBtn}"
                                     HorizontalAlignment="Left"
                                     Click="ThemeSaveBtn_Click"/>
+
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+
+                <!-- ── PANEL: Snaps ─────────────────────────────────────────── -->
+                <Grid x:Name="PanelSnaps" Visibility="Collapsed">
+                    <ScrollViewer Margin="32,24,32,24" VerticalScrollBarVisibility="Auto">
+                        <StackPanel MaxWidth="560" HorizontalAlignment="Left">
+
+                            <TextBlock Text="VIDEO SNAPS" Style="{StaticResource PrefLabel}"/>
+                            <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,0,0,16"/>
+
+                            <TextBlock Text="When a game card is opened, Emutastic can play a video preview instead of showing a static screenshot. Choose a provider below."
+                                       FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                                       TextWrapping="Wrap" Margin="0,0,0,24"/>
+
+                            <!-- Provider pill selector -->
+                            <Border Background="{StaticResource BgTertiaryBrush}"
+                                    CornerRadius="8" Padding="4" Margin="0,0,0,28"
+                                    HorizontalAlignment="Left">
+                                <StackPanel Orientation="Horizontal">
+                                    <RadioButton x:Name="SnapProviderSS"
+                                                 Content="ScreenScraper"
+                                                 GroupName="SnapProvider"
+                                                 IsChecked="True"
+                                                 Checked="SnapProvider_Checked"
+                                                 Style="{StaticResource ProviderPill}"/>
+                                    <RadioButton x:Name="SnapProviderEM"
+                                                 Content="EmuMovies"
+                                                 GroupName="SnapProvider"
+                                                 Checked="SnapProvider_Checked"
+                                                 Style="{StaticResource ProviderPill}"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- ScreenScraper panel -->
+                            <StackPanel x:Name="PanelSS">
+                                <Grid Margin="0,0,0,16">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="ScreenScraper"
+                                                   FontSize="15" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource TextPrimaryBrush}"/>
+                                        <TextBlock Text="Free accounts available at screenscraper.fr — no developer registration required."
+                                                   FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                                                   TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                    </StackPanel>
+                                    <ToggleButton x:Name="SSEnabledToggle"
+                                                 Grid.Column="1"
+                                                 Style="{StaticResource ToggleSwitch}"
+                                                 VerticalAlignment="Center"
+                                                 Checked="SSEnabled_Changed"
+                                                 Unchecked="SSEnabled_Changed"/>
+                                </Grid>
+
+                                <TextBlock Text="Username" FontSize="12"
+                                           Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,6"/>
+                                <TextBox x:Name="SSUsernameBox"
+                                         Style="{StaticResource DarkTextBox}"
+                                         Margin="0,0,0,14"/>
+
+                                <TextBlock Text="Password" FontSize="12"
+                                           Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,6"/>
+                                <PasswordBox x:Name="SSPasswordBox"
+                                             Style="{StaticResource DarkPasswordBox}"
+                                             Margin="0,0,0,20"/>
+
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                    <Button x:Name="SSTestBtn"
+                                            Content="Test Connection"
+                                            Style="{StaticResource ActionBtn}"
+                                            Click="SSTestBtn_Click"
+                                            Margin="0,0,12,0"/>
+                                    <TextBlock x:Name="SSStatusLabel"
+                                               FontSize="12"
+                                               Foreground="{StaticResource TextSecondaryBrush}"
+                                               VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </StackPanel>
+
+                            <!-- EmuMovies panel (scaffolded, not yet active) -->
+                            <StackPanel x:Name="PanelEM" Visibility="Collapsed">
+                                <Grid Margin="0,0,0,16">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="EmuMovies"
+                                                   FontSize="15" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource TextPrimaryBrush}"/>
+                                        <TextBlock Text="EmuMovies developer API access is required. Support is coming once their v3 API ships."
+                                                   FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                                                   TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                    </StackPanel>
+                                    <Border Grid.Column="1"
+                                            Background="{StaticResource BgTertiaryBrush}"
+                                            BorderBrush="{StaticResource BorderNormalBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="6" Padding="10,4"
+                                            VerticalAlignment="Center">
+                                        <TextBlock Text="Coming Soon"
+                                                   FontSize="11" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource TextMutedBrush}"/>
+                                    </Border>
+                                </Grid>
+
+                                <TextBlock Text="Username" FontSize="12"
+                                           Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6"/>
+                                <TextBox Style="{StaticResource DarkTextBox}" IsEnabled="False"
+                                         Margin="0,0,0,14"/>
+
+                                <TextBlock Text="Password" FontSize="12"
+                                           Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6"/>
+                                <PasswordBox Style="{StaticResource DarkPasswordBox}" IsEnabled="False"
+                                             Margin="0,0,0,20"/>
+
+                                <Button Content="Request Developer Access"
+                                        Style="{StaticResource ActionBtn}"
+                                        IsEnabled="False"/>
+                            </StackPanel>
+
+                            <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,20,0,20"/>
+                            <Button x:Name="SnapsSaveBtn"
+                                    Content="Save"
+                                    Style="{StaticResource ActionBtn}"
+                                    HorizontalAlignment="Left"
+                                    Click="SnapsSaveBtn_Click"/>
 
                         </StackPanel>
                     </ScrollViewer>

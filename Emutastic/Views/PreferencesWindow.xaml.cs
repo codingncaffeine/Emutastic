@@ -50,7 +50,7 @@ namespace Emutastic.Views
         private SolidColorBrush _brushTextMuted = new(Color.FromRgb(0x55, 0x55, 0x58));
 
         // ── Section navigation ────────────────────────────────────────────────
-        private enum PrefSection { Controls, SystemFiles, Cores, Library, Theme }
+        private enum PrefSection { Controls, SystemFiles, Cores, Library, Theme, Snaps }
         private PrefSection _activeSection = PrefSection.Controls;
 
         // ── Constructors ──────────────────────────────────────────────────────
@@ -576,6 +576,7 @@ namespace Emutastic.Views
             else if (sender == NavCores)        ShowSection(PrefSection.Cores);
             else if (sender == NavLibrary)      ShowSection(PrefSection.Library);
             else if (sender == NavTheme)        ShowSection(PrefSection.Theme);
+            else if (sender == NavSnaps)        ShowSection(PrefSection.Snaps);
         }
 
         private void ShowSection(PrefSection section)
@@ -587,11 +588,13 @@ namespace Emutastic.Views
             PanelCores.Visibility       = section == PrefSection.Cores       ? Visibility.Visible : Visibility.Collapsed;
             PanelLibrary.Visibility     = section == PrefSection.Library     ? Visibility.Visible : Visibility.Collapsed;
             PanelTheme.Visibility       = section == PrefSection.Theme       ? Visibility.Visible : Visibility.Collapsed;
+            PanelSnaps.Visibility       = section == PrefSection.Snaps       ? Visibility.Visible : Visibility.Collapsed;
 
             if (section == PrefSection.SystemFiles) BuildBiosPanel();
             if (section == PrefSection.Cores)       BuildCoresPanel();
             if (section == PrefSection.Library)     LoadLibrarySettings();
             if (section == PrefSection.Theme)       LoadThemeSettings();
+            if (section == PrefSection.Snaps)       LoadSnapsSettings();
         }
 
         // ── BIOS panel ────────────────────────────────────────────────────────
@@ -600,7 +603,7 @@ namespace Emutastic.Views
             BiosPanel.Children.Clear();
             string sysDir = System.IO.Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "OpenEmuWindows", "System");
+                "Emutastic", "System");
 
             // Info banner
             var accent = (Color)FindResource("AccentColor");
@@ -1356,14 +1359,12 @@ namespace Emutastic.Views
                 "mednafen_ngp"      => "Mednafen Neo Geo Pocket",
                 "gearcoleco"        => "GearColeco",
                 "stella"            => "Stella",
-                "a5200"             => "a5200",
                 "stella2014"        => "Stella 2014",
                 "stella2023"        => "Stella 2023",
                 "prosystem"         => "ProSystem",
                 "flycast"           => "Flycast (Dreamcast)",
                 "virtualjaguar"     => "Virtual Jaguar",
                 "bluemsx"           => "blueMSX",
-                "freeintv"          => "FreeIntv",
                 "vecx"              => "Vecx",
                 "opera"             => "Opera (3DO)",
                 "fbneo"             => "FBNeo (Final Burn Neo)",
@@ -1464,9 +1465,55 @@ namespace Emutastic.Views
             theme.UseWindowsChrome = WindowsChromeToggle.IsChecked == true;
             _configService.SetThemeConfiguration(theme);
             _ = _configService.SaveAsync();
-
-            // Apply layout changes immediately to the running app.
             App.ApplyThemeResources();
+        }
+
+        // ── Snaps panel ───────────────────────────────────────────────────────
+        private void LoadSnapsSettings()
+        {
+            var snap = _configService.GetSnapConfiguration();
+            SSEnabledToggle.IsChecked = snap.ScreenScraperEnabled;
+            SSUsernameBox.Text        = snap.ScreenScraperUser;
+            SSPasswordBox.Password    = snap.ScreenScraperPassword;
+        }
+
+        private void SnapProvider_Checked(object sender, RoutedEventArgs e)
+        {
+            if (PanelSS == null || PanelEM == null) return;
+            bool isSS = sender == SnapProviderSS;
+            PanelSS.Visibility = isSS ? Visibility.Visible : Visibility.Collapsed;
+            PanelEM.Visibility = isSS ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        private void SSEnabled_Changed(object sender, RoutedEventArgs e)
+        {
+            // Toggling enabled state is saved on Save — nothing live needed here.
+        }
+
+        private async void SSTestBtn_Click(object sender, RoutedEventArgs e)
+        {
+            SSTestBtn.IsEnabled = false;
+            SSStatusLabel.Text  = "Testing…";
+            SSStatusLabel.Foreground = (System.Windows.Media.Brush)FindResource("TextMutedBrush");
+
+            var ss = new Emutastic.Services.ScreenScraperService();
+            string? error = await ss.TestLoginAsync(SSUsernameBox.Text.Trim(), SSPasswordBox.Password);
+
+            SSStatusLabel.Text = error == null ? "Connected" : error;
+            SSStatusLabel.Foreground = error == null
+                ? System.Windows.Media.Brushes.LightGreen
+                : (System.Windows.Media.Brush)FindResource("AccentBrush");
+            SSTestBtn.IsEnabled = true;
+        }
+
+        private void SnapsSaveBtn_Click(object sender, RoutedEventArgs e)
+        {
+            var snap = _configService.GetSnapConfiguration();
+            snap.ScreenScraperEnabled  = SSEnabledToggle.IsChecked == true;
+            snap.ScreenScraperUser     = SSUsernameBox.Text.Trim();
+            snap.ScreenScraperPassword = SSPasswordBox.Password;
+            _configService.SetSnapConfiguration(snap);
+            _ = _configService.SaveAsync();
         }
     }
 
@@ -1514,9 +1561,7 @@ namespace Emutastic.Views
             new("3DO","3DO","panafz10.bin","Panasonic FZ-10",1048576,"51f2f43ae2f3508a14d9f56597e2d3ce"),
             new("3DO","3DO","panafz1j.bin","Panasonic FZ-1 (Japan)",1048576,null),
             new("3DO","3DO","goldstar.bin","GoldStar",1048576,null),
-            // Intellivision (FreeIntv — both files required)
-            new("Intellivision","Intellivision","exec.bin","Executive ROM",8192,"62e761035cb657903761800f4437b8af"),
-            new("Intellivision","Intellivision","grom.bin","Graphics ROM",2048,"0cd5946c6473e42e8e4c2137785e427f"),
+
             // Game Boy Advance (optional — mgba has built-in HLE BIOS)
             new("GBA","Game Boy Advance","gba_bios.bin","BIOS (optional, improves compatibility)",16384,"a860e8c0b6d573d191e4ec7db1b1e4f6"),
         };

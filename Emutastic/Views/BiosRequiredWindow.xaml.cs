@@ -13,7 +13,7 @@ namespace Emutastic.Views
             InitializeComponent();
 
             string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            string systemDir = Path.Combine(appData, "OpenEmuWindows", "System");
+            string systemDir = Path.Combine(appData, "Emutastic", "System");
 
             string regionClause = region is "Unknown" or "World"
                 ? ""

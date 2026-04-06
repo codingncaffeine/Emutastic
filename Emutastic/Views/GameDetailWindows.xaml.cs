@@ -1,3 +1,4 @@
+using Emutastic.Configuration;
 using Emutastic.Models;
 using Emutastic.Services;
 using Emutastic.Views;
@@ -22,7 +23,7 @@ namespace Emutastic.Views
             _game = game;
             PopulateData();
             AnimateIn();
-            _ = LoadHeaderImageAsync();
+            _ = LoadSnapAsync();
         }
 
         private void PopulateData()
@@ -54,10 +55,34 @@ namespace Emutastic.Views
             StatLastPlayed.Text = _game.LastPlayedDisplay;
         }
 
-        private async System.Threading.Tasks.Task LoadHeaderImageAsync()
+        // ── Snap loading: video (ScreenScraper) → image (libretro) → placeholder ──
+
+        private async System.Threading.Tasks.Task LoadSnapAsync()
         {
             try
             {
+                // 1 — try ScreenScraper video snap if configured
+                var snapConfig = App.Configuration?.GetSnapConfiguration();
+                if (snapConfig is { ScreenScraperEnabled: true }
+                    && !string.IsNullOrWhiteSpace(snapConfig.ScreenScraperUser))
+                {
+                    var ss = new ScreenScraperService();
+
+                    // Check cache first (instant, no network)
+                    string? cached = ss.FindCachedSnap(_game.RomHash);
+                    if (cached == null)
+                        cached = await ss.FetchSnapAsync(
+                            snapConfig.ScreenScraperUser, snapConfig.ScreenScraperPassword,
+                            _game.Console, _game.RomHash, _game.RomPath);
+
+                    if (cached != null)
+                    {
+                        Dispatcher.Invoke(() => PlaySnapVideo(cached));
+                        return;
+                    }
+                }
+
+                // 2 — fall back to static libretro screenshot
                 var artworkService = new ArtworkService();
                 string? snapPath = await artworkService.FetchSnapAsync(
                     _game.RomHash, _game.RomPath, _game.Console);
@@ -71,11 +96,42 @@ namespace Emutastic.Views
                 bitmap.EndInit();
                 bitmap.Freeze();
 
-                HeaderImage.Source = bitmap;
-                HeaderImage.Visibility = Visibility.Visible;
-                ArtPlaceholderText.Visibility = Visibility.Collapsed;
+                Dispatcher.Invoke(() =>
+                {
+                    HeaderImage.Source = bitmap;
+                    HeaderImage.Visibility = Visibility.Visible;
+                    ArtPlaceholderText.Visibility = Visibility.Collapsed;
+                });
             }
-            catch { /* artwork is cosmetic — silently ignore failures */ }
+            catch { /* cosmetic — silently ignore */ }
+        }
+
+        private void PlaySnapVideo(string mp4Path)
+        {
+            SnapVideo.Source = new Uri(mp4Path, UriKind.Absolute);
+            SnapVideo.Visibility = Visibility.Visible;
+            HeaderImage.Visibility = Visibility.Collapsed;
+            ArtPlaceholderText.Visibility = Visibility.Collapsed;
+            SnapVideo.Play();
+        }
+
+        // Loop the video silently
+        private void SnapVideo_MediaEnded(object sender, RoutedEventArgs e)
+        {
+            SnapVideo.Position = TimeSpan.Zero;
+            SnapVideo.Play();
+        }
+
+        private void SnapVideo_MediaOpened(object sender, RoutedEventArgs e)
+        {
+            // Nothing needed — Play() already called in PlaySnapVideo
+        }
+
+        protected override void OnClosed(EventArgs e)
+        {
+            SnapVideo.Stop();
+            SnapVideo.Source = null;
+            base.OnClosed(e);
         }
 
         private void AnimateIn()
@@ -102,7 +158,7 @@ namespace Emutastic.Views
 
             // Check for missing BIOS before attempting to launch.
             string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            string systemDir = System.IO.Path.Combine(appData, "OpenEmuWindows", "System");
+            string systemDir = System.IO.Path.Combine(appData, "Emutastic", "System");
             string region = RomService.DetectRegion(_game.RomPath);
             string? romDir = System.IO.Path.GetDirectoryName(_game.RomPath);
             var missingBios = CoreManager.GetMissingBios(_game.Console, systemDir, region,

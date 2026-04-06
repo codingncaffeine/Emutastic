@@ -25,6 +25,7 @@ namespace Emutastic
         private ControllerManager? _controllerManager;
         private CoreManager _coreManager = null!;
         private Button? _selectedNavButton;
+        private Game?   _selectionAnchor;   // anchor for Shift+click range selection
 
         public MainWindow()
         {
@@ -51,7 +52,20 @@ namespace Emutastic
             DataContext  = _vm;                     // _vm is now non-null; clicks work
 
             _importer.StatusChanged += msg =>
-                Dispatcher.Invoke(() => ToolbarTitle.Text = msg);
+                Dispatcher.Invoke(() => SetStatus(msg));
+
+            _importer.ProgressChanged += (current, total) =>
+                Dispatcher.Invoke(() =>
+                {
+                    if (total == 0) return;
+                    if (current >= total)
+                    {
+                        SetStatus("Import complete", autoClear: true);
+                        return;
+                    }
+                    int pct = (int)((current / (double)total) * 100);
+                    SetStatus($"Importing… {pct}%  ({current} of {total})");
+                });
             _importer.GameImported += game =>
                 Dispatcher.Invoke(() => _vm.RefreshGame(game));
             _importer.AmbiguousConsoleResolver = (fileName, candidates) =>
@@ -91,39 +105,137 @@ namespace Emutastic
             var missing = await Task.Run(() => _db.GetGamesWithoutArtwork());
             if (missing.Count == 0) return;
 
-            var batch = missing
-                .Where(g => !string.IsNullOrWhiteSpace(g.RomHash))
-                .Take(25)
-                .ToList();
-
-            ToolbarTitle.Text = $"Fetching artwork ({batch.Count} of {missing.Count} pending)…";
-
-            int fetched = 0;
-            foreach (var game in batch)
+            // Repair pass: fix games whose artwork file is already on disk but the DB
+            // path was never saved (e.g. background task killed on last shutdown).
+            // This is instant — no HTTP requests — and removes the bulk of false positives.
+            var stillMissing = new List<Models.Game>();
+            await Task.Run(() =>
             {
-                var (artworkPath, metadata) = await _artwork.FetchArtworkAsync(
-                    game.RomHash, game.RomPath, game.Console);
-
-                if (artworkPath != null)
+                foreach (var game in missing)
                 {
-                    _db.UpdateCoverArt(game.Id, artworkPath);
-                    game.CoverArtPath = artworkPath;
-                    fetched++;
-
-                    if (metadata != null && !string.IsNullOrWhiteSpace(metadata.Title))
+                    string? cached = _artwork.FindCachedArtwork(game.RomHash);
+                    if (cached != null)
                     {
-                        game.Title = metadata.Title;
-                        _db.UpdateTitle(game.Id, metadata.Title);
+                        _db.UpdateCoverArt(game.Id, cached);
+                        game.CoverArtPath = cached;
+                        Dispatcher.Invoke(() => _vm.RefreshGame(game));
+                    }
+                    else
+                    {
+                        stillMissing.Add(game);
+                    }
+                }
+            });
+
+            if (stillMissing.Count == 0) return;
+            await FetchArtworkForGamesAsync(stillMissing, "Artwork", silentThreshold: 1);
+        }
+
+        private async Task FetchMissingArtworkForConsoleAsync(string console, string displayName)
+        {
+            var missing = await Task.Run(() => _db.GetGamesWithoutArtworkForConsole(console));
+            if (missing.Count == 0)
+            {
+                SetStatus($"{displayName} — all artwork already downloaded", autoClear: true);
+                return;
+            }
+            await FetchArtworkForGamesAsync(missing, displayName);
+        }
+
+        // silentThreshold: games with ArtworkAttempts >= this value produce no status messages.
+        // Pass int.MaxValue (default) to always show progress — used for manual fetches.
+        // Pass 2 for the auto startup retry so repeat failures are completely silent.
+        private async Task FetchArtworkForGamesAsync(List<Models.Game> games, string label,
+            int silentThreshold = int.MaxValue)
+        {
+            // Separate into "loud" (new / few attempts) and "silent" (repeated failures) groups.
+            var loudGames   = games.Where(g => g.ArtworkAttempts < silentThreshold).ToList();
+            var silentGames = games.Where(g => g.ArtworkAttempts >= silentThreshold).ToList();
+
+            int total   = loudGames.Count;
+            int done    = 0;
+            int fetched = 0;
+            var sem     = new System.Threading.SemaphoreSlim(6, 6);
+
+            if (total > 0)
+                SetStatus($"{label} — starting artwork fetch for {total} games…");
+
+            // Process loud games with status updates.
+            var loudTasks = loudGames.Select(async game =>
+            {
+                await sem.WaitAsync();
+                try
+                {
+                    var (artworkPath, metadata) = await _artwork.FetchArtworkAsync(
+                        game.RomHash, game.RomPath, game.Console);
+
+                    if (artworkPath != null)
+                    {
+                        _db.UpdateCoverArt(game.Id, artworkPath);
+                        game.CoverArtPath = artworkPath;
+                        System.Threading.Interlocked.Increment(ref fetched);
+
+                        if (metadata != null && !string.IsNullOrWhiteSpace(metadata.Title))
+                        {
+                            game.Title = metadata.Title;
+                            _db.UpdateTitle(game.Id, metadata.Title);
+                        }
+
+                        Dispatcher.Invoke(() => _vm.RefreshGame(game));
+                    }
+                    else
+                    {
+                        _db.IncrementArtworkAttempts(game.Id);
                     }
 
-                    Dispatcher.Invoke(() => _vm.RefreshGame(game));
+                    int completed = System.Threading.Interlocked.Increment(ref done);
+                    int pct = (int)((completed / (double)total) * 100);
+                    Dispatcher.Invoke(() =>
+                        SetStatus($"{label} — {pct}%  ({completed} of {total})  {game.Title}"));
                 }
+                finally { sem.Release(); }
+            });
+
+            await Task.WhenAll(loudTasks);
+
+            if (total > 0)
+            {
+                SetStatus(fetched > 0
+                    ? $"{label} — {fetched} image{(fetched == 1 ? "" : "s")} downloaded"
+                    : $"{label} — no artwork found", autoClear: true);
             }
 
-            int remaining = missing.Count - batch.Count;
-            ToolbarTitle.Text = remaining > 0
-                ? $"Artwork: {fetched} fetched, {remaining} still pending (relaunch to continue)"
-                : fetched > 0 ? $"Artwork: {fetched} fetched" : "";
+            // Process silent games in the background with no status output.
+            var silentTasks = silentGames.Select(async game =>
+            {
+                await sem.WaitAsync();
+                try
+                {
+                    var (artworkPath, metadata) = await _artwork.FetchArtworkAsync(
+                        game.RomHash, game.RomPath, game.Console);
+
+                    if (artworkPath != null)
+                    {
+                        _db.UpdateCoverArt(game.Id, artworkPath);
+                        game.CoverArtPath = artworkPath;
+
+                        if (metadata != null && !string.IsNullOrWhiteSpace(metadata.Title))
+                        {
+                            game.Title = metadata.Title;
+                            _db.UpdateTitle(game.Id, metadata.Title);
+                        }
+
+                        Dispatcher.Invoke(() => _vm.RefreshGame(game));
+                    }
+                    else
+                    {
+                        _db.IncrementArtworkAttempts(game.Id);
+                    }
+                }
+                finally { sem.Release(); }
+            });
+
+            await Task.WhenAll(silentTasks);
         }
 
         // ── Game grid scrolling ───────────────────────────────────────────────
@@ -233,7 +345,8 @@ namespace Emutastic
             {
                 string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
                 await _importer.ImportFilesAsync(files);
-                _vm.Reload();
+                await Task.Run(() => _vm.Reload());
+                await _vm.FilterGamesAsync();
                 UpdateToolbarTitle(_vm.SelectedConsole);
             }
             base.OnDrop(e);
@@ -387,12 +500,12 @@ namespace Emutastic
                         .ConvertFromString("#FF5F57")!);
                     item.Click += (_, _) =>
                     {
-                        var result = MessageBox.Show(
-                            $"Remove all {count} {displayName} games from your library?\n\nThis will not delete ROM files from your computer.",
+                        var dlg = new ConfirmDialog(
                             "Remove All Games",
-                            MessageBoxButton.YesNo,
-                            MessageBoxImage.Warning);
-                        if (result != MessageBoxResult.Yes) return;
+                            $"Remove all {count} {displayName} games from your library?\n\nYour save states will not be affected.",
+                            confirmLabel: "Remove All")
+                        { Owner = this };
+                        if (dlg.ShowDialog() != true) return;
                         _db.DeleteAllGamesForConsole(console);
                         _ = Task.Run(() => _vm.Reload()).ContinueWith(_ =>
                             Dispatcher.Invoke(async () =>
@@ -402,6 +515,10 @@ namespace Emutastic
                             }));
                     };
                     menu.Items.Add(item);
+
+                    var artItem = new MenuItem { Header = "⬇  Download Missing Artwork" };
+                    artItem.Click += async (_, _) => await FetchMissingArtworkForConsoleAsync(console, displayName);
+                    menu.Items.Add(artItem);
                     menu.PlacementTarget = btn;
                     menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
                     menu.IsOpen = true;
@@ -456,7 +573,7 @@ namespace Emutastic
             prefs.ShowDialog();
         }
 
-        private void NavImport_Click(object sender, RoutedEventArgs e)
+        private async void NavImport_Click(object sender, RoutedEventArgs e)
         {
             var dialog = new OpenFileDialog
             {
@@ -465,10 +582,29 @@ namespace Emutastic
                 Filter = "ROM Files|*.nes;*.sfc;*.smc;*.z64;*.n64;*.gb;*.gbc;*.gba;*.nds;*.md;*.gen;*.sms;*.gg;*.pce;*.iso;*.pbp;*.cso;*.a26;*.a52;*.a78;*.lnx;*.zip;*.7z|All Files|*.*"
             };
             if (dialog.ShowDialog() == true)
-                _ = _importer.ImportFilesAsync(dialog.FileNames);
+            {
+                await _importer.ImportFilesAsync(dialog.FileNames);
+                await Task.Run(() => _vm.Reload());
+                await _vm.FilterGamesAsync();
+                UpdateToolbarTitle(_vm.SelectedConsole);
+            }
         }
 
         private void UpdateToolbarTitle(string title) => ToolbarTitle.Text = title;
+
+        private CancellationTokenSource? _statusClearCts;
+        private void SetStatus(string msg, bool autoClear = false)
+        {
+            _statusClearCts?.Cancel();
+            StatusText.Text = msg;
+            if (!autoClear) return;
+            _statusClearCts = new CancellationTokenSource();
+            var token = _statusClearCts.Token;
+            _ = Task.Delay(3000, token).ContinueWith(_ =>
+                Dispatcher.Invoke(() => StatusText.Text = ""), token,
+                TaskContinuationOptions.OnlyOnRanToCompletion,
+                TaskScheduler.Default);
+        }
 
         // ── View toggle (grid / list) ──
         private void ViewToggle_Click(object sender, RoutedEventArgs e)
@@ -491,24 +627,85 @@ namespace Emutastic
         private void GameCard_Click(object sender, MouseButtonEventArgs e)
         {
             if (e.ChangedButton != MouseButton.Left) return;
-            if (sender is FrameworkElement fe && fe.DataContext is Game game)
+            if (sender is not FrameworkElement fe || fe.DataContext is not Game game) return;
+
+            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))
             {
-                var detail = new GameDetailWindow(game) { Owner = this };
-                detail.ShowDialog();
+                // Shift+click — range select, never open detail
+                e.Handled = true;
+                DoRangeSelect(game);
+                return;
             }
+
+            // Normal click — clear any selection, open detail, update anchor
+            GameGridView.SelectedItems.Clear();
+            _selectionAnchor = game;
+            var detail = new GameDetailWindow(game) { Owner = this };
+            detail.ShowDialog();
+        }
+
+        private void DoRangeSelect(Game clicked)
+        {
+            var items = GameGridView.Items.Cast<Game>().ToList();
+            int clickedIdx = items.IndexOf(clicked);
+            if (clickedIdx < 0) return;
+
+            // First Shift+click with no anchor — select just this game
+            if (_selectionAnchor == null)
+            {
+                _selectionAnchor = clicked;
+                GameGridView.SelectedItems.Clear();
+                GameGridView.SelectedItems.Add(clicked);
+                return;
+            }
+
+            int anchorIdx = items.IndexOf(_selectionAnchor);
+            if (anchorIdx < 0) anchorIdx = 0;
+
+            int start = Math.Min(anchorIdx, clickedIdx);
+            int end   = Math.Max(anchorIdx, clickedIdx);
+
+            GameGridView.SelectedItems.Clear();
+            for (int i = start; i <= end; i++)
+                GameGridView.SelectedItems.Add(items[i]);
         }
 
         // ── Game card right click ──
         private void GameCard_RightClick(object sender, MouseButtonEventArgs e)
         {
             e.Handled = true;
-            if (sender is FrameworkElement fe && fe.DataContext is Game game)
+            if (sender is not FrameworkElement fe || fe.DataContext is not Game game) return;
+
+            // If right-clicking a card that's part of a multi-selection, keep the
+            // selection intact and show the bulk menu; otherwise treat as single-game.
+            bool isMultiSelect = GameGridView.SelectedItems.Count > 1
+                              && GameGridView.SelectedItems.Contains(game);
+
+            var menu = isMultiSelect
+                ? BuildMultiSelectContextMenu(GameGridView.SelectedItems.OfType<Game>().ToList())
+                : BuildContextMenu(game);
+
+            menu.PlacementTarget = fe;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+            menu.IsOpen = true;
+        }
+
+        private ContextMenu BuildMultiSelectContextMenu(List<Game> games)
+        {
+            var menu = new ContextMenu();
+            var toDelete = games; // already captured
+            menu.Items.Add(MakeMenuItem($"🗑  Delete Selected ({toDelete.Count})", async () =>
             {
-                var menu = BuildContextMenu(game);
-                menu.PlacementTarget = fe;
-                menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
-                menu.IsOpen = true;
-            }
+                string msg = $"Delete {toDelete.Count} games? Save states will not be removed.";
+                var confirm = new Views.ConfirmDialog("Delete Games", msg) { Owner = this };
+                if (confirm.ShowDialog() != true) return;
+
+                await Task.Run(() => _db.DeleteGames(toDelete.Select(g => g.Id)));
+                foreach (var g in toDelete) _vm.RemoveGame(g);
+                GameGridView.SelectedItems.Clear();
+                _selectionAnchor = null;
+            }));
+            return menu;
         }
 
         private ContextMenu BuildContextMenu(Game game)
@@ -568,7 +765,7 @@ namespace Emutastic
             // ── Download Cover Art ──
             menu.Items.Add(MakeMenuItem("⬇  Download Cover Art", async () =>
             {
-                ToolbarTitle.Text = $"Fetching artwork for {game.Title}…";
+                SetStatus($"Fetching artwork for {game.Title}…");
                 var (artworkPath, metadata) = await _artwork.FetchArtworkAsync(
                     game.RomHash, game.RomPath, game.Console);
 
@@ -577,11 +774,11 @@ namespace Emutastic
                     _db.UpdateCoverArt(game.Id, artworkPath);
                     game.CoverArtPath = artworkPath;
                     _vm.RefreshGame(game);
-                    ToolbarTitle.Text = "Artwork updated";
+                    SetStatus("Artwork updated", autoClear: true);
                 }
                 else
                 {
-                    ToolbarTitle.Text = "No artwork found";
+                    SetStatus("No artwork found", autoClear: true);
                     MessageBox.Show("Could not find artwork for this game.",
                         "Artwork", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
@@ -599,7 +796,7 @@ namespace Emutastic
                 {
                     string appData = Environment.GetFolderPath(
                         Environment.SpecialFolder.ApplicationData);
-                    string cacheFolder = Path.Combine(appData, "OpenEmuWindows", "Artwork");
+                    string cacheFolder = Path.Combine(appData, "Emutastic", "Artwork");
                     Directory.CreateDirectory(cacheFolder);
                     string ext = Path.GetExtension(dialog.FileName);
                     string destPath = Path.Combine(cacheFolder,
@@ -670,26 +867,9 @@ namespace Emutastic
 
                 if (selectedCount > 1)
                 {
-                    var bulkDeleteItem = MakeMenuItem($"🗑  Delete Selected ({selectedCount})", () =>
-                    {
-                        var toDelete = GameGridView.SelectedItems.Cast<Game>().ToList();
-                        string msg = toDelete.Count == 1
-                            ? $"Remove \"{toDelete[0].Title}\" from your library?"
-                            : $"Remove {toDelete.Count} games from your library?";
-                        var result = MessageBox.Show(
-                            msg + "\n\nThis will not delete ROM files from your computer.",
-                            "Delete Games",
-                            MessageBoxButton.YesNo,
-                            MessageBoxImage.Warning);
-                        if (result == MessageBoxResult.Yes)
-                        {
-                            foreach (var g in toDelete)
-                            {
-                                _db.DeleteGame(g.Id);
-                                _vm.RemoveGame(g);
-                            }
-                        }
-                    });
+                    var toDelete = GameGridView.SelectedItems.OfType<Game>().ToList();
+                    var bulkDeleteItem = MakeMenuItem($"🗑  Delete Selected ({toDelete.Count})", async () =>
+                        await DeleteGamesWithConfirmAsync(toDelete));
                     bulkDeleteItem.Foreground = new System.Windows.Media.SolidColorBrush(
                         (System.Windows.Media.Color)System.Windows.Media.ColorConverter
                         .ConvertFromString("#FF5F57")!);
@@ -741,13 +921,42 @@ namespace Emutastic
         // ── Keyboard shortcuts ──
         private void Window_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
         {
-            if (e.Key == System.Windows.Input.Key.A &&
-                (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control) != 0 &&
+            // Ctrl+A — select all
+            if (e.Key == Key.A &&
+                Keyboard.Modifiers.HasFlag(ModifierKeys.Control) &&
                 GameGridView.Visibility == Visibility.Visible)
             {
                 GameGridView.SelectAll();
                 e.Handled = true;
+                return;
             }
+
+            // Delete — delete selected games
+            if (e.Key == Key.Delete &&
+                GameGridView.Visibility == Visibility.Visible &&
+                GameGridView.SelectedItems.Count > 0)
+            {
+                e.Handled = true;
+                var toDelete = GameGridView.SelectedItems.OfType<Game>().ToList();
+                _ = DeleteGamesWithConfirmAsync(toDelete);
+            }
+        }
+
+        private async Task DeleteGamesWithConfirmAsync(List<Game> toDelete)
+        {
+            string msg = toDelete.Count == 1
+                ? $"Delete \"{toDelete[0].Title}\"? Save states will not be removed."
+                : $"Delete {toDelete.Count} games? Save states will not be removed.";
+
+            var confirm = new Views.ConfirmDialog(
+                toDelete.Count == 1 ? "Delete Game" : "Delete Games", msg)
+                { Owner = this };
+            if (confirm.ShowDialog() != true) return;
+
+            await Task.Run(() => _db.DeleteGames(toDelete.Select(g => g.Id)));
+            foreach (var g in toDelete) _vm.RemoveGame(g);
+            GameGridView.SelectedItems.Clear();
+            _selectionAnchor = null;
         }
 
         // ── Tab switching ──
@@ -756,8 +965,8 @@ namespace Emutastic
             if (sender is System.Windows.Controls.Primitives.ToggleButton btn && btn.Tag is string tag)
             {
                 bool isLibrary = tag == "Library";
-                LibraryView.Visibility    = isLibrary ? Visibility.Visible   : Visibility.Collapsed;
-                SaveStatesView.Visibility = isLibrary ? Visibility.Collapsed : Visibility.Visible;
+                GameContentGrid.Visibility = isLibrary ? Visibility.Visible   : Visibility.Collapsed;
+                SaveStatesView.Visibility  = isLibrary ? Visibility.Collapsed : Visibility.Visible;
 
                 if (!isLibrary) PopulateSaveStatesView();
 

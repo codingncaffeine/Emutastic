@@ -20,6 +20,7 @@ namespace Emutastic.Models
         public int Rating { get; set; }
         public string Collection { get; set; } = "";
         public DateTime? LastPlayed { get; set; }
+        public int ArtworkAttempts { get; set; }
 
         public string LastPlayedDisplay => LastPlayed.HasValue
             ? LastPlayed.Value.ToString("MMM d, yyyy")

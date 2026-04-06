@@ -22,6 +22,17 @@ namespace Emutastic.Services
     {
         private readonly string _vgdbPath;
         private readonly string _cacheFolder;
+        private readonly Dictionary<string, string> _cacheIndex;
+
+        /// <summary>
+        /// If this game's artwork file is already on disk but the DB path was never saved,
+        /// returns the local path so the caller can update the DB without an HTTP request.
+        /// </summary>
+        public string? FindCachedArtwork(string romHash)
+        {
+            if (string.IsNullOrWhiteSpace(romHash)) return null;
+            return _cacheIndex.TryGetValue(romHash.ToLowerInvariant(), out var path) ? path : null;
+        }
         private readonly HttpClient _http;
 
         private static readonly Dictionary<string, string> LibretroSystemMap = new()
@@ -50,11 +61,11 @@ namespace Emutastic.Services
             { "TGCD",         "NEC - PC Engine CD - TurboGrafx-CD"            },
             { "NGP",          "SNK - Neo Geo Pocket"                           },
             { "Atari2600",    "Atari - 2600"                                   },
-            { "Atari5200",    "Atari - 5200"                                   },
+
             { "Atari7800",    "Atari - 7800"                                   },
             { "Jaguar",       "Atari - Jaguar"                                 },
             { "ColecoVision", "Coleco - ColecoVision"                          },
-            { "Intellivision","Mattel - Intellivision"                         },
+
             { "Vectrex",      "GCE - Vectrex"                                  },
             { "3DO",          "The 3DO Company - 3DO"                          },
             { "Arcade",       "FBNeo - Arcade Games"                           },
@@ -66,12 +77,18 @@ namespace Emutastic.Services
             _vgdbPath = Path.Combine(exeFolder, "Assets", "openvgdb.sqlite");
 
             string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            _cacheFolder = Path.Combine(appData, "OpenEmuWindows", "Artwork");
+            _cacheFolder = Path.Combine(appData, "Emutastic", "Artwork");
             Directory.CreateDirectory(_cacheFolder);
+            // Build a hash→path index once so the repair pass is O(1) per game.
+            _cacheIndex = Directory.EnumerateFiles(_cacheFolder)
+                .ToDictionary(
+                    f => Path.GetFileNameWithoutExtension(f).ToLowerInvariant(),
+                    f => f,
+                    StringComparer.OrdinalIgnoreCase);
 
             _http = new HttpClient();
-            _http.DefaultRequestHeaders.Add("User-Agent", "OpenEmuWindows/1.0");
-            _http.Timeout = TimeSpan.FromSeconds(15);
+            _http.DefaultRequestHeaders.Add("User-Agent", "Emutastic/1.0");
+            _http.Timeout = TimeSpan.FromSeconds(5);
 
             System.Diagnostics.Debug.WriteLine(
                 File.Exists(_vgdbPath)
@@ -298,6 +315,12 @@ namespace Emutastic.Services
         public async Task<string?> DownloadArtworkAsync(string imageUrl, string cacheKey)
         {
             if (string.IsNullOrWhiteSpace(imageUrl)) return null;
+
+            // Guard against empty hash being used as a cache key — all hashless games
+            // would collide on the same file and get each other's artwork.
+            if (string.IsNullOrWhiteSpace(cacheKey))
+                cacheKey = Convert.ToHexString(System.Security.Cryptography.MD5.HashData(
+                    System.Text.Encoding.UTF8.GetBytes(imageUrl)));
 
             try
             {

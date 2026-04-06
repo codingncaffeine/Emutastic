@@ -97,6 +97,20 @@ namespace Emutastic.Configuration
         public Dictionary<string, Dictionary<string, string>> CoreOptionOverrides { get; set; } = new();
     }
 
+    // Video snap provider configuration
+    public class SnapConfiguration : ConfigurationBase
+    {
+        // ScreenScraper — active provider
+        public string ScreenScraperUser     { get; set; } = "";
+        public string ScreenScraperPassword { get; set; } = "";
+        public bool   ScreenScraperEnabled  { get; set; } = false;
+
+        // EmuMovies — scaffolded, not yet active
+        public string EmuMoviesUser         { get; set; } = "";
+        public string EmuMoviesPassword     { get; set; } = "";
+        public bool   EmuMoviesEnabled      { get; set; } = false;
+    }
+
     // Button mapping definition
     public class ButtonMapping
     {

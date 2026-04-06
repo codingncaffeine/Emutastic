@@ -3,6 +3,7 @@ using Emutastic.Models;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 namespace Emutastic.Services
 {
@@ -16,7 +17,7 @@ namespace Emutastic.Services
             try
             {
                 string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-                string appFolder = Path.Combine(appData, "OpenEmuWindows");
+                string appFolder = Path.Combine(appData, "Emutastic");
                 Directory.CreateDirectory(appFolder);
                 _dbPath = Path.Combine(appFolder, "library.db");
                 _connectionString = $"Data Source={_dbPath}";
@@ -28,6 +29,16 @@ namespace Emutastic.Services
                 System.Diagnostics.Debug.WriteLine($"DatabaseService: Failed to initialize: {ex.Message}");
                 throw;
             }
+        }
+
+        private SqliteConnection OpenConnection()
+        {
+            var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            using var pragma = connection.CreateCommand();
+            pragma.CommandText = "PRAGMA busy_timeout=5000;";
+            pragma.ExecuteNonQuery();
+            return connection;
         }
 
         private void InitializeDatabase()
@@ -78,6 +89,15 @@ namespace Emutastic.Services
                 );";
             cmd.ExecuteNonQuery();
 
+            // Schema migrations — safe to run every launch, silently ignored if column exists.
+            try
+            {
+                var migrate = connection.CreateCommand();
+                migrate.CommandText = "ALTER TABLE Games ADD COLUMN ArtworkAttempts INTEGER DEFAULT 0;";
+                migrate.ExecuteNonQuery();
+            }
+            catch { /* column already exists */ }
+
             // Indexes for common query patterns — safe to run every launch (IF NOT EXISTS).
             foreach (var ddl in new[]
             {
@@ -97,6 +117,17 @@ namespace Emutastic.Services
             var cleanCmd = connection.CreateCommand();
             cleanCmd.CommandText = "DELETE FROM Games WHERE Console = 'Arcade' AND RomPath NOT LIKE '%.zip';";
             cleanCmd.ExecuteNonQuery();
+
+            // One-time path migration: fix paths that still reference the old AppData folder name.
+            var pathFixCmd = connection.CreateCommand();
+            pathFixCmd.CommandText =
+                "UPDATE Games SET CoverArtPath = REPLACE(CoverArtPath, '\\OpenEmuWindows\\', '\\Emutastic\\') " +
+                "WHERE CoverArtPath LIKE '%OpenEmuWindows%';" +
+                "UPDATE SaveStates SET FilePath   = REPLACE(FilePath,   '\\OpenEmuWindows\\', '\\Emutastic\\') " +
+                "WHERE FilePath   LIKE '%OpenEmuWindows%';" +
+                "UPDATE SaveStates SET Screenshot = REPLACE(Screenshot, '\\OpenEmuWindows\\', '\\Emutastic\\') " +
+                "WHERE Screenshot LIKE '%OpenEmuWindows%';";
+            pathFixCmd.ExecuteNonQuery();
 
             TryAddColumn(connection, "Games", "Rating", "INTEGER DEFAULT 0");
             TryAddColumn(connection, "Games", "Collection", "TEXT DEFAULT ''");
@@ -282,14 +313,64 @@ namespace Emutastic.Services
             cmd.ExecuteNonQuery();
         }
 
-        public void DeleteGame(int gameId)
+        public void IncrementArtworkAttempts(int gameId)
         {
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             var cmd = connection.CreateCommand();
+            cmd.CommandText = "UPDATE Games SET ArtworkAttempts = ArtworkAttempts + 1 WHERE Id = $id;";
+            cmd.Parameters.AddWithValue("$id", gameId);
+            cmd.ExecuteNonQuery();
+        }
+
+        public int GetSaveStateCountForGame(int gameId)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT COUNT(*) FROM SaveStates WHERE GameId = $id;";
+            cmd.Parameters.AddWithValue("$id", gameId);
+            return Convert.ToInt32(cmd.ExecuteScalar());
+        }
+
+        public int GetSaveStateCountForGames(IEnumerable<int> gameIds)
+        {
+            var ids = gameIds.ToList();
+            if (ids.Count == 0) return 0;
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = $"SELECT COUNT(*) FROM SaveStates WHERE GameId IN ({string.Join(",", ids)});";
+            return Convert.ToInt32(cmd.ExecuteScalar());
+        }
+
+        public void DeleteGame(int gameId)
+        {
+            using var connection = OpenConnection();
+            // Disable FK enforcement so save states are preserved when a game is removed from the library.
+            using (var fk = connection.CreateCommand()) { fk.CommandText = "PRAGMA foreign_keys = OFF;"; fk.ExecuteNonQuery(); }
+            var cmd = connection.CreateCommand();
             cmd.CommandText = "DELETE FROM Games WHERE Id = $id;";
             cmd.Parameters.AddWithValue("$id", gameId);
             cmd.ExecuteNonQuery();
+        }
+
+        public void DeleteGames(IEnumerable<int> gameIds)
+        {
+            var ids = gameIds.ToList();
+            if (ids.Count == 0) return;
+            using var connection = OpenConnection();
+            using (var fk = connection.CreateCommand()) { fk.CommandText = "PRAGMA foreign_keys = OFF;"; fk.ExecuteNonQuery(); }
+            using var tx = connection.BeginTransaction();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "DELETE FROM Games WHERE Id = $id;";
+            var param = cmd.Parameters.Add("$id", Microsoft.Data.Sqlite.SqliteType.Integer);
+            foreach (int id in ids)
+            {
+                param.Value = id;
+                cmd.ExecuteNonQuery();
+            }
+            tx.Commit();
         }
 
         public int GetGameCountForConsole(string console)
@@ -304,12 +385,43 @@ namespace Emutastic.Services
 
         public void DeleteAllGamesForConsole(string console)
         {
-            using var connection = new SqliteConnection(_connectionString);
-            connection.Open();
+            using var connection = OpenConnection();
+            using (var fk = connection.CreateCommand()) { fk.CommandText = "PRAGMA foreign_keys = OFF;"; fk.ExecuteNonQuery(); }
             var cmd = connection.CreateCommand();
             cmd.CommandText = "DELETE FROM Games WHERE Console = $console;";
             cmd.Parameters.AddWithValue("$console", console);
             cmd.ExecuteNonQuery();
+        }
+
+        public List<Game> GetGamesWithoutArtworkForConsole(string console)
+        {
+            var games = new List<Game>();
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            // Manual fetch — ignores attempt cap so user can force a retry for any game.
+            cmd.CommandText = @"
+                SELECT Id, Title, Console, RomHash, RomPath, BackgroundColor, AccentColor
+                FROM Games
+                WHERE Console = $console
+                AND   (CoverArtPath IS NULL OR CoverArtPath = '')
+                ORDER BY ArtworkAttempts ASC;";
+            cmd.Parameters.AddWithValue("$console", console);
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                games.Add(new Game
+                {
+                    Id = reader.GetInt32(0),
+                    Title = reader.GetString(1),
+                    Console = reader.GetString(2),
+                    RomHash = reader.GetString(3),
+                    RomPath = reader.IsDBNull(4) ? "" : reader.GetString(4),
+                    BackgroundColor = reader.IsDBNull(5) ? "#1F1F21" : reader.GetString(5),
+                    AccentColor = reader.IsDBNull(6) ? "#E03535" : reader.GetString(6),
+                });
+            }
+            return games;
         }
 
         public List<Game> GetGamesWithoutArtwork()
@@ -319,10 +431,11 @@ namespace Emutastic.Services
             connection.Open();
             var cmd = connection.CreateCommand();
             cmd.CommandText = @"
-                SELECT Id, Title, Console, RomHash, RomPath, BackgroundColor, AccentColor
+                SELECT Id, Title, Console, RomHash, RomPath, BackgroundColor, AccentColor, ArtworkAttempts
                 FROM Games
                 WHERE (CoverArtPath IS NULL OR CoverArtPath = '')
-                AND   (RomHash IS NOT NULL AND RomHash != '');";
+                AND   (RomHash IS NOT NULL AND RomHash != '')
+                ORDER BY ArtworkAttempts ASC;";
 
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
@@ -336,6 +449,7 @@ namespace Emutastic.Services
                     RomPath = reader.IsDBNull(4) ? "" : reader.GetString(4),
                     BackgroundColor = reader.IsDBNull(5) ? "#1F1F21" : reader.GetString(5),
                     AccentColor = reader.IsDBNull(6) ? "#E03535" : reader.GetString(6),
+                    ArtworkAttempts = reader.IsDBNull(7) ? 0 : reader.GetInt32(7),
                 });
             }
             return games;

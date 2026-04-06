@@ -12,9 +12,10 @@ namespace Emutastic.Views
         {
             { "SegaCD",    "Sega CD"               },
             { "Saturn",    "Sega Saturn"            },
+            { "Dreamcast", "Sega Dreamcast"         },
             { "PS1",       "PlayStation"            },
-            { "TGCD",      "TurboGrafx-CD"          },
             { "PSP",       "PlayStation Portable"   },
+            { "TGCD",      "TurboGrafx-CD"          },
             { "GameCube",  "Nintendo GameCube"      },
             { "3DO",       "3DO"                    },
         };

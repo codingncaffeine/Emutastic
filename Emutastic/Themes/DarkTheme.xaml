@@ -34,39 +34,41 @@
 
     <!-- ── SCROLLBAR (global implicit styles — apply to every window) ── -->
 
-    <!-- Thumb: narrow pill with rounded ends -->
+    <!-- Thumb: rounded pill, visible but not intrusive -->
     <Style x:Key="ScrollBarThumb" TargetType="{x:Type Thumb}">
-        <Setter Property="Background" Value="{StaticResource BgQuaternaryBrush}"/>
+        <Setter Property="Background" Value="#484849"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="{x:Type Thumb}">
                     <Border Background="{TemplateBinding Background}"
-                            CornerRadius="3"
-                            Margin="2,2,2,2"
+                            CornerRadius="4"
+                            Margin="3,2,3,2"
                             Cursor="Hand"/>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
         <Style.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
-                <Setter Property="Background" Value="{StaticResource BorderNormalBrush}"/>
+                <Setter Property="Background" Value="#666668"/>
             </Trigger>
             <Trigger Property="IsDragging" Value="True">
-                <Setter Property="Background" Value="#666666"/>
+                <Setter Property="Background" Value="#888889"/>
             </Trigger>
         </Style.Triggers>
     </Style>
 
-    <!-- Implicit ScrollBar: 6px wide, no arrow buttons, transparent track -->
+    <!-- Implicit ScrollBar: 10px wide, no arrow buttons, transparent track -->
     <Style TargetType="{x:Type ScrollBar}">
         <Setter Property="Background"    Value="Transparent"/>
         <Setter Property="BorderThickness" Value="0"/>
-        <Setter Property="Width"         Value="6"/>
-        <Setter Property="MinWidth"      Value="6"/>
+        <Setter Property="Width"         Value="10"/>
+        <Setter Property="MinWidth"      Value="10"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="{x:Type ScrollBar}">
                     <Grid Background="Transparent">
+                        <!-- Subtle track rail so the scrollbar is always visible -->
+                        <Border Background="#222224" CornerRadius="4" Margin="3,2,3,2"/>
                         <Track x:Name="PART_Track" IsDirectionReversed="True">
                             <Track.DecreaseRepeatButton>
                                 <RepeatButton Command="ScrollBar.PageUpCommand"
@@ -81,7 +83,7 @@
                                               Height="0"/>
                             </Track.IncreaseRepeatButton>
                             <Track.Thumb>
-                                <Thumb Style="{StaticResource ScrollBarThumb}" MinHeight="24"/>
+                                <Thumb Style="{StaticResource ScrollBarThumb}" MinHeight="32"/>
                             </Track.Thumb>
                         </Track>
                     </Grid>
@@ -91,8 +93,8 @@
         <!-- Horizontal variant -->
         <Style.Triggers>
             <Trigger Property="Orientation" Value="Horizontal">
-                <Setter Property="Height"    Value="6"/>
-                <Setter Property="MinHeight" Value="6"/>
+                <Setter Property="Height"    Value="10"/>
+                <Setter Property="MinHeight" Value="10"/>
                 <Setter Property="Width"     Value="Auto"/>
                 <Setter Property="Template">
                     <Setter.Value>

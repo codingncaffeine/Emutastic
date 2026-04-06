@@ -35,5 +35,8 @@ namespace Emutastic.Configuration
 
         ThemeConfiguration GetThemeConfiguration();
         void SetThemeConfiguration(ThemeConfiguration config);
+
+        SnapConfiguration GetSnapConfiguration();
+        void SetSnapConfiguration(SnapConfiguration config);
     }
 }

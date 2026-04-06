@@ -14,7 +14,7 @@ namespace Emutastic.Services
             { ".chd", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "3DO", "Dreamcast" } },
             { ".iso", new[] { "PSP", "GameCube", "3DO" } },
             { ".cue", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "3DO" } },
-            { ".bin", new[] { "Atari7800", "Atari2600", "Genesis", "Sega32X", "SegaCD", "ColecoVision", "Intellivision", "NES" } },
+            { ".bin", new[] { "PS1", "SegaCD", "Saturn", "3DO", "Dreamcast", "Atari7800", "Atari2600", "Genesis", "Sega32X", "ColecoVision", "NES" } },
         };
 
         // ROM file extensions mapped to console names
@@ -53,11 +53,11 @@ namespace Emutastic.Services
             { ".ngp",  "NGP"         },
             { ".ngc",  "NGP"         },
             { ".a26",  "Atari2600"   },
-            { ".a52",  "Atari5200"   },
+
             { ".a78",  "Atari7800"   },
             { ".j64",  "Jaguar"      },
             { ".col",  "ColecoVision"},
-            { ".int",  "Intellivision"},
+
             { ".vec",  "Vectrex"     },
             { ".gdi",  "Dreamcast"   },
             { ".cdi",  "Dreamcast"   },
@@ -81,11 +81,11 @@ namespace Emutastic.Services
             { "PS1",          "Sony"       }, { "PSP",       "Sony"       },
             { "TG16",         "NEC"        }, { "TGCD",      "NEC"        },
             { "NGP",          "SNK"        },
-            { "Atari2600",    "Atari"      }, { "Atari5200", "Atari"      },
+            { "Atari2600",    "Atari"      },
             { "Atari7800",    "Atari"      },
             { "Jaguar",       "Atari"      },
             { "ColecoVision", "Coleco"     },
-            { "Intellivision","Mattel"     },
+
             { "Vectrex",      "GCE"        },
             { "3DO",          "3DO"        },
             { "Arcade",       "Arcade"     },
@@ -147,9 +147,7 @@ namespace Emutastic.Services
             ("atari 2600",    "Atari2600"),
             ("atari2600",     "Atari2600"),
             ("2600",          "Atari2600"),
-            ("atari 5200",    "Atari5200"),
-            ("atari5200",     "Atari5200"),
-            ("5200",          "Atari5200"),
+
             ("mega drive",    "Genesis"),
             ("genesis",       "Genesis"),
             ("sega 32x",      "Sega32X"),
@@ -159,7 +157,7 @@ namespace Emutastic.Services
             ("mega-cd",       "SegaCD"),
             ("colecovision",  "ColecoVision"),
             ("coleco",        "ColecoVision"),
-            ("intellivision", "Intellivision"),
+
             ("nintendo entertainment", "NES"),
             (" nes",          "NES"),
             ("famicom",       "NES"),
@@ -172,9 +170,46 @@ namespace Emutastic.Services
             ("nintendo 64",   "N64"),
             ("n64",           "N64"),
             ("nintendo ds",   "NDS"),
+            // CD variants must come before plain TG16/PC Engine to avoid false matches
+            ("turbografx-cd", "TGCD"),
+            ("turbografx cd", "TGCD"),
+            ("turbografx16 cd","TGCD"),
+            ("turbografx 16 cd","TGCD"),
+            ("tgfx16-cd",     "TGCD"),
+            ("tgfx16 cd",     "TGCD"),
+            ("tgfx-cd",       "TGCD"),
+            ("pc engine cd",  "TGCD"),
+            ("pc engine duo", "TGCD"),
+            ("pc engine-cd",  "TGCD"),
+            ("tgcd",          "TGCD"),
             ("turbografx",    "TG16"),
+            ("tgfx",          "TG16"),
             ("pc engine",     "TG16"),
             ("neo geo pocket","NGP"),
+            ("sega saturn",   "Saturn"),
+            ("saturn",        "Saturn"),
+            ("dreamcast",     "Dreamcast"),
+            ("playstation portable", "PSP"),
+            ("psp",           "PSP"),
+            ("playstation",   "PS1"),
+            ("psx",           "PS1"),
+            ("ps1",           "PS1"),
+            ("gamecube",      "GameCube"),
+            ("game cube",     "GameCube"),
+            ("nintendo gamecube", "GameCube"),
+            ("master system", "SMS"),
+            ("sega master",   "SMS"),
+            ("game gear",     "GameGear"),
+            ("gamegear",      "GameGear"),
+            ("sg-1000",       "SG1000"),
+            ("sg1000",        "SG1000"),
+            ("virtual boy",   "VirtualBoy"),
+            ("virtualboy",    "VirtualBoy"),
+            ("jaguar",        "Jaguar"),
+            ("vectrex",       "Vectrex"),
+            ("3do",           "3DO"),
+            ("panasonic",     "3DO"),
+            ("3do interactive","3DO"),
         ];
 
         /// <summary>
@@ -257,11 +292,11 @@ namespace Emutastic.Services
             { "TGCD",         0.90 },  // same as TG16
             { "NGP",          1.28 },  // Neo Geo Pocket hang-tab card (landscape)
             { "Atari2600",    0.83 },  // 2600 box
-            { "Atari5200",    0.83 },  // 5200 box
+
             { "Atari7800",    0.88 },  // 7800 box
             { "Jaguar",       0.73 },  // Jaguar box
             { "ColecoVision", 0.73 },  // ColecoVision box
-            { "Intellivision",0.73 },  // Intellivision box
+
             { "Vectrex",      0.75 },  // Vectrex box
             { "3DO",          0.58 },  // exceptionally tall 3DO slipcase
             { "Arcade",       0.73 },  // arcade flyer art
