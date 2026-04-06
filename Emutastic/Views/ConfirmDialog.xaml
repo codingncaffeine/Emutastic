@@ -6,7 +6,7 @@
         Background="Transparent"
         ResizeMode="NoResize"
         ShowInTaskbar="False"
-        Width="380" Height="160"
+        Width="400" SizeToContent="Height"
         WindowStartupLocation="CenterOwner">
 
     <Border Background="{StaticResource BgSecondaryBrush}"
