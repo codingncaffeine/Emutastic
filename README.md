@@ -49,7 +49,6 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 | Atari 7800 | Atari7800 | prosystem | No |
 | Atari Jaguar | Jaguar | virtualjaguar | No |
 | ColecoVision | ColecoVision | gearcoleco → bluemsx | No |
-| Intellivision | Intellivision | freeintv | `exec.bin` + `grom.bin` (both required) |
 | Vectrex | Vectrex | vecx | No |
 | 3DO | 3DO | opera | `panafz10.bin` / `panafz1j.bin` / `goldstar.bin` |
 
@@ -90,11 +89,6 @@ Beetle Saturn / Mednafen accept region-specific files:
 
 ### TurboGrafx-CD
 Any one of: `syscard3.pce`, `syscard2.pce`, `syscard1.pce`
-
-### Intellivision
-Both files are required:
-- `exec.bin`
-- `grom.bin`
 
 ### 3DO
 Any one of: `panafz10.bin` (Panasonic), `panafz1j.bin` (Japan), `goldstar.bin` (GoldStar)
@@ -179,6 +173,15 @@ App data is stored at `%AppData%\Roaming\Emutastic\`:
 - `.cue` files are fully supported across all three systems.
 - `.chd` (compressed disc image) is supported — SHA1 is computed from the CHD and matched against DAT files for automatic system detection.
 - Region is auto-detected from No-Intro/Redump filename conventions (e.g. `(USA)`, `(Japan)`, `(Europe)`) to select the correct BIOS.
+
+### Vectrex (vecx)
+The vecx core uses hardware OpenGL rendering and has some non-obvious requirements for frontends:
+
+- **FBO must be sized before `context_reset`**: The libretro `SET_HW_RENDER` callback fires during `retro_load_game` with no geometry information yet — at that point the frontend can only create a placeholder FBO (e.g. 640×480). The core later reports its true geometry via `retro_get_system_av_info`. If `context_reset` is called while the FBO is still at 640×480, the core queries the FBO dimensions to set up its internal GL viewport and locks onto 640×480 for the session — permanently clipping the top and right edges of every frame. **Fix:** after `retro_load_game` returns, resize the FBO to `max_width × max_height` from `retro_system_av_info` *before* calling `context_reset`.
+
+- **Read the full FBO, not `base_width × base_height`**: vecx renders all game content into the full square FBO (e.g. 1024×1024). The reported `base_width=824` is not the render width — it is used together with `aspect_ratio` (≈0.8049) to tell the frontend to display the square image as portrait. If your frontend reads back only `base_width × base_height` pixels via `glReadPixels`, it will clip the right side of the image. **Fix:** read `fbo_width × fbo_height` and apply the core's `aspect_ratio` to the displayed image.
+
+- **AR correction applies to readback HW cores**: Unlike Dolphin (which renders directly to a Win32 child window), vecx uses `glReadPixels` into a CPU buffer that the frontend displays like a software frame. The aspect ratio correction (scale transform) must be applied the same way as for software cores — not skipped.
 
 ### PSP (PPSSPP)
 - The OpenGL context destruction step is skipped on window close to prevent a crash in the libretro context_destroy callback.
