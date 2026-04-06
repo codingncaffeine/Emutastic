@@ -801,6 +801,18 @@ namespace Emutastic.Views
                     return;
                 }
 
+                // Persist the core options schema now that CoreName is available
+                // (SET_VARIABLES fires during retro_set_environment before SystemInfo is populated).
+                if (_coreOptionSchema.Count > 0)
+                {
+                    string cn = Path.GetFileNameWithoutExtension(_core.CorePath);
+                    App.CoreOptions.SaveSchema(cn, new CoreOptionsSchema
+                    {
+                        DisplayName = _core.CoreName,
+                        Options     = new List<CoreOptionEntry>(_coreOptionSchema)
+                    });
+                }
+
                 // Game loaded — record play count and last played on both the DB and the
                 // in-memory Game object so the detail card shows fresh stats after closing.
                 _db?.UpdatePlayCount(_game.Id);
@@ -1962,17 +1974,6 @@ namespace Emutastic.Views
                             });
 
                             ptr += IntPtr.Size * 2;
-                        }
-                        // Persist schema so the Preferences Core Options tab can display it
-                        // even when no game is running.
-                        if (_coreOptionSchema.Count > 0)
-                        {
-                            string cn = Path.GetFileNameWithoutExtension(_core.CorePath);
-                            App.CoreOptions.SaveSchema(cn, new CoreOptionsSchema
-                            {
-                                DisplayName = _core.CoreName,
-                                Options     = new List<CoreOptionEntry>(_coreOptionSchema)
-                            });
                         }
                         return true;
                     }
