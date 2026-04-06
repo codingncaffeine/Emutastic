@@ -155,6 +155,10 @@ namespace Emutastic.Views
         private readonly Dictionary<string, string> _coreOptions = new();
         // Track unmanaged string ptrs returned via GET_VARIABLE to prevent leaks
         private readonly Dictionary<string, IntPtr> _coreOptionPtrs = new();
+        // Schema accumulated during SET_VARIABLES — saved for the Preferences UI
+        private readonly List<CoreOptionEntry> _coreOptionSchema = new();
+        // Set to true when the user changes an option mid-game so the core re-reads
+        private volatile bool _coreOptionsDirty = false;
 
 
         // =========================================================================
@@ -673,7 +677,7 @@ namespace Emutastic.Views
             if (defaults.Count > 0)
                 System.Diagnostics.Trace.WriteLine($"Seeded {defaults.Count} default core options for {_game.Console}");
 
-            // Apply user overrides from preferences (e.g. N64 GFX plugin selection)
+            // Apply legacy per-console overrides (e.g. N64 GFX plugin selection)
             var configSvc = _configService ?? App.Configuration;
             var prefs = configSvc?.GetCorePreferences();
             if (prefs?.CoreOptionOverrides.TryGetValue(_game.Console, out var overrides) == true)
@@ -681,8 +685,17 @@ namespace Emutastic.Views
                 foreach (var kv in overrides)
                 {
                     _coreOptions[kv.Key] = kv.Value;
-                    System.Diagnostics.Trace.WriteLine($"User override: {kv.Key} = {kv.Value}");
+                    System.Diagnostics.Trace.WriteLine($"User override (legacy): {kv.Key} = {kv.Value}");
                 }
+            }
+
+            // Apply user values saved via Core Options UI (highest priority)
+            string coreName = Path.GetFileNameWithoutExtension(_core.CorePath);
+            var userValues = App.CoreOptions.LoadValues(coreName);
+            foreach (var kv in userValues)
+            {
+                _coreOptions[kv.Key] = kv.Value;
+                System.Diagnostics.Trace.WriteLine($"User value: {kv.Key} = {kv.Value}");
             }
         }
 
@@ -1881,6 +1894,7 @@ namespace Emutastic.Views
                     case RETRO_ENVIRONMENT_SET_VARIABLES:
                     {
                         if (data == IntPtr.Zero) return true;
+                        _coreOptionSchema.Clear();
                         IntPtr ptr = data;
                         while (true)
                         {
@@ -1890,6 +1904,8 @@ namespace Emutastic.Views
                             IntPtr valPtr = Marshal.ReadIntPtr(ptr, IntPtr.Size);
                             string raw = valPtr != IntPtr.Zero ? (Marshal.PtrToStringAnsi(valPtr) ?? "") : "";
                             int semi = raw.IndexOf(';');
+                            // Description is the text before the semicolon; valid values are after.
+                            string desc = semi >= 0 ? raw.Substring(0, semi).Trim() : key;
                             string[] validValues = semi >= 0
                                 ? raw.Substring(semi + 1).Trim().Split('|').Select(v => v.Trim()).ToArray()
                                 : Array.Empty<string>();
@@ -1937,7 +1953,26 @@ namespace Emutastic.Views
                                 }
                             }
 
+                            _coreOptionSchema.Add(new CoreOptionEntry
+                            {
+                                Key          = key,
+                                Description  = desc,
+                                ValidValues  = validValues,
+                                DefaultValue = _coreOptions.TryGetValue(key, out string? dv) ? dv : ""
+                            });
+
                             ptr += IntPtr.Size * 2;
+                        }
+                        // Persist schema so the Preferences Core Options tab can display it
+                        // even when no game is running.
+                        if (_coreOptionSchema.Count > 0)
+                        {
+                            string cn = Path.GetFileNameWithoutExtension(_core.CorePath);
+                            App.CoreOptions.SaveSchema(cn, new CoreOptionsSchema
+                            {
+                                DisplayName = _core.CoreName,
+                                Options     = new List<CoreOptionEntry>(_coreOptionSchema)
+                            });
                         }
                         return true;
                     }
@@ -1977,7 +2012,11 @@ namespace Emutastic.Views
                         return false;
 
                     case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE:
-                        if (data != IntPtr.Zero) Marshal.WriteByte(data, 0);
+                        if (data != IntPtr.Zero)
+                        {
+                            Marshal.WriteByte(data, _coreOptionsDirty ? (byte)1 : (byte)0);
+                            _coreOptionsDirty = false;
+                        }
                         return true;
 
                     // ------------------------------------------------------------------
@@ -3251,6 +3290,85 @@ namespace Emutastic.Views
             LoadKeyboardMappings();
             _controllerManager?.ReloadInputConfiguration();
             ResetOverlayTimer();
+        }
+
+        private void OverlayCoreOptions_Click(object sender, RoutedEventArgs e)
+        {
+            OverlayMenu.Visibility = Visibility.Collapsed;
+            BuildCoreOptionsOverlay();
+            CoreOptionsPanel.Visibility = Visibility.Visible;
+            ResetOverlayTimer();
+        }
+
+        private void CoreOptionsDone_Click(object sender, RoutedEventArgs e)
+        {
+            CoreOptionsPanel.Visibility = Visibility.Collapsed;
+        }
+
+        private void BuildCoreOptionsOverlay()
+        {
+            CoreOptionRows.Children.Clear();
+
+            string coreName = Path.GetFileNameWithoutExtension(_core.CorePath);
+            var schema = App.CoreOptions.LoadSchema(coreName);
+
+            if (schema == null || schema.Options.Count == 0)
+            {
+                CoreOptionRows.Children.Add(new TextBlock
+                {
+                    Text = "No options have been discovered for this core yet.\nRestart the game once to populate this list.",
+                    Foreground = new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x8A)),
+                    FontSize = 11,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 4, 0, 4)
+                });
+                return;
+            }
+
+            var style = TryFindResource("OverlayComboBox") as Style;
+            string cn = coreName;
+
+            foreach (var opt in schema.Options)
+            {
+                var row = new StackPanel { Margin = new Thickness(0, 0, 0, 10) };
+
+                row.Children.Add(new TextBlock
+                {
+                    Text = opt.Description,
+                    Foreground = new SolidColorBrush(Color.FromRgb(0xC8, 0xC8, 0xCA)),
+                    FontSize = 11,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 3)
+                });
+
+                var combo = new ComboBox { Height = 30 };
+                if (style != null) combo.Style = style;
+
+                foreach (var val in opt.ValidValues)
+                    combo.Items.Add(val);
+
+                string current = _coreOptions.TryGetValue(opt.Key, out string? cv) ? cv : opt.DefaultValue;
+                combo.SelectedItem = current;
+                if (combo.SelectedItem == null && combo.Items.Count > 0)
+                    combo.SelectedIndex = 0;
+
+                string capturedKey = opt.Key;
+                var capturedSchema = schema;
+                combo.SelectionChanged += (_, _) =>
+                {
+                    if (combo.SelectedItem is not string newVal) return;
+                    _coreOptions[capturedKey] = newVal;
+                    _coreOptionsDirty = true;
+                    // Persist only schema-declared keys to avoid saving internal handler values
+                    var schemaKeys = capturedSchema.Options.Select(o => o.Key).ToHashSet();
+                    App.CoreOptions.SaveValues(cn, _coreOptions
+                        .Where(kv => schemaKeys.Contains(kv.Key))
+                        .ToDictionary(kv => kv.Key, kv => kv.Value));
+                };
+
+                row.Children.Add(combo);
+                CoreOptionRows.Children.Add(row);
+            }
         }
 
         // =========================================================================

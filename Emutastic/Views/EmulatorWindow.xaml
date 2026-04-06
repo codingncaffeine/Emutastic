@@ -45,6 +45,77 @@
             </Setter>
         </Style>
 
+        <!-- Dark ComboBox for the Core Options overlay panel -->
+        <ControlTemplate x:Key="OverlayComboToggle" TargetType="ToggleButton">
+            <Border x:Name="bd" Background="#27272A" BorderBrush="#44444A" BorderThickness="1" CornerRadius="4">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="20"/>
+                    </Grid.ColumnDefinitions>
+                    <ContentPresenter Grid.Column="0" Margin="8,0,0,0" VerticalAlignment="Center" HorizontalAlignment="Left"/>
+                    <Path Grid.Column="1" Data="M0,0 L4,5 L8,0" Stroke="#888" StrokeThickness="1.5"
+                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Grid>
+            </Border>
+            <ControlTemplate.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter TargetName="bd" Property="Background" Value="#33333A"/>
+                </Trigger>
+                <Trigger Property="IsChecked" Value="True">
+                    <Setter TargetName="bd" Property="BorderBrush" Value="#E03535"/>
+                </Trigger>
+            </ControlTemplate.Triggers>
+        </ControlTemplate>
+
+        <ControlTemplate x:Key="OverlayComboTemplate" TargetType="ComboBox">
+            <Grid>
+                <ToggleButton Template="{StaticResource OverlayComboToggle}"
+                              IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
+                              Focusable="False"/>
+                <ContentPresenter x:Name="ContentSite" IsHitTestVisible="False"
+                                  Content="{TemplateBinding SelectionBoxItem}"
+                                  ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                  Margin="9,0,24,0" VerticalAlignment="Center" HorizontalAlignment="Left"/>
+                <TextBox x:Name="PART_EditableTextBox" Visibility="Hidden" IsReadOnly="True"/>
+                <Popup x:Name="Popup" Placement="Bottom"
+                       IsOpen="{TemplateBinding IsDropDownOpen}"
+                       AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
+                    <Grid MinWidth="{TemplateBinding ActualWidth}" MaxHeight="180">
+                        <Border Background="#1E1E21" BorderBrush="#44444A" BorderThickness="1" CornerRadius="4">
+                            <ScrollViewer><ItemsPresenter/></ScrollViewer>
+                        </Border>
+                    </Grid>
+                </Popup>
+            </Grid>
+        </ControlTemplate>
+
+        <Style x:Key="OverlayComboBox" TargetType="ComboBox">
+            <Setter Property="Template"   Value="{StaticResource OverlayComboTemplate}"/>
+            <Setter Property="Foreground" Value="#F0F0F0"/>
+            <Setter Property="Background" Value="#27272A"/>
+            <Setter Property="FontSize"   Value="11"/>
+            <Setter Property="Height"     Value="30"/>
+            <Setter Property="ItemContainerStyle">
+                <Setter.Value>
+                    <Style TargetType="ComboBoxItem">
+                        <Setter Property="Foreground" Value="#F0F0F0"/>
+                        <Setter Property="Background" Value="Transparent"/>
+                        <Setter Property="Padding"    Value="8,5"/>
+                        <Setter Property="FontSize"   Value="11"/>
+                        <Style.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#33333A"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Background" Value="#33E03535"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- Overlay settings menu item -->
         <Style x:Key="OverlayMenuItemStyle" TargetType="Button">
             <Setter Property="Background"                 Value="Transparent"/>
@@ -182,6 +253,42 @@
                         </StackPanel>
                     </Border>
 
+                    <!-- Core options panel (shown from overlay cog → Core Options…) -->
+                    <Border x:Name="CoreOptionsPanel"
+                            Visibility="Collapsed"
+                            VerticalAlignment="Bottom"
+                            HorizontalAlignment="Left"
+                            Margin="8,0,0,8"
+                            Background="#EE121214"
+                            BorderBrush="#44FFFFFF"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            MinWidth="300"
+                            MaxWidth="420">
+                        <StackPanel Margin="10,10,10,10">
+                            <Grid Margin="0,0,0,8">
+                                <TextBlock Text="Core Options"
+                                           FontFamily="{StaticResource PrimaryFont}"
+                                           FontSize="12"
+                                           FontWeight="SemiBold"
+                                           Foreground="White"
+                                           VerticalAlignment="Center"/>
+                                <Button x:Name="CoreOptionsDoneBtn"
+                                        Content="Done"
+                                        HorizontalAlignment="Right"
+                                        FontSize="10"
+                                        Padding="10,4"
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        Click="CoreOptionsDone_Click"/>
+                            </Grid>
+                            <ScrollViewer MaxHeight="360"
+                                          VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel x:Name="CoreOptionRows" Margin="0,0,4,0"/>
+                            </ScrollViewer>
+                        </StackPanel>
+                    </Border>
+
                     <!-- In-game hover overlay -->
                     <StackPanel x:Name="OverlayHud"
                                 Visibility="Collapsed"
@@ -206,6 +313,9 @@
                                         Content="Edit Game Controls…"
                                         Style="{StaticResource OverlayMenuItemStyle}"
                                         Click="OverlayEditControls_Click"/>
+                                <Button Content="Core Options…"
+                                        Style="{StaticResource OverlayMenuItemStyle}"
+                                        Click="OverlayCoreOptions_Click"/>
                                 <Rectangle Height="1" Fill="#33FFFFFF" Margin="6,2,6,2"/>
                                 <TextBlock x:Name="OverlayCoreLabel"
                                            Foreground="#99FFFFFF"

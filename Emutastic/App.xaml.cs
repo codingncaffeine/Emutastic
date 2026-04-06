@@ -3,6 +3,7 @@ using System.Data;
 using System.Threading;
 using System.Windows;
 using Emutastic.Configuration;
+using Emutastic.Services;
 using Microsoft.Extensions.Logging;
 using System.IO;
 using Microsoft.Extensions.Logging.Debug;
@@ -13,6 +14,7 @@ namespace Emutastic
     {
         public static IConfigurationService? Configuration { get; private set; }
         public static ILogger? Logger { get; private set; }
+        public static CoreOptionsService CoreOptions { get; } = new();
 
         private static Mutex? _singleInstanceMutex;
 

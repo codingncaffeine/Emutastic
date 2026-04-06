@@ -50,8 +50,12 @@ namespace Emutastic.Views
         private SolidColorBrush _brushTextMuted = new(Color.FromRgb(0x55, 0x55, 0x58));
 
         // ── Section navigation ────────────────────────────────────────────────
-        private enum PrefSection { Controls, SystemFiles, Cores, Library, Theme, Snaps }
+        private enum PrefSection { Controls, SystemFiles, Cores, Library, Theme, Snaps, CoreOptions }
         private PrefSection _activeSection = PrefSection.Controls;
+
+        // ── Core Options state ────────────────────────────────────────────────
+        private string _selectedCoreOptionsName = "";
+        private Dictionary<string, string> _pendingCoreOptionValues = new();
 
         // ── Constructors ──────────────────────────────────────────────────────
         public PreferencesWindow(DatabaseService db, ControllerManager controllerManager,
@@ -577,6 +581,7 @@ namespace Emutastic.Views
             else if (sender == NavLibrary)      ShowSection(PrefSection.Library);
             else if (sender == NavTheme)        ShowSection(PrefSection.Theme);
             else if (sender == NavSnaps)        ShowSection(PrefSection.Snaps);
+            else if (sender == NavCoreOptions)  ShowSection(PrefSection.CoreOptions);
         }
 
         private void ShowSection(PrefSection section)
@@ -589,12 +594,14 @@ namespace Emutastic.Views
             PanelLibrary.Visibility     = section == PrefSection.Library     ? Visibility.Visible : Visibility.Collapsed;
             PanelTheme.Visibility       = section == PrefSection.Theme       ? Visibility.Visible : Visibility.Collapsed;
             PanelSnaps.Visibility       = section == PrefSection.Snaps       ? Visibility.Visible : Visibility.Collapsed;
+            PanelCoreOptions.Visibility = section == PrefSection.CoreOptions ? Visibility.Visible : Visibility.Collapsed;
 
             if (section == PrefSection.SystemFiles) BuildBiosPanel();
             if (section == PrefSection.Cores)       BuildCoresPanel();
             if (section == PrefSection.Library)     LoadLibrarySettings();
             if (section == PrefSection.Theme)       LoadThemeSettings();
             if (section == PrefSection.Snaps)       LoadSnapsSettings();
+            if (section == PrefSection.CoreOptions) BuildCoreOptionsTab();
         }
 
         // ── BIOS panel ────────────────────────────────────────────────────────
@@ -1514,6 +1521,149 @@ namespace Emutastic.Views
             snap.ScreenScraperPassword = SSPasswordBox.Password;
             _configService.SetSnapConfiguration(snap);
             _ = _configService.SaveAsync();
+        }
+
+        // ── Core Options tab ──────────────────────────────────────────────────
+
+        private void BuildCoreOptionsTab()
+        {
+            CoreOptionsCoreList.Children.Clear();
+            CoreOptionsOptionList.Children.Clear();
+            CoreOptionsResetBtn.IsEnabled = false;
+            CoreOptionsSaveBtn.IsEnabled  = false;
+            _selectedCoreOptionsName = "";
+            _pendingCoreOptionValues = new();
+
+            var cores = App.CoreOptions.GetCoresWithSchema();
+
+            if (cores.Count == 0)
+            {
+                CoreOptionsOptionList.Children.Add(new TextBlock
+                {
+                    Text = "No core options have been discovered yet.\n\nLaunch a game for any system — options will be captured automatically the first time a core loads.",
+                    FontSize = 12,
+                    Foreground = _brushTextMuted,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 16, 0, 0)
+                });
+                return;
+            }
+
+            foreach (var (coreName, displayName) in cores)
+            {
+                string capturedName = coreName;
+                var btn = new Button
+                {
+                    Content = displayName,
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    HorizontalContentAlignment = HorizontalAlignment.Left,
+                    Background = Brushes.Transparent,
+                    BorderThickness = new Thickness(0),
+                    Foreground = _brushText,
+                    FontSize = 12,
+                    Padding = new Thickness(10, 8, 10, 8),
+                    Cursor = System.Windows.Input.Cursors.Hand
+                };
+                btn.Click += (_, _) => LoadCoreOptionsForCore(capturedName);
+                CoreOptionsCoreList.Children.Add(btn);
+            }
+
+            // Auto-select the first core
+            if (cores.Count > 0)
+                LoadCoreOptionsForCore(cores[0].CoreName);
+        }
+
+        private void LoadCoreOptionsForCore(string coreName)
+        {
+            _selectedCoreOptionsName = coreName;
+            CoreOptionsOptionList.Children.Clear();
+
+            var schema = App.CoreOptions.LoadSchema(coreName);
+            if (schema == null || schema.Options.Count == 0)
+            {
+                CoreOptionsOptionList.Children.Add(new TextBlock
+                {
+                    Text = "No options found for this core.",
+                    FontSize = 12,
+                    Foreground = _brushTextMuted,
+                    Margin = new Thickness(0, 16, 0, 0)
+                });
+                CoreOptionsResetBtn.IsEnabled = false;
+                CoreOptionsSaveBtn.IsEnabled  = false;
+                return;
+            }
+
+            // Start from saved user values, fall back to defaults
+            var saved = App.CoreOptions.LoadValues(coreName);
+            _pendingCoreOptionValues = new Dictionary<string, string>(saved);
+
+            // Highlight selected core in the list
+            foreach (Button b in CoreOptionsCoreList.Children.OfType<Button>())
+                b.Background = Brushes.Transparent;
+
+            CoreOptionsResetBtn.IsEnabled = true;
+            CoreOptionsSaveBtn.IsEnabled  = true;
+
+            // Section header
+            CoreOptionsOptionList.Children.Add(new TextBlock
+            {
+                Text = schema.DisplayName,
+                FontSize = 14,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = _brushText,
+                Margin = new Thickness(0, 0, 0, 16)
+            });
+
+            var pco = _pendingCoreOptionValues;
+            var comboStyle = TryFindResource("PrefComboBox") as Style;
+
+            foreach (var opt in schema.Options)
+            {
+                var section = new StackPanel { Margin = new Thickness(0, 0, 0, 14) };
+
+                section.Children.Add(new TextBlock
+                {
+                    Text = opt.Description,
+                    FontSize = 12,
+                    Foreground = _brushText,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 4)
+                });
+
+                var combo = new ComboBox { Height = 32, MaxWidth = 400, HorizontalAlignment = HorizontalAlignment.Left };
+                if (comboStyle != null) combo.Style = comboStyle;
+
+                foreach (var val in opt.ValidValues)
+                    combo.Items.Add(val);
+
+                string current = pco.TryGetValue(opt.Key, out string? sv) ? sv : opt.DefaultValue;
+                combo.SelectedItem = current;
+                if (combo.SelectedItem == null && combo.Items.Count > 0)
+                    combo.SelectedIndex = 0;
+
+                string capturedKey = opt.Key;
+                combo.SelectionChanged += (_, _) =>
+                {
+                    if (combo.SelectedItem is string v)
+                        pco[capturedKey] = v;
+                };
+
+                section.Children.Add(combo);
+                CoreOptionsOptionList.Children.Add(section);
+            }
+        }
+
+        private void CoreOptionsReset_Click(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrEmpty(_selectedCoreOptionsName)) return;
+            App.CoreOptions.DeleteValues(_selectedCoreOptionsName);
+            LoadCoreOptionsForCore(_selectedCoreOptionsName);
+        }
+
+        private void CoreOptionsSave_Click(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrEmpty(_selectedCoreOptionsName)) return;
+            App.CoreOptions.SaveValues(_selectedCoreOptionsName, _pendingCoreOptionValues);
         }
     }
 

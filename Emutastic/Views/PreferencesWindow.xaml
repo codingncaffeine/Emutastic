@@ -540,6 +540,11 @@
                                  GroupName="NavGroup"
                                  Style="{StaticResource NavBtn}"
                                  Checked="NavBtn_Checked"/>
+                    <RadioButton x:Name="NavCoreOptions"
+                                 Content="Core Options"
+                                 GroupName="NavGroup"
+                                 Style="{StaticResource NavBtn}"
+                                 Checked="NavBtn_Checked"/>
                 </StackPanel>
             </Border>
 
@@ -997,6 +1002,66 @@
 
                         </StackPanel>
                     </ScrollViewer>
+                </Grid>
+
+                <!-- ── PANEL: Core Options ──────────────────────────────── -->
+                <Grid x:Name="PanelCoreOptions" Visibility="Collapsed">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="200" MinWidth="160"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Left: core list -->
+                    <Border Grid.Column="0"
+                            Background="{StaticResource BgSecondaryBrush}"
+                            BorderBrush="{StaticResource BorderNormalBrush}"
+                            BorderThickness="0,0,1,0">
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Top"
+                                       Text="CORES"
+                                       FontSize="10"
+                                       FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       Margin="14,14,14,8"/>
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <StackPanel x:Name="CoreOptionsCoreList" Margin="6,0,6,8"/>
+                            </ScrollViewer>
+                        </DockPanel>
+                    </Border>
+
+                    <!-- Right: options for selected core -->
+                    <Grid Grid.Column="1">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <ScrollViewer Grid.Row="0"
+                                      Margin="24,16,24,8"
+                                      VerticalScrollBarVisibility="Auto">
+                            <StackPanel x:Name="CoreOptionsOptionList"/>
+                        </ScrollViewer>
+
+                        <Border Grid.Row="1"
+                                Background="{StaticResource BgSecondaryBrush}"
+                                BorderBrush="{StaticResource BorderNormalBrush}"
+                                BorderThickness="0,1,0,0"
+                                Padding="24,10">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <Button x:Name="CoreOptionsResetBtn"
+                                        Content="Reset to Defaults"
+                                        Style="{StaticResource SecondaryBtn}"
+                                        Margin="0,0,8,0"
+                                        IsEnabled="False"
+                                        Click="CoreOptionsReset_Click"/>
+                                <Button x:Name="CoreOptionsSaveBtn"
+                                        Content="Save"
+                                        Style="{StaticResource ActionBtn}"
+                                        IsEnabled="False"
+                                        Click="CoreOptionsSave_Click"/>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
                 </Grid>
 
             </Grid>
