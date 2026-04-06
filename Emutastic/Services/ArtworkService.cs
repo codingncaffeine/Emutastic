@@ -383,7 +383,14 @@ namespace Emutastic.Services
                     var urls = BuildLibretroUrlVariants(console, title, category);
                     foreach (string url in urls)
                     {
-                        string cacheKey = $"{romHash}_{category}";
+                        // Cache key includes the URL so different games never share a snap file.
+                        // romHash prefix keeps it easy to identify per-game in the cache folder.
+                        string urlHash = Convert.ToHexString(
+                            System.Security.Cryptography.MD5.HashData(
+                                System.Text.Encoding.UTF8.GetBytes(url)));
+                        string cacheKey = string.IsNullOrWhiteSpace(romHash)
+                            ? urlHash
+                            : $"{romHash}_{urlHash[..8]}";
                         string? path = await DownloadArtworkAsync(url, cacheKey);
                         if (path != null) return path;
                     }
