@@ -168,6 +168,12 @@ App data is stored at `%AppData%\Roaming\Emutastic\`:
 ### Nintendo 64 (parallel_n64)
 - mupen64plus_next is listed as a fallback core.
 
+#### Emulation speed / timing pitfall
+
+N64 emulation ran at a locked **48fps on a 144Hz monitor** for a long time despite the core running at full speed. The root cause was using an **audio-driven timing loop** — the loop waited for the audio buffer to drain before calling `retro_run` again. On Windows, `WaveOut` drains its internal buffers in steps synchronized to the DWM compositor rate (144Hz ÷ 3 = 48 drain steps/sec). Each drain step released one frame's worth of budget, capping emulation at 48fps regardless of how fast the CPU was.
+
+The fix is a **Stopwatch-primary loop** for software cores: measure elapsed time with a high-resolution timer, sleep/spin the remainder of the frame budget, and let the audio buffer run slightly ahead. `AudioPlayer.GetBufferedMs()` must also use a time-based estimate (total samples enqueued minus playback time elapsed) rather than reading `BufferedWaveProvider.BufferedBytes`, which only decreases at WaveOut drain cadence.
+
 #### Teardown / close-crash pitfalls
 
 mupen64plus with the glide64 graphics plugin is one of the hardest libretro cores to shut down cleanly. The core uses **libco coroutines** (`co_switch`) and its own internal `EmuThread`, which means cleanup code can fire on unexpected threads and at unexpected times. Here is the full set of issues we hit and how they were resolved — if you are building a libretro frontend that supports N64 with HW rendering, you will likely run into the same problems:
@@ -196,6 +202,25 @@ Background:  join(emu_thread)
              Sleep(500ms)
              FreeLibrary()           ← DLL fully unloaded, safe to relaunch
 ```
+
+### Dreamcast (Flycast)
+
+#### 30fps games running at 2× speed
+
+Some Dreamcast games (e.g. Hydro Thunder, Power Stone) run at a native **30fps** — they advance two game frames per `retro_run()` call and produce ~33ms of audio per call. A Stopwatch-primary loop that waits one `targetFrameMs` (16.7ms) between calls will therefore run the game at exactly 2× speed.
+
+The correct timing strategy for HW cores is **audio-drain waiting**: after each `retro_run()`, spin until `GetBufferedMs()` drops back below the pre-fill target (e.g. 150ms). Because the audio buffer drains at real-time rate, waiting for N frames of audio to drain takes exactly N real frame-times — automatically correct for any frame rate. This also naturally handles 60fps games without any special-casing.
+
+```
+// HW cores only (Dreamcast, GameCube, N64)
+while (audioPlayer.GetBufferedMs() > prefillMs &&
+       frameTimer.Elapsed.TotalMilliseconds < targetFrameMs * 4)
+    Thread.Sleep(1);
+```
+
+The `targetFrameMs * 4` cap handles silent scenes where no audio is produced (otherwise the loop would spin forever).
+
+Software cores (SNES, Genesis, etc.) keep a Stopwatch-primary loop because their audio output is more tightly coupled to the frame rate and the buffer estimate is more predictable.
 
 ### Sega CD / Saturn / PS1
 - `.cue` files are fully supported across all three systems.
