@@ -325,6 +325,52 @@
                             </StackPanel>
                         </Border>
 
+                        <!-- Save / Load menu (stacks above pill, toggled by Save pill button) -->
+                        <Border x:Name="SaveMenu"
+                                Visibility="Collapsed"
+                                Background="#EE0F0F11"
+                                BorderBrush="#44FFFFFF"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Margin="0,0,0,6"
+                                HorizontalAlignment="Center"
+                                MouseLeave="SaveMenu_MouseLeave">
+                            <StackPanel Orientation="Horizontal">
+                                <!-- Left: Save / Load actions -->
+                                <StackPanel MinWidth="180">
+                                    <Button Content="Save State"
+                                            Style="{StaticResource OverlayMenuItemStyle}"
+                                            MouseEnter="SaveMenuItem_MouseEnter"
+                                            Click="OverlaySaveDirect_Click"/>
+                                    <Rectangle Height="1" Fill="#33FFFFFF" Margin="6,2,6,2"/>
+                                    <Button x:Name="LoadStateHoverBtn"
+                                            Style="{StaticResource OverlayMenuItemStyle}"
+                                            MouseEnter="LoadStateHover_Enter">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="Load State" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="1" Text="›" FontSize="16"
+                                                       VerticalAlignment="Center" Margin="12,0,0,0"
+                                                       Foreground="#88FFFFFF"/>
+                                        </Grid>
+                                    </Button>
+                                </StackPanel>
+                                <!-- Right: slot list — slides in on hover over Load State -->
+                                <Border x:Name="LoadSlotSubmenu"
+                                        ClipToBounds="True"
+                                        MaxWidth="0"
+                                        BorderBrush="#33FFFFFF"
+                                        BorderThickness="1,0,0,0">
+                                    <StackPanel x:Name="OverlayLoadSlotItems"
+                                                Margin="4,4,4,4"
+                                                Width="220"/>
+                                </Border>
+                            </StackPanel>
+                        </Border>
+
                         <!-- Pill -->
                         <Border Background="#CC1C1C1E"
                                 CornerRadius="28"
@@ -336,7 +382,7 @@
                                         ToolTip="Close Game"
                                         Click="OverlayPower_Click">
                                     <Image Source="/Assets/buttons/powerbutton.png"
-                                           Width="30" Height="30"
+                                           Width="45" Height="45"
                                            RenderOptions.BitmapScalingMode="HighQuality"/>
                                 </Button>
                                 <Button x:Name="OverlayPauseBtn"

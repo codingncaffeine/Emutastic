@@ -473,8 +473,10 @@ namespace Emutastic.Views
         // Reusable pixel buffers for HW readback — avoids 2.4 MB of per-frame allocations
         // (one for glReadPixels result, one for the vertically-flipped copy sent to WPF).
         // Resized only when the render resolution changes.
-        private byte[] _hwPixelBuffer  = Array.Empty<byte>();
+        private byte[] _hwPixelBuffer   = Array.Empty<byte>();
         private byte[] _hwFlippedBuffer = Array.Empty<byte>();
+        private uint   _hwFlippedWidth  = 0;   // actual readback dimensions (may differ from _fboWidth/Height)
+        private uint   _hwFlippedHeight = 0;
         private volatile bool _hwVideoPending = false;  // drop frame if UI thread hasn't consumed last one
 
         private IntPtr _glHwnd     = IntPtr.Zero;
@@ -1618,7 +1620,9 @@ namespace Emutastic.Views
                 for (int i = 3; i < byteCount; i += 4)
                     _hwFlippedBuffer[i] = 0xFF;
 
-                _hwVideoPending = true;
+                _hwFlippedWidth  = w;
+                _hwFlippedHeight = h;
+                _hwVideoPending  = true;
                 uint capturedW = w, capturedH = h;
                 Dispatcher.BeginInvoke(() =>
                 {
@@ -1728,7 +1732,9 @@ namespace Emutastic.Views
                 for (int i = 3; i < byteCount; i += 4)
                     _hwFlippedBuffer[i] = 0xFF;
 
-                _hwVideoPending = true;
+                _hwFlippedWidth  = w;
+                _hwFlippedHeight = h;
+                _hwVideoPending  = true;
                 uint capturedW = w, capturedH = h;
                 Dispatcher.BeginInvoke(() =>
                 {
@@ -3013,11 +3019,11 @@ namespace Emutastic.Views
             uint    ssWidth = 0, ssHeight = 0;
             bool    isHw    = _hwRenderActive;
 
-            if (isHw && _hwFlippedBuffer.Length > 0)
+            if (isHw && _hwFlippedBuffer.Length > 0 && _hwFlippedWidth > 0 && _hwFlippedHeight > 0)
             {
                 screenshotPixels = (byte[])_hwFlippedBuffer.Clone();
-                ssWidth  = _fboWidth;
-                ssHeight = _fboHeight;
+                ssWidth  = _hwFlippedWidth;
+                ssHeight = _hwFlippedHeight;
             }
 
             System.Threading.Tasks.Task.Run(() => FinalizeSave(name, data, screenshotPixels, ssWidth, ssHeight, isHw));
@@ -3296,6 +3302,7 @@ namespace Emutastic.Views
         {
             _overlayTimer?.Stop();
             OverlayMenu.Visibility = Visibility.Collapsed;
+            CloseSaveMenu();
             var fade = new System.Windows.Media.Animation.DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(300));
             fade.Completed += (_, _) => OverlayHud.Visibility = Visibility.Collapsed;
             OverlayHud.BeginAnimation(OpacityProperty, fade);
@@ -3319,12 +3326,125 @@ namespace Emutastic.Views
         private void OverlayPause_Click(object sender, RoutedEventArgs e)   { TogglePause(); ResetOverlayTimer(); }
         private void OverlaySave_Click(object sender, RoutedEventArgs e)
         {
-            string ts = DateTime.Now.ToString("yyyy-MM-dd HH.mm.ss");
-            RequestSave(ts);
+            OverlayMenu.Visibility = Visibility.Collapsed;
+            if (SaveMenu.Visibility == Visibility.Visible)
+            {
+                CloseSaveMenu();
+            }
+            else
+            {
+                LoadSlotSubmenu.BeginAnimation(MaxWidthProperty, null);
+                LoadSlotSubmenu.MaxWidth = 0;
+                SaveMenu.Visibility = Visibility.Visible;
+            }
             ResetOverlayTimer();
         }
+
+        private void CloseSaveMenu()
+        {
+            SaveMenu.Visibility = Visibility.Collapsed;
+            LoadSlotSubmenu.BeginAnimation(MaxWidthProperty, null);
+            LoadSlotSubmenu.MaxWidth = 0;
+        }
+
+        private void OverlaySaveDirect_Click(object sender, RoutedEventArgs e)
+        {
+            string ts = DateTime.Now.ToString("yyyy-MM-dd HH.mm.ss");
+            RequestSave(ts);
+            CloseSaveMenu();
+            ResetOverlayTimer();
+        }
+
+        private void SaveMenuItem_MouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
+        {
+            var anim = new System.Windows.Media.Animation.DoubleAnimation(
+                LoadSlotSubmenu.MaxWidth, 0, TimeSpan.FromMilliseconds(150));
+            LoadSlotSubmenu.BeginAnimation(MaxWidthProperty, anim);
+        }
+
+        private void LoadStateHover_Enter(object sender, System.Windows.Input.MouseEventArgs e)
+        {
+            PopulateOverlayLoadSlots();
+            var anim = new System.Windows.Media.Animation.DoubleAnimation(
+                LoadSlotSubmenu.MaxWidth, 228,
+                TimeSpan.FromMilliseconds(200))
+            {
+                EasingFunction = new System.Windows.Media.Animation.CubicEase
+                    { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut }
+            };
+            LoadSlotSubmenu.BeginAnimation(MaxWidthProperty, anim);
+        }
+
+        private void SaveMenu_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
+        {
+            CloseSaveMenu();
+        }
+
+        private void PopulateOverlayLoadSlots()
+        {
+            OverlayLoadSlotItems.Children.Clear();
+            var states = _db?.GetSaveStatesByGame(_game.Id).Take(6).ToList() ?? new();
+
+            if (states.Count == 0)
+            {
+                OverlayLoadSlotItems.Children.Add(new TextBlock
+                {
+                    Text       = "No save states yet",
+                    FontFamily = (FontFamily)FindResource("PrimaryFont"),
+                    FontSize   = 11,
+                    Foreground = (Brush)FindResource("TextMutedBrush"),
+                    Margin     = new Thickness(8, 6, 8, 6),
+                });
+                return;
+            }
+
+            foreach (var s in states)
+            {
+                var row = new Border
+                {
+                    Padding         = new Thickness(8, 6, 8, 6),
+                    Cursor          = System.Windows.Input.Cursors.Hand,
+                    Background      = Brushes.Transparent,
+                    CornerRadius    = new CornerRadius(4),
+                };
+                var grid = new Grid();
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                var nameText = new TextBlock
+                {
+                    Text              = s.Name,
+                    FontFamily        = (FontFamily)FindResource("PrimaryFont"),
+                    FontSize          = 11,
+                    Foreground        = (Brush)FindResource("TextPrimaryBrush"),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextTrimming      = TextTrimming.CharacterEllipsis,
+                };
+                var timeText = new TextBlock
+                {
+                    Text              = s.RelativeTime,
+                    FontFamily        = (FontFamily)FindResource("PrimaryFont"),
+                    FontSize          = 10,
+                    Foreground        = (Brush)FindResource("TextMutedBrush"),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin            = new Thickness(8, 0, 0, 0),
+                };
+                Grid.SetColumn(nameText, 0);
+                Grid.SetColumn(timeText, 1);
+                grid.Children.Add(nameText);
+                grid.Children.Add(timeText);
+                row.Child = grid;
+
+                var captured = s;
+                row.MouseLeftButtonUp += (_, _) => { RequestLoad(captured.StatePath, captured.Name); CloseSaveMenu(); };
+                row.MouseEnter += (_, _) => row.Background = (Brush)FindResource("BgSecondaryBrush");
+                row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
+                OverlayLoadSlotItems.Children.Add(row);
+            }
+        }
+
         private void OverlayCog_Click(object sender, RoutedEventArgs e)
         {
+            CloseSaveMenu();
             OverlayMenu.Visibility = OverlayMenu.Visibility == Visibility.Visible
                 ? Visibility.Collapsed
                 : Visibility.Visible;
