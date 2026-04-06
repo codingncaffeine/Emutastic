@@ -894,13 +894,11 @@ namespace Emutastic
             // ── Delete Game ──
             var deleteItem = MakeMenuItem("🗑  Delete Game", () =>
             {
-                var result = MessageBox.Show(
-                    $"Are you sure you want to remove \"{game.Title}\" from your library?\n\nThis will not delete the ROM file from your computer.",
+                var dlg = new Views.ConfirmDialog(
                     "Delete Game",
-                    MessageBoxButton.YesNo,
-                    MessageBoxImage.Warning);
-
-                if (result == MessageBoxResult.Yes)
+                    $"Remove \"{game.Title}\" from your library?\n\nThis will not delete the ROM file from your computer.",
+                    confirmLabel: "Delete") { Owner = this };
+                if (dlg.ShowDialog() == true)
                 {
                     _db.DeleteGame(game.Id);
                     _vm.RemoveGame(game);
