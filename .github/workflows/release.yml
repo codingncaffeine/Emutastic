@@ -1,0 +1,38 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Publish
+        run: dotnet publish Emutastic/Emutastic.csproj /p:PublishProfile=Release-win-x64
+
+      - name: Zip release
+        run: |
+          $version = "${{ github.ref_name }}"
+          $zipName = "Emutastic-$version-win-x64.zip"
+          Compress-Archive -Path "Emutastic/bin/Publish/win-x64/*" -DestinationPath $zipName
+          echo "ZIP_NAME=$zipName" >> $env:GITHUB_ENV
+        shell: pwsh
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Emutastic ${{ github.ref_name }}
+          draft: true
+          generate_release_notes: true
+          files: ${{ env.ZIP_NAME }}
