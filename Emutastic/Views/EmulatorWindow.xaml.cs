@@ -845,6 +845,7 @@ namespace Emutastic.Views
                     App.CoreOptions.SaveSchema(cn, new CoreOptionsSchema
                     {
                         DisplayName = _core.CoreName,
+                        ConsoleName = _consoleHandler.ConsoleName,
                         Options     = new List<CoreOptionEntry>(_coreOptionSchema)
                     });
                 }

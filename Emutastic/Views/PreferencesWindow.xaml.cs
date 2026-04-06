@@ -1549,12 +1549,13 @@ namespace Emutastic.Views
                 return;
             }
 
-            foreach (var (coreName, displayName) in cores)
+            foreach (var (coreName, displayName, consoleName) in cores)
             {
                 string capturedName = coreName;
+                string label = consoleName.Length > 0 ? $"{displayName} ({consoleName})" : displayName;
                 var btn = new Button
                 {
-                    Content = displayName,
+                    Content = label,
                     HorizontalAlignment = HorizontalAlignment.Stretch,
                     HorizontalContentAlignment = HorizontalAlignment.Left,
                     Background = Brushes.Transparent,
@@ -1570,7 +1571,7 @@ namespace Emutastic.Views
 
             // Auto-select the first core
             if (cores.Count > 0)
-                LoadCoreOptionsForCore(cores[0].CoreName);
+                LoadCoreOptionsForCore(cores[0].Item1);
         }
 
         private void LoadCoreOptionsForCore(string coreName)

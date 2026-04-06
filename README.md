@@ -117,6 +117,19 @@ Drag and drop ROM files onto the library window or use **File → Import ROM**. 
 
 ---
 
+## Core Options
+
+Per-core settings (internal resolution, graphics plugins, controller pak type, etc.) are accessible in two places:
+
+- **In-game**: tap the cog icon in the overlay menu → "Core Options…"
+- **Preferences → Core Options tab**: browse and edit options for any core without a game running
+
+> **Note:** Core options for a platform only appear after you have launched at least one game for that platform. On first launch, the core's available options are captured automatically — after that they persist and are editable any time.
+
+Options are saved per-core and applied live where the core supports mid-session changes. Some options (e.g. internal resolution on PPSSPP) require a restart to take effect.
+
+---
+
 ## Controllers
 
 Controller input uses XInput for button polling during gameplay and **SDL3** for device name detection. SDL3's built-in controller database correctly identifies Xbox (USB, Bluetooth, and Xbox Wireless Adapter), DualSense/DualShock, and hundreds of other controllers by their real product names.

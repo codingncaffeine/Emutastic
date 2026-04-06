@@ -14,6 +14,7 @@ namespace Emutastic.Services
     public class CoreOptionsSchema
     {
         public string DisplayName { get; set; } = "";
+        public string ConsoleName { get; set; } = "";
         public List<CoreOptionEntry> Options { get; set; } = new();
     }
 
@@ -53,8 +54,8 @@ namespace Emutastic.Services
             catch { return null; }
         }
 
-        /// <summary>Returns (coreName, displayName) pairs for every core that has a saved schema.</summary>
-        public List<(string CoreName, string DisplayName)> GetCoresWithSchema()
+        /// <summary>Returns (coreName, displayName, consoleName) tuples for every core that has a saved schema.</summary>
+        public List<(string CoreName, string DisplayName, string ConsoleName)> GetCoresWithSchema()
         {
             try
             {
@@ -65,7 +66,8 @@ namespace Emutastic.Services
                             Path.GetFileNameWithoutExtension(f)); // strip .schema then .json
                         var schema = LoadSchema(cn);
                         string dn = schema?.DisplayName is { Length: > 0 } d ? d : cn;
-                        return (cn, dn);
+                        string console = schema?.ConsoleName ?? "";
+                        return (cn, dn, console);
                     })
                     .OrderBy(x => x.Item2)
                     .ToList();
