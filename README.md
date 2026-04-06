@@ -12,7 +12,7 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 
 - Windows 10/11 x64
 - [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/8.0)
-- libretro core `.dll` files placed in the `Cores\` folder next to the executable
+- libretro core `.dll` files placed in the `Cores\` folder next to the executable (Core downloads are required but are offered in-app)
 - `SDL3.dll` (x64) placed next to the executable — used for controller name detection
   - Download from [libsdl.org](https://github.com/libsdl-org/SDL/releases) (Runtime Binaries → Windows x64)
 
