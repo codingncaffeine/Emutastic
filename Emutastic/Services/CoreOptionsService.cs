@@ -54,6 +54,32 @@ namespace Emutastic.Services
             catch { return null; }
         }
 
+        // Fallback for schemas saved before ConsoleName was added to the model.
+        private static readonly Dictionary<string, string> _coreToConsole = new()
+        {
+            ["desmume_libretro"]          = "NDS",
+            ["dolphin_libretro"]          = "GameCube",
+            ["flycast_libretro"]          = "Dreamcast",
+            ["gearcoleco_libretro"]       = "ColecoVision",
+            ["genesis_plus_gx_libretro"]  = "Genesis",
+            ["kronos_libretro"]           = "Saturn",
+            ["mednafen_ngp_libretro"]     = "NGP",
+            ["mednafen_pce_libretro"]     = "TG16",
+            ["mednafen_psx_libretro"]     = "PS1",
+            ["mednafen_vb_libretro"]      = "VirtualBoy",
+            ["mgba_libretro"]             = "GBA",
+            ["nestopia_libretro"]         = "NES",
+            ["opera_libretro"]            = "3DO",
+            ["parallel_n64_libretro"]     = "N64",
+            ["picodrive_libretro"]        = "Sega32X",
+            ["ppsspp_libretro"]           = "PSP",
+            ["prosystem_libretro"]        = "Atari7800",
+            ["snes9x_libretro"]           = "SNES",
+            ["stella_libretro"]           = "Atari2600",
+            ["vecx_libretro"]             = "Vectrex",
+            ["virtualjaguar_libretro"]    = "Jaguar",
+        };
+
         /// <summary>Returns (coreName, displayName, consoleName) tuples for every core that has a saved schema.</summary>
         public List<(string CoreName, string DisplayName, string ConsoleName)> GetCoresWithSchema()
         {
@@ -66,7 +92,9 @@ namespace Emutastic.Services
                             Path.GetFileNameWithoutExtension(f)); // strip .schema then .json
                         var schema = LoadSchema(cn);
                         string dn = schema?.DisplayName is { Length: > 0 } d ? d : cn;
-                        string console = schema?.ConsoleName ?? "";
+                        string console = schema?.ConsoleName is { Length: > 0 } c
+                            ? c
+                            : _coreToConsole.GetValueOrDefault(cn, "");
                         return (cn, dn, console);
                     })
                     .OrderBy(x => x.Item2)
