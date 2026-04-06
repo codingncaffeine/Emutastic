@@ -796,6 +796,23 @@ namespace Emutastic.Views
 
                 if (!loaded)
                 {
+                    // Clean up GL + core state before returning so the close path
+                    // (Task.Run → Dispose) doesn't crash calling retro_deinit without
+                    // a GL context.  The GL context may be current from SET_HW_RENDER.
+                    if (_hwRenderActive && _hdc != IntPtr.Zero && _hglrc != IntPtr.Zero)
+                    {
+                        wglMakeCurrent(_hdc, _hglrc);
+                        try { _core?.Deinit(); }
+                        catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Failed-load retro_deinit: {ex.Message}"); }
+                        wglMakeCurrent(IntPtr.Zero, IntPtr.Zero);
+                        System.Diagnostics.Trace.WriteLine("Failed-load GL cleanup done.");
+                    }
+                    else
+                    {
+                        try { _core?.Deinit(); }
+                        catch { }
+                    }
+
                     Dispatcher.Invoke(() => MessageBox.Show($"Failed to load {_game.Title}\n\nCheck debug output for details.",
                         "Load Error", MessageBoxButton.OK, MessageBoxImage.Error));
                     return;
@@ -1051,6 +1068,19 @@ namespace Emutastic.Views
                     else if (_skipContextDestroy)
                     {
                         System.Diagnostics.Trace.WriteLine($"Skipping context_destroy for {_teardownCoreName} (crash avoidance).");
+                    }
+
+                    // Call retro_deinit NOW while GL context is still current on this thread.
+                    // mupen64plus/glide64's retro_deinit triggers GL cleanup calls (texture
+                    // deletes, context queries).  If we defer this to the background Task.Run
+                    // thread, that thread has no GL context and wglMakeCurrent fails on thread-
+                    // pool threads → AV in OPENGL32.dll's null dispatch table.
+                    if (_teardownCoreName.Contains("mupen64") || _teardownCoreName.Contains("parallel_n64"))
+                    {
+                        System.Diagnostics.Trace.WriteLine("Calling retro_deinit on emu thread (GL context active)...");
+                        try { _core?.Deinit(); }
+                        catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Emu-thread retro_deinit: {ex.Message}"); }
+                        System.Diagnostics.Trace.WriteLine("Emu-thread retro_deinit complete.");
                     }
 
                     // Release the context so the cleanup task can quarantine-delete it.
@@ -3465,51 +3495,82 @@ namespace Emutastic.Views
                     System.Diagnostics.Trace.WriteLine("WARNING: emu thread did not exit within 10s");
 
                 // retro_deinit — final core teardown.
-                // LibretroCore.Dispose() skips retro_unload_game since UnloadGame() was
-                // already called on the emu thread.
+                // LibretroCore.Dispose() skips retro_unload_game (already called on emu
+                // thread) and skips retro_deinit for N64 (called on emu thread with GL
+                // context active).  Dispose() handles the post-deinit wait + FreeLibrary.
                 try { _core?.Dispose(); }
                 catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Core dispose: {ex.Message}"); }
 
-                // Quarantine GL context deletion.
+                // GL context cleanup + optional DLL unload.
                 //
-                // Even after retro_unload_game + context_destroy, some cores leave driver-
-                // internal callbacks (texture frees, fence signals) that fire on a background
-                // OS thread a few hundred ms later.  Deleting the HGLRC immediately causes
-                // those callbacks to hit a null dispatch table → AV in nvoglv64 / OPENGL32.
+                // After retro_unload_game + retro_deinit, some cores leave driver-internal
+                // callbacks (texture frees, fence signals) that fire on a background OS
+                // thread.  Deleting the HGLRC too soon causes those callbacks to hit a null
+                // dispatch table → AV in nvoglv64 / OPENGL32.
                 //
-                // Strategy: null out our handles immediately so we never touch them again,
-                // then delete them from a background task after a safe quarantine delay.
+                // For cores with deferred FreeLibrary (N64/Dolphin): retro_deinit now runs
+                // on the emu thread with GL context, so cleanup is largely complete.  We do
+                // a synchronous short wait → wglDeleteContext → FreeLibrary RIGHT HERE on
+                // the Task.Run thread so the DLL is fully unloaded before the user can
+                // launch another game (prevents stale global state / "Failed to initialize").
+                //
+                // For other HW cores: fire-and-forget async quarantine (longer delays).
                 if (_hwRenderActive && (_hglrc != IntPtr.Zero || _secondaryCtx != IntPtr.Zero))
                 {
                     IntPtr hglrcQ    = _hglrc;         _hglrc        = IntPtr.Zero;
                     IntPtr secCtxQ   = _secondaryCtx;  _secondaryCtx = IntPtr.Zero;
+                    IntPtr deferredDll = _core?.DeferredFreeHandle ?? IntPtr.Zero;
 
-                    string dllName = _core != null ? System.IO.Path.GetFileName(_core.CorePath).ToLowerInvariant() : "";
-                    int quarantineMs = dllName switch
+                    if (deferredDll != IntPtr.Zero)
                     {
-                        var d when d.Contains("ppsspp")       => 4000,
-                        var d when d.Contains("dolphin")      => 3000,
-                        var d when d.Contains("mupen64")      => 5000,  // glide64 SEH cleanup needs time
-                        var d when d.Contains("parallel_n64") => 5000,
-                        var d when d.Contains("kronos")       => 2000,
-                        var d when d.Contains("mednafen_psx") => 1500,
-                        var d when d.Contains("pcsx_rearmed") => 1500,
-                        _                                     =>  500,
-                    };
-                    System.Diagnostics.Trace.WriteLine($"GL quarantine: deleting contexts in {quarantineMs}ms");
-
-                    System.Threading.Tasks.Task.Run(async () =>
-                    {
-                        await System.Threading.Tasks.Task.Delay(quarantineMs);
+                        // Synchronous path: retro_deinit already ran on emu thread with GL.
+                        // Short wait for any residual driver callbacks, then delete + free.
+                        System.Diagnostics.Trace.WriteLine($"GL sync cleanup: waiting 1500ms before wglDeleteContext + FreeLibrary 0x{deferredDll:X}");
+                        System.Threading.Thread.Sleep(1500);
                         try
                         {
                             wglMakeCurrent(IntPtr.Zero, IntPtr.Zero);
                             if (secCtxQ  != IntPtr.Zero) wglDeleteContext(secCtxQ);
                             if (hglrcQ   != IntPtr.Zero) wglDeleteContext(hglrcQ);
-                            System.Diagnostics.Trace.WriteLine("GL quarantine: contexts deleted.");
+                            System.Diagnostics.Trace.WriteLine("GL sync cleanup: contexts deleted.");
                         }
-                        catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"GL quarantine delete: {ex.Message}"); }
-                    });
+                        catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"GL sync delete: {ex.Message}"); }
+
+                        System.Threading.Thread.Sleep(500);
+                        try
+                        {
+                            NativeMethods.FreeLibrary(deferredDll);
+                            System.Diagnostics.Trace.WriteLine($"GL sync cleanup: FreeLibrary 0x{deferredDll:X} done.");
+                        }
+                        catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"GL sync FreeLibrary: {ex.Message}"); }
+                    }
+                    else
+                    {
+                        // Async quarantine for cores without deferred FreeLibrary (PPSSPP, etc.).
+                        string dllName = _core != null ? System.IO.Path.GetFileName(_core.CorePath).ToLowerInvariant() : "";
+                        int quarantineMs = dllName switch
+                        {
+                            var d when d.Contains("ppsspp")       => 4000,
+                            var d when d.Contains("kronos")       => 2000,
+                            var d when d.Contains("mednafen_psx") => 1500,
+                            var d when d.Contains("pcsx_rearmed") => 1500,
+                            _                                     =>  500,
+                        };
+                        System.Diagnostics.Trace.WriteLine($"GL quarantine: deleting contexts in {quarantineMs}ms");
+
+                        System.Threading.Tasks.Task.Run(async () =>
+                        {
+                            await System.Threading.Tasks.Task.Delay(quarantineMs);
+                            try
+                            {
+                                wglMakeCurrent(IntPtr.Zero, IntPtr.Zero);
+                                if (secCtxQ  != IntPtr.Zero) wglDeleteContext(secCtxQ);
+                                if (hglrcQ   != IntPtr.Zero) wglDeleteContext(hglrcQ);
+                                System.Diagnostics.Trace.WriteLine("GL quarantine: contexts deleted.");
+                            }
+                            catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"GL quarantine delete: {ex.Message}"); }
+                        });
+                    }
                 }
 
                 if (_hdc != IntPtr.Zero && _glHwnd != IntPtr.Zero) { ReleaseDC(_glHwnd, _hdc); _hdc = IntPtr.Zero; }
@@ -3603,6 +3664,10 @@ namespace Emutastic.Views
     {
         [DllImport("kernel32.dll")]
         internal static extern void RtlCopyMemory(IntPtr dest, IntPtr src, uint count);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool FreeLibrary(IntPtr hModule);
     }
 
     internal static class NativeMethods2

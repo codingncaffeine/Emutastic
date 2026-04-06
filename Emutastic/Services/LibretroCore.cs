@@ -177,6 +177,12 @@ namespace Emutastic.Services
 
         public string CorePath => _corePath;
 
+        /// <summary>
+        /// Set by Dispose() when FreeLibrary is deferred (N64/Dolphin).
+        /// The caller should free this handle after the GL quarantine period.
+        /// </summary>
+        public IntPtr DeferredFreeHandle { get; private set; } = IntPtr.Zero;
+
         // Libretro function pointer delegates
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate void retro_init_t();
@@ -508,12 +514,25 @@ namespace Emutastic.Services
 
         // Set when UnloadGame() is called explicitly so Dispose() doesn't call it again.
         private bool _gameUnloaded = false;
+        // Set when Deinit() is called explicitly so Dispose() doesn't call it again.
+        private bool _deinitialized = false;
 
         public void UnloadGame()
         {
             if (_gameUnloaded) return;
             _gameUnloaded = true;
             try { _retro_unload_game?.Invoke(); } catch { }
+        }
+
+        /// <summary>
+        /// Calls retro_deinit early (e.g. on the emu thread while a GL context is current).
+        /// Dispose() will skip retro_deinit if this was already called.
+        /// </summary>
+        public void Deinit()
+        {
+            if (_deinitialized) return;
+            _deinitialized = true;
+            try { _retro_deinit?.Invoke(); } catch { }
         }
 
         public byte[]? SaveState()
@@ -600,7 +619,8 @@ namespace Emutastic.Services
 
                 if (!_gameUnloaded)
                     try { _retro_unload_game?.Invoke(); } catch { }
-                try { _retro_deinit?.Invoke(); } catch { }
+                if (!_deinitialized)
+                    try { _retro_deinit?.Invoke(); } catch { }
 
                 // Complex cores (PPSSPP, Kronos, Dolphin, mupen64plus) spawn their own
                 // internal threads (JIT, GPU renderer, audio, etc.).  retro_deinit tells
@@ -633,13 +653,16 @@ namespace Emutastic.Services
                 // NVIDIA driver cleanup that calls back into core DLL code.  If FreeLibrary
                 // has already run, that code is unmapped → AV → process crash.
                 //
-                // Fix: leak the handle for these cores.  The OS reclaims it at process exit.
-                // Re-opening the same core calls LoadLibrary again, which just increments
-                // the reference count (same DLL mapping), so there is no double-init issue.
-                bool skipFreeLibrary = dllName.Contains("dolphin")
-                                    || dllName.Contains("mupen64")
-                                    || dllName.Contains("parallel_n64");
-                if (!skipFreeLibrary)
+                // Dolphin and N64 (parallel_n64/mupen64plus): wglDeleteContext triggers
+                // NVIDIA driver cleanup that calls back into core DLL code.  FreeLibrary
+                // must be deferred until AFTER the GL quarantine period.  Store the handle
+                // in DeferredFreeHandle so the caller's quarantine task can free it.
+                bool deferFreeLibrary = dllName.Contains("dolphin")
+                                     || dllName.Contains("mupen64")
+                                     || dllName.Contains("parallel_n64");
+                if (deferFreeLibrary)
+                    DeferredFreeHandle = handle;
+                else
                     try { NativeMethods.FreeLibrary(handle); } catch { }
             }
 

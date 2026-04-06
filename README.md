@@ -166,8 +166,36 @@ App data is stored at `%AppData%\Roaming\Emutastic\`:
 - Controller port device type must be set after `LoadGame` is called, not before.
 
 ### Nintendo 64 (parallel_n64)
-- Works correctly when launched from Visual Studio (debug) but may crash outside VS due to `__fastfail` in the dynarec.
-- mupen64plus_next is listed as a fallback and is more stable outside a debugger.
+- mupen64plus_next is listed as a fallback core.
+
+#### Teardown / close-crash pitfalls
+
+mupen64plus with the glide64 graphics plugin is one of the hardest libretro cores to shut down cleanly. The core uses **libco coroutines** (`co_switch`) and its own internal `EmuThread`, which means cleanup code can fire on unexpected threads and at unexpected times. Here is the full set of issues we hit and how they were resolved — if you are building a libretro frontend that supports N64 with HW rendering, you will likely run into the same problems:
+
+1. **`retro_deinit` must run with a current OpenGL context.** glide64's `retro_deinit` triggers GL cleanup calls (texture deletes, context queries). If no GL context is current on the calling thread, OPENGL32.dll's dispatch table is null → access violation at address `0xA38`. The solution is to call `retro_deinit` on the **emulation thread** (the same OS thread that called `retro_run`) while the GL context is still `wglMakeCurrent`'d — *before* releasing the context. Do **not** defer `retro_deinit` to a background/thread-pool thread; `wglMakeCurrent` will fail on a thread that never owned the context.
+
+2. **Skip `context_destroy` for mupen64plus.** mupen64plus's internal EmuThread continues running cleanup for hundreds of milliseconds after `retro_unload_game` returns (via `co_switch`). Calling the libretro `context_destroy` callback while that thread is still calling GL will crash. Let the quarantine period (below) handle it instead.
+
+3. **`wglDeleteContext` must happen after a delay.** Even after `retro_deinit`, the NVIDIA OpenGL driver may fire background callbacks (texture frees, fence signals) that call back into the core DLL. Deleting the HGLRC immediately causes those callbacks to hit a null dispatch table. Wait ~1.5–2 seconds after `retro_deinit` before calling `wglDeleteContext`.
+
+4. **`FreeLibrary` must happen after `wglDeleteContext`.** `wglDeleteContext` itself triggers NVIDIA driver cleanup that calls back into the core DLL code. If `FreeLibrary` has already unmapped the DLL, those callbacks hit unmapped memory → instant process termination. Call `FreeLibrary` *after* `wglDeleteContext`, not before.
+
+5. **All of the above must complete synchronously before launching another N64 game.** mupen64plus uses global state that is only reset when the DLL is fully unloaded and reloaded. If you fire-and-forget the cleanup (async quarantine), the user can launch a second N64 game before the first instance's DLL is freed → `LoadLibrary` returns the same mapping with stale globals → "Failed to initialize core". Make the cleanup blocking so the DLL is fully unloaded before the frontend considers the window closed.
+
+The correct teardown sequence (on the emu thread, then blocking on a background thread):
+```
+Emu thread:  retro_unload_game()
+             ← skip context_destroy
+             retro_deinit()          ← GL context still current
+             wglMakeCurrent(NULL)    ← release GL
+             thread exits
+
+Background:  join(emu_thread)
+             Sleep(1500ms)           ← drain residual driver callbacks
+             wglDeleteContext()
+             Sleep(500ms)
+             FreeLibrary()           ← DLL fully unloaded, safe to relaunch
+```
 
 ### Sega CD / Saturn / PS1
 - `.cue` files are fully supported across all three systems.
