@@ -205,6 +205,22 @@ Background:  join(emu_thread)
 
 ### Dreamcast (Flycast)
 
+#### VMU saves / "No VMU Found"
+
+Getting battery saves to work on Dreamcast requires satisfying five separate conditions simultaneously — missing any one of them results in games reporting "No VMU Found" at the memory card screen:
+
+1. **`RETRO_ENVIRONMENT_SET_CONTROLLER_INFO` (cmd 35) must return `true`.** Returning `false` causes Flycast/Reicast to skip all sub-peripheral initialization entirely, so no VMU ever attaches — even if everything else is correct.
+
+2. **`RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE` (cmd 23) must supply a function pointer.** Even a no-op stub is fine, but returning `false` also blocks sub-peripheral setup.
+
+3. **Core options `reicast_device_portN_slot1 = "VMU"` must be pre-seeded before `retro_load_game`.** The core reads these during maple bus reconfiguration on load; if they aren't present yet the VMU slots default to empty.
+
+4. **`retro_set_controller_port_device` must be called for all 4 ports**, not just port 0. This triggers a full maple bus reconfiguration that attaches the VMU sub-peripherals for every port.
+
+5. **The `system/dc/` directory must exist before load, but VMU files must NOT be pre-created.** Flycast auto-creates `vmu_save_A1.bin` etc. in that directory using its own zlib-compressed format. If you pre-create the files (e.g. as empty 128KB blobs), the core will see them as corrupt and fail to attach the VMU — back to "No VMU Found".
+
+Note: the core option prefix is `reicast_` in this build, not `flycast_`.
+
 #### 30fps games running at 2× speed
 
 Some Dreamcast games (e.g. Hydro Thunder, Power Stone) run at a native **30fps** — they advance two game frames per `retro_run()` call and produce ~33ms of audio per call. A Stopwatch-primary loop that waits one `targetFrameMs` (16.7ms) between calls will therefore run the game at exactly 2× speed.
