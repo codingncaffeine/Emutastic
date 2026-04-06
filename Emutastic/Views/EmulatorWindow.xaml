@@ -345,13 +345,6 @@
                                         Click="OverlayPause_Click">
                                     <md:PackIcon x:Name="OverlayPauseIcon" Kind="Pause" Width="22" Height="22" Foreground="White"/>
                                 </Button>
-                                <Rectangle Width="1" Fill="#44FFFFFF" Margin="0,14,0,14"/>
-                                <Button x:Name="OverlayRestartBtn"
-                                        Style="{StaticResource OverlayPillBtnStyle}"
-                                        ToolTip="Restart"
-                                        Click="OverlayRestart_Click">
-                                    <md:PackIcon Kind="Replay" Width="22" Height="22" Foreground="White"/>
-                                </Button>
                                 <Button x:Name="OverlaySaveBtn"
                                         Style="{StaticResource OverlayPillBtnStyle}"
                                         ToolTip="Save State"
@@ -411,12 +404,6 @@
                                 Margin="0,0,6,0"
                                 Click="LoadStateBtn_Click"/>
 
-                        <Button x:Name="ResetBtn"
-                                Content="↺  Reset"
-                                Style="{StaticResource SecondaryButtonStyle}"
-                                Padding="10,4"
-                                FontSize="11"
-                                Click="ResetBtn_Click"/>
                     </StackPanel>
                 </Grid>
             </Border>

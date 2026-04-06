@@ -1659,7 +1659,13 @@ namespace Emutastic.Views
         private void CoreOptionsReset_Click(object sender, RoutedEventArgs e)
         {
             if (string.IsNullOrEmpty(_selectedCoreOptionsName)) return;
+
+            // Wipe saved user values so defaults are used on the next game launch.
+            // Do NOT push defaults into a running game — some cores (PPSSPP, Dolphin)
+            // crash when critical options (backend, resolution, etc.) change mid-session.
+            // The reset takes effect on the next launch, which is the safe behavior.
             App.CoreOptions.DeleteValues(_selectedCoreOptionsName);
+
             LoadCoreOptionsForCore(_selectedCoreOptionsName);
         }
 

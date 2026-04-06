@@ -659,7 +659,8 @@ namespace Emutastic.Services
                 // in DeferredFreeHandle so the caller's quarantine task can free it.
                 bool deferFreeLibrary = dllName.Contains("dolphin")
                                      || dllName.Contains("mupen64")
-                                     || dllName.Contains("parallel_n64");
+                                     || dllName.Contains("parallel_n64")
+                                     || dllName.Contains("ppsspp");
                 if (deferFreeLibrary)
                     DeferredFreeHandle = handle;
                 else

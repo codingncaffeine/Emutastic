@@ -1095,7 +1095,8 @@ namespace Emutastic.Views
                     // deletes, context queries).  If we defer this to the background Task.Run
                     // thread, that thread has no GL context and wglMakeCurrent fails on thread-
                     // pool threads → AV in OPENGL32.dll's null dispatch table.
-                    if (_teardownCoreName.Contains("mupen64") || _teardownCoreName.Contains("parallel_n64"))
+                    if (_teardownCoreName.Contains("mupen64") || _teardownCoreName.Contains("parallel_n64")
+                        || _teardownCoreName.Contains("ppsspp"))
                     {
                         System.Diagnostics.Trace.WriteLine("Calling retro_deinit on emu thread (GL context active)...");
                         try { _core?.Deinit(); }
@@ -2045,6 +2046,10 @@ namespace Emutastic.Views
                             IntPtr valPtr = Marshal.StringToHGlobalAnsi(value);
                             _coreOptionPtrs[key] = valPtr;
                             Marshal.WriteIntPtr(data, IntPtr.Size, valPtr);
+                            // Clear dirty flag here (not in GET_VARIABLE_UPDATE) so the core
+                            // can call GET_VARIABLE_UPDATE multiple times during check_variables()
+                            // and still see true until it has actually read a variable.
+                            _coreOptionsDirty = false;
                             System.Diagnostics.Trace.WriteLine($"GET_VARIABLE: {key} -> {value}");
                             return true;
                         }
@@ -2064,10 +2069,10 @@ namespace Emutastic.Views
 
                     case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE:
                         if (data != IntPtr.Zero)
-                        {
                             Marshal.WriteByte(data, _coreOptionsDirty ? (byte)1 : (byte)0);
-                            _coreOptionsDirty = false;
-                        }
+                        // Do NOT clear dirty here — clear it in GET_VARIABLE when the core
+                        // actually reads a value. This matches RetroArch's behavior and prevents
+                        // early clearing if the core calls GET_VARIABLE_UPDATE multiple times.
                         return true;
 
                     // ------------------------------------------------------------------
@@ -3271,7 +3276,6 @@ namespace Emutastic.Views
             PopulateLoadPicker();
             LoadPickerPanel.Visibility = Visibility.Visible;
         }
-        private void ResetBtn_Click(object sender, RoutedEventArgs e)     { _core.Reset(); StatusText.Text = "Reset"; }
 
         // =========================================================================
         // Overlay HUD
@@ -3313,12 +3317,6 @@ namespace Emutastic.Views
 
         private void OverlayPower_Click(object sender, RoutedEventArgs e)   => Close();
         private void OverlayPause_Click(object sender, RoutedEventArgs e)   { TogglePause(); ResetOverlayTimer(); }
-        private void OverlayRestart_Click(object sender, RoutedEventArgs e)
-        {
-            if (_isPaused) TogglePause();
-            _core.Reset();
-            StatusText.Text = "Restarted";
-        }
         private void OverlaySave_Click(object sender, RoutedEventArgs e)
         {
             string ts = DateTime.Now.ToString("yyyy-MM-dd HH.mm.ss");
@@ -3356,6 +3354,26 @@ namespace Emutastic.Views
         {
             CoreOptionsPanel.Visibility = Visibility.Collapsed;
         }
+
+        /// <summary>
+        /// Called by PreferencesWindow "Reset to Defaults" to apply default option values
+        /// to the live session. Sets the dirty flag so the core re-reads on the next frame.
+        /// </summary>
+        public void ApplyCoreOptionDefaults(Services.CoreOptionsSchema schema)
+        {
+            if (_isClosing || _core == null) return;
+            foreach (var opt in schema.Options)
+            {
+                if (!string.IsNullOrEmpty(opt.DefaultValue))
+                    _coreOptions[opt.Key] = opt.DefaultValue;
+            }
+            _coreOptionsDirty = true;
+        }
+
+        /// <summary>Returns the DLL name (without extension) of the currently loaded core.</summary>
+        public string? RunningCoreName =>
+            (_isClosing || _core == null) ? null
+            : Path.GetFileNameWithoutExtension(_core.CorePath);
 
         private void BuildCoreOptionsOverlay()
         {
@@ -3545,9 +3563,13 @@ namespace Emutastic.Views
                     if (deferredDll != IntPtr.Zero)
                     {
                         // Synchronous path: retro_deinit already ran on emu thread with GL.
-                        // Short wait for any residual driver callbacks, then delete + free.
-                        System.Diagnostics.Trace.WriteLine($"GL sync cleanup: waiting 1500ms before wglDeleteContext + FreeLibrary 0x{deferredDll:X}");
-                        System.Threading.Thread.Sleep(1500);
+                        // Wait for residual driver/GPU-thread callbacks, then delete + free.
+                        // PPSSPP's GPU thread self-cleans after retro_unload_game but takes
+                        // longer to fully exit than N64/Dolphin (context_destroy is skipped).
+                        string dllName = _core != null ? System.IO.Path.GetFileName(_core.CorePath).ToLowerInvariant() : "";
+                        int preDeleteMs = dllName.Contains("ppsspp") ? 3000 : 1500;
+                        System.Diagnostics.Trace.WriteLine($"GL sync cleanup: waiting {preDeleteMs}ms before wglDeleteContext + FreeLibrary 0x{deferredDll:X}");
+                        System.Threading.Thread.Sleep(preDeleteMs);
                         try
                         {
                             wglMakeCurrent(IntPtr.Zero, IntPtr.Zero);
