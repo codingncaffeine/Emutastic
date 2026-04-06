@@ -14,7 +14,7 @@
     <None Remove="Assets\openvgdb.sqlite" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include="Assets\openvgdb.sqlite">
+    <Content Include="Assets\openvgdb.sqlite" Condition="Exists('Assets\openvgdb.sqlite')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
@@ -22,7 +22,7 @@
     <Content Include="Cores\*.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="Cores\disksys.rom">
+    <Content Include="Cores\disksys.rom" Condition="Exists('Cores\disksys.rom')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

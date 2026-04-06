@@ -160,7 +160,7 @@ namespace Emutastic.Configuration
 
         // ── Generic key/value (for arbitrary callers) ─────────────────────────
 
-        public T GetValue<T>(string key, T defaultValue = default)
+        public T GetValue<T>(string key, T? defaultValue = default)
         {
             try
             {

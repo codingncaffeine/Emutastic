@@ -127,7 +127,7 @@ namespace Emutastic.Services
         {
             public IntPtr Handle;
             public bool Equals(VkInstance other) => Handle == other.Handle;
-            public override bool Equals(object obj) => obj is VkInstance other && Equals(other);
+            public override bool Equals(object? obj) => obj is VkInstance other && Equals(other);
             public override int GetHashCode() => Handle.GetHashCode();
             public static bool operator ==(VkInstance left, VkInstance right) => left.Equals(right);
             public static bool operator !=(VkInstance left, VkInstance right) => !left.Equals(right);
@@ -137,7 +137,7 @@ namespace Emutastic.Services
         {
             public IntPtr Handle;
             public bool Equals(VkPhysicalDevice other) => Handle == other.Handle;
-            public override bool Equals(object obj) => obj is VkPhysicalDevice other && Equals(other);
+            public override bool Equals(object? obj) => obj is VkPhysicalDevice other && Equals(other);
             public override int GetHashCode() => Handle.GetHashCode();
             public static bool operator ==(VkPhysicalDevice left, VkPhysicalDevice right) => left.Equals(right);
             public static bool operator !=(VkPhysicalDevice left, VkPhysicalDevice right) => !left.Equals(right);
@@ -147,7 +147,7 @@ namespace Emutastic.Services
         {
             public IntPtr Handle;
             public bool Equals(VkDevice other) => Handle == other.Handle;
-            public override bool Equals(object obj) => obj is VkDevice other && Equals(other);
+            public override bool Equals(object? obj) => obj is VkDevice other && Equals(other);
             public override int GetHashCode() => Handle.GetHashCode();
             public static bool operator ==(VkDevice left, VkDevice right) => left.Equals(right);
             public static bool operator !=(VkDevice left, VkDevice right) => !left.Equals(right);
@@ -157,7 +157,7 @@ namespace Emutastic.Services
         {
             public IntPtr Handle;
             public bool Equals(VkQueue other) => Handle == other.Handle;
-            public override bool Equals(object obj) => obj is VkQueue other && Equals(other);
+            public override bool Equals(object? obj) => obj is VkQueue other && Equals(other);
             public override int GetHashCode() => Handle.GetHashCode();
             public static bool operator ==(VkQueue left, VkQueue right) => left.Equals(right);
             public static bool operator !=(VkQueue left, VkQueue right) => !left.Equals(right);
@@ -167,7 +167,7 @@ namespace Emutastic.Services
         {
             public IntPtr Handle;
             public bool Equals(VkSwapchainKHR other) => Handle == other.Handle;
-            public override bool Equals(object obj) => obj is VkSwapchainKHR other && Equals(other);
+            public override bool Equals(object? obj) => obj is VkSwapchainKHR other && Equals(other);
             public override int GetHashCode() => Handle.GetHashCode();
             public static bool operator ==(VkSwapchainKHR left, VkSwapchainKHR right) => left.Equals(right);
             public static bool operator !=(VkSwapchainKHR left, VkSwapchainKHR right) => !left.Equals(right);
@@ -177,7 +177,7 @@ namespace Emutastic.Services
         {
             public IntPtr Handle;
             public bool Equals(VkImage other) => Handle == other.Handle;
-            public override bool Equals(object obj) => obj is VkImage other && Equals(other);
+            public override bool Equals(object? obj) => obj is VkImage other && Equals(other);
             public override int GetHashCode() => Handle.GetHashCode();
             public static bool operator ==(VkImage left, VkImage right) => left.Equals(right);
             public static bool operator !=(VkImage left, VkImage right) => !left.Equals(right);
@@ -187,7 +187,7 @@ namespace Emutastic.Services
         {
             public IntPtr Handle;
             public bool Equals(VkImageView other) => Handle == other.Handle;
-            public override bool Equals(object obj) => obj is VkImageView other && Equals(other);
+            public override bool Equals(object? obj) => obj is VkImageView other && Equals(other);
             public override int GetHashCode() => Handle.GetHashCode();
             public static bool operator ==(VkImageView left, VkImageView right) => left.Equals(right);
             public static bool operator !=(VkImageView left, VkImageView right) => !left.Equals(right);
@@ -197,7 +197,7 @@ namespace Emutastic.Services
         {
             public IntPtr Handle;
             public bool Equals(VkFramebuffer other) => Handle == other.Handle;
-            public override bool Equals(object obj) => obj is VkFramebuffer other && Equals(other);
+            public override bool Equals(object? obj) => obj is VkFramebuffer other && Equals(other);
             public override int GetHashCode() => Handle.GetHashCode();
             public static bool operator ==(VkFramebuffer left, VkFramebuffer right) => left.Equals(right);
             public static bool operator !=(VkFramebuffer left, VkFramebuffer right) => !left.Equals(right);
@@ -207,7 +207,7 @@ namespace Emutastic.Services
         {
             public IntPtr Handle;
             public bool Equals(VkRenderPass other) => Handle == other.Handle;
-            public override bool Equals(object obj) => obj is VkRenderPass other && Equals(other);
+            public override bool Equals(object? obj) => obj is VkRenderPass other && Equals(other);
             public override int GetHashCode() => Handle.GetHashCode();
             public static bool operator ==(VkRenderPass left, VkRenderPass right) => left.Equals(right);
             public static bool operator !=(VkRenderPass left, VkRenderPass right) => !left.Equals(right);
@@ -217,7 +217,7 @@ namespace Emutastic.Services
         {
             public IntPtr Handle;
             public bool Equals(VkCommandPool other) => Handle == other.Handle;
-            public override bool Equals(object obj) => obj is VkCommandPool other && Equals(other);
+            public override bool Equals(object? obj) => obj is VkCommandPool other && Equals(other);
             public override int GetHashCode() => Handle.GetHashCode();
             public static bool operator ==(VkCommandPool left, VkCommandPool right) => left.Equals(right);
             public static bool operator !=(VkCommandPool left, VkCommandPool right) => !left.Equals(right);
@@ -227,7 +227,7 @@ namespace Emutastic.Services
         {
             public IntPtr Handle;
             public bool Equals(VkCommandBuffer other) => Handle == other.Handle;
-            public override bool Equals(object obj) => obj is VkCommandBuffer other && Equals(other);
+            public override bool Equals(object? obj) => obj is VkCommandBuffer other && Equals(other);
             public override int GetHashCode() => Handle.GetHashCode();
             public static bool operator ==(VkCommandBuffer left, VkCommandBuffer right) => left.Equals(right);
             public static bool operator !=(VkCommandBuffer left, VkCommandBuffer right) => !left.Equals(right);
@@ -237,7 +237,7 @@ namespace Emutastic.Services
         {
             public IntPtr Handle;
             public bool Equals(VkSurfaceKHR other) => Handle == other.Handle;
-            public override bool Equals(object obj) => obj is VkSurfaceKHR other && Equals(other);
+            public override bool Equals(object? obj) => obj is VkSurfaceKHR other && Equals(other);
             public override int GetHashCode() => Handle.GetHashCode();
             public static bool operator ==(VkSurfaceKHR left, VkSurfaceKHR right) => left.Equals(right);
             public static bool operator !=(VkSurfaceKHR left, VkSurfaceKHR right) => !left.Equals(right);
@@ -247,7 +247,7 @@ namespace Emutastic.Services
         {
             public IntPtr Handle;
             public bool Equals(VkSemaphore other) => Handle == other.Handle;
-            public override bool Equals(object obj) => obj is VkSemaphore other && Equals(other);
+            public override bool Equals(object? obj) => obj is VkSemaphore other && Equals(other);
             public override int GetHashCode() => Handle.GetHashCode();
             public static bool operator ==(VkSemaphore left, VkSemaphore right) => left.Equals(right);
             public static bool operator !=(VkSemaphore left, VkSemaphore right) => !left.Equals(right);
@@ -257,7 +257,7 @@ namespace Emutastic.Services
         {
             public IntPtr Handle;
             public bool Equals(VkFence other) => Handle == other.Handle;
-            public override bool Equals(object obj) => obj is VkFence other && Equals(other);
+            public override bool Equals(object? obj) => obj is VkFence other && Equals(other);
             public override int GetHashCode() => Handle.GetHashCode();
             public static bool operator ==(VkFence left, VkFence right) => left.Equals(right);
             public static bool operator !=(VkFence left, VkFence right) => !left.Equals(right);
