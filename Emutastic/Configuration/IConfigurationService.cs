@@ -6,7 +6,7 @@ namespace Emutastic.Configuration
 {
     public interface IConfigurationService
     {
-        T GetValue<T>(string key, T defaultValue = default);
+        T GetValue<T>(string key, T? defaultValue = default);
         void SetValue<T>(string key, T value);
         Task SaveAsync();
         Task LoadAsync();
