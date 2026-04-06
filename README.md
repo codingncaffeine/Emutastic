@@ -11,8 +11,9 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 ## Requirements
 
 - Windows 10/11 x64
-- [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/8.0)
-- libretro core `.dll` files placed in the `Cores\` folder next to the executable (Core downloads are required but are offered in-app)
+- [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/8.0) *(not included with Windows — must be installed separately)*
+- [Visual C++ Redistributable 2015–2022 (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe) — required by most libretro cores (Dolphin, PPSSPP, Kronos, etc.)
+- libretro core `.dll` files placed in the `Cores\` folder next to the executable (core downloads are offered in-app)
 - `SDL3.dll` (x64) placed next to the executable — used for controller name detection
   - Download from [libsdl.org](https://github.com/libsdl-org/SDL/releases) (Runtime Binaries → Windows x64)
 
