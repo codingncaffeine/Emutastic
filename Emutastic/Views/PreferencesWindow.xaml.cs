@@ -1590,6 +1590,7 @@ namespace Emutastic.Views
                     Margin = new Thickness(0, 16, 0, 0)
                 });
                 CoreOptionsResetBtn.IsEnabled = false;
+                CoreOptionsResetBtn.Content   = "Reset to Defaults";
                 CoreOptionsSaveBtn.IsEnabled  = false;
                 return;
             }
@@ -1603,6 +1604,7 @@ namespace Emutastic.Views
                 b.Background = Brushes.Transparent;
 
             CoreOptionsResetBtn.IsEnabled = true;
+            CoreOptionsResetBtn.Content = $"Reset {schema.DisplayName} to Defaults";
             CoreOptionsSaveBtn.IsEnabled  = true;
 
             // Section header
