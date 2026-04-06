@@ -1439,8 +1439,9 @@ namespace Emutastic.Views
             var theme = _configService.GetThemeConfiguration();
 
             // Clamp to valid range in case config was edited manually.
-            PaddingSlider.Value = Math.Clamp(theme.GridPadding, 8, 64);
-            SpacingSlider.Value = Math.Clamp(theme.CardSpacing, 4, 48);
+            PaddingSlider.Value  = Math.Clamp(theme.GridPadding, 8, 64);
+            SpacingSlider.Value  = Math.Clamp(theme.CardSpacing, 4, 48);
+            CardSizeSlider.Value = Math.Clamp(theme.CardWidth, 148, 280);
             WindowsChromeToggle.IsChecked = theme.UseWindowsChrome;
             UpdateSliderLabels();
             ChromeRestartNote.Visibility = Visibility.Collapsed;
@@ -1448,14 +1449,18 @@ namespace Emutastic.Views
 
         private void UpdateSliderLabels()
         {
-            if (PaddingValueLabel != null) PaddingValueLabel.Text = $"{(int)PaddingSlider.Value}px";
-            if (SpacingValueLabel != null) SpacingValueLabel.Text = $"{(int)SpacingSlider.Value}px";
+            if (PaddingValueLabel  != null) PaddingValueLabel.Text  = $"{(int)PaddingSlider.Value}px";
+            if (SpacingValueLabel  != null) SpacingValueLabel.Text  = $"{(int)SpacingSlider.Value}px";
+            if (CardSizeValueLabel != null) CardSizeValueLabel.Text = $"{(int)CardSizeSlider.Value}px";
         }
 
         private void PaddingSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
             => UpdateSliderLabels();
 
         private void SpacingSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+            => UpdateSliderLabels();
+
+        private void CardSizeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
             => UpdateSliderLabels();
 
         private void WindowsChromeToggle_Changed(object sender, RoutedEventArgs e)
@@ -1467,8 +1472,9 @@ namespace Emutastic.Views
         private void ThemeSaveBtn_Click(object sender, RoutedEventArgs e)
         {
             var theme = _configService.GetThemeConfiguration();
-            theme.GridPadding     = Math.Clamp((int)PaddingSlider.Value, 8, 64);
-            theme.CardSpacing     = Math.Clamp((int)SpacingSlider.Value, 4, 48);
+            theme.GridPadding = Math.Clamp((int)PaddingSlider.Value,  8,   64);
+            theme.CardSpacing = Math.Clamp((int)SpacingSlider.Value,  4,   48);
+            theme.CardWidth   = Math.Clamp((int)CardSizeSlider.Value, 148, 280);
             theme.UseWindowsChrome = WindowsChromeToggle.IsChecked == true;
             _configService.SetThemeConfiguration(theme);
             _ = _configService.SaveAsync();

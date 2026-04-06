@@ -98,6 +98,10 @@ namespace Emutastic
 
                 base.OnStartup(e);
 
+                // Seed default theme resources before the window loads so DynamicResource
+                // bindings (including LibraryCardWidth) are never unset on first render.
+                Current.Resources["LibraryCardWidth"] = 148.0;
+
                 // Show the window immediately — don't block on config loading.
                 Logger?.LogInformation("Creating main window...");
                 var mainWindow = new MainWindow();
@@ -147,11 +151,13 @@ namespace Emutastic
             var theme = Configuration?.GetThemeConfiguration() ?? new Emutastic.Configuration.ThemeConfiguration();
 
             // Clamp to safe limits so malformed config can't break the layout.
-            int padding = Math.Clamp(theme.GridPadding, 8, 64);
-            int spacing = Math.Clamp(theme.CardSpacing, 4, 48);
+            int padding   = Math.Clamp(theme.GridPadding, 8, 64);
+            int spacing   = Math.Clamp(theme.CardSpacing, 4, 48);
+            int cardWidth = Math.Clamp(theme.CardWidth, 148, 280);
 
             Current.Resources["LibraryGridPadding"] = new System.Windows.Thickness(padding);
             Current.Resources["LibraryCardMargin"]  = new System.Windows.Thickness(0, 0, spacing, spacing);
+            Current.Resources["LibraryCardWidth"]   = (double)cardWidth;
         }
 
         protected override async void OnExit(ExitEventArgs e)

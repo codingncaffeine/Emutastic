@@ -145,11 +145,14 @@ namespace Emutastic.Services
             string ext = Path.GetExtension(romPath);
 
             // .bin paired with a .cue in the same folder — skip it; the .cue is the entry point.
-            // This covers PS1/SegaCD multi-track dumps where each track is a separate .bin.
+            // Checks for ANY .cue in the folder, not just one with the same base name, so that
+            // multi-track dumps (Track 01.bin, Track 02.bin, ...) are correctly skipped when
+            // only the .cue shares a different naming pattern.
             if (ext.Equals(".bin", StringComparison.OrdinalIgnoreCase))
             {
-                string cuePath = Path.ChangeExtension(romPath, ".cue");
-                if (File.Exists(cuePath)) return;
+                string folder = Path.GetDirectoryName(romPath) ?? "";
+                if (Directory.EnumerateFiles(folder, "*.cue", SearchOption.TopDirectoryOnly).Any())
+                    return;
             }
 
             // Handle zip / 7z files

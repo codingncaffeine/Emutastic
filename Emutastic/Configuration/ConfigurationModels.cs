@@ -71,6 +71,8 @@ namespace Emutastic.Configuration
         public int GridPadding { get; set; } = 28;
         /// <summary>Right + bottom gap between game cards in pixels. Clamped 4–48 by the UI.</summary>
         public int CardSpacing { get; set; } = 20;
+        /// <summary>Width of each game card in pixels. Clamped 148–280 by the UI.</summary>
+        public int CardWidth { get; set; } = 148;
         /// <summary>
         /// When true, uses standard Windows chrome (system title bar + min/max/close buttons)
         /// instead of the custom macOS-style frameless window.

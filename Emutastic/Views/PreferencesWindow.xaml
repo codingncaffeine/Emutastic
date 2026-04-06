@@ -794,6 +794,38 @@
                                 </StackPanel>
                             </Grid>
 
+                            <!-- Card Size -->
+                            <Grid Margin="0,0,0,20">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Card size"
+                                               FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                    <TextBlock Text="Width of each game card. Height adjusts automatically to match the console's box art ratio."
+                                               FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                                               Margin="0,2,0,8" TextWrapping="Wrap"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="40"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Slider x:Name="CardSizeSlider"
+                                                Grid.Column="0"
+                                                Minimum="148" Maximum="280" TickFrequency="8"
+                                                IsSnapToTickEnabled="True"
+                                                VerticalAlignment="Center"
+                                                ValueChanged="CardSizeSlider_ValueChanged"/>
+                                        <TextBlock x:Name="CardSizeValueLabel"
+                                                   Grid.Column="1"
+                                                   FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                                                   VerticalAlignment="Center"
+                                                   HorizontalAlignment="Right"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Grid>
+
                             <!-- Card Spacing -->
                             <Grid Margin="0,0,0,20">
                                 <Grid.ColumnDefinitions>

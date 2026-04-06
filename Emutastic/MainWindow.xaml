@@ -4,6 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:Emutastic"
+        xmlns:converters="clr-namespace:Emutastic.Converters"
         xmlns:vwp="clr-namespace:WpfToolkit.Controls;assembly=VirtualizingWrapPanel"
         mc:Ignorable="d"
         Title="Emutastic"
@@ -16,6 +17,9 @@
         PreviewKeyDown="Window_PreviewKeyDown">
 
     <Window.Resources>
+        <!-- Proxy that lets MultiBinding consume the LibraryCardWidth DynamicResource -->
+        <converters:BindingProxy x:Key="CardWidthProxy" Data="{DynamicResource LibraryCardWidth}"/>
+
         <DropShadowEffect x:Key="WindowShadow"
                           BlurRadius="30"
                           ShadowDepth="0"
@@ -694,7 +698,7 @@
                         </ListBox.ItemsPanel>
                         <ListBox.ItemTemplate>
                             <DataTemplate>
-                                <Border Width="148"
+                                <Border Width="{DynamicResource LibraryCardWidth}"
                                         Margin="{DynamicResource LibraryCardMargin}"
                                         CornerRadius="8"
                                         ClipToBounds="True"
@@ -719,9 +723,14 @@
                                         </Style>
                                     </Border.Style>
                                     <StackPanel>
-                                        <Border Height="{Binding Console, Converter={StaticResource ConsoleToArtHeight}}"
-                                                Background="Transparent"
+                                        <Border Background="Transparent"
                                                 ClipToBounds="True">
+                                            <Border.Height>
+                                                <MultiBinding Converter="{StaticResource ConsoleToArtHeight}">
+                                                    <Binding Path="Console"/>
+                                                    <Binding Source="{StaticResource CardWidthProxy}" Path="Data"/>
+                                                </MultiBinding>
+                                            </Border.Height>
                                             <Grid>
                                                 <Border Visibility="{Binding CoverArtPath, Converter={StaticResource NullToVisibility}}">
                                                     <Border.Background>
@@ -821,9 +830,14 @@
                                                                 </Style>
                                                             </Border.Style>
                                                             <StackPanel>
-                                                                <Border Height="{Binding Console, Converter={StaticResource ConsoleToArtHeight}}"
-                                                                        Background="Transparent"
+                                                                <Border Background="Transparent"
                                                                         ClipToBounds="True">
+                                                                    <Border.Height>
+                                                                        <MultiBinding Converter="{StaticResource ConsoleToArtHeight}">
+                                                                            <Binding Path="Console"/>
+                                                                            <Binding Source="{StaticResource CardWidthProxy}" Path="Data"/>
+                                                                        </MultiBinding>
+                                                                    </Border.Height>
                                                                     <Grid>
                                                                         <Border Visibility="{Binding CoverArtPath, Converter={StaticResource NullToVisibility}}">
                                                                             <Border.Background>
