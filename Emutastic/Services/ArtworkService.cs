@@ -23,6 +23,7 @@ namespace Emutastic.Services
         private readonly string _vgdbPath;
         private readonly string _cacheFolder;
         private readonly Dictionary<string, string> _cacheIndex;
+        private readonly DatMatchService _datMatcher = new();
 
         /// <summary>
         /// If this game's artwork file is already on disk but the DB path was never saved,
@@ -425,16 +426,28 @@ namespace Emutastic.Services
             if (!string.IsNullOrWhiteSpace(console))
             {
                 // Build list of title candidates to try
-                var titleCandidates = new List<string> { result.Title };
+                var titleCandidates = new List<string>();
+
+                // For Arcade, the ROM filename is a short code (e.g. "mslug") that won't match
+                // Libretro's full-title naming. Resolve via the FBNeo DAT description first.
+                if (console == "Arcade" && !string.IsNullOrWhiteSpace(romPath))
+                {
+                    string romName = Path.GetFileNameWithoutExtension(romPath);
+                    string? arcadeTitle = _datMatcher.LookupArcadeTitle(romName);
+                    if (!string.IsNullOrWhiteSpace(arcadeTitle))
+                        titleCandidates.Add(arcadeTitle);
+                }
+
+                titleCandidates.Add(result.Title);
 
                 if (!string.IsNullOrWhiteSpace(romPath))
                 {
                     string raw = RomService.CleanTitle(Path.GetFileName(romPath));
-                    if (raw != result.Title)
+                    if (!titleCandidates.Contains(raw))
                         titleCandidates.Add(raw);
 
                     string rawNoClean = Path.GetFileNameWithoutExtension(romPath);
-                    if (rawNoClean != raw && rawNoClean != result.Title)
+                    if (!titleCandidates.Contains(rawNoClean))
                         titleCandidates.Add(rawNoClean);
                 }
 

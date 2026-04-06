@@ -19,6 +19,9 @@ namespace Emutastic.Services
         // sha1 (lowercase hex) → DatMatch
         private readonly Dictionary<string, DatMatch> _sha1Index = new(StringComparer.OrdinalIgnoreCase);
 
+        // Arcade short ROM name (e.g. "mslug") → full title (e.g. "Metal Slug - Super Vehicle-001")
+        private readonly Dictionary<string, string> _arcadeNameIndex = new(StringComparer.OrdinalIgnoreCase);
+
         private readonly string _datsFolder;
         private bool _loaded = false;
 
@@ -62,29 +65,44 @@ namespace Emutastic.Services
         {
             try
             {
+                bool isArcade = console.Equals("Arcade", StringComparison.OrdinalIgnoreCase);
                 var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Ignore };
                 using var reader = XmlReader.Create(path, settings);
 
                 string? currentGame = null;
+                string? currentDescription = null;
 
                 while (reader.Read())
                 {
-                    if (reader.NodeType != XmlNodeType.Element) continue;
-
-                    if (reader.Name == "game" || reader.Name == "machine")
+                    if (reader.NodeType == XmlNodeType.Element)
                     {
-                        currentGame = reader.GetAttribute("name");
-                        continue;
-                    }
-
-                    if (reader.Name == "rom" && currentGame != null)
-                    {
-                        string? sha1 = reader.GetAttribute("sha1");
-                        if (!string.IsNullOrEmpty(sha1))
+                        if (reader.Name == "game" || reader.Name == "machine")
                         {
-                            // Title: strip extension from the game name if present
-                            string title = Path.GetFileNameWithoutExtension(currentGame);
-                            _sha1Index.TryAdd(sha1, new DatMatch(console, title));
+                            currentGame = reader.GetAttribute("name");
+                            currentDescription = null;
+                            continue;
+                        }
+
+                        if (reader.Name == "description" && isArcade && currentGame != null)
+                        {
+                            currentDescription = reader.ReadElementContentAsString();
+                            // Index short name → full title for Libretro thumbnail lookup
+                            if (!string.IsNullOrWhiteSpace(currentDescription))
+                                _arcadeNameIndex.TryAdd(currentGame, currentDescription);
+                            continue;
+                        }
+
+                        if (reader.Name == "rom" && currentGame != null)
+                        {
+                            string? sha1 = reader.GetAttribute("sha1");
+                            if (!string.IsNullOrEmpty(sha1))
+                            {
+                                // Prefer full description as title for arcade; fall back to game name
+                                string title = isArcade && !string.IsNullOrWhiteSpace(currentDescription)
+                                    ? currentDescription
+                                    : Path.GetFileNameWithoutExtension(currentGame);
+                                _sha1Index.TryAdd(sha1, new DatMatch(console, title));
+                            }
                         }
                     }
                 }
@@ -93,6 +111,17 @@ namespace Emutastic.Services
             {
                 System.Diagnostics.Trace.WriteLine($"[DatMatchService] Failed to load {path}: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Maps a short FBNeo ROM name (e.g. "mslug") to its full description title
+        /// (e.g. "Metal Slug - Super Vehicle-001") from the Arcade DAT file.
+        /// Returns null if no Arcade DAT is loaded or the name isn't found.
+        /// </summary>
+        public string? LookupArcadeTitle(string romName)
+        {
+            EnsureLoaded();
+            return _arcadeNameIndex.TryGetValue(romName, out var title) ? title : null;
         }
 
         /// <summary>True if any DAT files were found and loaded.</summary>
