@@ -10,5 +10,7 @@ namespace Emutastic.Services.ConsoleHandlers
         {
             { "vecx_res_multi", "3" },
         };
+
+        public override bool UseFullFboReadback => true;
     }
 }

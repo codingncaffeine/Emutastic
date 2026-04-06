@@ -88,5 +88,12 @@ namespace Emutastic.Services.ConsoleHandlers
         /// </summary>
         void PrepareSaveDirectory(string saveDir);
 
+        /// <summary>
+        /// When true, the readback path reads the entire FBO (fboWidth × fboHeight) rather
+        /// than the dimensions reported by retro_video_refresh. Use for cores like vecx that
+        /// render game content across the full square FBO and rely on aspect_ratio for display.
+        /// Most HW cores render at exactly base_width × base_height, so the default is false.
+        /// </summary>
+        bool UseFullFboReadback { get; }
     }
 }

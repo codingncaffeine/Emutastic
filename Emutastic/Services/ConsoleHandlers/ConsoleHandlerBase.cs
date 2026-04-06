@@ -45,5 +45,6 @@ namespace Emutastic.Services.ConsoleHandlers
             => defaultDir;
 
         public virtual void PrepareSaveDirectory(string saveDir) { }
+        public virtual bool UseFullFboReadback => false;
     }
 }

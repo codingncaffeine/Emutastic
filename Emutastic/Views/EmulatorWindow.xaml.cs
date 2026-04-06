@@ -493,6 +493,9 @@ namespace Emutastic.Views
         [DllImport("user32.dll")] private static extern bool PeekMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax, uint wRemoveMsg);
         [DllImport("user32.dll")] private static extern bool DispatchMessage(ref MSG lpmsg);
 
+        [StructLayout(LayoutKind.Sequential)]
+        private struct RECT { public int Left, Top, Right, Bottom; }
+
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
         private struct WNDCLASSEX
         {
@@ -593,6 +596,7 @@ namespace Emutastic.Views
 
                 System.Diagnostics.Trace.WriteLine("EmulatorWindow constructor started");
                 InitializeComponent();
+                SourceInitialized += OnSourceInitialized;
 
                 _game = game;
                 _core = core;
@@ -2193,7 +2197,9 @@ namespace Emutastic.Views
         // =========================================================================
         // Aspect ratio / rotation
         // =========================================================================
-        private uint _coreRotation = 0;  // value from RETRO_ENVIRONMENT_SET_ROTATION (0-3)
+        private uint   _coreRotation = 0;   // value from RETRO_ENVIRONMENT_SET_ROTATION (0-3)
+        private double _displayAr    = 0;   // current display aspect ratio (0 = unknown)
+        private bool   _windowSized  = false; // true after the first auto-size
 
         private void UpdateDisplayAspectRatio(uint baseWidth, uint baseHeight, float coreAr)
         {
@@ -2208,6 +2214,8 @@ namespace Emutastic.Views
                 double displayAr = _consoleHandler.GetDisplayAspectRatio(baseWidth, baseHeight, coreAr);
                 if (displayAr <= 0) return;
 
+                _displayAr = displayAr;
+
                 GameScreen.Width   = double.NaN;
                 GameScreen.Height  = double.NaN;
                 GameScreen.Stretch = Stretch.Uniform;
@@ -2221,7 +2229,55 @@ namespace Emutastic.Views
                 if (_coreRotation != 0)
                     group.Children.Add(new RotateTransform(_coreRotation * 90.0));
                 GameScreen.LayoutTransform = group;
+
+                if (!_windowSized)
+                {
+                    _windowSized = true;
+                    AutoSizeWindowToGameAr(displayAr);
+                }
             });
+        }
+
+        /// <summary>
+        /// Resize the emulator window so the game viewport fills a sensible default area.
+        /// Targets 2× native resolution, clamped to 85% of the screen working area.
+        /// </summary>
+        private void AutoSizeWindowToGameAr(double displayAr)
+        {
+            var avInfo = _core?.AvInfo;
+            if (!avInfo.HasValue) return;
+
+            var geom = avInfo.Value.geometry;
+            if (geom.base_width == 0 || geom.base_height == 0) return;
+
+            // Chrome: title bar (32) + status bar + border — measure live so it's exact.
+            double chromeH = ActualHeight - GameViewport.ActualHeight;
+
+            var screen = System.Windows.SystemParameters.WorkArea;
+
+            // Target 2× native pixels for the game viewport, then scale down if needed.
+            double nativeW = geom.base_width  * 2.0;
+            double nativeH = geom.base_height * 2.0;
+
+            // Apply the display AR correction (same scaleX used in LayoutTransform).
+            double bitmapAr = geom.base_height > 0 ? (double)geom.base_width / geom.base_height : displayAr;
+            double scaleX   = displayAr / bitmapAr;
+            double gameW    = nativeW * scaleX;
+            double gameH    = nativeH;
+
+            double maxW = screen.Width  * 0.85;
+            double maxH = (screen.Height - chromeH) * 0.85;
+
+            // Scale down uniformly if too large.
+            if (gameW > maxW || gameH > maxH)
+            {
+                double scale = Math.Min(maxW / gameW, maxH / gameH);
+                gameW *= scale;
+                gameH *= scale;
+            }
+
+            Width  = Math.Max(gameW, 320);
+            Height = Math.Max(gameH + chromeH, 200);
         }
 
         // =========================================================================
@@ -2255,12 +2311,18 @@ namespace Emutastic.Views
                 }
                 else
                 {
-                    // Single-threaded HW core: core rendered into our FBO.
-                    // Always read the FULL FBO — cores like vecx render to the entire
-                    // texture (e.g. 1024×1024 square) and rely on aspect_ratio to
-                    // display it as portrait.  Reading only base_width × base_height
-                    // (824×1024) clips the right side of the game content.
-                    ReadBackFromCurrentContext(_fboId, _fboWidth, _fboHeight);
+                    // Single-threaded HW core path.
+                    // UseFullFboReadback=true (vecx): renders to full FBO square and relies
+                    //   on aspect_ratio for display — read the entire FBO.
+                    // UseFullFboReadback=false (default — PSP, GameCube, etc.): renders at
+                    //   exactly the callback dimensions; use width/height from the callback.
+                    uint rw = _consoleHandler.UseFullFboReadback
+                        ? _fboWidth
+                        : (width  > 0 ? width  : _fboWidth);
+                    uint rh = _consoleHandler.UseFullFboReadback
+                        ? _fboHeight
+                        : (height > 0 ? height : _fboHeight);
+                    ReadBackFromCurrentContext(_fboId, rw, rh);
                 }
                 return;
             }
@@ -3192,8 +3254,53 @@ namespace Emutastic.Views
         }
 
         // =========================================================================
-        // Window chrome
+        // Window chrome + AR-constrained resize
         // =========================================================================
+        private void OnSourceInitialized(object? sender, EventArgs e)
+        {
+            var source = System.Windows.Interop.HwndSource.FromHwnd(
+                new System.Windows.Interop.WindowInteropHelper(this).Handle);
+            source?.AddHook(HwndHook);
+        }
+
+        private IntPtr HwndHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam,
+                                 ref bool handled)
+        {
+            const int WM_SIZING      = 0x0214;
+            const int WMSZ_LEFT      = 1;
+            const int WMSZ_RIGHT     = 2;
+            const int WMSZ_TOP       = 3;
+            const int WMSZ_BOTTOM    = 6;
+
+            if (msg == WM_SIZING && _displayAr > 0 && WindowState == WindowState.Normal)
+            {
+                var rect = Marshal.PtrToStructure<RECT>(lParam);
+
+                double chromeH = ActualHeight - GameViewport.ActualHeight;
+                int edge = (int)wParam;
+
+                int w     = rect.Right  - rect.Left;
+                int gameH = rect.Bottom - rect.Top - (int)Math.Round(chromeH);
+
+                if (edge == WMSZ_TOP || edge == WMSZ_BOTTOM)
+                {
+                    // Height-led drag: adjust width to maintain AR.
+                    int newW = (int)Math.Round(Math.Max(gameH, 60) * _displayAr);
+                    rect.Right = rect.Left + Math.Max(newW, 160);
+                }
+                else
+                {
+                    // Width-led drag (left, right, or any corner): adjust height to maintain AR.
+                    int newGameH = (int)Math.Round(Math.Max(w, 160) / _displayAr);
+                    rect.Bottom = rect.Top + (int)Math.Round(chromeH) + Math.Max(newGameH, 60);
+                }
+
+                Marshal.StructureToPtr(rect, lParam, false);
+                handled = true;
+            }
+            return IntPtr.Zero;
+        }
+
         private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             if (e.ClickCount == 2)
