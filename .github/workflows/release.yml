@@ -20,8 +20,9 @@ jobs:
 
       - name: Download OpenVGDB
         run: |
-          $url = "https://github.com/OpenVGDB/OpenVGDB/releases/latest/download/openvgdb.sqlite.zip"
-          Invoke-WebRequest -Uri $url -OutFile openvgdb.zip
+          $release = Invoke-RestMethod "https://api.github.com/repos/OpenVGDB/OpenVGDB/releases/latest"
+          $asset = $release.assets | Where-Object { $_.name -like "openvgdb*" } | Select-Object -First 1
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile openvgdb.zip
           Expand-Archive -Path openvgdb.zip -DestinationPath Emutastic/Assets/ -Force
           Remove-Item openvgdb.zip
         shell: pwsh
