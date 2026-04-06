@@ -369,7 +369,7 @@ namespace Emutastic.Services
 
             if (!string.IsNullOrWhiteSpace(romPath))
             {
-                // For Arcade, resolve short ROM name to full title via FBNeo DAT first
+                // For Arcade, Libretro snaps use full titles (not short ROM names), so resolve first.
                 if (console == "Arcade")
                 {
                     string romName = Path.GetFileNameWithoutExtension(romPath);
@@ -437,8 +437,8 @@ namespace Emutastic.Services
                 // Build list of title candidates to try
                 var titleCandidates = new List<string>();
 
-                // For Arcade, the ROM filename is a short code (e.g. "mslug") that won't match
-                // Libretro's full-title naming. Resolve via the FBNeo DAT description first.
+                // For Arcade, Libretro requires the full game title (not short ROM name).
+                // Resolve via FBNeo DAT first so we don't waste requests on guaranteed 404s.
                 if (console == "Arcade" && !string.IsNullOrWhiteSpace(romPath))
                 {
                     string romName = Path.GetFileNameWithoutExtension(romPath);

@@ -309,6 +309,7 @@ namespace Emutastic.Services
         private async Task ImportRomFileAsync(string romPath, string console, string fileName,
             string? overrideTitle = null)
         {
+            await Task.CompletedTask; // satisfy CS1998; method is intentionally synchronous at the top level
             if (_db.RomPathExists(romPath)) { ImportLog($"[{fileName}] SKIPPED — path already in DB"); return; }
 
             StatusChanged?.Invoke($"Importing {fileName}…");
@@ -393,6 +394,7 @@ namespace Emutastic.Services
 
         private async Task<string> DetectConsoleFromZipAsync(string archivePath)
         {
+            await Task.CompletedTask; // satisfy CS1998; method is intentionally synchronous
             try
             {
                 using var archive = ArchiveFactory.Open(archivePath);
@@ -451,32 +453,32 @@ namespace Emutastic.Services
             }
         }
 
-        private async Task<bool> CoreSupportsBlockExtractAsync(string console)
+        private Task<bool> CoreSupportsBlockExtractAsync(string console)
         {
             try
             {
                 string? corePath = _coreManager.GetCorePath(console);
-                if (corePath == null) 
+                if (corePath == null)
                 {
                     System.Diagnostics.Debug.WriteLine($"No core found for console: {console}");
-                    return false;
+                    return Task.FromResult(false);
                 }
 
                 System.Diagnostics.Debug.WriteLine($"Checking core block_extract for {console} at {corePath}");
-                
+
                 using var core = new LibretroCore(corePath);
                 core.Init();
-                
+
                 bool blockExtract = core.SystemInfo.block_extract;
                 System.Diagnostics.Debug.WriteLine($"Core {console} block_extract: {blockExtract}");
-                
-                return blockExtract;
+
+                return Task.FromResult(blockExtract);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Error checking core block_extract for {console}: {ex.Message}");
                 System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
-                return false; // Default to extracting if we can't check
+                return Task.FromResult(false); // Default to extracting if we can't check
             }
         }
 

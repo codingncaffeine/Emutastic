@@ -63,7 +63,6 @@ namespace Emutastic.Services
         private static XInputGetStateDelegate? _xInputGetState;
         private static XInputSetStateDelegate? _xInputSetState;
         private static bool _xInputInitialized;
-        private static bool _useXInput14;
 
         private readonly Timer _pollTimer;
         private bool[] _buttonStates     = new bool[16];
@@ -133,7 +132,6 @@ namespace Emutastic.Services
                     {
                         _xInputGetState    = Marshal.GetDelegateForFunctionPointer<XInputGetStateDelegate>(getAddr);
                         _xInputSetState    = Marshal.GetDelegateForFunctionPointer<XInputSetStateDelegate>(setAddr);
-                        _useXInput14       = true;
                         _xInputInitialized = true;
                         return;
                     }
@@ -153,7 +151,6 @@ namespace Emutastic.Services
                     {
                         _xInputGetState    = Marshal.GetDelegateForFunctionPointer<XInputGetStateDelegate>(getAddr);
                         _xInputSetState    = Marshal.GetDelegateForFunctionPointer<XInputSetStateDelegate>(setAddr);
-                        _useXInput14       = false;
                         _xInputInitialized = true;
                         return;
                     }

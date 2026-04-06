@@ -154,7 +154,7 @@ namespace Emutastic.Views
 
         private void PlayButton_Click(object sender, RoutedEventArgs e)
         {
-            var coreManager = new CoreManager(App.Configuration);
+            var coreManager = new CoreManager(App.Configuration!);
 
             // Check for missing BIOS before attempting to launch.
             string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);

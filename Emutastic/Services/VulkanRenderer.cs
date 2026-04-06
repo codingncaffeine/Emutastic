@@ -14,19 +14,9 @@ namespace Emutastic.Services
         private VkDevice _device;
         private VkQueue _graphicsQueue;
         private uint _graphicsQueueFamilyIndex;
-        private VkSwapchainKHR _swapchain;
         private VkImage[] _swapchainImages = Array.Empty<VkImage>();
         private VkImageView[] _swapchainImageViews = Array.Empty<VkImageView>();
-        private VkRenderPass _renderPass;
         private VkFramebuffer[] _framebuffers = Array.Empty<VkFramebuffer>();
-        private VkCommandPool _commandPool;
-        private VkCommandBuffer _commandBuffer;
-        private VkSemaphore _imageAvailableSemaphore;
-        private VkSemaphore _renderFinishedSemaphore;
-        private VkFence _inFlightFence;
-        
-        private uint _width = 640;
-        private uint _height = 480;
         private bool _isInitialized = false;
 
         public bool IsInitialized => _isInitialized;

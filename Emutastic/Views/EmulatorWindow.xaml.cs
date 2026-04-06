@@ -609,6 +609,9 @@ namespace Emutastic.Views
                     string logDir  = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Emutastic", "Logs");
                     Directory.CreateDirectory(logDir);
                     string logPath = Path.Combine(logDir, "emulator.log");
+                    // Rotate if over 5 MB — keeps one previous session as .old
+                    if (File.Exists(logPath) && new FileInfo(logPath).Length > 5 * 1024 * 1024)
+                        File.Move(logPath, Path.Combine(logDir, "emulator.old.log"), overwrite: true);
                     var traceListener = new System.Diagnostics.TextWriterTraceListener(logPath, "FileLog")
                     {
                         TraceOutputOptions = System.Diagnostics.TraceOptions.DateTime
@@ -2300,6 +2303,7 @@ namespace Emutastic.Views
         // Aspect ratio / rotation
         // =========================================================================
         private uint   _coreRotation = 0;   // value from RETRO_ENVIRONMENT_SET_ROTATION (0-3)
+        private uint   _flipRotation = 0;   // user override: 0 = normal, 2 = flipped 180°
         private double _displayAr    = 0;   // current display aspect ratio (0 = unknown)
         private bool   _windowSized  = false; // true after the first auto-size
 
@@ -2325,11 +2329,14 @@ namespace Emutastic.Views
                 double bitmapAr = baseHeight > 0 ? (double)baseWidth / baseHeight : displayAr;
                 double scaleX   = displayAr / bitmapAr;
 
-                // Apply both the AR correction scale and any rotation the core requested.
+                // Apply both the AR correction scale and any rotation the core requested,
+                // plus any user flip override.
+                // Libretro rotation is CCW; WPF RotateTransform is CW — negate to match.
+                uint effectiveRotation = (_coreRotation + _flipRotation) % 4;
                 var group = new TransformGroup();
                 group.Children.Add(new ScaleTransform(scaleX, 1.0));
-                if (_coreRotation != 0)
-                    group.Children.Add(new RotateTransform(_coreRotation * 90.0));
+                if (effectiveRotation != 0)
+                    group.Children.Add(new RotateTransform(-(int)effectiveRotation * 90.0));
                 GameScreen.LayoutTransform = group;
 
                 if (!_windowSized)
@@ -2681,7 +2688,44 @@ namespace Emutastic.Views
                 if (qs != null) RequestLoad(qs.StatePath, "Quick Save");
                 else { _transientMsg = "No Quick Save found"; _transientExpiry = DateTime.Now.AddSeconds(3); }
             }
+            if (e.Key == Key.PrintScreen || e.Key == Key.F12)
+                TakeScreenshot();
             e.Handled = true;
+        }
+
+        private void TakeScreenshot()
+        {
+            try
+            {
+                if (_bitmap == null)
+                {
+                    _transientMsg    = "Screenshot not available for this core";
+                    _transientExpiry = DateTime.Now.AddSeconds(3);
+                    return;
+                }
+
+                // Snapshot the current WriteableBitmap on the UI thread.
+                // CopyPixels pulls the front buffer without locking the render cycle.
+                int w = _bitmap.PixelWidth, h = _bitmap.PixelHeight;
+                var snap = new WriteableBitmap(w, h, _bitmap.DpiX, _bitmap.DpiY, _bitmap.Format, null);
+                snap.Lock();
+                _bitmap.CopyPixels(new Int32Rect(0, 0, w, h), snap.BackBuffer, snap.BackBufferStride * h, snap.BackBufferStride);
+                snap.AddDirtyRect(new Int32Rect(0, 0, w, h));
+                snap.Unlock();
+                snap.Freeze();
+
+                var service  = new Services.ScreenshotService();
+                string? path = service.Save(snap, _game.Title, _game.Console);
+
+                _transientMsg    = path != null ? "Screenshot saved" : "Screenshot failed";
+                _transientExpiry = DateTime.Now.AddSeconds(3);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[Screenshot] {ex.Message}");
+                _transientMsg    = "Screenshot failed";
+                _transientExpiry = DateTime.Now.AddSeconds(3);
+            }
         }
 
         protected override void OnKeyUp(KeyEventArgs e) { SetKey(e.Key, false); base.OnKeyUp(e); }
@@ -3453,13 +3497,24 @@ namespace Emutastic.Views
         private void OverlayEditControls_Click(object sender, RoutedEventArgs e)
         {
             OverlayMenu.Visibility = Visibility.Collapsed;
-            var win = new PreferencesWindow(_db!, _controllerManager, _configService,
+            var win = new PreferencesWindow(_db!, _controllerManager!, _configService,
                 initialConsole: _game?.Console)
                 { Owner = this };
             win.ShowDialog();
             LoadKeyboardMappings();
             _controllerManager?.ReloadInputConfiguration();
             ResetOverlayTimer();
+        }
+
+        private void OverlayFlip_Click(object sender, RoutedEventArgs e)
+        {
+            _flipRotation = _flipRotation == 0u ? 2u : 0u;
+            OverlayFlipBtn.Content = _flipRotation == 2 ? "Flip Display ✓" : "Flip Display";
+            OverlayMenu.Visibility = Visibility.Collapsed;
+            // Re-trigger AR update so the new rotation is applied immediately.
+            if (_core?.AvInfo is { } av)
+                UpdateDisplayAspectRatio(av.geometry.base_width, av.geometry.base_height,
+                    av.geometry.aspect_ratio);
         }
 
         private void OverlayCoreOptions_Click(object sender, RoutedEventArgs e)
@@ -3575,8 +3630,6 @@ namespace Emutastic.Views
                                  ref bool handled)
         {
             const int WM_SIZING      = 0x0214;
-            const int WMSZ_LEFT      = 1;
-            const int WMSZ_RIGHT     = 2;
             const int WMSZ_TOP       = 3;
             const int WMSZ_BOTTOM    = 6;
 
