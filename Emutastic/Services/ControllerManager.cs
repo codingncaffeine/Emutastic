@@ -631,6 +631,18 @@ namespace Emutastic.Services
                         _ => uint.MaxValue
                     };
 
+                // ── Arcade / FBNeo (Classic mode button numbering) ────────────
+                case "Arcade":
+                    return n switch {
+                        "button 1" => 1,  "button 2" => 0,   // JOYPAD_Y, JOYPAD_B
+                        "button 3" => 9,  "button 4" => 8,   // JOYPAD_X, JOYPAD_A
+                        "button 5" => 10, "button 6" => 11,  // JOYPAD_L, JOYPAD_R
+                        "button 7" => 12, "button 8" => 13,  // JOYPAD_L2, JOYPAD_R2
+                        "coin"  => 2, "start" => 3,
+                        "up" => 4, "down" => 5, "left" => 6, "right" => 7,
+                        _ => uint.MaxValue
+                    };
+
                 case "NGP":
                     return n switch {
                         "a" => 8, "b" => 0, "option" => 3,

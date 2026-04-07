@@ -598,8 +598,9 @@ namespace Emutastic.Configuration
                     new("Down",     "Down",     140, 150, ButtonType.DPad,   70, 70, GDPad),
                     new("Left",     "Left",     100, 110, ButtonType.DPad,   70, 70, GDPad),
                     new("Right",    "Right",    180, 110, ButtonType.DPad,   70, 70, GDPad),
-                    new("Button 1", "B",        300, 130, ButtonType.Button, 35, 35, GFace),
-                    new("Button 2", "Y",        340, 110, ButtonType.Button, 35, 35, GFace),
+                    // FBNeo "Classic" libretro order: JOYPAD_Y(1)=Btn1, JOYPAD_B(0)=Btn2, etc.
+                    new("Button 1", "Y",        300, 130, ButtonType.Button, 35, 35, GFace),
+                    new("Button 2", "B",        340, 110, ButtonType.Button, 35, 35, GFace),
                     new("Button 3", "X",        380, 130, ButtonType.Button, 35, 35, GFace),
                     new("Button 4", "A",        420, 110, ButtonType.Button, 35, 35, GFace),
                     new("Button 5", "L",        300, 160, ButtonType.Button, 35, 35, GFace),

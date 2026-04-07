@@ -3024,6 +3024,19 @@ namespace Emutastic.Views
                         "select" => JOYPAD_SELECT, "start" => JOYPAD_START,
                         _ => uint.MaxValue
                     };
+
+                // ── Arcade / FBNeo (Classic mode button numbering) ────────────
+                case "Arcade":
+                    return n switch {
+                        "button 1" => JOYPAD_Y,  "button 2" => JOYPAD_B,
+                        "button 3" => JOYPAD_X,  "button 4" => JOYPAD_A,
+                        "button 5" => JOYPAD_L,  "button 6" => JOYPAD_R,
+                        "button 7" => 12,         "button 8" => 13,
+                        "coin"     => JOYPAD_SELECT, "start" => JOYPAD_START,
+                        "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
+                        "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
+                        _ => uint.MaxValue
+                    };
             }
 
             // Standard libretro joypad mapping (NES, SNES, GB, GBA, NDS, FDS, MSX, etc.)
