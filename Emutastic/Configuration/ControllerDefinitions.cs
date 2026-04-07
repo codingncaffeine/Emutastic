@@ -566,6 +566,21 @@ namespace Emutastic.Configuration
                     new("4",            "Y",           420, 140, ButtonType.Button,          35, 35, GFace),
                 }
             },
+            ["CDi"] = new ControllerDefinition
+            {
+                Name = "Philips CD-i",
+                ControllerImage = "/Assets/images/cdi/cdi_gamepad.png",
+                Buttons = new List<ButtonDefinition>
+                {
+                    new("Up",    "Up",    140,  70, ButtonType.DPad,   70, 70, GDPad),
+                    new("Down",  "Down",  140, 150, ButtonType.DPad,   70, 70, GDPad),
+                    new("Left",  "Left",  100, 110, ButtonType.DPad,   70, 70, GDPad),
+                    new("Right", "Right", 180, 110, ButtonType.DPad,   70, 70, GDPad),
+                    new("1",     "B",     360, 130, ButtonType.Button, 35, 35, GFace),
+                    new("2",     "A",     400, 100, ButtonType.Button, 35, 35, GFace),
+                }
+            },
+
             ["3DO"] = new ControllerDefinition
             {
                 Name = "3DO",
