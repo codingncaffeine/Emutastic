@@ -2354,6 +2354,13 @@ namespace Emutastic.Views
                 double displayAr = _consoleHandler.GetDisplayAspectRatio(baseWidth, baseHeight, coreAr);
                 if (displayAr <= 0) return;
 
+                // For 90°/270° rotation the visual output swaps width ↔ height,
+                // so invert the aspect ratios to match the post-rotation orientation.
+                uint effectiveRotation = (_coreRotation + _flipRotation) % 4;
+                bool rotated = effectiveRotation == 1 || effectiveRotation == 3;
+                if (rotated)
+                    displayAr = 1.0 / displayAr;
+
                 _displayAr = displayAr;
 
                 GameScreen.Width   = double.NaN;
@@ -2366,7 +2373,6 @@ namespace Emutastic.Views
                 // Apply both the AR correction scale and any rotation the core requested,
                 // plus any user flip override.
                 // Libretro rotation is CCW; WPF RotateTransform is CW — negate to match.
-                uint effectiveRotation = (_coreRotation + _flipRotation) % 4;
                 var group = new TransformGroup();
                 group.Children.Add(new ScaleTransform(scaleX, 1.0));
                 if (effectiveRotation != 0)
@@ -2405,11 +2411,14 @@ namespace Emutastic.Views
             var screen = System.Windows.SystemParameters.WorkArea;
 
             // Target 2× native pixels for the game viewport, then scale down if needed.
-            double nativeW = geom.base_width  * 2.0;
-            double nativeH = geom.base_height * 2.0;
+            // For rotated games (90°/270°), swap native dimensions so the window is portrait.
+            uint effectiveRotation = (_coreRotation + _flipRotation) % 4;
+            bool rotated = effectiveRotation == 1 || effectiveRotation == 3;
+            double nativeW = (rotated ? geom.base_height : geom.base_width)  * 2.0;
+            double nativeH = (rotated ? geom.base_width  : geom.base_height) * 2.0;
 
             // Apply the display AR correction (same scaleX used in LayoutTransform).
-            double bitmapAr = geom.base_height > 0 ? (double)geom.base_width / geom.base_height : displayAr;
+            double bitmapAr = nativeH > 0 ? nativeW / nativeH : displayAr;
             double scaleX   = displayAr / bitmapAr;
             double gameW    = nativeW * scaleX;
             double gameH    = nativeH;
