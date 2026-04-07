@@ -591,7 +591,7 @@ namespace Emutastic.Configuration
             ["Arcade"] = new ControllerDefinition
             {
                 Name = "Arcade",
-                ControllerImage = "",   // no stick image yet — gracefully shows nothing
+                ControllerImage = "/Assets/images/Arcade/arcade_panel.png",
                 Buttons = new List<ButtonDefinition>
                 {
                     new("Up",       "Up",       140,  70, ButtonType.DPad,   70, 70, GDPad),
