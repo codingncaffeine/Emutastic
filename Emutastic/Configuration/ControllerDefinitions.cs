@@ -587,6 +587,30 @@ namespace Emutastic.Configuration
                 }
             },
 
+            // ── Arcade ────────────────────────────────────────────────────────
+            ["Arcade"] = new ControllerDefinition
+            {
+                Name = "Arcade",
+                ControllerImage = "",   // no stick image yet — gracefully shows nothing
+                Buttons = new List<ButtonDefinition>
+                {
+                    new("Up",       "Up",       140,  70, ButtonType.DPad,   70, 70, GDPad),
+                    new("Down",     "Down",     140, 150, ButtonType.DPad,   70, 70, GDPad),
+                    new("Left",     "Left",     100, 110, ButtonType.DPad,   70, 70, GDPad),
+                    new("Right",    "Right",    180, 110, ButtonType.DPad,   70, 70, GDPad),
+                    new("Button 1", "B",        300, 130, ButtonType.Button, 35, 35, GFace),
+                    new("Button 2", "Y",        340, 110, ButtonType.Button, 35, 35, GFace),
+                    new("Button 3", "X",        380, 130, ButtonType.Button, 35, 35, GFace),
+                    new("Button 4", "A",        420, 110, ButtonType.Button, 35, 35, GFace),
+                    new("Button 5", "L",        300, 160, ButtonType.Button, 35, 35, GFace),
+                    new("Button 6", "R",        340, 140, ButtonType.Button, 35, 35, GFace),
+                    new("Button 7", "L2",       380, 160, ButtonType.Button, 35, 35, GFace),
+                    new("Button 8", "R2",       420, 140, ButtonType.Button, 35, 35, GFace),
+                    new("Coin",     "Select",   240, 200, ButtonType.Button, 50, 20, GSystem),
+                    new("Start",    "Start",    320, 200, ButtonType.Button, 50, 20, GSystem),
+                }
+            },
+
             ["3DO"] = new ControllerDefinition
             {
                 Name = "3DO",
