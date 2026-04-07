@@ -750,6 +750,34 @@
                         <Button Content="Save" Style="{StaticResource ActionBtn}"
                                 HorizontalAlignment="Left" Margin="0,24,0,0"
                                 Click="LibrarySaveBtn_Click"/>
+
+                        <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,24,0,16"/>
+
+                        <!-- Database Maintenance -->
+                        <TextBlock Text="DATABASE MAINTENANCE" Style="{StaticResource PrefLabel}" Margin="0,0,0,4"/>
+                        <TextBlock Text="Reclaim disk space by compacting the library database. Safe to run at any time."
+                                   Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"
+                                   TextWrapping="Wrap" Margin="0,0,0,12"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <Button x:Name="VacuumBtn" Content="Optimize Database"
+                                    Style="{StaticResource SecondaryBtn}"
+                                    Padding="14,8"
+                                    Click="VacuumBtn_Click"/>
+                            <TextBlock x:Name="VacuumStatusText"
+                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                       FontSize="12" VerticalAlignment="Center"
+                                       Margin="12,0,0,0"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal">
+                            <Button x:Name="BackupBtn" Content="Backup Database…"
+                                    Style="{StaticResource SecondaryBtn}"
+                                    Padding="14,8"
+                                    Click="BackupBtn_Click"/>
+                            <TextBlock x:Name="BackupStatusText"
+                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                       FontSize="12" VerticalAlignment="Center"
+                                       Margin="12,0,0,0"/>
+                        </StackPanel>
                     </StackPanel>
                 </Grid>
 

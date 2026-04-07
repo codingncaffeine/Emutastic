@@ -771,12 +771,15 @@ namespace Emutastic.Views
         {
             try
             {
-                double w = _configService.GetValue($"emuWinWidth_{_game.Console}",  0.0);
-                double h = _configService.GetValue($"emuWinHeight_{_game.Console}", 0.0);
+                double w = _configService.GetValue($"emuWinWidth_{_game.Id}",  0.0);
+                double h = _configService.GetValue($"emuWinHeight_{_game.Id}", 0.0);
                 if (w >= 320 && h >= 240)
                 {
                     Width  = w;
                     Height = h;
+                    // Mark as already sized so AutoSizeWindowToGameAr doesn't
+                    // overwrite the user's saved dimensions on the first frame.
+                    _windowSized = true;
                 }
             }
             catch { }
@@ -786,14 +789,34 @@ namespace Emutastic.Views
         {
             try
             {
+                System.Diagnostics.Trace.WriteLine($"SaveWindowSize: Console={_game.Console}, WindowState={WindowState}, W={Width}, H={Height}");
+                // Save regardless of WindowState — for borderless windows the user may have
+                // resized without ever maximizing.  RestoreBounds gives the Normal-state rect
+                // when maximized; otherwise use current Width/Height.
+                double w, h;
                 if (WindowState == WindowState.Normal)
                 {
-                    _configService.SetValue($"emuWinWidth_{_game.Console}",  Width);
-                    _configService.SetValue($"emuWinHeight_{_game.Console}", Height);
+                    w = Width;
+                    h = Height;
+                }
+                else
+                {
+                    w = RestoreBounds.Width;
+                    h = RestoreBounds.Height;
+                }
+
+                if (w >= 320 && h >= 240)
+                {
+                    _configService.SetValue($"emuWinWidth_{_game.Id}",  w);
+                    _configService.SetValue($"emuWinHeight_{_game.Id}", h);
                     _ = _configService.SaveAsync();
+                    System.Diagnostics.Trace.WriteLine($"SaveWindowSize: saved {w}x{h} for game {_game.Id} ({_game.Title})");
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"SaveWindowSize FAILED: {ex.Message}");
+            }
         }
 
         private void StartEmulator()
@@ -2344,6 +2367,12 @@ namespace Emutastic.Views
                     _windowSized = true;
                     AutoSizeWindowToGameAr(displayAr);
                 }
+                else
+                {
+                    // Window was restored from a saved size — snap height to
+                    // match the AR so the game isn't stretched.
+                    SnapWindowToAr(displayAr);
+                }
             });
         }
 
@@ -2386,6 +2415,21 @@ namespace Emutastic.Views
             }
 
             Width  = Math.Max(gameW, 320);
+            Height = Math.Max(gameH + chromeH, 200);
+        }
+
+        /// <summary>
+        /// Adjusts a restored window size so it respects the game's aspect ratio.
+        /// Keeps the current width and recalculates the height to match the AR.
+        /// </summary>
+        private void SnapWindowToAr(double displayAr)
+        {
+            if (displayAr <= 0) return;
+
+            double chromeH = ActualHeight - GameViewport.ActualHeight;
+            double gameW   = Width;
+            double gameH   = gameW / displayAr;
+
             Height = Math.Max(gameH + chromeH, 200);
         }
 
@@ -3695,6 +3739,11 @@ namespace Emutastic.Views
             _mousePoller?.Stop();
             _audioPlayer?.Stop();
 
+            // Save window size NOW while we're on the UI thread and the window is still alive.
+            // This must happen before the Task.Run cleanup — native interop in cleanup can throw
+            // and skip anything that comes after it.
+            SaveWindowSize();
+
             System.Diagnostics.Trace.WriteLine("EmulatorWindow closing — deferring cleanup to background");
 
             System.Threading.Tasks.Task.Run(() =>
@@ -3828,9 +3877,6 @@ namespace Emutastic.Views
                     System.Diagnostics.Trace.Listeners.Remove(fileLog);
                     fileLog.Dispose();
                 }
-
-                // Save window size for this console before closing
-                Dispatcher.Invoke(SaveWindowSize);
 
                 // Now that all cleanup is done, close the window on the UI thread.
                 // Window_Closing will fire again; _closeStarted is true so it returns
