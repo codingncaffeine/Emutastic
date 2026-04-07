@@ -72,6 +72,7 @@ namespace Emutastic.Services
 
             { "Vectrex",      "GCE - Vectrex"                                  },
             { "3DO",          "The 3DO Company - 3DO"                          },
+            { "CDi",          "Philips - CD-i"                                 },
             { "Arcade",       "FBNeo - Arcade Games"                           },
         };
 

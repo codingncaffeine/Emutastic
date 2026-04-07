@@ -52,6 +52,7 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 | ColecoVision | ColecoVision | gearcoleco → bluemsx | No |
 | Vectrex | Vectrex | vecx | No |
 | 3DO | 3DO | opera | `panafz10.bin` / `panafz1j.bin` / `goldstar.bin` |
+| Philips CD-i | CDi | same_cdi | No |
 
 ---
 
@@ -112,7 +113,7 @@ Drag and drop ROM files onto the library window or use **File → Import ROM**. 
 
 | Extension | Candidate Systems |
 |---|---|
-| `.chd` | Sega CD, Saturn, PS1, TurboGrafx-CD, 3DO, Dreamcast |
+| `.chd` | Sega CD, Saturn, PS1, TurboGrafx-CD, 3DO, Dreamcast, Philips CD-i |
 | `.iso` | PSP, GameCube, 3DO |
 | `.cue` | Sega CD, Saturn, PS1, TurboGrafx-CD, 3DO |
 
