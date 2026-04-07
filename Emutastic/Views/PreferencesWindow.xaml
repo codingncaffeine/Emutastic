@@ -521,7 +521,7 @@
                                  Style="{StaticResource NavBtn}"
                                  Checked="NavBtn_Checked"/>
                     <RadioButton x:Name="NavCores"
-                                 Content="Cores"
+                                 Content="Cores / Extras"
                                  GroupName="NavGroup"
                                  Style="{StaticResource NavBtn}"
                                  Checked="NavBtn_Checked"/>
