@@ -3561,14 +3561,6 @@ namespace Emutastic.Views
                     av.geometry.aspect_ratio);
         }
 
-        private void OverlayCoreOptions_Click(object sender, RoutedEventArgs e)
-        {
-            OverlayMenu.Visibility = Visibility.Collapsed;
-            BuildCoreOptionsOverlay();
-            CoreOptionsPanel.Visibility = Visibility.Visible;
-            ResetOverlayTimer();
-        }
-
         private void CoreOptionsDone_Click(object sender, RoutedEventArgs e)
         {
             CoreOptionsPanel.Visibility = Visibility.Collapsed;

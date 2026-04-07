@@ -313,10 +313,7 @@
                                         Content="Edit Game Controls…"
                                         Style="{StaticResource OverlayMenuItemStyle}"
                                         Click="OverlayEditControls_Click"/>
-                                <Button Content="Core Options…"
-                                        Style="{StaticResource OverlayMenuItemStyle}"
-                                        Click="OverlayCoreOptions_Click"/>
-                                <Button x:Name="OverlayFlipBtn"
+<Button x:Name="OverlayFlipBtn"
                                         Content="Flip Display"
                                         Style="{StaticResource OverlayMenuItemStyle}"
                                         Click="OverlayFlip_Click"/>
