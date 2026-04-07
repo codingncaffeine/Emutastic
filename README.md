@@ -280,6 +280,9 @@ The vecx core uses hardware OpenGL rendering and has some non-obvious requiremen
 
 ## Known Limitations
 
+### EmuMovies / ScreenScraper — Artwork Scraping (Coming Soon)
+Login fields for EmuMovies and ScreenScraper are visible in Preferences. Artwork scraping is planned but not yet functional — developer API access for both services is pending. Once available, the app will be able to automatically download box art, screenshots, and metadata for your library.
+
 ### Philips CD-i — Analog Cursor Sensitivity
 The original CD-i TV remote controller featured a thumbpad that provided proportional cursor movement — pushing gently gave fine control, pushing fully moved the cursor quickly across the screen. The SAME CDi libretro core internally maps the thumbpad to a digital 4-way joystick port in MAME, so analog stick input is currently thresholded to on/off directional presses rather than providing a true sensitivity curve.
 
