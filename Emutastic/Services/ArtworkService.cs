@@ -286,6 +286,91 @@ namespace Emutastic.Services
             return result;
         }
 
+        // GoodTools single-letter region codes → No-Intro region strings.
+        private static readonly Dictionary<string, string> GoodToolsRegions =
+            new(StringComparer.OrdinalIgnoreCase)
+        {
+            { "U",   "USA"           },
+            { "E",   "Europe"        },
+            { "J",   "Japan"         },
+            { "UE",  "USA, Europe"   },
+            { "JU",  "Japan, USA"    },
+            { "JUE", "Japan, USA, Europe" },
+            { "A",   "Australia"     },
+            { "G",   "Germany"       },
+            { "F",   "France"        },
+            { "S",   "Spain"         },
+            { "I",   "Italy"         },
+            { "C",   "China"         },
+            { "K",   "Korea"         },
+            { "B",   "Brazil"        },
+            { "Nl",  "Netherlands"   },
+            { "W",   "World"         },
+        };
+
+        // Regex that matches GoodTools noise tags to strip: (M3), (!), [!], [b], etc.
+        private static readonly System.Text.RegularExpressions.Regex GoodToolsNoise =
+            new(@"\s*(\(M\d+\)|\(!?\)|\[!?\]|\[b\]|\[T[^\]]*\]|\[h[^\]]*\])",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        // Regex that matches a GoodTools region tag like (U), (E), (JUE) etc.
+        private static readonly System.Text.RegularExpressions.Regex GoodToolsRegionTag =
+            new(@"\(([A-Za-z]{1,3})\)");
+
+        // Matches possessive publisher prefixes at start of title: "Disney's ", "Warner's ", etc.
+        private static readonly System.Text.RegularExpressions.Regex PossessivePrefixRx =
+            new(@"^\w+'s\s+", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        /// <summary>
+        /// Converts a GoodTools-named filename stem to No-Intro style:
+        ///   "Backyard Sports Football 2007 (U)" → "Backyard Sports Football 2007 (USA)"
+        ///   "Bratz (U) (M3)"                   → "Bratz (USA)"
+        /// Returns null if no GoodTools region tag is found.
+        /// </summary>
+        private static string? ConvertGoodToolsToNoIntro(string stem)
+        {
+            // Strip noise tags first
+            string cleaned = GoodToolsNoise.Replace(stem, "").Trim();
+
+            // Find and replace first GoodTools region tag
+            var match = GoodToolsRegionTag.Match(cleaned);
+            if (!match.Success) return null;
+
+            string code = match.Groups[1].Value;
+            if (!GoodToolsRegions.TryGetValue(code, out string? region)) return null;
+
+            // Replace (U) with (USA), strip any remaining GoodTools tags after it
+            string before = cleaned[..match.Index].TrimEnd();
+            return $"{before} ({region})";
+        }
+
+        /// <summary>
+        /// Strips a possessive publisher prefix ("Disney's ", "Warner's ") from the start
+        /// of a title. Returns null if no such prefix is found.
+        /// </summary>
+        private static string? StripPossessivePrefix(string title)
+        {
+            var m = PossessivePrefixRx.Match(title);
+            if (!m.Success) return null;
+            string stripped = title[m.Length..].Trim();
+            return stripped.Length > 3 ? stripped : null;
+        }
+
+        /// <summary>
+        /// For every candidate in the list, if it starts with a possessive prefix,
+        /// appends a version without that prefix so we catch thumbnails stored either way.
+        /// </summary>
+        private static void InjectPossessiveVariants(List<string> candidates)
+        {
+            int count = candidates.Count; // only iterate originals
+            for (int i = 0; i < count; i++)
+            {
+                string? stripped = StripPossessivePrefix(candidates[i]);
+                if (stripped != null && !candidates.Contains(stripped, StringComparer.OrdinalIgnoreCase))
+                    candidates.Add(stripped);
+            }
+        }
+
         private string SanitizeLibretroTitle(string title)
         {
             return title
@@ -496,14 +581,21 @@ namespace Emutastic.Services
                         titleCandidates.Add(arcadeTitle);
                 }
 
-                titleCandidates.Add(Path.GetFileNameWithoutExtension(romPath));
+                string rawStem = Path.GetFileNameWithoutExtension(romPath);
+                titleCandidates.Add(rawStem);
                 string cleaned = RomService.CleanTitle(Path.GetFileName(romPath));
                 if (!titleCandidates.Contains(cleaned))
                     titleCandidates.Add(cleaned);
+
+                // Convert GoodTools region codes to No-Intro style
+                string? noIntroSnap = ConvertGoodToolsToNoIntro(rawStem);
+                if (noIntroSnap != null && !titleCandidates.Contains(noIntroSnap))
+                    titleCandidates.Insert(0, noIntroSnap);
             }
 
             if (titleCandidates.Count == 0) return null;
             InjectAliases(titleCandidates);
+            InjectPossessiveVariants(titleCandidates);
 
             foreach (string category in new[] { "Named_Snaps", "Named_Titles" })
             {
@@ -594,9 +686,15 @@ namespace Emutastic.Services
                     string rawNoClean = Path.GetFileNameWithoutExtension(romPath);
                     if (!titleCandidates.Contains(rawNoClean))
                         titleCandidates.Add(rawNoClean);
+
+                    // Convert GoodTools region codes to No-Intro style so (U) matches (USA) etc.
+                    string? noIntro = ConvertGoodToolsToNoIntro(rawNoClean);
+                    if (noIntro != null && !titleCandidates.Contains(noIntro))
+                        titleCandidates.Insert(0, noIntro); // try first — most likely to match
                 }
 
                 InjectAliases(titleCandidates);
+                InjectPossessiveVariants(titleCandidates);
 
                 foreach (string category in ThumbnailCategories)
                 {
