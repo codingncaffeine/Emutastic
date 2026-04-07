@@ -112,7 +112,7 @@ Drag and drop ROM files onto the library window or use **File → Import ROM**. 
 
 | Extension | Candidate Systems |
 |---|---|
-| `.chd` | Sega CD, Saturn, PS1, TurboGrafx-CD, 3DO |
+| `.chd` | Sega CD, Saturn, PS1, TurboGrafx-CD, 3DO, Dreamcast |
 | `.iso` | PSP, GameCube, 3DO |
 | `.cue` | Sega CD, Saturn, PS1, TurboGrafx-CD, 3DO |
 
@@ -120,14 +120,11 @@ Drag and drop ROM files onto the library window or use **File → Import ROM**. 
 
 ## Core Options
 
-Per-core settings (internal resolution, graphics plugins, controller pak type, etc.) are accessible in two places:
-
-- **In-game**: tap the cog icon in the overlay menu → "Core Options…"
-- **Preferences → Core Options tab**: browse and edit options for any core without a game running
+Per-core settings (internal resolution, graphics plugins, controller pak type, etc.) are accessible via **Preferences → Core Options tab**. Browse and edit options for any core without a game running.
 
 > **Note:** Core options for a platform only appear after you have launched at least one game for that platform. On first launch, the core's available options are captured automatically — after that they persist and are editable any time.
 
-Options are saved per-core and applied live where the core supports mid-session changes. Some options (e.g. internal resolution on PPSSPP) require a restart to take effect.
+Options are saved per-core. Some options (e.g. internal resolution on PPSSPP) require restarting the game to take effect.
 
 ---
 
@@ -252,9 +249,10 @@ The `targetFrameMs * 4` cap handles silent scenes where no audio is produced (ot
 
 Software cores (SNES, Genesis, etc.) keep a Stopwatch-primary loop because their audio output is more tightly coupled to the frame rate and the buffer estimate is more predictable.
 
-### Sega CD / Saturn / PS1
-- `.cue` files are fully supported across all three systems.
-- `.chd` (compressed disc image) is supported — SHA1 is computed from the CHD and matched against DAT files for automatic system detection.
+### Sega CD / Saturn / PS1 / TurboGrafx-CD / Dreamcast / 3DO
+- `.cue` files are fully supported for Sega CD, Saturn, PS1, TurboGrafx-CD, and 3DO.
+- `.chd` (compressed disc image) is supported for all of the above plus Dreamcast — SHA1 is computed from the CHD and matched against DAT files for automatic system detection.
+- Dreamcast also accepts `.gdi` and `.cdi` disc images directly.
 - Region is auto-detected from No-Intro/Redump filename conventions (e.g. `(USA)`, `(Japan)`, `(Europe)`) to select the correct BIOS.
 
 ### Vectrex (vecx)
@@ -273,7 +271,7 @@ The vecx core uses hardware OpenGL rendering and has some non-obvious requiremen
 
 ## Building
 
-Requires Visual Studio 2022 with the **.NET desktop development** workload.
+Requires Visual Studio 2022 or later with the **.NET desktop development** workload.
 
 ```
 git clone <repo>
