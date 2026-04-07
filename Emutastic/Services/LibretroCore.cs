@@ -544,12 +544,20 @@ namespace Emutastic.Services
             else
                 size = _retro_get_memory_size?.Invoke(0) ?? UIntPtr.Zero;
 
-            if (size == UIntPtr.Zero) return null;
+            System.Diagnostics.Trace.WriteLine(
+                $"[SaveState] serialize_size={size}, has_serialize={_retro_serialize != null}, has_serialize_size={_retro_serialize_size != null}");
+
+            if (size == UIntPtr.Zero)
+            {
+                System.Diagnostics.Trace.WriteLine("[SaveState] Size is zero — save states not supported by this core");
+                return null;
+            }
 
             IntPtr data = Marshal.AllocHGlobal((int)size);
             try
             {
                 bool success = _retro_serialize?.Invoke(data, size) ?? false;
+                System.Diagnostics.Trace.WriteLine($"[SaveState] retro_serialize returned {success}, size={(int)size} bytes");
                 if (!success) return null;
 
                 byte[] result = new byte[(int)size];
