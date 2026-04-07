@@ -29,6 +29,7 @@ namespace Emutastic
         private readonly HashSet<string> _selectedScreenshots = new(); // selected file paths
         private System.Windows.Threading.DispatcherTimer? _dragLeaveTimer;
         private GameDetailWindow? _openDetailWindow;
+        private bool _isShowingFavorites;
 
         public MainWindow()
         {
@@ -475,6 +476,7 @@ namespace Emutastic
         // ── Navigation ──
         private void SelectNavButton(Button btn)
         {
+            _isShowingFavorites = false; // cleared here; NavFavorites_Click sets it back to true
             if (_selectedNavButton != null)
             {
                 _selectedNavButton.Background = System.Windows.Media.Brushes.Transparent;
@@ -550,6 +552,7 @@ namespace Emutastic
         private void NavFavorites_Click(object sender, RoutedEventArgs e)
         {
             SelectNavButton((Button)sender);
+            _isShowingFavorites = true;
             _vm.LoadFavorites(_db);
             UpdateToolbarTitle("Favorites");
         }
@@ -902,6 +905,17 @@ namespace Emutastic
             {
                 MessageBox.Show("Save state selection coming soon.", "Save States",
                     MessageBoxButton.OK, MessageBoxImage.Information);
+            }));
+
+            // ── Favorite toggle ──
+            string favHeader = game.IsFavorite ? "♥  Remove from Favorites" : "♡  Add to Favorites";
+            menu.Items.Add(MakeMenuItem(favHeader, () =>
+            {
+                game.IsFavorite = !game.IsFavorite;
+                _db.ToggleFavorite(game.Id, game.IsFavorite);
+                _vm.RefreshGame(game);
+                if (_isShowingFavorites)
+                    _vm.LoadFavorites(_db);
             }));
 
             menu.Items.Add(new Separator());
