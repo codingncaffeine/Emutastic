@@ -38,5 +38,8 @@ namespace Emutastic.Configuration
 
         SnapConfiguration GetSnapConfiguration();
         void SetSnapConfiguration(SnapConfiguration config);
+
+        RetroAchievementsConfiguration GetRetroAchievementsConfiguration();
+        void SetRetroAchievementsConfiguration(RetroAchievementsConfiguration config);
     }
 }

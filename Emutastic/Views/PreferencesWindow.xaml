@@ -545,6 +545,11 @@
                                  GroupName="NavGroup"
                                  Style="{StaticResource NavBtn}"
                                  Checked="NavBtn_Checked"/>
+                    <RadioButton x:Name="NavAchievements"
+                                 Content="Achievements"
+                                 GroupName="NavGroup"
+                                 Style="{StaticResource NavBtn}"
+                                 Checked="NavBtn_Checked"/>
                 </StackPanel>
             </Border>
 
@@ -1122,6 +1127,98 @@
                             </StackPanel>
                         </Border>
                     </Grid>
+                </Grid>
+
+                <!-- ── PANEL: Achievements ────────────────────────────────── -->
+                <Grid x:Name="PanelAchievements" Visibility="Collapsed">
+                    <ScrollViewer Margin="32,24,32,24" VerticalScrollBarVisibility="Auto">
+                        <StackPanel MaxWidth="560" HorizontalAlignment="Left">
+
+                            <TextBlock Text="RETROACHIEVEMENTS" Style="{StaticResource PrefLabel}"/>
+                            <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,0,0,16"/>
+
+                            <TextBlock Text="Earn achievements while you play! Connect your RetroAchievements.org account to track progress across supported games."
+                                       FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                                       TextWrapping="Wrap" Margin="0,0,0,24"/>
+
+                            <!-- Enable toggle -->
+                            <Grid Margin="0,0,0,20">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="RetroAchievements"
+                                               FontSize="15" FontWeight="SemiBold"
+                                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                                    <TextBlock Text="Create a free account at retroachievements.org, then grab your Web API Key from Settings → Keys."
+                                               FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                                               TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                </StackPanel>
+                                <ToggleButton x:Name="RAEnabledToggle"
+                                             Grid.Column="1"
+                                             Style="{StaticResource ToggleSwitch}"
+                                             VerticalAlignment="Center"/>
+                            </Grid>
+
+                            <!-- Username -->
+                            <TextBlock Text="Username" FontSize="12"
+                                       Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,6"/>
+                            <TextBox x:Name="RAUsernameBox"
+                                     Style="{StaticResource DarkTextBox}"
+                                     Margin="0,0,0,14"/>
+
+                            <!-- Web API Key -->
+                            <TextBlock Text="Web API Key" FontSize="12"
+                                       Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,6"/>
+                            <PasswordBox x:Name="RAApiKeyBox"
+                                         Style="{StaticResource DarkPasswordBox}"
+                                         Margin="0,0,0,20"/>
+
+                            <!-- Test connection -->
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,24">
+                                <Button x:Name="RATestBtn"
+                                        Content="Test Connection"
+                                        Style="{StaticResource ActionBtn}"
+                                        Click="RATestBtn_Click"
+                                        Margin="0,0,12,0"/>
+                                <TextBlock x:Name="RAStatusLabel"
+                                           FontSize="12"
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
+
+                            <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,0,0,20"/>
+
+                            <!-- Hardcore mode toggle -->
+                            <Grid Margin="0,0,0,20">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Hardcore Mode"
+                                               FontSize="14" FontWeight="SemiBold"
+                                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                                    <TextBlock Text="Disables save state loading, rewind, and slow-motion during gameplay. Required for hardcore achievement unlocks."
+                                               FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                                               TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                </StackPanel>
+                                <ToggleButton x:Name="RAHardcoreToggle"
+                                             Grid.Column="1"
+                                             Style="{StaticResource ToggleSwitch}"
+                                             VerticalAlignment="Center"/>
+                            </Grid>
+
+                            <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,0,0,20"/>
+                            <Button x:Name="RASaveBtn"
+                                    Content="Save"
+                                    Style="{StaticResource ActionBtn}"
+                                    HorizontalAlignment="Left"
+                                    Click="RASaveBtn_Click"/>
+
+                        </StackPanel>
+                    </ScrollViewer>
                 </Grid>
 
             </Grid>

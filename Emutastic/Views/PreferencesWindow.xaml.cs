@@ -54,7 +54,7 @@ namespace Emutastic.Views
         private List<string> _lastKnownDevices = new();
 
         // ── Section navigation ────────────────────────────────────────────────
-        private enum PrefSection { Controls, SystemFiles, Cores, Library, Theme, Snaps, CoreOptions }
+        private enum PrefSection { Controls, SystemFiles, Cores, Library, Theme, Snaps, CoreOptions, Achievements }
         private PrefSection _activeSection = PrefSection.Controls;
 
         // ── Core Options state ────────────────────────────────────────────────
@@ -587,6 +587,7 @@ namespace Emutastic.Views
             else if (sender == NavTheme)        ShowSection(PrefSection.Theme);
             else if (sender == NavSnaps)        ShowSection(PrefSection.Snaps);
             else if (sender == NavCoreOptions)  ShowSection(PrefSection.CoreOptions);
+            else if (sender == NavAchievements) ShowSection(PrefSection.Achievements);
         }
 
         private void ShowSection(PrefSection section)
@@ -600,6 +601,7 @@ namespace Emutastic.Views
             PanelTheme.Visibility       = section == PrefSection.Theme       ? Visibility.Visible : Visibility.Collapsed;
             PanelSnaps.Visibility       = section == PrefSection.Snaps       ? Visibility.Visible : Visibility.Collapsed;
             PanelCoreOptions.Visibility = section == PrefSection.CoreOptions ? Visibility.Visible : Visibility.Collapsed;
+            PanelAchievements.Visibility = section == PrefSection.Achievements ? Visibility.Visible : Visibility.Collapsed;
 
             if (section == PrefSection.SystemFiles) BuildBiosPanel();
             if (section == PrefSection.Cores)       BuildCoresPanel();
@@ -607,6 +609,7 @@ namespace Emutastic.Views
             if (section == PrefSection.Theme)       LoadThemeSettings();
             if (section == PrefSection.Snaps)       LoadSnapsSettings();
             if (section == PrefSection.CoreOptions) BuildCoreOptionsTab();
+            if (section == PrefSection.Achievements) LoadAchievementsSettings();
 
             // Start controller hotplug polling only while Controls tab is visible.
             if (section == PrefSection.Controls)
@@ -1848,6 +1851,44 @@ namespace Emutastic.Views
             snap.ScreenScraperUser     = SSUsernameBox.Text.Trim();
             snap.ScreenScraperPassword = SSPasswordBox.Password;
             _configService.SetSnapConfiguration(snap);
+            _ = _configService.SaveAsync();
+        }
+
+        // ── Achievements tab ─────────────────────────────────────────────────
+
+        private void LoadAchievementsSettings()
+        {
+            var ra = _configService.GetRetroAchievementsConfiguration();
+            RAEnabledToggle.IsChecked = ra.Enabled;
+            RAUsernameBox.Text        = ra.Username;
+            RAApiKeyBox.Password      = ra.ApiKey;
+            RAHardcoreToggle.IsChecked = ra.HardcoreMode;
+        }
+
+        private async void RATestBtn_Click(object sender, RoutedEventArgs e)
+        {
+            RATestBtn.IsEnabled = false;
+            RAStatusLabel.Text  = "Testing…";
+            RAStatusLabel.Foreground = (System.Windows.Media.Brush)FindResource("TextMutedBrush");
+
+            var svc = new Services.RetroAchievementsService();
+            string? error = await svc.TestLoginAsync(RAUsernameBox.Text.Trim(), RAApiKeyBox.Password);
+
+            RAStatusLabel.Text = error == null ? "Connected" : error;
+            RAStatusLabel.Foreground = error == null
+                ? System.Windows.Media.Brushes.LightGreen
+                : (System.Windows.Media.Brush)FindResource("AccentBrush");
+            RATestBtn.IsEnabled = true;
+        }
+
+        private void RASaveBtn_Click(object sender, RoutedEventArgs e)
+        {
+            var ra = _configService.GetRetroAchievementsConfiguration();
+            ra.Enabled      = RAEnabledToggle.IsChecked == true;
+            ra.Username     = RAUsernameBox.Text.Trim();
+            ra.ApiKey       = RAApiKeyBox.Password;
+            ra.HardcoreMode = RAHardcoreToggle.IsChecked == true;
+            _configService.SetRetroAchievementsConfiguration(ra);
             _ = _configService.SaveAsync();
         }
 
