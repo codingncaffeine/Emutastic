@@ -928,64 +928,92 @@
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
 
-                            <!-- Game list (list view) -->
-                            <ItemsControl x:Name="GameListView"
-                                          ItemsSource="{Binding Games}"
-                                          Visibility="Collapsed">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Border Padding="8,6"
-                                                Cursor="Hand"
-                                                MouseLeftButtonDown="GameCard_Click"
-                                                MouseRightButtonUp="GameCard_RightClick">
-                                            <Border.Style>
-                                                <Style TargetType="Border">
-                                                    <Style.Triggers>
-                                                        <Trigger Property="IsMouseOver" Value="True">
-                                                            <Setter Property="Background" Value="{StaticResource BgTertiaryBrush}"/>
-                                                        </Trigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </Border.Style>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <!-- Game list (list view) — sibling of LibraryView, NOT inside it.
+                         Uses a virtualized ListBox so large libraries don't stall on first render. -->
+                    <ListBox x:Name="GameListView"
+                             ItemsSource="{Binding Games}"
+                             Visibility="Collapsed"
+                             SelectionMode="Extended"
+                             VirtualizingPanel.IsVirtualizing="True"
+                             VirtualizingPanel.VirtualizationMode="Recycling"
+                             VirtualizingPanel.ScrollUnit="Item"
+                             ScrollViewer.CanContentScroll="True"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             Padding="{DynamicResource LibraryGridPadding}"
+                             PreviewMouseWheel="GameListView_PreviewMouseWheel">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Padding" Value="0"/>
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <ContentPresenter/>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Border Padding="8,6"
+                                        Cursor="Hand"
+                                        MouseLeftButtonDown="GameCard_Click"
+                                        MouseRightButtonUp="GameCard_RightClick">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Style.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter Property="Background" Value="{StaticResource BgTertiaryBrush}"/>
+                                                </Trigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="48"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <!-- Thumbnail: colored background only when no cover art (same as grid view) -->
+                                        <Border Grid.Column="0"
+                                                Width="44" Height="44"
+                                                CornerRadius="4"
+                                                ClipToBounds="True">
                                             <Grid>
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="48"/>
-                                                    <ColumnDefinition Width="*"/>
-                                                    <ColumnDefinition Width="Auto"/>
-                                                </Grid.ColumnDefinitions>
-                                                <Border Grid.Column="0"
-                                                        Width="44" Height="44"
-                                                        CornerRadius="4"
-                                                        ClipToBounds="True">
+                                                <Border Visibility="{Binding CoverArtPath, Converter={StaticResource NullToVisibility}}">
                                                     <Border.Background>
                                                         <SolidColorBrush Color="{Binding BackgroundColor, Converter={StaticResource StringToColor}}"/>
                                                     </Border.Background>
-                                                    <Image Source="{Binding CoverArtPath, Converter={StaticResource PathToImage}}"
-                                                           Stretch="Uniform"
-                                                           Visibility="{Binding CoverArtPath, Converter={StaticResource NotNullToVisibility}}"/>
                                                 </Border>
-                                                <StackPanel Grid.Column="1"
-                                                            VerticalAlignment="Center"
-                                                            Margin="10,0,0,0">
-                                                    <TextBlock Text="{Binding Title}"
-                                                               FontFamily="{StaticResource PrimaryFont}"
-                                                               FontSize="13"
-                                                               FontWeight="SemiBold"
-                                                               Foreground="{StaticResource TextPrimaryBrush}"/>
-                                                    <TextBlock Text="{Binding Console}"
-                                                               FontFamily="{StaticResource PrimaryFont}"
-                                                               FontSize="11"
-                                                               Foreground="{StaticResource TextMutedBrush}"
-                                                               Margin="0,2,0,0"/>
-                                                </StackPanel>
+                                                <Image Source="{Binding CoverArtPath, Converter={StaticResource PathToImage}}"
+                                                       Stretch="UniformToFill"
+                                                       Visibility="{Binding CoverArtPath, Converter={StaticResource NotNullToVisibility}}"/>
                                             </Grid>
                                         </Border>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-
-                        </StackPanel>
-                    </ScrollViewer>
+                                        <StackPanel Grid.Column="1"
+                                                    VerticalAlignment="Center"
+                                                    Margin="10,0,0,0">
+                                            <TextBlock Text="{Binding Title}"
+                                                       FontFamily="{StaticResource PrimaryFont}"
+                                                       FontSize="13"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{StaticResource TextPrimaryBrush}"/>
+                                            <TextBlock Text="{Binding Console}"
+                                                       FontFamily="{StaticResource PrimaryFont}"
+                                                       FontSize="11"
+                                                       Foreground="{StaticResource TextMutedBrush}"
+                                                       Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
 
                     <!-- Empty state — sits above both views, visible only when library is empty -->
                     <StackPanel HorizontalAlignment="Center"
