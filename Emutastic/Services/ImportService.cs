@@ -164,6 +164,13 @@ namespace Emutastic.Services
                 // so if nothing recognized is found inside we treat the archive as-is.
                 string innerConsole = await DetectConsoleFromZipAsync(romPath);
 
+                // BIOS archive (all .rom contents) — skip silently, don't prompt or import.
+                if (innerConsole == "BIOS_SKIP")
+                {
+                    ImportLog($"[{fileName}] SKIPPED — BIOS archive");
+                    return;
+                }
+
                 // .bin inside an archive is ambiguous — try folder name first, then ask once per folder.
                 if (innerConsole == "BIN_AMBIGUOUS")
                 {
@@ -400,6 +407,15 @@ namespace Emutastic.Services
                 using var archive = ArchiveFactory.Open(archivePath);
                 var entries = archive.Entries.Where(e => !e.IsDirectory).ToList();
                 ImportLog($"[{Path.GetFileName(archivePath)}] {entries.Count} entries: {string.Join(", ", entries.Take(5).Select(e => e.Key ?? "null"))}");
+                // If every file inside is a .rom, this is a BIOS archive — skip silently.
+                if (entries.Count > 0 && entries.All(e =>
+                        Path.GetExtension(e.Key ?? string.Empty)
+                            .Equals(".rom", StringComparison.OrdinalIgnoreCase)))
+                {
+                    ImportLog($"  → all entries are .rom — treating as BIOS archive, skipping");
+                    return "BIOS_SKIP";
+                }
+
                 foreach (var entry in entries)
                 {
                     string entryName = entry.Key ?? string.Empty;

@@ -2,6 +2,8 @@
 
 # Emutastic
 
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+
 A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired by [OpenEmu](https://openemu.org/) on macOS. Games are organized by console in a clean library interface. Emulation is handled by [libretro](https://www.libretro.com/) cores loaded at runtime — no cores are bundled.
 
 > **Legal notice:** This project is a frontend application only. It does not include, distribute, or facilitate the acquisition of any copyrighted software, ROM images, BIOS files, or other proprietary system files. You are solely responsible for ensuring you have the legal right to use any software you load into this application. The authors of this project do not condone piracy.
@@ -268,6 +270,29 @@ The vecx core uses hardware OpenGL rendering and has some non-obvious requiremen
 ### PSP (PPSSPP)
 - The OpenGL context destruction step is skipped on window close to prevent a crash in the libretro context_destroy callback.
 
+### Philips CD-i (SAME CDi)
+- Games are supported as `.chd` disc images (recommended) or `.cue`/`.bin`.
+- BIOS ROM files (`cdibios.zip`) must be present in the system folder or alongside your ROMs. SAME CDi will not boot without them.
+- Both d-pad and analog stick are supported for cursor movement. The analog stick maps to the four directional inputs, mirroring how the original CD-i's "speed switch" controller worked — fast or slow, not a true analog curve.
+- Button 3 is mapped and supported for the small number of titles that use it (e.g. Mad Dog McCree).
+
+---
+
+## Known Limitations
+
+### Philips CD-i — Analog Cursor Sensitivity
+The original CD-i TV remote controller featured a thumbpad that provided proportional cursor movement — pushing gently gave fine control, pushing fully moved the cursor quickly across the screen. The SAME CDi libretro core internally maps the thumbpad to a digital 4-way joystick port in MAME, so analog stick input is currently thresholded to on/off directional presses rather than providing a true sensitivity curve.
+
+This is a core-level limitation rather than a frontend issue. A proper fix would require modifying the SAME CDi core to expose the thumbpad as an analog input port (`IPT_AD_STICK_X/Y`) and updating the libretro joystick provider to pass raw axis values through without thresholding. This is something that may be explored as a future contribution to the SAME CDi core.
+
+### Nintendo DS — Layout Modes and Touch Input
+Nintendo DS emulation works for a large portion of the library, but two features found in dedicated DS frontends are not yet implemented:
+
+- **Layout modes** — standalone DS emulators typically offer stacked (default), side-by-side, top-screen-dominant, and rotated 90° views. The rotated layout is required for titles designed to be held like a book, such as Hotel Dusk: Room 215 and Ninja Gaiden Dragon Sword.
+- **Touch input** — the bottom screen stylus is not yet mapped to mouse input. Games that rely heavily on touch (Phantom Hourglass, Spirit Tracks, etc.) are not playable in the current state.
+
+If there is community interest, both features can be added. Many games that use the bottom screen only for maps or menus are fully playable without them.
+
 ---
 
 ## Building
@@ -287,7 +312,9 @@ No NuGet packages beyond the standard WPF/.NET 8 SDK are required. libretro core
 ## Credits
 
 ### Controller Illustrations
-Controller artwork is primarily sourced from the [OpenEmu](https://github.com/OpenEmu/OpenEmu) project for macOS and used with attribution per their [ILLUSTRATIONS.md](https://github.com/OpenEmu/OpenEmu/blob/master/ILLUSTRATIONS.md). Some additional controller images are from unknown sources — if you are the original artist and would like credit or removal, please open an issue.
+Controller artwork is sourced from [OpenEmuControllerArt](https://github.com/kodi-game/OpenEmuControllerArt) by the OpenEmu Team, used under the [BSD 3-Clause License](https://opensource.org/licenses/BSD-3-Clause). Copyright © 2013 OpenEmu Team. This project is not affiliated with or endorsed by the OpenEmu Team.
+
+Some additional controller images are from unknown sources — if you are the original artist and would like credit or removal, please open an issue.
 
 | Artist | Controllers |
 |---|---|
@@ -301,3 +328,9 @@ Controller artwork is primarily sourced from the [OpenEmu](https://github.com/Op
 
 ### Inspiration
 This project is inspired by [OpenEmu](https://openemu.org/) for macOS. Emutastic is an independent project and is not affiliated with or endorsed by the OpenEmu team.
+
+---
+
+## License
+
+Emutastic is licensed under the [GNU General Public License v3.0](LICENSE). You are free to use, modify, and distribute this software under the terms of the GPL — any distributed modifications must also be made available under the same license.

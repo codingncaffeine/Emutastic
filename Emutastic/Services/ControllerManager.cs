@@ -618,6 +618,19 @@ namespace Emutastic.Services
                         "left analog left" => ANALOG_LEFT_LEFT, "left analog right" => ANALOG_LEFT_RIGHT,
                         _ => uint.MaxValue
                     };
+                // ── Philips CD-i ──────────────────────────────────────────────
+                // Button 1 = primary (JOYPAD_B), Button 2 = secondary (JOYPAD_Y),
+                // Button 3 = 3-button games only (JOYPAD_A, e.g. Mad Dog McCree).
+                // Thumbpad analog directions route to left-stick axis values.
+                case "CDi":
+                    return n switch {
+                        "1" => 0, "2" => 1, "3" => 8,
+                        "up" => 4, "down" => 5, "left" => 6, "right" => 7,
+                        "analog up"    => ANALOG_LEFT_UP,   "analog down"  => ANALOG_LEFT_DOWN,
+                        "analog left"  => ANALOG_LEFT_LEFT, "analog right" => ANALOG_LEFT_RIGHT,
+                        _ => uint.MaxValue
+                    };
+
                 case "NGP":
                     return n switch {
                         "a" => 8, "b" => 0, "option" => 3,
@@ -702,6 +715,9 @@ namespace Emutastic.Services
         [DllImport(SDL3Dll, CallingConvention = CallingConvention.Cdecl)]
         private static extern void SDL_free(IntPtr mem);
 
+        [DllImport(SDL3Dll, CallingConvention = CallingConvention.Cdecl)]
+        private static extern void SDL_PumpEvents();
+
         private static bool _sdl3Available;
 
         private static void InitSdl3()
@@ -745,6 +761,7 @@ namespace Emutastic.Services
                 InitSdl3();
                 if (_sdl3Available)
                 {
+                    SDL_PumpEvents(); // flush OS device-change events so new connections are visible
                     IntPtr arr = SDL_GetJoysticks(out int count);
                     try
                     {

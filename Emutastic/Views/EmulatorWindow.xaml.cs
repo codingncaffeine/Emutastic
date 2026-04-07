@@ -160,6 +160,10 @@ namespace Emutastic.Views
         private DispatcherTimer? _mousePoller;
         private System.Windows.Point _lastMousePos = new(-1, -1);
 
+        // Analog-to-mouse delta for cores that use RETRO_DEVICE_MOUSE for pointer input.
+        // Stick value ÷ this scale = pixels of cursor movement per frame.
+        private const float MouseAnalogScale = 200f;
+
         // Save state
         private string _saveStatePath = "";    // file-system dir for this game's save states
         private volatile bool _saveStatePending = false;
@@ -2183,11 +2187,12 @@ namespace Emutastic.Views
                         if (data != IntPtr.Zero) Marshal.WriteIntPtr(data, _saveDirPtr);
                         return true;
 
-                    // Advertise joypad + analog capability
+                    // Advertise joypad + analog + mouse capability
                     case RETRO_ENVIRONMENT_GET_INPUT_DEVICE_CAPABILITIES:
                         if (data != IntPtr.Zero)
                             Marshal.WriteInt64(data, (1L << (int)RETRO_DEVICE_JOYPAD) |
-                                                     (1L << (int)RETRO_DEVICE_ANALOG));
+                                                     (1L << (int)RETRO_DEVICE_ANALOG)  |
+                                                     (1L << (int)RETRO_DEVICE_MOUSE));
                         return true;
 
                     // GET_FASTFORWARDING = (49 | 0x10000) — Dolphin asks if we're fast-forwarding.
@@ -2663,7 +2668,59 @@ namespace Emutastic.Views
             {
                 if (id >= (uint)_inputState.Length) return 0;
                 bool pressed = _inputState[id] || (_controllerManager?.GetButtonState(id) ?? false);
+
+                // CDi: analog stick also drives the JOYPAD directional buttons so the
+                // cursor moves smoothly.  MAME's cdimono1 input ports are wired to the
+                // joystick device (hence d-pad works), not the mouse device, so we have
+                // to express movement as digital JOYPAD presses against a threshold.
+                if (!pressed && _consoleHandler is CdiHandler && _controllerManager != null)
+                {
+                    pressed = id switch
+                    {
+                        JOYPAD_UP    => _controllerManager.GetButtonState(ControllerManager.ANALOG_LEFT_UP),
+                        JOYPAD_DOWN  => _controllerManager.GetButtonState(ControllerManager.ANALOG_LEFT_DOWN),
+                        JOYPAD_LEFT  => _controllerManager.GetButtonState(ControllerManager.ANALOG_LEFT_LEFT),
+                        JOYPAD_RIGHT => _controllerManager.GetButtonState(ControllerManager.ANALOG_LEFT_RIGHT),
+                        _ => false
+                    };
+                }
+
                 return pressed ? (short)1 : (short)0;
+            }
+
+            // Mouse device — used by MAME-based cores (e.g. SAME CDi) for pointer/thumbpad input.
+            // The SAME CDi core polls port 0 as mouse alongside joypad in the same frame.
+            // id=0 MOUSE_X: X delta (right = positive)
+            // id=1 MOUSE_Y: Y delta (down = positive, so negate XInput Y)
+            // id=2 MOUSE_LEFT:  Button 1 (JOYPAD_B, libretro id 0)
+            // id=3 MOUSE_RIGHT: Button 2 (JOYPAD_Y, libretro id 1)
+            if (device == RETRO_DEVICE_MOUSE)
+            {
+                if (id == 0) // MOUSE_X delta
+                {
+                    if (_controllerManager == null || !_controllerManager.IsConnected) return 0;
+                    short x = _controllerManager.GetAnalogAxisValue(0, 0);
+                    return (short)(x / MouseAnalogScale);
+                }
+                if (id == 1) // MOUSE_Y delta — negate: XInput up=+, mouse down=+
+                {
+                    if (_controllerManager == null || !_controllerManager.IsConnected) return 0;
+                    short y = _controllerManager.GetAnalogAxisValue(0, 1);
+                    return (short)(-y / MouseAnalogScale);
+                }
+                if (id == 2) // MOUSE_LEFT → Button 1
+                {
+                    bool pressed = _inputState[JOYPAD_B] ||
+                                   (_controllerManager?.GetButtonState(JOYPAD_B) ?? false);
+                    return pressed ? (short)1 : (short)0;
+                }
+                if (id == 3) // MOUSE_RIGHT → Button 2
+                {
+                    bool pressed = _inputState[JOYPAD_Y] ||
+                                   (_controllerManager?.GetButtonState(JOYPAD_Y) ?? false);
+                    return pressed ? (short)1 : (short)0;
+                }
+                return 0;
             }
 
             if (device == RETRO_DEVICE_ANALOG)

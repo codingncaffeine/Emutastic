@@ -572,12 +572,18 @@ namespace Emutastic.Configuration
                 ControllerImage = "/Assets/images/cdi/cdi_gamepad.png",
                 Buttons = new List<ButtonDefinition>
                 {
-                    new("Up",    "Up",    140,  70, ButtonType.DPad,   70, 70, GDPad),
-                    new("Down",  "Down",  140, 150, ButtonType.DPad,   70, 70, GDPad),
-                    new("Left",  "Left",  100, 110, ButtonType.DPad,   70, 70, GDPad),
-                    new("Right", "Right", 180, 110, ButtonType.DPad,   70, 70, GDPad),
-                    new("1",     "B",     360, 130, ButtonType.Button, 35, 35, GFace),
-                    new("2",     "A",     400, 100, ButtonType.Button, 35, 35, GFace),
+                    new("Up",           "Up",           140,  70, ButtonType.DPad,            70, 70, GDPad),
+                    new("Down",         "Down",         140, 150, ButtonType.DPad,            70, 70, GDPad),
+                    new("Left",         "Left",         100, 110, ButtonType.DPad,            70, 70, GDPad),
+                    new("Right",        "Right",        180, 110, ButtonType.DPad,            70, 70, GDPad),
+                    new("1",            "Button 1",     340, 130, ButtonType.Button,          35, 35, GFace),
+                    new("2",            "Button 2",     380, 100, ButtonType.Button,          35, 35, GFace),
+                    new("3",            "Button 3",     420, 130, ButtonType.Button,          35, 35, GFace),
+                    // Thumbpad analog (CD-i remote / later pads) — routes to left-stick axis
+                    new("Analog Up",    "Analog Up",    140,  90, ButtonType.AnalogDirection, 30, 30, GAnalog),
+                    new("Analog Down",  "Analog Down",  140, 130, ButtonType.AnalogDirection, 30, 30, GAnalog),
+                    new("Analog Left",  "Analog Left",  120, 110, ButtonType.AnalogDirection, 30, 30, GAnalog),
+                    new("Analog Right", "Analog Right", 160, 110, ButtonType.AnalogDirection, 30, 30, GAnalog),
                 }
             },
 
