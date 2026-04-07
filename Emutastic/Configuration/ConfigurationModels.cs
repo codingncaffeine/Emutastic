@@ -99,6 +99,15 @@ namespace Emutastic.Configuration
         public Dictionary<string, Dictionary<string, string>> CoreOptionOverrides { get; set; } = new();
     }
 
+    // RetroAchievements configuration
+    public class RetroAchievementsConfiguration : ConfigurationBase
+    {
+        public bool Enabled { get; set; } = false;
+        public string Username { get; set; } = "";
+        public string ApiKey { get; set; } = "";
+        public bool HardcoreMode { get; set; } = false;
+    }
+
     // Video snap provider configuration
     public class SnapConfiguration : ConfigurationBase
     {

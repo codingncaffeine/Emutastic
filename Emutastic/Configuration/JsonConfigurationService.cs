@@ -24,6 +24,7 @@ namespace Emutastic.Configuration
         public ThemeConfiguration ThemeConfiguration { get; set; } = new();
         // Per-console input configs keyed by ConfigKey (e.g. "SNES_P1")
         public SnapConfiguration SnapConfiguration { get; set; } = new();
+        public RetroAchievementsConfiguration RetroAchievementsConfiguration { get; set; } = new();
         public Dictionary<string, InputConfiguration> InputConfigurations { get; set; } = new();
         // Generic string→JsonElement store for arbitrary SetValue<T> callers
         public Dictionary<string, JsonElement> Extra { get; set; } = new();
@@ -156,6 +157,13 @@ namespace Emutastic.Configuration
         {
             config.LastModified = DateTime.UtcNow;
             _data.SnapConfiguration = config;
+        }
+
+        public RetroAchievementsConfiguration GetRetroAchievementsConfiguration() => _data.RetroAchievementsConfiguration;
+        public void SetRetroAchievementsConfiguration(RetroAchievementsConfiguration config)
+        {
+            config.LastModified = DateTime.UtcNow;
+            _data.RetroAchievementsConfiguration = config;
         }
 
         // ── Generic key/value (for arbitrary callers) ─────────────────────────
