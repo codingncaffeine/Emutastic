@@ -405,7 +405,11 @@ namespace Emutastic
 
         protected override void OnDragLeave(DragEventArgs e)
         {
-            DropOverlay.Visibility = Visibility.Collapsed;
+            // WPF fires DragLeave every time the cursor crosses a child element boundary,
+            // causing the overlay to flash. Only hide when the cursor truly leaves the window.
+            var pos = e.GetPosition(this);
+            if (pos.X < 0 || pos.Y < 0 || pos.X > ActualWidth || pos.Y > ActualHeight)
+                DropOverlay.Visibility = Visibility.Collapsed;
             base.OnDragLeave(e);
         }
 

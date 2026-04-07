@@ -60,6 +60,7 @@ namespace Emutastic.Services
 
             { "Vectrex",     new[] { "vecx_libretro.dll"                }},
             { "3DO",         new[] { "opera_libretro.dll"               }},
+            { "CDi",         new[] { "same_cdi_libretro.dll"            }},
             { "Arcade",      new[] { "fbneo_libretro.dll",
                                      "fbalpha2012_libretro.dll",
                                      "fbalpha2012_cps1_libretro.dll",

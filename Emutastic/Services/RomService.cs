@@ -11,7 +11,7 @@ namespace Emutastic.Services
         // Ordered by most common system first (shown that way in the picker).
         public static readonly Dictionary<string, string[]> AmbiguousExtensions = new(StringComparer.OrdinalIgnoreCase)
         {
-            { ".chd", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "3DO", "Dreamcast" } },
+            { ".chd", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "3DO", "Dreamcast", "CDi" } },
             { ".iso", new[] { "PSP", "GameCube", "3DO" } },
             { ".cue", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "3DO" } },
             { ".bin", new[] { "PS1", "SegaCD", "Saturn", "3DO", "Dreamcast", "Atari7800", "Atari2600", "Genesis", "Sega32X", "ColecoVision", "NES", "NGP" } },
@@ -88,6 +88,7 @@ namespace Emutastic.Services
 
             { "Vectrex",      "GCE"        },
             { "3DO",          "3DO"        },
+            { "CDi",          "Philips"    },
             { "Arcade",       "Arcade"     },
         };
 
@@ -112,6 +113,7 @@ namespace Emutastic.Services
             { "Atari2600",   ("#2E1A0A", "#FF5722") },
             { "TG16",        ("#1A2E2E", "#009688") },
             { "Dreamcast",   ("#1A0A0A", "#FF6600") },
+            { "CDi",         ("#1A1A2E", "#00897B") },
             { "Arcade",      ("#0A0A0A", "#E03535") },
         };
 
