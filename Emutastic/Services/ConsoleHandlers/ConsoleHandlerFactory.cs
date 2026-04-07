@@ -16,6 +16,7 @@ namespace Emutastic.Services.ConsoleHandlers
             "TG16" or "TGCD" => new Tg16Handler(console),
             "Dreamcast"      => new DreamcastHandler(),
             "Vectrex"        => new VectrexHandler(),
+            "CDi"            => new CdiHandler(),
             _                => new GenericHandler(console),
         };
     }

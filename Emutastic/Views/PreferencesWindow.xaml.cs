@@ -49,6 +49,10 @@ namespace Emutastic.Views
         private SolidColorBrush _brushText      = new(Color.FromRgb(0xF0, 0xF0, 0xF0));
         private SolidColorBrush _brushTextMuted = new(Color.FromRgb(0x55, 0x55, 0x58));
 
+        // ── Controller hotplug polling ────────────────────────────────────────
+        private System.Windows.Threading.DispatcherTimer? _controllerPollTimer;
+        private List<string> _lastKnownDevices = new();
+
         // ── Section navigation ────────────────────────────────────────────────
         private enum PrefSection { Controls, SystemFiles, Cores, Library, Theme, Snaps, CoreOptions }
         private PrefSection _activeSection = PrefSection.Controls;
@@ -79,6 +83,7 @@ namespace Emutastic.Views
 
             Closed += (_, _) =>
             {
+                _controllerPollTimer?.Stop();
                 if (_controllerManager != null)
                 {
                     _controllerManager.RawMode = false;
@@ -602,6 +607,35 @@ namespace Emutastic.Views
             if (section == PrefSection.Theme)       LoadThemeSettings();
             if (section == PrefSection.Snaps)       LoadSnapsSettings();
             if (section == PrefSection.CoreOptions) BuildCoreOptionsTab();
+
+            // Start controller hotplug polling only while Controls tab is visible.
+            if (section == PrefSection.Controls)
+            {
+                if (_controllerPollTimer == null)
+                {
+                    _controllerPollTimer = new System.Windows.Threading.DispatcherTimer
+                    {
+                        Interval = TimeSpan.FromSeconds(2)
+                    };
+                    _controllerPollTimer.Tick += (_, _) =>
+                    {
+                        var current = ControllerManager.GetConnectedControllers();
+                        current.Insert(0, "Keyboard");
+                        if (!current.SequenceEqual(_lastKnownDevices))
+                        {
+                            _lastKnownDevices = current;
+                            PopulateInputDevices();
+                        }
+                    };
+                }
+                _lastKnownDevices = ControllerManager.GetConnectedControllers();
+                _lastKnownDevices.Insert(0, "Keyboard");
+                _controllerPollTimer.Start();
+            }
+            else
+            {
+                _controllerPollTimer?.Stop();
+            }
         }
 
         // ── BIOS panel ────────────────────────────────────────────────────────
@@ -772,7 +806,7 @@ namespace Emutastic.Views
             // Size
             var size = new TextBlock
             {
-                Text = $"{entry.ExpectedSize / 1024} KB",
+                Text = entry.ExpectedSize > 0 ? $"{entry.ExpectedSize / 1024} KB" : "—",
                 FontSize = 12,
                 Foreground = _brushTextMuted,
                 VerticalAlignment = VerticalAlignment.Center,
@@ -1773,6 +1807,9 @@ namespace Emutastic.Views
             new("3DO","3DO","panafz10.bin","Panasonic FZ-10",1048576,"51f2f43ae2f3508a14d9f56597e2d3ce"),
             new("3DO","3DO","panafz1j.bin","Panasonic FZ-1 (Japan)",1048576,null),
             new("3DO","3DO","goldstar.bin","GoldStar",1048576,null),
+
+            // Philips CD-i (SAME CDi / MAME — place cdibios.zip in System folder)
+            new("CDi","Philips CD-i","cdibios.zip","CD-i BIOS (required)",0,null),
 
             // Game Boy Advance (optional — mgba has built-in HLE BIOS)
             new("GBA","Game Boy Advance","gba_bios.bin","BIOS (optional, improves compatibility)",16384,"a860e8c0b6d573d191e4ec7db1b1e4f6"),

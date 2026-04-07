@@ -13,7 +13,7 @@ namespace Emutastic.Services
         {
             { ".chd", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "3DO", "Dreamcast", "CDi" } },
             { ".iso", new[] { "PSP", "GameCube", "3DO" } },
-            { ".cue", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "3DO" } },
+            { ".cue", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "3DO", "CDi" } },
             { ".bin", new[] { "PS1", "SegaCD", "Saturn", "3DO", "Dreamcast", "Atari7800", "Atari2600", "Genesis", "Sega32X", "ColecoVision", "NES", "NGP" } },
         };
 
@@ -223,6 +223,10 @@ namespace Emutastic.Services
             ("3do",           "3DO"),
             ("panasonic",     "3DO"),
             ("3do interactive","3DO"),
+            ("philips cd-i",  "CDi"),
+            ("philips cdi",   "CDi"),
+            ("cd-i",          "CDi"),
+            ("cdi",           "CDi"),
         ];
 
         /// <summary>

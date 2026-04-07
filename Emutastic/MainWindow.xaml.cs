@@ -27,6 +27,7 @@ namespace Emutastic
         private Button? _selectedNavButton;
         private Game?   _selectionAnchor;   // anchor for Shift+click range selection
         private readonly HashSet<string> _selectedScreenshots = new(); // selected file paths
+        private System.Windows.Threading.DispatcherTimer? _dragLeaveTimer;
 
         public MainWindow()
         {
@@ -400,6 +401,20 @@ namespace Emutastic
             {
                 e.Effects = DragDropEffects.None;
             }
+            // Reset the safety timer each time DragOver fires so it only
+            // triggers if no DragOver event arrives for 1.5 s (e.g. OS cancelled the drag).
+            if (_dragLeaveTimer == null)
+            {
+                _dragLeaveTimer = new System.Windows.Threading.DispatcherTimer
+                    { Interval = TimeSpan.FromSeconds(1.5) };
+                _dragLeaveTimer.Tick += (_, _) =>
+                {
+                    _dragLeaveTimer.Stop();
+                    DropOverlay.Visibility = Visibility.Collapsed;
+                };
+            }
+            _dragLeaveTimer.Stop();
+            _dragLeaveTimer.Start();
             e.Handled = true;
         }
 
@@ -409,12 +424,16 @@ namespace Emutastic
             // causing the overlay to flash. Only hide when the cursor truly leaves the window.
             var pos = e.GetPosition(this);
             if (pos.X < 0 || pos.Y < 0 || pos.X > ActualWidth || pos.Y > ActualHeight)
+            {
+                _dragLeaveTimer?.Stop();
                 DropOverlay.Visibility = Visibility.Collapsed;
+            }
             base.OnDragLeave(e);
         }
 
         protected override async void OnDrop(DragEventArgs e)
         {
+            _dragLeaveTimer?.Stop();
             DropOverlay.Visibility = Visibility.Collapsed;
             if (e.Data.GetDataPresent(DataFormats.FileDrop))
             {
