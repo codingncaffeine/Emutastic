@@ -249,10 +249,21 @@ namespace Emutastic
         private void GameGridView_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
         {
             // The ListBox owns its internal ScrollViewer — find it and drive it directly.
-            var sv = FindVisualChild<ScrollViewer>(GameGridView);
+            var sv = FindVisualChild<ScrollViewer>((DependencyObject)sender);
             if (sv == null) return;
             double lines = e.Delta / 120.0 * SystemParameters.WheelScrollLines;
             sv.ScrollToVerticalOffset(sv.VerticalOffset - lines * 80);
+            e.Handled = true;
+        }
+
+        private void GameListView_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            // CanContentScroll=True with ScrollUnit=Item means VerticalOffset is in item units.
+            // Scroll 3 items per wheel notch (standard Windows feel).
+            var sv = FindVisualChild<ScrollViewer>((DependencyObject)sender);
+            if (sv == null) return;
+            double items = e.Delta / 120.0 * SystemParameters.WheelScrollLines;
+            sv.ScrollToVerticalOffset(sv.VerticalOffset - items);
             e.Handled = true;
         }
 
@@ -722,11 +733,32 @@ namespace Emutastic
         private void ViewToggle_Click(object sender, RoutedEventArgs e)
         {
             if (sender is not ToggleButton clicked) return;
-            bool gridActive = clicked.Tag?.ToString() == "Grid";
-            ViewGrid.IsChecked = gridActive;
-            ViewList.IsChecked = !gridActive;
-            GameGridView.Visibility = gridActive ? Visibility.Visible : Visibility.Collapsed;
-            GameListView.Visibility = gridActive ? Visibility.Collapsed : Visibility.Visible;
+            bool listActive = clicked.Tag?.ToString() == "List";
+            ViewGrid.IsChecked = !listActive;
+            ViewList.IsChecked = listActive;
+
+            // List view: show list, hide both grid views.
+            // Grid view: restore visibility to IsGroupedView binding state.
+            GameListView.Visibility = listActive ? Visibility.Visible : Visibility.Collapsed;
+            if (!listActive)
+            {
+                // Restore binding-driven visibility for the two grid views.
+                GameGridView.SetBinding(VisibilityProperty,
+                    new System.Windows.Data.Binding("IsGroupedView")
+                    {
+                        Converter = (System.Windows.Data.IValueConverter)FindResource("InverseBoolToVisibility")
+                    });
+                LibraryView.SetBinding(VisibilityProperty,
+                    new System.Windows.Data.Binding("IsGroupedView")
+                    {
+                        Converter = (System.Windows.Data.IValueConverter)FindResource("BoolToVisibility")
+                    });
+            }
+            else
+            {
+                GameGridView.Visibility = Visibility.Collapsed;
+                LibraryView.Visibility  = Visibility.Collapsed;
+            }
         }
 
         // ── Search ──
