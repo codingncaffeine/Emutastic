@@ -2243,6 +2243,12 @@ namespace Emutastic.Views
                         // For all other cores, return false so they don't rely on it.
                         return _consoleHandler.AllowHwSharedContext;
 
+                    // FBNeo queries this to decide if save states / hiscores work.
+                    // Return RETRO_SAVESTATE_CONTEXT_NORMAL (0) = standard save states.
+                    case 213: // RETRO_ENVIRONMENT_GET_SAVESTATE_CONTEXT
+                        if (data != IntPtr.Zero) Marshal.WriteInt32(data, 0); // NORMAL
+                        return true;
+
                     default:
                         return false;
                 }
