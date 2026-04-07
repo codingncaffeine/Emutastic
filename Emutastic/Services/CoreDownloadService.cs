@@ -57,6 +57,7 @@ namespace Emutastic.Services
 
             new() { FileName = "vecx_libretro.dll",             DisplayName = "Vecx",                  Systems = ["Vectrex"],                           Recommended = true  },
             new() { FileName = "opera_libretro.dll",            DisplayName = "Opera (3DO)",            Systems = ["3DO"],                               Recommended = true  },
+            new() { FileName = "same_cdi_libretro.dll",         DisplayName = "SAME CDi",              Systems = ["CDi"],                               Recommended = true  },
             new() { FileName = "flycast_libretro.dll",          DisplayName = "Flycast",               Systems = ["Dreamcast"],                         Recommended = true  },
 
             // Arcade
