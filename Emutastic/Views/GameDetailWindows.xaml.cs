@@ -16,7 +16,6 @@ namespace Emutastic.Views
     {
         private Game _game;
         private readonly DatabaseService _db = new();
-
         public GameDetailWindow(Game game)
         {
             InitializeComponent();
@@ -200,7 +199,7 @@ namespace Emutastic.Views
 
                 // Refresh stats — EmulatorWindow updates _game.PlayCount / LastPlayed / SaveCount
                 // on the shared object, so the card shows accurate numbers immediately.
-                RefreshStats();
+                if (IsVisible) RefreshStats();
             }
             catch (Exception ex)
             {

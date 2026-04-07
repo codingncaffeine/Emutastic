@@ -28,6 +28,7 @@ namespace Emutastic
         private Game?   _selectionAnchor;   // anchor for Shift+click range selection
         private readonly HashSet<string> _selectedScreenshots = new(); // selected file paths
         private System.Windows.Threading.DispatcherTimer? _dragLeaveTimer;
+        private GameDetailWindow? _openDetailWindow;
 
         public MainWindow()
         {
@@ -387,6 +388,14 @@ namespace Emutastic
                 _ = cfg.SaveAsync();
             }
             catch { }
+        }
+
+        // Close the game detail card when the user clicks anywhere in MainWindow.
+        // GameCard_Click also closes it before opening a new one, so there's no conflict.
+        protected override void OnPreviewMouseDown(MouseButtonEventArgs e)
+        {
+            _openDetailWindow?.Close();
+            base.OnPreviewMouseDown(e);
         }
 
         // ── Drag and drop ──
@@ -807,8 +816,10 @@ namespace Emutastic
             // Normal click — clear any selection, open detail, update anchor
             GameGridView.SelectedItems.Clear();
             _selectionAnchor = game;
-            var detail = new GameDetailWindow(game) { Owner = this };
-            detail.ShowDialog();
+            _openDetailWindow?.Close();
+            _openDetailWindow = new GameDetailWindow(game) { Owner = this };
+            _openDetailWindow.Closed += (_, _) => _openDetailWindow = null;
+            _openDetailWindow.Show();
         }
 
         private void DoRangeSelect(Game clicked)
