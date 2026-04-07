@@ -80,6 +80,9 @@ namespace Emutastic
                 return tcs.Task;
             };
 
+            RestoreMainWindowBounds();
+            Closing += MainWindow_Closing;
+
             UpdateTabStyles("Library");
             RefreshCollectionsSidebar();
 
@@ -318,6 +321,62 @@ namespace Emutastic
                 : WindowState.Maximized;
         }
 
+        // ── Main window size/position persistence ──
+        private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
+        {
+            SaveMainWindowBounds();
+        }
+
+        private void RestoreMainWindowBounds()
+        {
+            try
+            {
+                var cfg = App.Configuration;
+                if (cfg == null) return;
+
+                double w = cfg.GetValue("mainWinWidth",  0.0);
+                double h = cfg.GetValue("mainWinHeight", 0.0);
+                double x = cfg.GetValue("mainWinLeft",   double.NaN);
+                double y = cfg.GetValue("mainWinTop",    double.NaN);
+                bool maximized = cfg.GetValue("mainWinMaximized", false);
+
+                if (w >= MinWidth && h >= MinHeight)
+                {
+                    Width  = w;
+                    Height = h;
+                }
+                if (!double.IsNaN(x) && !double.IsNaN(y))
+                {
+                    WindowStartupLocation = WindowStartupLocation.Manual;
+                    Left = x;
+                    Top  = y;
+                }
+                if (maximized)
+                    WindowState = WindowState.Maximized;
+            }
+            catch { }
+        }
+
+        private void SaveMainWindowBounds()
+        {
+            try
+            {
+                var cfg = App.Configuration;
+                if (cfg == null) return;
+
+                cfg.SetValue("mainWinMaximized", WindowState == WindowState.Maximized);
+                if (WindowState == WindowState.Normal)
+                {
+                    cfg.SetValue("mainWinWidth",  Width);
+                    cfg.SetValue("mainWinHeight", Height);
+                    cfg.SetValue("mainWinLeft",   Left);
+                    cfg.SetValue("mainWinTop",    Top);
+                }
+                _ = cfg.SaveAsync();
+            }
+            catch { }
+        }
+
         // ── Drag and drop ──
         protected override void OnDragOver(DragEventArgs e)
         {
@@ -469,21 +528,62 @@ namespace Emutastic
 
         private void SidebarPanel_RightClick(object sender, MouseButtonEventArgs e)
         {
-            // Walk up from the element that was clicked to find a console Button with a Tag
+            // Walk up from the element that was clicked to find a Button with a Tag
             var source = e.OriginalSource as DependencyObject;
             while (source != null && source != SidebarPanel)
             {
-                if (source is Button btn && btn.Tag is string console && !string.IsNullOrEmpty(console))
+                if (source is Button btn && btn.Tag is int collectionId)
+                {
+                    e.Handled = true;
+                    string displayName = btn.Content?.ToString()?.Replace("📂  ", "") ?? "Collection";
+                    var menu = new ContextMenu();
+
+                    var renameItem = new MenuItem { Header = "✏  Rename Collection" };
+                    renameItem.Click += (_, _) =>
+                    {
+                        var dialog = new RenameWindow(displayName) { Owner = this };
+                        if (dialog.ShowDialog() == true)
+                        {
+                            _db.RenameCollection(collectionId, dialog.NewTitle);
+                            RefreshCollectionsSidebar();
+                        }
+                    };
+                    menu.Items.Add(renameItem);
+
+                    var deleteItem = new MenuItem { Header = "🗑  Delete Collection" };
+                    deleteItem.Foreground = new System.Windows.Media.SolidColorBrush(
+                        (System.Windows.Media.Color)System.Windows.Media.ColorConverter
+                        .ConvertFromString("#FF5F57")!);
+                    deleteItem.Click += (_, _) =>
+                    {
+                        var dlg = new ConfirmDialog(
+                            "Delete Collection",
+                            $"Delete the collection \"{displayName}\"?\n\nGames will not be removed from your library.",
+                            confirmLabel: "Delete")
+                        { Owner = this };
+                        if (dlg.ShowDialog() != true) return;
+                        _db.DeleteCollection(collectionId);
+                        RefreshCollectionsSidebar();
+                    };
+                    menu.Items.Add(deleteItem);
+
+                    menu.PlacementTarget = btn;
+                    menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+                    menu.IsOpen = true;
+                    return;
+                }
+
+                if (source is Button consoleBtn && consoleBtn.Tag is string console && !string.IsNullOrEmpty(console))
                 {
                     e.Handled = true;
                     string displayName = console;
                     // Try to get a friendly name from the button content
-                    if (btn.Content is StackPanel sp)
+                    if (consoleBtn.Content is StackPanel sp)
                     {
                         var tb = sp.Children.OfType<TextBlock>().LastOrDefault();
                         if (tb != null) displayName = tb.Text;
                     }
-                    else if (btn.Content is string s)
+                    else if (consoleBtn.Content is string s)
                     {
                         displayName = s;
                     }
@@ -531,7 +631,7 @@ namespace Emutastic
                     menu.Items.Insert(0, editControlsItem);
                     menu.Items.Insert(1, new Separator());
 
-                    menu.PlacementTarget = btn;
+                    menu.PlacementTarget = consoleBtn;
                     menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
                     menu.IsOpen = true;
                     return;
@@ -552,26 +652,26 @@ namespace Emutastic
 
         private void NavUserCollection_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is not Button btn || btn.Tag is not string tag) return;
+            if (sender is not Button btn || btn.Tag is not int collectionId) return;
             SelectNavButton(btn);
-            var games = _db.GetByCollection(tag);
+            var games = _db.GetGamesByCollectionId(collectionId);
             _vm.Games = new ObservableCollection<Game>(games);
             _vm.IsGroupedView = false;
             _vm.GameCountText = $"{games.Count} games";
-            UpdateToolbarTitle(tag);
+            string displayName = btn.Content?.ToString()?.Replace("📂  ", "") ?? "Collection";
+            UpdateToolbarTitle(displayName);
         }
 
         public void RefreshCollectionsSidebar()
         {
             UserCollectionsPanel.Children.Clear();
-            foreach (string col in _db.GetAllCollections())
+            foreach (var (id, name) in _db.GetAllCollections())
             {
-                string c = col;
                 var btn = new Button
                 {
-                    Content = $"📂  {c}",
+                    Content = $"📂  {name}",
                     Style = (Style)FindResource("SidebarItemStyle"),
-                    Tag = c
+                    Tag = id
                 };
                 btn.Click += NavUserCollection_Click;
                 UserCollectionsPanel.Children.Add(btn);
@@ -823,19 +923,34 @@ namespace Emutastic
 
             menu.Items.Add(new Separator());
 
-            // ── Add to Collection submenu ──
+            // ── Add to Collection submenu (multi-select via checkboxes) ──
             var collectionItem = new MenuItem { Header = "📂  Add to Collection" };
 
-            var existingCollections = _db.GetAllCollections();
-            foreach (string col in existingCollections)
+            var allCollections = _db.GetAllCollections();
+            var gameCollections = _db.GetCollectionsForGame(game.Id);
+            var gameCollectionIds = new HashSet<int>(gameCollections.Select(c => c.Id));
+
+            foreach (var (colId, colName) in allCollections)
             {
-                string c = col;
-                var ci = new MenuItem { Header = c, IsChecked = game.Collection == c };
-                ci.Click += (_, _) => { game.Collection = c; _db.UpdateCollection(game.Id, c); };
+                int id = colId;
+                var ci = new MenuItem
+                {
+                    Header = colName,
+                    IsCheckable = true,
+                    IsChecked = gameCollectionIds.Contains(id)
+                };
+                ci.Click += (_, _) =>
+                {
+                    if (ci.IsChecked)
+                        _db.AddGameToCollection(game.Id, id);
+                    else
+                        _db.RemoveGameFromCollection(game.Id, id);
+                    RefreshCollectionsSidebar();
+                };
                 collectionItem.Items.Add(ci);
             }
 
-            if (existingCollections.Count > 0)
+            if (allCollections.Count > 0)
                 collectionItem.Items.Add(new Separator());
 
             var newColItem = new MenuItem { Header = "✚  New Collection…" };
@@ -843,10 +958,8 @@ namespace Emutastic
             {
                 var dialog = new NewCollectionDialog { Owner = this };
                 if (dialog.ShowDialog() != true) return;
-                string name = dialog.CollectionName;
-                game.Collection = name;
-                _db.UpdateCollection(game.Id, name);
-                _vm.RefreshGame(game);
+                int newId = _db.CreateCollection(dialog.CollectionName);
+                _db.AddGameToCollection(game.Id, newId);
                 RefreshCollectionsSidebar();
             };
             collectionItem.Items.Add(newColItem);

@@ -36,7 +36,7 @@ namespace Emutastic.Services
             var connection = new SqliteConnection(_connectionString);
             connection.Open();
             using var pragma = connection.CreateCommand();
-            pragma.CommandText = "PRAGMA busy_timeout=5000;";
+            pragma.CommandText = "PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;";
             pragma.ExecuteNonQuery();
             return connection;
         }
@@ -86,7 +86,24 @@ namespace Emutastic.Services
                     ControllerButtonId  INTEGER,
                     DisplayText         TEXT,
                     UNIQUE(ConsoleName, ButtonName)
-                );";
+                );
+
+                CREATE TABLE IF NOT EXISTS Collections (
+                    Id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                    Name      TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                    SortOrder INTEGER DEFAULT 0
+                );
+
+                CREATE TABLE IF NOT EXISTS GameCollections (
+                    GameId       INTEGER NOT NULL,
+                    CollectionId INTEGER NOT NULL,
+                    PRIMARY KEY (GameId, CollectionId),
+                    FOREIGN KEY (GameId)       REFERENCES Games(Id)       ON DELETE CASCADE,
+                    FOREIGN KEY (CollectionId) REFERENCES Collections(Id) ON DELETE CASCADE
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_gamecollections_collection
+                    ON GameCollections(CollectionId);";
             cmd.ExecuteNonQuery();
 
             // Schema migrations — safe to run every launch, silently ignored if column exists.
@@ -137,6 +154,61 @@ namespace Emutastic.Services
             TryAddColumn(connection, "SaveStates", "ConsoleName", "TEXT NOT NULL DEFAULT ''");
             TryAddColumn(connection, "SaveStates", "CoreName",    "TEXT NOT NULL DEFAULT ''");
             TryAddColumn(connection, "SaveStates", "RomHash",     "TEXT NOT NULL DEFAULT ''");
+
+            // One-time migration: move old Collection column data into the new join table.
+            MigrateCollectionsToJoinTable(connection);
+        }
+
+        private void MigrateCollectionsToJoinTable(SqliteConnection connection)
+        {
+            var checkCmd = connection.CreateCommand();
+            checkCmd.CommandText = "SELECT Id, Collection FROM Games WHERE Collection != '' AND Collection IS NOT NULL;";
+            using var reader = checkCmd.ExecuteReader();
+            var toMigrate = new List<(int gameId, string collection)>();
+            while (reader.Read())
+                toMigrate.Add((reader.GetInt32(0), reader.GetString(1)));
+            reader.Close();
+
+            if (toMigrate.Count == 0) return;
+
+            using var tx = connection.BeginTransaction();
+            foreach (var (gameId, collName) in toMigrate)
+            {
+                // Find or create collection
+                var findCmd = connection.CreateCommand();
+                findCmd.CommandText = "SELECT Id FROM Collections WHERE Name = $name;";
+                findCmd.Parameters.AddWithValue("$name", collName);
+                var existing = findCmd.ExecuteScalar();
+                int collectionId;
+                if (existing != null)
+                {
+                    collectionId = Convert.ToInt32(existing);
+                }
+                else
+                {
+                    var insCmd = connection.CreateCommand();
+                    insCmd.CommandText = "INSERT INTO Collections (Name) VALUES ($name);";
+                    insCmd.Parameters.AddWithValue("$name", collName);
+                    insCmd.ExecuteNonQuery();
+                    var idCmd = connection.CreateCommand();
+                    idCmd.CommandText = "SELECT last_insert_rowid();";
+                    collectionId = (int)(long)idCmd.ExecuteScalar()!;
+                }
+
+                // Insert join row
+                var joinCmd = connection.CreateCommand();
+                joinCmd.CommandText = "INSERT OR IGNORE INTO GameCollections (GameId, CollectionId) VALUES ($gid, $cid);";
+                joinCmd.Parameters.AddWithValue("$gid", gameId);
+                joinCmd.Parameters.AddWithValue("$cid", collectionId);
+                joinCmd.ExecuteNonQuery();
+
+                // Clear old column so migration doesn't re-run
+                var clearCmd = connection.CreateCommand();
+                clearCmd.CommandText = "UPDATE Games SET Collection = '' WHERE Id = $id;";
+                clearCmd.Parameters.AddWithValue("$id", gameId);
+                clearCmd.ExecuteNonQuery();
+            }
+            tx.Commit();
         }
 
         private void TryAddColumn(SqliteConnection connection, string table, string column, string definition)
@@ -265,28 +337,114 @@ namespace Emutastic.Services
             cmd.ExecuteNonQuery();
         }
 
-        public void UpdateCollection(int gameId, string collection)
+        // ── Collection methods (join table) ────────────────────────────────
+
+        public int CreateCollection(string name)
         {
-            using var connection = new SqliteConnection(_connectionString);
-            connection.Open();
+            using var connection = OpenConnection();
+            // INSERT OR IGNORE in case of duplicate, then SELECT to get the ID either way.
+            var insCmd = connection.CreateCommand();
+            insCmd.CommandText = "INSERT OR IGNORE INTO Collections (Name) VALUES ($name);";
+            insCmd.Parameters.AddWithValue("$name", name);
+            insCmd.ExecuteNonQuery();
+            var idCmd = connection.CreateCommand();
+            idCmd.CommandText = "SELECT Id FROM Collections WHERE Name = $name;";
+            idCmd.Parameters.AddWithValue("$name", name);
+            return (int)(long)idCmd.ExecuteScalar()!;
+        }
+
+        public void DeleteCollection(int collectionId)
+        {
+            using var connection = OpenConnection();
             var cmd = connection.CreateCommand();
-            cmd.CommandText = "UPDATE Games SET Collection = $collection WHERE Id = $id;";
-            cmd.Parameters.AddWithValue("$collection", collection);
-            cmd.Parameters.AddWithValue("$id", gameId);
+            cmd.CommandText = "DELETE FROM Collections WHERE Id = $id;";
+            cmd.Parameters.AddWithValue("$id", collectionId);
             cmd.ExecuteNonQuery();
         }
 
-        public List<string> GetAllCollections()
+        public void RenameCollection(int collectionId, string newName)
         {
-            var collections = new List<string>();
-            using var connection = new SqliteConnection(_connectionString);
-            connection.Open();
+            using var connection = OpenConnection();
             var cmd = connection.CreateCommand();
-            cmd.CommandText = "SELECT DISTINCT Collection FROM Games WHERE Collection != '' ORDER BY Collection;";
+            cmd.CommandText = "UPDATE Collections SET Name = $name WHERE Id = $id;";
+            cmd.Parameters.AddWithValue("$name", newName);
+            cmd.Parameters.AddWithValue("$id", collectionId);
+            cmd.ExecuteNonQuery();
+        }
+
+        public void AddGameToCollection(int gameId, int collectionId)
+        {
+            using var connection = OpenConnection();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "INSERT OR IGNORE INTO GameCollections (GameId, CollectionId) VALUES ($gid, $cid);";
+            cmd.Parameters.AddWithValue("$gid", gameId);
+            cmd.Parameters.AddWithValue("$cid", collectionId);
+            cmd.ExecuteNonQuery();
+        }
+
+        public void RemoveGameFromCollection(int gameId, int collectionId)
+        {
+            using var connection = OpenConnection();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "DELETE FROM GameCollections WHERE GameId = $gid AND CollectionId = $cid;";
+            cmd.Parameters.AddWithValue("$gid", gameId);
+            cmd.Parameters.AddWithValue("$cid", collectionId);
+            cmd.ExecuteNonQuery();
+        }
+
+        public List<(int Id, string Name)> GetCollectionsForGame(int gameId)
+        {
+            var list = new List<(int, string)>();
+            using var connection = OpenConnection();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = @"
+                SELECT c.Id, c.Name
+                FROM Collections c
+                INNER JOIN GameCollections gc ON gc.CollectionId = c.Id
+                WHERE gc.GameId = $gid
+                ORDER BY c.Name;";
+            cmd.Parameters.AddWithValue("$gid", gameId);
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
-                collections.Add(reader.GetString(0));
-            return collections;
+                list.Add((reader.GetInt32(0), reader.GetString(1)));
+            return list;
+        }
+
+        public List<(int Id, string Name)> GetAllCollections()
+        {
+            var list = new List<(int, string)>();
+            using var connection = OpenConnection();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT Id, Name FROM Collections ORDER BY SortOrder, Name;";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+                list.Add((reader.GetInt32(0), reader.GetString(1)));
+            return list;
+        }
+
+        public List<Game> GetGamesByCollectionId(int collectionId)
+        {
+            var games = new List<Game>();
+            using var connection = OpenConnection();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = @"
+                SELECT g.* FROM Games g
+                INNER JOIN GameCollections gc ON gc.GameId = g.Id
+                WHERE gc.CollectionId = $cid
+                ORDER BY g.Title;";
+            cmd.Parameters.AddWithValue("$cid", collectionId);
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+                games.Add(ReadGame(reader));
+            return games;
+        }
+
+        public void VacuumDatabase()
+        {
+            using var connection = OpenConnection();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "VACUUM;";
+            cmd.ExecuteNonQuery();
         }
 
         public List<Game> GetRecentlyAdded(int limit = 25)
@@ -349,6 +507,8 @@ namespace Emutastic.Services
             using var connection = OpenConnection();
             // Disable FK enforcement so save states are preserved when a game is removed from the library.
             using (var fk = connection.CreateCommand()) { fk.CommandText = "PRAGMA foreign_keys = OFF;"; fk.ExecuteNonQuery(); }
+            // Clean up join table manually since FKs are disabled
+            using (var gc = connection.CreateCommand()) { gc.CommandText = "DELETE FROM GameCollections WHERE GameId = $id;"; gc.Parameters.AddWithValue("$id", gameId); gc.ExecuteNonQuery(); }
             var cmd = connection.CreateCommand();
             cmd.CommandText = "DELETE FROM Games WHERE Id = $id;";
             cmd.Parameters.AddWithValue("$id", gameId);
@@ -362,11 +522,17 @@ namespace Emutastic.Services
             using var connection = OpenConnection();
             using (var fk = connection.CreateCommand()) { fk.CommandText = "PRAGMA foreign_keys = OFF;"; fk.ExecuteNonQuery(); }
             using var tx = connection.BeginTransaction();
+            // Clean up join table manually since FKs are disabled
+            var gcCmd = connection.CreateCommand();
+            gcCmd.CommandText = "DELETE FROM GameCollections WHERE GameId = $id;";
+            var gcParam = gcCmd.Parameters.Add("$id", Microsoft.Data.Sqlite.SqliteType.Integer);
             var cmd = connection.CreateCommand();
             cmd.CommandText = "DELETE FROM Games WHERE Id = $id;";
             var param = cmd.Parameters.Add("$id", Microsoft.Data.Sqlite.SqliteType.Integer);
             foreach (int id in ids)
             {
+                gcParam.Value = id;
+                gcCmd.ExecuteNonQuery();
                 param.Value = id;
                 cmd.ExecuteNonQuery();
             }
@@ -498,19 +664,7 @@ namespace Emutastic.Services
             return games;
         }
 
-        public List<Game> GetByCollection(string collection)
-        {
-            var games = new List<Game>();
-            using var connection = new SqliteConnection(_connectionString);
-            connection.Open();
-            var cmd = connection.CreateCommand();
-            cmd.CommandText = "SELECT * FROM Games WHERE Collection = $col ORDER BY Title;";
-            cmd.Parameters.AddWithValue("$col", collection);
-            using var reader = cmd.ExecuteReader();
-            while (reader.Read())
-                games.Add(ReadGame(reader));
-            return games;
-        }
+        // GetByCollection(string) removed — use GetGamesByCollectionId(int) instead.
 
         private Game ReadGame(SqliteDataReader reader)
         {

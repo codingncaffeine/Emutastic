@@ -1433,6 +1433,52 @@ namespace Emutastic.Views
             _ = _configService.SaveAsync();
         }
 
+        private void BackupBtn_Click(object sender, RoutedEventArgs e)
+        {
+            string dbPath = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "Emutastic", "library.db");
+
+            var dlg = new Microsoft.Win32.SaveFileDialog
+            {
+                Title = "Backup Library Database",
+                FileName = $"library-backup-{DateTime.Now:yyyyMMdd_HHmmss}.db",
+                DefaultExt = ".db",
+                Filter = "SQLite Database|*.db|All Files|*.*"
+            };
+
+            if (dlg.ShowDialog(this) != true) return;
+
+            try
+            {
+                System.IO.File.Copy(dbPath, dlg.FileName, overwrite: true);
+                BackupStatusText.Text = "Backup saved.";
+            }
+            catch (Exception ex)
+            {
+                BackupStatusText.Text = $"Error: {ex.Message}";
+            }
+        }
+
+        private async void VacuumBtn_Click(object sender, RoutedEventArgs e)
+        {
+            VacuumBtn.IsEnabled = false;
+            VacuumStatusText.Text = "Optimizing\u2026";
+            try
+            {
+                await Task.Run(() => _db.VacuumDatabase());
+                VacuumStatusText.Text = "Done \u2014 database optimized.";
+            }
+            catch (Exception ex)
+            {
+                VacuumStatusText.Text = $"Error: {ex.Message}";
+            }
+            finally
+            {
+                VacuumBtn.IsEnabled = true;
+            }
+        }
+
         // ── Theme panel ───────────────────────────────────────────────────────
         private void LoadThemeSettings()
         {

@@ -102,14 +102,13 @@ namespace Emutastic
                 // bindings (including LibraryCardWidth) are never unset on first render.
                 Current.Resources["LibraryCardWidth"] = 148.0;
 
-                // Show the window immediately — don't block on config loading.
+                // Load config before showing the window so saved bounds are available.
+                await InitializeConfigurationAsync();
+
                 Logger?.LogInformation("Creating main window...");
                 var mainWindow = new MainWindow();
                 mainWindow.Show();
                 Logger?.LogInformation("Main window shown");
-
-                // Load config after window is visible (reads JSON file, fast but non-zero).
-                await InitializeConfigurationAsync();
             }
             catch (Exception ex)
             {
