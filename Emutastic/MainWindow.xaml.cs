@@ -900,12 +900,25 @@ namespace Emutastic
                 detail.ShowDialog();
             }));
 
-            // ── Play Save State ──
-            menu.Items.Add(MakeMenuItem("⏱  Play Save State", () =>
+            // ── Play Save State submenu ──
+            var saveStates = _db.GetSaveStatesByGame(game.Id);
+            var saveStateItem = new MenuItem { Header = "⏱  Play Save State" };
+
+            if (saveStates.Count == 0)
             {
-                MessageBox.Show("Save state selection coming soon.", "Save States",
-                    MessageBoxButton.OK, MessageBoxImage.Information);
-            }));
+                saveStateItem.Items.Add(new MenuItem { Header = "No save states", IsEnabled = false });
+            }
+            else
+            {
+                foreach (var s in saveStates.Take(10))
+                {
+                    var state = s;
+                    var si = new MenuItem { Header = state.Name };
+                    si.Click += (_, _) => LaunchWithSaveState(state);
+                    saveStateItem.Items.Add(si);
+                }
+            }
+            menu.Items.Add(saveStateItem);
 
             // ── Favorite toggle ──
             string favHeader = game.IsFavorite ? "♥  Remove from Favorites" : "♡  Add to Favorites";

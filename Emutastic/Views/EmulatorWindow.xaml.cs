@@ -3184,11 +3184,12 @@ namespace Emutastic.Views
                 ssHeight = _hwFlippedHeight;
             }
 
-            System.Threading.Tasks.Task.Run(() => FinalizeSave(name, data, screenshotPixels, ssWidth, ssHeight, isHw));
+            uint coreRot = _coreRotation; // capture on emu thread — used to rotate screenshot to match display
+            System.Threading.Tasks.Task.Run(() => FinalizeSave(name, data, screenshotPixels, ssWidth, ssHeight, isHw, coreRot));
         }
 
         private void FinalizeSave(string name, byte[] data,
-            byte[]? screenshotPixels, uint ssWidth, uint ssHeight, bool isHw)
+            byte[]? screenshotPixels, uint ssWidth, uint ssHeight, bool isHw, uint coreRotation = 0)
         {
             try
             {
@@ -3264,6 +3265,12 @@ namespace Emutastic.Views
 
                         if (bmp != null)
                         {
+                            // Rotate screenshot to match display orientation (vertical arcade games etc.)
+                            if (coreRotation != 0)
+                            {
+                                double angle = ((-(int)coreRotation * 90.0) % 360 + 360) % 360;
+                                bmp = new TransformedBitmap(bmp, new RotateTransform(angle));
+                            }
                             bmp.Freeze();
                             using var fs = new FileStream(pngPath, FileMode.Create);
                             var enc = new PngBitmapEncoder();
