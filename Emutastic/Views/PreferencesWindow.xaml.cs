@@ -1374,6 +1374,7 @@ namespace Emutastic.Views
                 "bluemsx"           => "blueMSX",
                 "vecx"              => "Vecx",
                 "opera"             => "Opera (3DO)",
+                "same_cdi"          => "SAME CDi",
                 "fbneo"             => "FBNeo (Final Burn Neo)",
                 "fbalpha2012"       => "FB Alpha 2012",
                 "fbalpha2012_cps1"  => "FB Alpha 2012 CPS-1",
