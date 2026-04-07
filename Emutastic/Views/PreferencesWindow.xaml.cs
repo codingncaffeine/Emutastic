@@ -1350,7 +1350,248 @@ namespace Emutastic.Views
                     Margin = new Thickness(0, 8, 0, 0)
                 });
             }
+
+            BuildExtrasSection();
         }
+
+        // ── Extras section (SDL3 + DAT files) ────────────────────────────────
+
+        private static readonly (string Tag, string Label, string RedumpSlug)[] KnownDats =
+        {
+            ("SegaCD", "Sega CD / Mega CD", "mcd"),
+            ("Saturn", "Sega Saturn",        "ss"),
+            ("PS1",    "PlayStation",        "psx"),
+            ("3DO",    "3DO",                "3do"),
+            ("CDi",    "Philips CD-i",       "cdi"),
+        };
+
+        private void BuildExtrasSection()
+        {
+            string baseDir  = AppDomain.CurrentDomain.BaseDirectory;
+            string datsDir  = System.IO.Path.Combine(baseDir, "DATs");
+
+            // ── Section header ──
+            CoresListPanel.Children.Add(new Rectangle
+            {
+                Height = 1,
+                Fill   = new SolidColorBrush(Color.FromRgb(0x30, 0x30, 0x33)),
+                Margin = new Thickness(0, 20, 0, 0)
+            });
+            CoresListPanel.Children.Add(new TextBlock
+            {
+                Text       = "EXTRAS",
+                FontSize   = 10,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = _brushTextMuted,
+                Margin     = new Thickness(0, 12, 0, 8)
+            });
+
+            var extrasCard = new Border
+            {
+                Background   = new SolidColorBrush(Color.FromRgb(0x1F, 0x1F, 0x21)),
+                CornerRadius = new CornerRadius(6),
+                Padding      = new Thickness(14, 10, 14, 10),
+                Margin       = new Thickness(0, 0, 0, 4)
+            };
+            var extrasStack = new StackPanel();
+
+            // ── SDL3.dll row ──
+            string sdl3Path     = System.IO.Path.Combine(baseDir, "SDL3.dll");
+            bool   sdl3Present  = System.IO.File.Exists(sdl3Path);
+
+            var sdl3StatusText  = new TextBlock { FontSize = 10, Foreground = _brushTextMuted, Visibility = Visibility.Collapsed };
+            var sdl3Progress    = new ProgressBar { Height = 4, Minimum = 0, Maximum = 100, Value = 0, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 4, 0, 0) };
+            var sdl3Badge       = MakeBadge(sdl3Present);
+            var sdl3Btn         = new Button
+            {
+                Content = sdl3Present ? "Re-download" : "Download",
+                Style   = (Style)FindResource("SmallOutlineButton"),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            sdl3Btn.Click += async (_, _) =>
+            {
+                sdl3Btn.IsEnabled          = false;
+                sdl3Progress.Visibility    = Visibility.Visible;
+                sdl3StatusText.Visibility  = Visibility.Visible;
+                sdl3StatusText.Text        = "Fetching latest SDL3 release…";
+                sdl3Progress.Value         = 0;
+                try
+                {
+                    using var http = new System.Net.Http.HttpClient();
+                    http.DefaultRequestHeaders.Add("User-Agent", "Emutastic");
+                    var rel   = await http.GetStringAsync("https://api.github.com/repos/libsdl-org/SDL/releases/latest");
+                    var doc   = System.Text.Json.JsonDocument.Parse(rel);
+                    var asset = doc.RootElement.GetProperty("assets").EnumerateArray()
+                                   .FirstOrDefault(a => a.GetProperty("name").GetString() is string n
+                                                     && n.Contains("win32-x64") && n.EndsWith(".zip"));
+                    string? url = asset.ValueKind != System.Text.Json.JsonValueKind.Undefined
+                                  ? asset.GetProperty("browser_download_url").GetString()
+                                  : null;
+                    if (url == null) throw new Exception("SDL3 win32-x64 zip not found in latest release.");
+
+                    sdl3StatusText.Text = "Downloading…";
+                    sdl3Progress.Value  = 20;
+
+                    var zipBytes = await http.GetByteArrayAsync(url);
+                    sdl3Progress.Value  = 80;
+
+                    using var ms      = new System.IO.MemoryStream(zipBytes);
+                    using var archive = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Read);
+                    var entry = archive.Entries.FirstOrDefault(e => e.Name.Equals("SDL3.dll", StringComparison.OrdinalIgnoreCase));
+                    if (entry == null) throw new Exception("SDL3.dll not found inside the zip.");
+
+                    using var dst = System.IO.File.Create(sdl3Path);
+                    using var src = entry.Open();
+                    await src.CopyToAsync(dst);
+
+                    sdl3Progress.Value  = 100;
+                    sdl3StatusText.Text = "Downloaded successfully.";
+                    sdl3Badge.Background = new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58));
+                    ((TextBlock)sdl3Badge.Child).Text       = "Present";
+                    ((TextBlock)sdl3Badge.Child).Foreground = new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58));
+                    sdl3Btn.Content = "Re-download";
+                }
+                catch (Exception ex)
+                {
+                    sdl3StatusText.Text = $"Failed: {ex.Message}";
+                }
+                finally { sdl3Btn.IsEnabled = true; }
+            };
+
+            extrasStack.Children.Add(MakeExtrasRow(
+                "SDL3.dll",
+                "Controller name detection — without this, controllers show as \"Controller 1\", etc.",
+                sdl3Badge, sdl3Progress, sdl3StatusText, sdl3Btn,
+                isLast: false));
+
+            // ── DAT files separator ──
+            extrasStack.Children.Add(new Rectangle
+            {
+                Height = 1,
+                Fill   = new SolidColorBrush(Color.FromRgb(0x30, 0x30, 0x33)),
+                Margin = new Thickness(0, 8, 0, 8)
+            });
+            extrasStack.Children.Add(new TextBlock
+            {
+                Text         = "DAT files are SHA1 databases used during import to auto-detect which console a disc image belongs to. Downloaded from Redump and saved in the DATs\\ folder next to the app.",
+                FontSize     = 11,
+                Foreground   = _brushTextMuted,
+                TextWrapping = TextWrapping.Wrap,
+                Margin       = new Thickness(0, 0, 0, 10)
+            });
+
+            // Per-DAT rows
+            System.IO.Directory.CreateDirectory(datsDir);
+            for (int i = 0; i < KnownDats.Length; i++)
+            {
+                var (tag, label, slug) = KnownDats[i];
+                string datPath = System.IO.Path.Combine(datsDir, $"{tag}.dat");
+                bool   present = System.IO.File.Exists(datPath);
+
+                var datBadge    = MakeBadge(present);
+                var datProgress = new ProgressBar { Height = 4, Minimum = 0, Maximum = 100, Value = 0, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 4, 0, 0) };
+                var datStatus   = new TextBlock   { FontSize = 10, Foreground = _brushTextMuted, Visibility = Visibility.Collapsed };
+                var datBtn      = new Button
+                {
+                    Content           = present ? "Re-download" : "Download",
+                    Style             = (Style)FindResource("SmallOutlineButton"),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+
+                var capturedTag      = tag;
+                var capturedSlug     = slug;
+                var capturedDatPath  = datPath;
+                var capturedBadge    = datBadge;
+                var capturedProgress = datProgress;
+                var capturedStatus   = datStatus;
+                var capturedBtn      = datBtn;
+
+                datBtn.Click += async (_, _) =>
+                {
+                    capturedBtn.IsEnabled       = false;
+                    capturedProgress.Visibility = Visibility.Visible;
+                    capturedStatus.Visibility   = Visibility.Visible;
+                    capturedStatus.Text         = "Downloading…";
+                    capturedProgress.Value      = 10;
+                    try
+                    {
+                        using var http = new System.Net.Http.HttpClient();
+                        http.DefaultRequestHeaders.Add("User-Agent", "Emutastic");
+                        var bytes = await http.GetByteArrayAsync($"http://redump.org/datfile/{capturedSlug}/");
+                        capturedProgress.Value = 90;
+                        await System.IO.File.WriteAllBytesAsync(capturedDatPath, bytes);
+                        capturedProgress.Value      = 100;
+                        capturedStatus.Text         = "Downloaded successfully.";
+                        capturedBadge.Background    = new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58));
+                        ((TextBlock)capturedBadge.Child).Text       = "Present";
+                        ((TextBlock)capturedBadge.Child).Foreground = new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58));
+                        capturedBtn.Content = "Re-download";
+                    }
+                    catch (Exception ex)
+                    {
+                        capturedStatus.Text = $"Failed: {ex.Message}";
+                    }
+                    finally { capturedBtn.IsEnabled = true; }
+                };
+
+                extrasStack.Children.Add(MakeExtrasRow(
+                    $"{tag}.dat",
+                    label,
+                    datBadge,
+                    datProgress,
+                    datStatus,
+                    datBtn,
+                    isLast: i == KnownDats.Length - 1));
+            }
+
+            extrasCard.Child = extrasStack;
+            CoresListPanel.Children.Add(extrasCard);
+        }
+
+        private Grid MakeExtrasRow(string name, string description, Border badge,
+                                   ProgressBar? progress, TextBlock? status, Button btn, bool isLast)
+        {
+            var row = new Grid { Margin = new Thickness(0, 0, 0, isLast ? 0 : 8) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(220) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var nameStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            nameStack.Children.Add(new TextBlock { Text = name,        FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = _brushText });
+            nameStack.Children.Add(new TextBlock { Text = description, FontSize = 10, Foreground = _brushTextMuted, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) });
+            Grid.SetColumn(nameStack, 0);
+
+            var statusStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            statusStack.Children.Add(badge);
+            if (progress != null) statusStack.Children.Add(progress);
+            if (status  != null) statusStack.Children.Add(status);
+            Grid.SetColumn(statusStack, 1);
+
+            Grid.SetColumn(btn, 2);
+
+            row.Children.Add(nameStack);
+            row.Children.Add(statusStack);
+            row.Children.Add(btn);
+            return row;
+        }
+
+        private Border MakeBadge(bool present) => new()
+        {
+            CornerRadius = new CornerRadius(4),
+            Padding      = new Thickness(8, 3, 8, 3),
+            Background   = present
+                ? new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58))
+                : new SolidColorBrush(Color.FromArgb(0x22, 0x88, 0x88, 0x88)),
+            Child = new TextBlock
+            {
+                Text       = present ? "Present" : "Not found",
+                FontSize   = 10,
+                Foreground = present
+                    ? new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58))
+                    : _brushTextMuted
+            }
+        };
 
         private static string GetCoreVersion(string path)
         {
