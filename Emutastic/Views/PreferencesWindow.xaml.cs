@@ -1359,13 +1359,15 @@ namespace Emutastic.Views
 
         // ── Extras section (SDL3 + DAT files) ────────────────────────────────
 
-        private static readonly (string Tag, string Label, string RedumpSlug)[] KnownDats =
+        private static readonly (string Tag, string Label, string? RedumpSlug, string? DirectUrl)[] KnownDats =
         {
-            ("SegaCD", "Sega CD / Mega CD", "mcd"),
-            ("Saturn", "Sega Saturn",        "ss"),
-            ("PS1",    "PlayStation",        "psx"),
-            ("3DO",    "3DO",                "3do"),
-            ("CDi",    "Philips CD-i",       "cdi"),
+            ("Arcade", "Arcade (FBNeo)",     null, "https://raw.githubusercontent.com/libretro/FBNeo/master/dats/FinalBurn%20Neo%20(ClrMame%20Pro%20XML%2C%20Arcade%20only).dat"),
+            ("SegaCD", "Sega CD / Mega CD",  "mcd",  null),
+            ("Saturn", "Sega Saturn",        "ss",   null),
+            ("PS1",    "PlayStation",         "psx",  null),
+            ("TGCD",   "TurboGrafx-CD",      "pce",  null),
+            ("3DO",    "3DO",                 "3do",  null),
+            ("CDi",    "Philips CD-i",        "cdi",  null),
         };
 
         private void BuildExtrasSection()
@@ -1477,7 +1479,7 @@ namespace Emutastic.Views
             });
             extrasStack.Children.Add(new TextBlock
             {
-                Text         = "DAT files are SHA1 databases used during import to auto-detect which console a disc image belongs to. Downloaded from Redump and saved in the DATs\\ folder next to the app.",
+                Text         = "DAT files are game databases used during import to auto-detect which console a disc image belongs to and to resolve ROM names for artwork lookup. Without these, some games may show missing cover art or hero images.",
                 FontSize     = 11,
                 Foreground   = _brushTextMuted,
                 TextWrapping = TextWrapping.Wrap,
@@ -1488,7 +1490,7 @@ namespace Emutastic.Views
             System.IO.Directory.CreateDirectory(datsDir);
             for (int i = 0; i < KnownDats.Length; i++)
             {
-                var (tag, label, slug) = KnownDats[i];
+                var (tag, label, slug, directUrl) = KnownDats[i];
                 string datPath = System.IO.Path.Combine(datsDir, $"{tag}.dat");
                 bool   present = System.IO.File.Exists(datPath);
 
@@ -1504,6 +1506,7 @@ namespace Emutastic.Views
 
                 var capturedTag      = tag;
                 var capturedSlug     = slug;
+                var capturedDirectUrl = directUrl;
                 var capturedDatPath  = datPath;
                 var capturedBadge    = datBadge;
                 var capturedProgress = datProgress;
@@ -1521,7 +1524,8 @@ namespace Emutastic.Views
                     {
                         using var http = new System.Net.Http.HttpClient();
                         http.DefaultRequestHeaders.Add("User-Agent", "Emutastic");
-                        var bytes = await http.GetByteArrayAsync($"http://redump.org/datfile/{capturedSlug}/");
+                        string url = capturedDirectUrl ?? $"http://redump.org/datfile/{capturedSlug}/";
+                        var bytes = await http.GetByteArrayAsync(url);
                         capturedProgress.Value = 90;
                         await System.IO.File.WriteAllBytesAsync(capturedDatPath, bytes);
                         capturedProgress.Value      = 100;
