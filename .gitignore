@@ -25,6 +25,9 @@ Emutastic/Bios/
 **/dc_boot.bin
 **/dc_flash.bin
 
+# DAT files — downloaded in-app via Preferences → Cores / Extras
+Emutastic/DATs/*.dat
+
 # Large database asset
 Emutastic/Assets/openvgdb.sqlite
 
