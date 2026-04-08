@@ -8,7 +8,9 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Interop;
 using System.Windows.Shapes;
+using System.Runtime.InteropServices;
 using Emutastic.Services;
 using Emutastic.Models;
 using Emutastic.Configuration;
@@ -502,6 +504,9 @@ namespace Emutastic.Views
             => PopulateInputDevices();
 
         // ── Windows chrome mode ───────────────────────────────────────────────
+        [DllImport("dwmapi.dll", PreserveSig = true)]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+
         private void ApplyWindowsChrome()
         {
             var theme = App.Configuration?.GetThemeConfiguration();
@@ -518,6 +523,17 @@ namespace Emutastic.Views
 
             CustomTitleBar.Visibility = Visibility.Collapsed;
             RootGrid.RowDefinitions[0].Height = new GridLength(0);
+
+            SourceInitialized += (_, _) => ApplyDarkTitleBar();
+        }
+
+        private void ApplyDarkTitleBar()
+        {
+            if (new WindowInteropHelper(this).Handle is var hwnd && hwnd != IntPtr.Zero)
+            {
+                int value = 1;
+                DwmSetWindowAttribute(hwnd, 20, ref value, sizeof(int));
+            }
         }
 
         // ── Title bar ─────────────────────────────────────────────────────────

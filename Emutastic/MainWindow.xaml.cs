@@ -12,7 +12,9 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
+using System.Runtime.InteropServices;
 
 namespace Emutastic
 {
@@ -295,6 +297,9 @@ namespace Emutastic
         /// Applies Windows system chrome when the theme setting is on.
         /// Must be called after InitializeComponent() and before Show().
         /// </summary>
+        [DllImport("dwmapi.dll", PreserveSig = true)]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+
         private void ApplyWindowsChrome()
         {
             var theme = App.Configuration?.GetThemeConfiguration();
@@ -315,6 +320,19 @@ namespace Emutastic
             // Hide the custom title bar row; system chrome provides its own.
             CustomTitleBar.Visibility = Visibility.Collapsed;
             RootGrid.RowDefinitions[0].Height = new GridLength(0);
+
+            // Apply dark title bar to match the app theme once the HWND exists.
+            SourceInitialized += (_, _) => ApplyDarkTitleBar();
+        }
+
+        private void ApplyDarkTitleBar()
+        {
+            if (new WindowInteropHelper(this).Handle is var hwnd && hwnd != IntPtr.Zero)
+            {
+                // DWMWA_USE_IMMERSIVE_DARK_MODE = 20 (Windows 10 18985+ / Windows 11)
+                int value = 1;
+                DwmSetWindowAttribute(hwnd, 20, ref value, sizeof(int));
+            }
         }
 
         // ── Window chrome ──
