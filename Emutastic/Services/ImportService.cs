@@ -3,6 +3,7 @@ using SharpCompress.Common;
 using System.Linq;
 using Emutastic.Models;
 using Emutastic.Services;
+using Emutastic.Configuration;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -16,17 +17,20 @@ namespace Emutastic.Services
         private readonly ArtworkService _artwork;
         private readonly CoreManager _coreManager;
         private readonly DatMatchService _datMatcher;
+        private readonly IConfigurationService? _configService;
 
         // Limits concurrent hash+artwork background tasks so SQLite isn't hammered by
         // hundreds of simultaneous writers during a large import (e.g. 200 N64 ROMs).
         private readonly System.Threading.SemaphoreSlim _hashSemaphore = new(6, 6);
 
-        public ImportService(DatabaseService db, CoreManager coreManager)
+        public ImportService(DatabaseService db, CoreManager coreManager,
+            IConfigurationService? configService = null)
         {
             _db = db;
             _artwork = new ArtworkService();
             _coreManager = coreManager;
             _datMatcher = new DatMatchService();
+            _configService = configService;
         }
 
         public event Action<string>? StatusChanged;
@@ -316,7 +320,45 @@ namespace Emutastic.Services
         private async Task ImportRomFileAsync(string romPath, string console, string fileName,
             string? overrideTitle = null)
         {
-            await Task.CompletedTask; // satisfy CS1998; method is intentionally synchronous at the top level
+            // ── Copy to library folder if configured ──
+            var libConfig = _configService?.GetLibraryConfiguration();
+            if (libConfig is { CopyToLibrary: true }
+                && !string.IsNullOrEmpty(libConfig.LibraryPath))
+            {
+                try
+                {
+                    string destDir = libConfig.LibraryPath;
+                    if (libConfig.OrganizeByConsole)
+                        destDir = Path.Combine(destDir, console);
+                    Directory.CreateDirectory(destDir);
+
+                    string destPath = Path.Combine(destDir, Path.GetFileName(romPath));
+                    destPath = GetUniqueDestPath(destPath);
+
+                    // Skip copy if the file is already inside the library folder
+                    string fullSrc  = Path.GetFullPath(romPath);
+                    string fullDest = Path.GetFullPath(destPath);
+                    if (!fullSrc.Equals(fullDest, StringComparison.OrdinalIgnoreCase))
+                    {
+                        StatusChanged?.Invoke($"Copying {Path.GetFileName(romPath)}…");
+                        await CopyFileAsync(romPath, destPath);
+
+                        // For .cue files, also copy every .bin referenced inside
+                        if (Path.GetExtension(romPath).Equals(".cue", StringComparison.OrdinalIgnoreCase))
+                            await CopyCueBinsAsync(romPath, destDir);
+
+                        romPath  = destPath;
+                        fileName = Path.GetFileName(destPath);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ImportLog($"[{fileName}] COPY FAILED — {ex.Message}");
+                    StatusChanged?.Invoke($"Copy failed for {fileName} — importing in-place");
+                    // Fall through and import from the original location
+                }
+            }
+
             if (_db.RomPathExists(romPath)) { ImportLog($"[{fileName}] SKIPPED — path already in DB"); return; }
 
             StatusChanged?.Invoke($"Importing {fileName}…");
@@ -532,6 +574,82 @@ namespace Emutastic.Services
                 StatusChanged?.Invoke($"Extraction failed for {Path.GetFileName(archivePath)}: {ex.Message}");
                 return null;
             }
+        }
+
+        // ── Copy-to-library helpers ───────────────────────────────────────────
+
+        private static async Task CopyFileAsync(string source, string dest)
+        {
+            const int bufferSize = 81920; // 80 KB — good balance for HDD/SSD
+            using var src = new FileStream(source, FileMode.Open, FileAccess.Read,
+                FileShare.Read, bufferSize, useAsync: true);
+            using var dst = new FileStream(dest, FileMode.CreateNew, FileAccess.Write,
+                FileShare.None, bufferSize, useAsync: true);
+            await src.CopyToAsync(dst);
+        }
+
+        /// <summary>
+        /// Parses a .cue sheet and copies every referenced .bin file into destDir.
+        /// </summary>
+        private async Task CopyCueBinsAsync(string cuePath, string destDir)
+        {
+            string? cueDir = Path.GetDirectoryName(cuePath);
+            if (cueDir == null) return;
+
+            foreach (string line in File.ReadLines(cuePath))
+            {
+                // FILE "Track 01.bin" BINARY
+                string trimmed = line.TrimStart();
+                if (!trimmed.StartsWith("FILE ", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                string? binName = ParseCueFileName(trimmed);
+                if (binName == null) continue;
+
+                string binSrc  = Path.Combine(cueDir, binName);
+                string binDest = Path.Combine(destDir, binName);
+
+                if (!File.Exists(binSrc)) continue;
+                if (File.Exists(binDest)) continue; // already there
+
+                StatusChanged?.Invoke($"Copying {binName}…");
+                await CopyFileAsync(binSrc, binDest);
+            }
+        }
+
+        /// <summary>Extracts the filename from a CUE FILE directive.</summary>
+        private static string? ParseCueFileName(string fileLine)
+        {
+            // FILE "some file.bin" BINARY  or  FILE somefile.bin BINARY
+            int start = fileLine.IndexOf('"');
+            if (start >= 0)
+            {
+                int end = fileLine.IndexOf('"', start + 1);
+                if (end > start)
+                    return fileLine.Substring(start + 1, end - start - 1);
+            }
+            // Unquoted: FILE name.bin BINARY
+            string[] parts = fileLine.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            return parts.Length >= 2 ? parts[1] : null;
+        }
+
+        /// <summary>
+        /// Returns destPath as-is if it doesn't exist. Otherwise appends (2), (3), etc.
+        /// </summary>
+        private static string GetUniqueDestPath(string destPath)
+        {
+            if (!File.Exists(destPath)) return destPath;
+
+            string dir  = Path.GetDirectoryName(destPath)!;
+            string name = Path.GetFileNameWithoutExtension(destPath);
+            string ext  = Path.GetExtension(destPath);
+
+            for (int i = 2; i < 10000; i++)
+            {
+                string candidate = Path.Combine(dir, $"{name} ({i}){ext}");
+                if (!File.Exists(candidate)) return candidate;
+            }
+            return destPath; // extremely unlikely fallback
         }
     }
 }

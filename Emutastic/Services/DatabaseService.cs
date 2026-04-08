@@ -265,6 +265,16 @@ namespace Emutastic.Services
             return (long)cmd.ExecuteScalar()! > 0;
         }
 
+        public bool GameExists(int gameId)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT COUNT(*) FROM Games WHERE Id = $id;";
+            cmd.Parameters.AddWithValue("$id", gameId);
+            return (long)cmd.ExecuteScalar()! > 0;
+        }
+
         public void UpdatePlayCount(int gameId)
         {
             using var connection = new SqliteConnection(_connectionString);

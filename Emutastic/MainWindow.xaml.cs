@@ -53,7 +53,7 @@ namespace Emutastic
             _db          = new DatabaseService();   // schema init (CREATE TABLE / indexes)
             _artwork     = new ArtworkService();
             _coreManager = new CoreManager(App.Configuration!);
-            _importer    = new ImportService(_db, _coreManager);
+            _importer    = new ImportService(_db, _coreManager, App.Configuration);
             _vm          = new MainViewModel(_db);  // empty _allGames until Reload() runs
             DataContext  = _vm;                     // _vm is now non-null; clicks work
 
@@ -839,7 +839,16 @@ namespace Emutastic
             _selectionAnchor = game;
             _openDetailWindow?.Close();
             _openDetailWindow = new GameDetailWindow(game) { Owner = this };
-            _openDetailWindow.Closed += (_, _) => _openDetailWindow = null;
+            _openDetailWindow.Closed += async (_, _) =>
+            {
+                _openDetailWindow = null;
+                // If the game was removed via the detail card, refresh the view.
+                if (!_db.GameExists(game.Id))
+                {
+                    _vm.RemoveGame(game);
+                    await _vm.FilterGamesAsync();
+                }
+            };
             _openDetailWindow.Show();
         }
 
@@ -903,6 +912,7 @@ namespace Emutastic
                 foreach (var g in toDelete) _vm.RemoveGame(g);
                 GameGridView.SelectedItems.Clear();
                 _selectionAnchor = null;
+                await _vm.FilterGamesAsync();
             }));
             return menu;
         }
@@ -1116,7 +1126,7 @@ namespace Emutastic
             menu.Items.Add(new Separator());
 
             // ── Delete Game ──
-            var deleteItem = MakeMenuItem("🗑  Delete Game", () =>
+            var deleteItem = MakeMenuItem("🗑  Delete Game", async () =>
             {
                 var dlg = new Views.ConfirmDialog(
                     "Delete Game",
@@ -1126,6 +1136,7 @@ namespace Emutastic
                 {
                     _db.DeleteGame(game.Id);
                     _vm.RemoveGame(game);
+                    await _vm.FilterGamesAsync();
                 }
             });
 
@@ -1200,6 +1211,9 @@ namespace Emutastic
             foreach (var g in toDelete) _vm.RemoveGame(g);
             GameGridView.SelectedItems.Clear();
             _selectionAnchor = null;
+
+            // Rebuild the view so grouped headers and counts refresh immediately.
+            await _vm.FilterGamesAsync();
         }
 
         // ── Tab switching ──
