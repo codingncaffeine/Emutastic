@@ -37,7 +37,7 @@ namespace Emutastic.Configuration
             ["FDS"] = new ControllerDefinition
             {
                 Name = "Famicom Disk System",
-                ControllerImage = "/Assets/images/NES/controller_nes@2x.png",
+                ControllerImage = "/Assets/images/famicom/famicom.png",
                 Buttons = new List<ButtonDefinition>
                 {
                     new("Up",     "Up",     140,  80, ButtonType.DPad,   60, 60, GDPad),
@@ -587,7 +587,7 @@ namespace Emutastic.Configuration
             ["CDi"] = new ControllerDefinition
             {
                 Name = "Philips CD-i",
-                ControllerImage = "/Assets/images/cdi/cdi_gamepad.png",
+                ControllerImage = "/Assets/images/cdi/cdi_controller.png",
                 Buttons = new List<ButtonDefinition>
                 {
                     new("Up",           "Up",           140,  70, ButtonType.DPad,            70, 70, GDPad),
