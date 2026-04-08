@@ -33,11 +33,7 @@
       <Link>rcheevos.dll</Link>
     </Content>
   </ItemGroup>
-  <ItemGroup>
-    <Content Include="DATs\*.dat" Condition="Exists('DATs')">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-  </ItemGroup>
+  <!-- DAT files are not bundled — users download them in-app via Preferences → Cores / Extras -->
   <ItemGroup>
     <Content Include="README.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

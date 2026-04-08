@@ -152,12 +152,7 @@ Cores\
     dolphin_libretro.dll
     opera_libretro.dll
     ... (all other core DLLs)
-DATs\
-    SegaCD.dat
-    Saturn.dat
-    PS1.dat
-    3DO.dat
-    ... (No-Intro / Redump DAT files, named by console tag)
+DATs\              (created automatically — download DATs in-app via Preferences → Cores / Extras)
 ```
 
 App data is stored at `%AppData%\Roaming\Emutastic\`:
