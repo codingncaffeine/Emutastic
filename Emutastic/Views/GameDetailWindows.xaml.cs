@@ -160,8 +160,9 @@ namespace Emutastic.Views
             string systemDir = System.IO.Path.Combine(appData, "Emutastic", "System");
             string region = RomService.DetectRegion(_game.RomPath);
             string? romDir = System.IO.Path.GetDirectoryName(_game.RomPath);
+            string? resolvedCore = coreManager.GetCorePath(_game.Console);
             var missingBios = CoreManager.GetMissingBios(_game.Console, systemDir, region,
-                romDir != null ? new[] { romDir } : null);
+                romDir != null ? new[] { romDir } : null, resolvedCore);
             if (missingBios.Count > 0)
             {
                 var biosDialog = new BiosRequiredWindow(_game.Console, missingBios, region)

@@ -10,6 +10,13 @@ Download: https://aka.ms/vs/17/release/vc_redist.x64.exe
 That's it. No other runtime installation needed.
 
 
+WINDOWS SMARTSCREEN
+-------------------
+Emutastic is not code-signed, so Windows SmartScreen may block the app
+on first launch. Click "More info" then "Run anyway" to proceed. This
+is normal for unsigned open-source software.
+
+
 GETTING STARTED
 ---------------
 1. Run Emutastic.exe

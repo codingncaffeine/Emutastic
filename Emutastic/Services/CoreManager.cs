@@ -67,6 +67,7 @@ namespace Emutastic.Services
                                      "fbalpha2012_cps2_libretro.dll",
                                      "fbalpha2012_cps3_libretro.dll",
                                      "fbalpha2012_neogeo_libretro.dll",
+                                     "geolith_libretro.dll",
                                      "mame2003_plus_libretro.dll",
                                      "mame2003_libretro.dll",
                                      "mame2010_libretro.dll",
@@ -127,6 +128,13 @@ namespace Emutastic.Services
         {
         };
 
+        // Core-specific BIOS requirements — keyed by substring of the core DLL name.
+        // Checked only when the resolved core matches. Any ONE file present = satisfied.
+        public static readonly (string CoreMatch, string[] Files)[] CoreBiosMap =
+        {
+            ("geolith", new[] { "neogeo.zip" }),
+        };
+
         /// <summary>
         /// Returns the BIOS filenames that are missing for the given console and region.
         /// Checks systemDir first, then any extraDirs (e.g. the ROM file's folder).
@@ -135,7 +143,8 @@ namespace Emutastic.Services
         /// Returns an empty list when all required files are present or the console needs no BIOS.
         /// </summary>
         public static List<string> GetMissingBios(string console, string systemDir,
-            string region = "Unknown", IEnumerable<string>? extraDirs = null)
+            string region = "Unknown", IEnumerable<string>? extraDirs = null,
+            string? corePath = null)
         {
             var searchDirs = new[] { systemDir }
                 .Concat(extraDirs ?? Enumerable.Empty<string>())
@@ -144,6 +153,17 @@ namespace Emutastic.Services
 
             bool FileFound(string filename) =>
                 searchDirs.Any(dir => File.Exists(Path.Combine(dir, filename)));
+
+            // Core-specific BIOS requirements (e.g. geolith needs neogeo.zip).
+            if (corePath != null)
+            {
+                string coreName = Path.GetFileName(corePath).ToLowerInvariant();
+                foreach (var (coreMatch, files) in CoreBiosMap)
+                {
+                    if (coreName.Contains(coreMatch))
+                        return files.Any(FileFound) ? new List<string>() : new List<string>(files);
+                }
+            }
 
             // Region-aware path: check only the files needed for this region.
             if (region != "Unknown" && RegionBiosMap.TryGetValue(console, out var regionMap))
