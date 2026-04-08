@@ -44,6 +44,16 @@ You can also place them in the same folder as your ROMs for that system.
 See Preferences → System Files for the exact filenames required per system.
 
 
+CORE SPECIFIC NOTES
+-------------------
+GameCube (Dolphin): The emulator core remains loaded in memory after
+closing a game to prevent a crash during cleanup. This is harmless
+and the memory is reclaimed when Emutastic exits.
+
+N64 (parallel_n64): May crash on close due to internal cleanup threads.
+This is a known issue with the core and does not affect save data.
+
+
 MORE INFORMATION
 ----------------
 GitHub:  https://github.com/codingncaffeine/Emutastic
