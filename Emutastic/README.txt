@@ -24,7 +24,8 @@ GETTING STARTED
    place the files.
 
 4. Drag and drop ROM or disc image files onto the library window to import
-   your games, or use File → Import ROM.
+   your games, or use the Import ROMs button in the navigation bar below
+   Preferences.
 
 
 CONTROLLERS
