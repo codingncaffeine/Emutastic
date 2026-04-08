@@ -10,6 +10,12 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 
 ---
 
+## Windows SmartScreen
+
+Emutastic is not code-signed, so Windows SmartScreen may block the app on first launch. Click **"More info"** then **"Run anyway"** to proceed. This is normal for unsigned open-source software.
+
+---
+
 ## Requirements
 
 - Windows 10/11 x64
@@ -25,7 +31,7 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 
 | System | Console Tag | Core (priority order) | BIOS Required |
 |---|---|---|---|
-| Arcade | Arcade | fbneo *(recommended)* → fbalpha2012 → fbalpha2012_cps1/2/3/neogeo → mame2003_plus → mame2003 → mame2010 → mame2015 → mame2016 → mame → mame2000 | No (game ROMs in ZIP/7z) |
+| Arcade | Arcade | fbneo *(recommended)* → fbalpha2012 → fbalpha2012_cps1/2/3/neogeo → geolith (Neo Geo only) → mame2003_plus → mame2003 → mame2010 → mame2015 → mame2016 → mame → mame2000 | No (geolith requires `neogeo.zip`) |
 | Nintendo Entertainment System | NES | nestopia → quicknes → fceumm | No |
 | Famicom Disk System | FDS | nestopia | `disksys.rom` |
 | Super Nintendo | SNES | snes9x → bsnes | No |
@@ -104,7 +110,7 @@ Any one of: `panafz10.bin` (Panasonic), `panafz1j.bin` (Japan), `goldstar.bin` (
 
 ## ROM Import
 
-Drag and drop ROM files onto the library window or use **File → Import ROM**. The app:
+Drag and drop ROM files onto the library window or use the **Import ROMs** button in the navigation bar. The app:
 
 1. Detects the console from the file extension
 2. For ambiguous formats (`.chd`, `.iso`, `.cue`), attempts a SHA1 lookup against [No-Intro / Redump DAT files](https://www.no-intro.org/) placed in the `DATs\` folder — if matched, the console is set automatically

@@ -26,6 +26,7 @@ namespace Emutastic.Views
         // =========================================================================
         private readonly Game _game;
         private readonly LibretroCore _core;
+        private volatile bool _loadFailed;
         private DispatcherTimer? _timer;
         private string _srmPath = "";   // per-game battery save file (.srm)
         private WriteableBitmap? _bitmap;
@@ -85,8 +86,9 @@ namespace Emutastic.Views
         private short _keyRightStickY;
 
         // Directory pointers (unmanaged lifetime)
-        private IntPtr _systemDirPtr = IntPtr.Zero;
-        private IntPtr _saveDirPtr   = IntPtr.Zero;
+        private IntPtr _systemDirPtr  = IntPtr.Zero;
+        private IntPtr _saveDirPtr    = IntPtr.Zero;
+        private IntPtr _contentDirPtr = IntPtr.Zero;
 
         // Pinned callback delegates (must stay alive as long as the core is running)
         private retro_environment_t?        _envCb;
@@ -657,8 +659,10 @@ namespace Emutastic.Views
                 string coreDllDir = Path.GetDirectoryName(core.CorePath) ?? sysDir;
                 string resolvedSysDir = _consoleHandler.ResolveSystemDirectory(sysDir, coreDllDir);
                 Directory.CreateDirectory(resolvedSysDir);
-                _systemDirPtr = Marshal.StringToHGlobalAnsi(resolvedSysDir);
-                _saveDirPtr   = Marshal.StringToHGlobalAnsi(batteryDir);
+                _systemDirPtr  = Marshal.StringToHGlobalAnsi(resolvedSysDir);
+                _saveDirPtr    = Marshal.StringToHGlobalAnsi(batteryDir);
+                string contentDir = Path.GetDirectoryName(game.RomPath) ?? resolvedSysDir;
+                _contentDirPtr = Marshal.StringToHGlobalAnsi(contentDir);
 
                 SeedDefaultCoreOptions();
 
@@ -866,6 +870,11 @@ namespace Emutastic.Views
                         try { _core?.Deinit(); }
                         catch { }
                     }
+
+                    // Dispose the core now so the OnClosed cleanup path doesn't try
+                    // to interact with a partially-initialized core.
+                    try { _core.Dispose(); } catch { }
+                    _loadFailed = true;
 
                     Dispatcher.Invoke(() => MessageBox.Show($"Failed to load {_game.Title}\n\nCheck debug output for details.",
                         "Load Error", MessageBoxButton.OK, MessageBoxImage.Error));
@@ -2200,6 +2209,10 @@ namespace Emutastic.Views
 
                     case RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY:
                         if (data != IntPtr.Zero) Marshal.WriteIntPtr(data, _saveDirPtr);
+                        return true;
+
+                    case RETRO_ENVIRONMENT_GET_CONTENT_DIRECTORY:
+                        if (data != IntPtr.Zero) Marshal.WriteIntPtr(data, _contentDirPtr);
                         return true;
 
                     // Advertise joypad + analog + mouse capability
@@ -3997,8 +4010,12 @@ namespace Emutastic.Views
                 // LibretroCore.Dispose() skips retro_unload_game (already called on emu
                 // thread) and skips retro_deinit for N64 (called on emu thread with GL
                 // context active).  Dispose() handles the post-deinit wait + FreeLibrary.
-                try { _core?.Dispose(); }
-                catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Core dispose: {ex.Message}"); }
+                // Skip if load failed — already disposed on the emu thread.
+                if (!_loadFailed)
+                {
+                    try { _core?.Dispose(); }
+                    catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Core dispose: {ex.Message}"); }
+                }
 
                 // GL context cleanup + optional DLL unload.
                 //
@@ -4088,8 +4105,9 @@ namespace Emutastic.Views
                 try { _controllerManager?.Dispose(); _audioPlayer?.Dispose(); }
                 catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Service cleanup: {ex.Message}"); }
 
-                if (_systemDirPtr != IntPtr.Zero) { Marshal.FreeHGlobal(_systemDirPtr); _systemDirPtr = IntPtr.Zero; }
-                if (_saveDirPtr   != IntPtr.Zero) { Marshal.FreeHGlobal(_saveDirPtr);   _saveDirPtr   = IntPtr.Zero; }
+                if (_systemDirPtr  != IntPtr.Zero) { Marshal.FreeHGlobal(_systemDirPtr);  _systemDirPtr  = IntPtr.Zero; }
+                if (_saveDirPtr    != IntPtr.Zero) { Marshal.FreeHGlobal(_saveDirPtr);    _saveDirPtr    = IntPtr.Zero; }
+                if (_contentDirPtr != IntPtr.Zero) { Marshal.FreeHGlobal(_contentDirPtr); _contentDirPtr = IntPtr.Zero; }
 
                 // Free cached GET_VARIABLE string pointers
                 foreach (var ptr in _coreOptionPtrs.Values)

@@ -1679,6 +1679,7 @@ namespace Emutastic.Views
                 "fbalpha2012_cps2"  => "FB Alpha 2012 CPS-2",
                 "fbalpha2012_cps3"  => "FB Alpha 2012 CPS-3",
                 "fbalpha2012_neogeo"=> "FB Alpha 2012 Neo Geo",
+                "geolith"           => "Geolith (Neo Geo)",
                 "mame"              => "MAME (current)",
                 "mame2000"          => "MAME 2000 (0.37b5)",
                 "mame2003"          => "MAME 2003 (0.78)",
