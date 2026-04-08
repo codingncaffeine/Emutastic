@@ -104,6 +104,10 @@ namespace Emutastic.Configuration
     {
         public bool Enabled { get; set; } = false;
         public string Username { get; set; } = "";
+        public string Password { get; set; } = "";
+        /// <summary>API token returned by rcheevos after a successful password login.</summary>
+        public string Token { get; set; } = "";
+        /// <summary>Web API Key from retroachievements.org settings (used for Test Connection only).</summary>
         public string ApiKey { get; set; } = "";
         public bool HardcoreMode { get; set; } = false;
     }

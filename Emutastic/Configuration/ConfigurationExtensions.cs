@@ -80,9 +80,9 @@ namespace Emutastic.Configuration
                     new() { ButtonName = "Down", InputIdentifier = "Down", InputType = InputType.Keyboard, DisplayName = "↓" },
                     new() { ButtonName = "Left", InputIdentifier = "Left", InputType = InputType.Keyboard, DisplayName = "←" },
                     new() { ButtonName = "Right", InputIdentifier = "Right", InputType = InputType.Keyboard, DisplayName = "→" },
+                    new() { ButtonName = "Fire", InputIdentifier = "Z", InputType = InputType.Keyboard, DisplayName = "Z" },
                     new() { ButtonName = "Select", InputIdentifier = "RightShift", InputType = InputType.Keyboard, DisplayName = "Right Shift" },
-                    new() { ButtonName = "Start", InputIdentifier = "Return", InputType = InputType.Keyboard, DisplayName = "Enter" },
-                    new() { ButtonName = "B", InputIdentifier = "Z", InputType = InputType.Keyboard, DisplayName = "Z" },
+                    new() { ButtonName = "Reset", InputIdentifier = "Return", InputType = InputType.Keyboard, DisplayName = "Enter" },
                 },
                 "Genesis" => new List<ButtonMapping>
                 {
@@ -172,9 +172,9 @@ namespace Emutastic.Configuration
                     new() { ButtonName = "Down", InputIdentifier = "5", InputType = InputType.Controller, DisplayName = "D-Pad Down" },
                     new() { ButtonName = "Left", InputIdentifier = "6", InputType = InputType.Controller, DisplayName = "D-Pad Left" },
                     new() { ButtonName = "Right", InputIdentifier = "7", InputType = InputType.Controller, DisplayName = "D-Pad Right" },
+                    new() { ButtonName = "Fire", InputIdentifier = "0", InputType = InputType.Controller, DisplayName = "A" },
                     new() { ButtonName = "Select", InputIdentifier = "2", InputType = InputType.Controller, DisplayName = "Back" },
-                    new() { ButtonName = "Start", InputIdentifier = "3", InputType = InputType.Controller, DisplayName = "Start" },
-                    new() { ButtonName = "B", InputIdentifier = "0", InputType = InputType.Controller, DisplayName = "B" },
+                    new() { ButtonName = "Reset", InputIdentifier = "3", InputType = InputType.Controller, DisplayName = "Start" },
                 },
                 "Genesis" => new List<ButtonMapping>
                 {

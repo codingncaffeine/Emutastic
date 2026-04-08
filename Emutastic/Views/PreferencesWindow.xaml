@@ -1151,7 +1151,7 @@
                                     <TextBlock Text="RetroAchievements"
                                                FontSize="15" FontWeight="SemiBold"
                                                Foreground="{StaticResource TextPrimaryBrush}"/>
-                                    <TextBlock Text="Create a free account at retroachievements.org, then grab your Web API Key from Settings → Keys."
+                                    <TextBlock Text="Create a free account at retroachievements.org. Your password is used to obtain a login token — it is not stored."
                                                FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
                                                TextWrapping="Wrap" Margin="0,4,0,0"/>
                                 </StackPanel>
@@ -1168,12 +1168,25 @@
                                      Style="{StaticResource DarkTextBox}"
                                      Margin="0,0,0,14"/>
 
-                            <!-- Web API Key -->
-                            <TextBlock Text="Web API Key" FontSize="12"
+                            <!-- Password -->
+                            <TextBlock Text="Password" FontSize="12"
+                                       Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,6"/>
+                            <PasswordBox x:Name="RAPasswordBox"
+                                         Style="{StaticResource DarkPasswordBox}"
+                                         Margin="0,0,0,14"/>
+
+                            <!-- Web API Key (for Test Connection only) -->
+                            <TextBlock Text="Web API Key (optional — for testing connection)" FontSize="12"
                                        Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,6"/>
                             <PasswordBox x:Name="RAApiKeyBox"
                                          Style="{StaticResource DarkPasswordBox}"
-                                         Margin="0,0,0,20"/>
+                                         Margin="0,0,0,8"/>
+
+                            <!-- Token status -->
+                            <TextBlock x:Name="RATokenStatus"
+                                       FontSize="11"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       Margin="0,0,0,20"/>
 
                             <!-- Test connection -->
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,24">

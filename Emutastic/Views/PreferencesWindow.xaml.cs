@@ -1859,10 +1859,14 @@ namespace Emutastic.Views
         private void LoadAchievementsSettings()
         {
             var ra = _configService.GetRetroAchievementsConfiguration();
-            RAEnabledToggle.IsChecked = ra.Enabled;
-            RAUsernameBox.Text        = ra.Username;
-            RAApiKeyBox.Password      = ra.ApiKey;
+            RAEnabledToggle.IsChecked  = ra.Enabled;
+            RAUsernameBox.Text         = ra.Username;
+            RAPasswordBox.Password     = ra.Password;
+            RAApiKeyBox.Password       = ra.ApiKey;
             RAHardcoreToggle.IsChecked = ra.HardcoreMode;
+            RATokenStatus.Text = !string.IsNullOrEmpty(ra.Token)
+                ? "Login token saved — password not required for future sessions."
+                : "No login token yet — password required for first login.";
         }
 
         private async void RATestBtn_Click(object sender, RoutedEventArgs e)
@@ -1886,6 +1890,7 @@ namespace Emutastic.Views
             var ra = _configService.GetRetroAchievementsConfiguration();
             ra.Enabled      = RAEnabledToggle.IsChecked == true;
             ra.Username     = RAUsernameBox.Text.Trim();
+            ra.Password     = RAPasswordBox.Password;
             ra.ApiKey       = RAApiKeyBox.Password;
             ra.HardcoreMode = RAHardcoreToggle.IsChecked == true;
             _configService.SetRetroAchievementsConfiguration(ra);

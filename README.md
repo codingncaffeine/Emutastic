@@ -146,6 +146,7 @@ Button mappings are configurable per-controller in **Preferences → Input**.
 ```
 Emutastic.exe
 SDL3.dll
+rcheevos.dll
 Cores\
     snes9x_libretro.dll
     dolphin_libretro.dll
@@ -275,6 +276,48 @@ The vecx core uses hardware OpenGL rendering and has some non-obvious requiremen
 - BIOS ROM files (`cdibios.zip`) must be present in the system folder or alongside your ROMs. SAME CDi will not boot without them.
 - Both d-pad and analog stick are supported for cursor movement. The analog stick maps to the four directional inputs, mirroring how the original CD-i's "speed switch" controller worked — fast or slow, not a true analog curve.
 - Button 3 is mapped and supported for the small number of titles that use it (e.g. Mad Dog McCree).
+
+---
+
+## RetroAchievements
+
+Emutastic supports [RetroAchievements](https://retroachievements.org/) — earn achievements while playing retro games. Enable it in **Preferences → Achievements** with your RetroAchievements username and password. Achievements pop up as toast notifications during gameplay.
+
+The integration uses the [rcheevos](https://github.com/RetroAchievements/rcheevos) C library (`rc_client` API) loaded via P/Invoke. If you are building a similar integration into a .NET libretro frontend, here are the non-obvious problems we ran into:
+
+### Building rcheevos.dll for .NET
+
+rcheevos must be compiled as a shared library (`/DRC_SHARED`) with **static CRT linking** (`/MT`). If you build with `/MD` (dynamic CRT), the DLL will depend on `VCRUNTIME140.dll`. .NET's P/Invoke DLL loader does not search the same directories as a native exe would, so it cannot find the VC runtime — the load fails with a `DllNotFoundException` even though the DLL itself is present and correct. Building with `/MT` eliminates the dependency entirely (only `KERNEL32.dll` remains).
+
+You also need `/DRC_CLIENT_SUPPORTS_HASH` to enable the built-in ROM hashing that `rc_client_begin_identify_and_load_game` uses.
+
+### DLL placement in the build output
+
+If your `.csproj` references the DLL from a subfolder (e.g. `<Content Include="Libraries\rcheevos.dll">`), MSBuild preserves that relative path in the output — the DLL ends up at `bin\...\Libraries\rcheevos.dll` instead of next to the exe. .NET's native DLL search does not look in subdirectories. Add `<Link>rcheevos.dll</Link>` to flatten it:
+
+```xml
+<Content Include="Libraries\rcheevos.dll">
+  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+  <Link>rcheevos.dll</Link>
+</Content>
+```
+
+### Memory regions must be cached before game load
+
+rcheevos validates achievement addresses during `rc_client_begin_identify_and_load_game` by calling the `read_memory` callback. If your callback relies on memory region pointers that are only populated after load completes, every address check returns 0 and rcheevos disables all achievements with "Invalid address" errors. The fix is to call `retro_get_memory_data` / `retro_get_memory_size` and cache the pointers **before** calling `rc_client_begin_identify_and_load_game` — the libretro core has already allocated its memory regions by the time `retro_load_game` returns.
+
+### Web API Key vs Login Token
+
+RetroAchievements has two authentication mechanisms that are easy to confuse:
+
+- **Web API Key** — found on your [settings page](https://retroachievements.org/settings). This is for read-only web API queries (looking up game info, user profiles). It works with `API_GetUserProfile.php` and similar endpoints.
+- **Login Token** — returned by `rc_client_begin_login_with_password`. This is what rcheevos uses for gameplay session tracking, achievement unlocks, and all `rc_client` operations.
+
+These are **not interchangeable**. Passing the Web API Key to `rc_client_begin_login_with_token` will silently fail. The correct flow is: log in once with username + password → extract the token from `rc_client_get_user_info` → save the token for future sessions → use `rc_client_begin_login_with_token` on subsequent launches.
+
+### HTTP callback bridging
+
+rcheevos does not perform HTTP requests itself — the frontend must provide a `server_call` callback that executes HTTP requests and invokes a native callback with the response. The native callback function pointer must survive across the async HTTP call. Using `Marshal.GetFunctionPointerForDelegate` to capture the raw pointer before the async boundary, then `Marshal.GetDelegateForFunctionPointer` to invoke it in the completion handler, prevents GC of the managed delegate wrapper from breaking the callback.
 
 ---
 

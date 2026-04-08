@@ -459,11 +459,22 @@ namespace Emutastic.Configuration
                 ControllerImage = "/Assets/images/Atari 2600/controller_2600@2x.png",
                 Buttons = new List<ButtonDefinition>
                 {
-                    new("Up",    "Up",    140,  70, ButtonType.DPad,   60, 60, GDPad),
-                    new("Down",  "Down",  140, 150, ButtonType.DPad,   60, 60, GDPad),
-                    new("Left",  "Left",  100, 110, ButtonType.DPad,   60, 60, GDPad),
-                    new("Right", "Right", 180, 110, ButtonType.DPad,   60, 60, GDPad),
-                    new("Fire",  "B",     380, 140, ButtonType.Button, 35, 35, GFace),
+                    new("Up",         "Up",     140,  70, ButtonType.DPad,   60, 60, GDPad),
+                    new("Down",       "Down",   140, 150, ButtonType.DPad,   60, 60, GDPad),
+                    new("Left",       "Left",   100, 110, ButtonType.DPad,   60, 60, GDPad),
+                    new("Right",      "Right",  180, 110, ButtonType.DPad,   60, 60, GDPad),
+                    new("Fire",       "B",      380, 140, ButtonType.Button, 35, 35, GFace),
+                    // Console switches (Stella: SELECT=Select, START=Reset)
+                    new("Select",     "Select", 240, 200, ButtonType.Button, 50, 20, GSystem),
+                    new("Reset",      "Start",  320, 200, ButtonType.Button, 50, 20, GSystem),
+                    // Difficulty switches — L/L2 = Left Diff A/B, R/R2 = Right Diff A/B
+                    new("Left Diff A",  "L",    240, 240, ButtonType.Button, 40, 20, "Switch"),
+                    new("Left Diff B",  "L2",   290, 240, ButtonType.Button, 40, 20, "Switch"),
+                    new("Right Diff A", "R",    240, 270, ButtonType.Button, 40, 20, "Switch"),
+                    new("Right Diff B", "R2",   290, 270, ButtonType.Button, 40, 20, "Switch"),
+                    // TV type switches — L3 = Color, R3 = B/W
+                    new("Color",        "L3",   240, 300, ButtonType.Button, 40, 20, "Switch"),
+                    new("B/W",          "R3",   290, 300, ButtonType.Button, 40, 20, "Switch"),
                 }
             },
 
@@ -473,12 +484,19 @@ namespace Emutastic.Configuration
                 ControllerImage = "/Assets/images/Atari 7800/controller_7800@2x.png",
                 Buttons = new List<ButtonDefinition>
                 {
-                    new("Up",     "Up",     140,  70, ButtonType.DPad,   60, 60, GDPad),
-                    new("Down",   "Down",   140, 150, ButtonType.DPad,   60, 60, GDPad),
-                    new("Left",   "Left",   100, 110, ButtonType.DPad,   60, 60, GDPad),
-                    new("Right",  "Right",  180, 110, ButtonType.DPad,   60, 60, GDPad),
-                    new("Fire 1", "B",      380, 120, ButtonType.Button, 35, 35, GFace),
-                    new("Fire 2", "Y",      340, 140, ButtonType.Button, 35, 35, GFace),
+                    new("Up",         "Up",     140,  70, ButtonType.DPad,   60, 60, GDPad),
+                    new("Down",       "Down",   140, 150, ButtonType.DPad,   60, 60, GDPad),
+                    new("Left",       "Left",   100, 110, ButtonType.DPad,   60, 60, GDPad),
+                    new("Right",      "Right",  180, 110, ButtonType.DPad,   60, 60, GDPad),
+                    new("Fire 1",     "B",      380, 120, ButtonType.Button, 35, 35, GFace),
+                    new("Fire 2",     "A",      340, 140, ButtonType.Button, 35, 35, GFace),
+                    // Console switches (ProSystem: SELECT=Select, START=Pause, X=Reset)
+                    new("Select",     "Select", 230, 200, ButtonType.Button, 45, 20, GSystem),
+                    new("Pause",      "Start",  300, 200, ButtonType.Button, 45, 20, GSystem),
+                    new("Reset",      "X",      370, 200, ButtonType.Button, 45, 20, GSystem),
+                    // Difficulty toggles — L = Left Diff, R = Right Diff
+                    new("Left Diff",  "L",      250, 240, ButtonType.Button, 40, 20, "Switch"),
+                    new("Right Diff", "R",      300, 240, ButtonType.Button, 40, 20, "Switch"),
                 }
             },
             ["Jaguar"] = new ControllerDefinition
