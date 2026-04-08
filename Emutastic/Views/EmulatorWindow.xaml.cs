@@ -129,6 +129,9 @@ namespace Emutastic.Views
         private readonly Dictionary<Key, uint> _keyboardMappings = new();
         private DatabaseService? _db;
 
+        // RetroAchievements
+        private RetroAchievementsClient? _raClient;
+
         // Overlay HUD
         private bool _isPaused = false;
 
@@ -908,6 +911,9 @@ namespace Emutastic.Views
                     }
                 }
 
+                // ── RetroAchievements ─────────────────────────────────────────────
+                InitRetroAchievements();
+
                 double fps = _core.AvInfo.timing.fps;
                 if (double.IsNaN(fps) || double.IsInfinity(fps) || fps <= 0 || fps > 1000) fps = 60;
                 // Handler can force a hardware-native rate regardless of what the core reports.
@@ -1223,6 +1229,7 @@ namespace Emutastic.Views
                     // Pause: sleep 16ms and skip the frame when the user has paused.
                     if (_isPaused)
                     {
+                        _raClient?.Idle();
                         System.Threading.Thread.Sleep(16);
                         frameTimer.Restart();
                         continue;
@@ -1238,6 +1245,8 @@ namespace Emutastic.Views
                     {
                         var _sw = System.Diagnostics.Stopwatch.StartNew();
                         _core.Run();
+                        try { _raClient?.DoFrame(); }
+                        catch (Exception raEx) { System.Diagnostics.Trace.WriteLine($"[RA] DoFrame error: {raEx.Message}"); }
                         _sw.Stop();
                         System.Threading.Interlocked.Add(ref _coreRunTotalTicks, _sw.ElapsedTicks);
                         System.Threading.Interlocked.Increment(ref _coreRunSampleCount);
@@ -1245,7 +1254,11 @@ namespace Emutastic.Views
                         // Low-watermark catch-up: if the buffer dipped below the safe cushion,
                         // run one extra frame to refill before sleeping the frame budget.
                         if ((_audioPlayer?.GetBufferedMs() ?? lowWatermark) < lowWatermark)
+                        {
                             _core.Run();
+                            try { _raClient?.DoFrame(); }
+                            catch (Exception raEx) { System.Diagnostics.Trace.WriteLine($"[RA] DoFrame error: {raEx.Message}"); }
+                        }
 
                         // Pending save/load — executed between retro_run calls for thread safety.
                         if (_saveStatePending) ExecuteSaveOnEmuThread();
@@ -1306,6 +1319,8 @@ namespace Emutastic.Views
             catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Loop error: {ex.Message}"); }
             finally
             {
+                try { _raClient?.Dispose(); _raClient = null; }
+                catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"RA cleanup: {ex.Message}"); }
                 timeEndPeriod(1);
                 System.Diagnostics.Trace.WriteLine("Emulation loop ended");
             }
@@ -2972,10 +2987,23 @@ namespace Emutastic.Views
                     };
 
                 // ── Atari ─────────────────────────────────────────────────────
-                case "Atari2600": case "Atari7800":
+                case "Atari2600":
                     return n switch {
-                        "fire" => JOYPAD_B, "fire 1" => JOYPAD_B, "fire 2" => JOYPAD_Y,
-                        "pause" => JOYPAD_START, "reset" => JOYPAD_SELECT,
+                        "fire" => JOYPAD_B,
+                        "select" => JOYPAD_SELECT, "reset" => JOYPAD_START,
+                        "left diff a" => JOYPAD_L, "left diff b" => 12,  // L2
+                        "right diff a" => JOYPAD_R, "right diff b" => 13, // R2
+                        "color" => 14, "b/w" => 15,  // L3, R3
+                        "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
+                        "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
+                        _ => uint.MaxValue
+                    };
+                case "Atari7800":
+                    return n switch {
+                        "fire 1" => JOYPAD_B, "fire 2" => JOYPAD_A,
+                        "select" => JOYPAD_SELECT, "pause" => JOYPAD_START,
+                        "reset" => JOYPAD_X,
+                        "left diff" => JOYPAD_L, "right diff" => JOYPAD_R,
                         "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
                         "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
                         _ => uint.MaxValue
@@ -3492,6 +3520,132 @@ namespace Emutastic.Views
         {
             _overlayTimer?.Stop();
             _overlayTimer?.Start();
+        }
+
+        // ── RetroAchievements initialization ─────────────────────────────────
+
+        private void InitRetroAchievements()
+        {
+            try
+            {
+                var raConfig = _configService.GetRetroAchievementsConfiguration();
+                if (!raConfig.Enabled ||
+                    string.IsNullOrWhiteSpace(raConfig.Username) ||
+                    string.IsNullOrWhiteSpace(raConfig.ApiKey))
+                {
+                    System.Diagnostics.Trace.WriteLine("[RA] Disabled or missing credentials — skipping.");
+                    return;
+                }
+
+                uint consoleId = RetroAchievementsClient.GetConsoleId(_game.Console);
+                if (consoleId == 0)
+                {
+                    System.Diagnostics.Trace.WriteLine($"[RA] No RA console ID for '{_game.Console}' — skipping.");
+                    return;
+                }
+
+                _raClient = new RetroAchievementsClient();
+                _raClient.Initialize(_core, raConfig.HardcoreMode);
+
+                // Subscribe to events — marshal to UI thread for toast display
+                _raClient.AchievementTriggered += info =>
+                {
+                    Dispatcher.BeginInvoke(() => ShowAchievementToast(info.Title, info.Description, info.Points));
+                };
+                _raClient.GameCompleted += () =>
+                {
+                    Dispatcher.BeginInvoke(() => ShowAchievementToast("Mastery!", "All achievements earned!", 0));
+                };
+
+                // Try token login first, fall back to password login
+                System.Diagnostics.Trace.WriteLine($"[RA] Logging in as {raConfig.Username}...");
+                bool loginOk = false;
+                string? loginErr = null;
+                string? newToken = null;
+
+                if (!string.IsNullOrWhiteSpace(raConfig.Token))
+                {
+                    System.Diagnostics.Trace.WriteLine("[RA] Attempting token login...");
+                    (loginOk, loginErr, newToken) = _raClient.LoginWithToken(raConfig.Username, raConfig.Token);
+                }
+
+                if (!loginOk && !string.IsNullOrWhiteSpace(raConfig.Password))
+                {
+                    System.Diagnostics.Trace.WriteLine("[RA] Token login failed or no token, trying password...");
+                    (loginOk, loginErr, newToken) = _raClient.LoginWithPassword(raConfig.Username, raConfig.Password);
+
+                    // Save the token for next time so the password isn't needed again
+                    if (loginOk && !string.IsNullOrWhiteSpace(newToken))
+                    {
+                        raConfig.Token = newToken;
+                        _configService.SetRetroAchievementsConfiguration(raConfig);
+                        _ = _configService.SaveAsync();
+                        System.Diagnostics.Trace.WriteLine("[RA] Login token saved for future sessions.");
+                    }
+                }
+
+                if (!loginOk)
+                {
+                    System.Diagnostics.Trace.WriteLine($"[RA] Login failed: {loginErr}");
+                    _raClient.Dispose();
+                    _raClient = null;
+                    return;
+                }
+                System.Diagnostics.Trace.WriteLine("[RA] Login OK");
+
+                System.Diagnostics.Trace.WriteLine($"[RA] Loading game: {_game.RomPath} (console {consoleId})");
+                var (loadOk, loadErr) = _raClient.LoadGame(_game.RomPath, consoleId);
+                if (!loadOk)
+                {
+                    System.Diagnostics.Trace.WriteLine($"[RA] Game load failed: {loadErr}");
+                    // Don't dispose — login succeeded, game just isn't in the RA database
+                    _raClient.Dispose();
+                    _raClient = null;
+                    return;
+                }
+
+                string? gameTitle = _raClient.GetGameTitle();
+                System.Diagnostics.Trace.WriteLine($"[RA] Game identified: {gameTitle}");
+                Dispatcher.BeginInvoke(() =>
+                {
+                    _transientMsg = $"RetroAchievements: {gameTitle}";
+                });
+            }
+            catch (DllNotFoundException)
+            {
+                System.Diagnostics.Trace.WriteLine("[RA] rcheevos.dll not found — achievements disabled.");
+                _raClient = null;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[RA] Init error: {ex.Message}");
+                try { _raClient?.Dispose(); } catch { }
+                _raClient = null;
+            }
+        }
+
+        private DispatcherTimer? _achievementToastTimer;
+
+        private void ShowAchievementToast(string title, string description, uint points)
+        {
+            AchievementTitle.Text = title;
+            AchievementDesc.Text = description;
+            AchievementPoints.Text = points > 0 ? $"{points} points" : "";
+            AchievementToast.Visibility = Visibility.Visible;
+
+            var fadeIn = new System.Windows.Media.Animation.DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(250));
+            AchievementToast.BeginAnimation(OpacityProperty, fadeIn);
+
+            _achievementToastTimer?.Stop();
+            _achievementToastTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
+            _achievementToastTimer.Tick += (_, _) =>
+            {
+                _achievementToastTimer.Stop();
+                var fadeOut = new System.Windows.Media.Animation.DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(400));
+                fadeOut.Completed += (_, _) => AchievementToast.Visibility = Visibility.Collapsed;
+                AchievementToast.BeginAnimation(OpacityProperty, fadeOut);
+            };
+            _achievementToastTimer.Start();
         }
 
         private void TogglePause()

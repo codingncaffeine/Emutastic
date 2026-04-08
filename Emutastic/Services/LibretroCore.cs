@@ -587,6 +587,19 @@ namespace Emutastic.Services
         }
 
         // ── Battery save RAM (SRAM / memory card) ────────────────────────────────
+        /// <summary>
+        /// Returns a pointer to the core's memory region for the given ID, plus its size.
+        /// Used by rcheevos for achievement condition evaluation.
+        /// RETRO_MEMORY_SYSTEM_RAM = 2 is the primary region for most cores.
+        /// </summary>
+        public (IntPtr ptr, uint size) GetMemoryRegion(uint memoryId)
+        {
+            UIntPtr sz = _retro_get_memory_size?.Invoke(memoryId) ?? UIntPtr.Zero;
+            if (sz == UIntPtr.Zero) return (IntPtr.Zero, 0);
+            IntPtr ptr = _retro_get_memory_data?.Invoke(memoryId) ?? IntPtr.Zero;
+            return (ptr, (uint)sz);
+        }
+
         // Reads the core's SRAM buffer.  Returns null if the core exposes no SRAM.
         public byte[]? GetSaveRam()
         {

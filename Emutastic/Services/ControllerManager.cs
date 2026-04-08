@@ -572,10 +572,22 @@ namespace Emutastic.Services
                     };
 
                 // ── Atari ─────────────────────────────────────────────────────
-                case "Atari2600": case "Atari7800":
+                case "Atari2600":
                     return n switch {
-                        "fire" => 0, "fire 1" => 0, "fire 2" => 1,
-                        "pause" => 3, "reset" => 2,
+                        "fire" => 0,   // JOYPAD_B
+                        "select" => 2, "reset" => 3,  // SELECT, START
+                        "left diff a" => 10, "left diff b" => 12,  // L, L2
+                        "right diff a" => 11, "right diff b" => 13, // R, R2
+                        "color" => 14, "b/w" => 15,  // L3, R3
+                        "up" => 4, "down" => 5, "left" => 6, "right" => 7,
+                        _ => uint.MaxValue
+                    };
+                case "Atari7800":
+                    return n switch {
+                        "fire 1" => 0, "fire 2" => 8,  // JOYPAD_B, JOYPAD_A
+                        "select" => 2, "pause" => 3,   // SELECT, START
+                        "reset" => 9,                    // JOYPAD_X
+                        "left diff" => 10, "right diff" => 11, // L, R
                         "up" => 4, "down" => 5, "left" => 6, "right" => 7,
                         _ => uint.MaxValue
                     };

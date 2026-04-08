@@ -408,6 +408,37 @@
                             </StackPanel>
                         </Border>
                     </StackPanel>
+
+                    <!-- Achievement toast -->
+                    <Border x:Name="AchievementToast"
+                            Visibility="Collapsed"
+                            Opacity="0"
+                            VerticalAlignment="Top"
+                            HorizontalAlignment="Center"
+                            Margin="0,20,0,0"
+                            Background="#DD1A1A2E"
+                            BorderBrush="#FFFFD700"
+                            BorderThickness="1.5"
+                            CornerRadius="10"
+                            Padding="18,12"
+                            MinWidth="280"
+                            MaxWidth="450">
+                        <StackPanel>
+                            <TextBlock x:Name="AchievementTitle"
+                                       FontSize="14" FontWeight="Bold"
+                                       Foreground="#FFFFD700"
+                                       TextWrapping="Wrap"/>
+                            <TextBlock x:Name="AchievementDesc"
+                                       FontSize="11.5"
+                                       Foreground="#CCFFFFFF"
+                                       TextWrapping="Wrap"
+                                       Margin="0,3,0,0"/>
+                            <TextBlock x:Name="AchievementPoints"
+                                       FontSize="10.5"
+                                       Foreground="#99FFFFFF"
+                                       Margin="0,4,0,0"/>
+                        </StackPanel>
+                    </Border>
                 </Grid>
             </Border>
 

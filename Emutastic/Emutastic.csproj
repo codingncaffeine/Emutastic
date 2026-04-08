@@ -7,6 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <PlatformTarget>x64</PlatformTarget>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>Emutastic</AssemblyName>
     <ApplicationIcon>Assets\emutastic-logo.ico</ApplicationIcon>
   </PropertyGroup>
@@ -24,6 +25,12 @@
     </Content>
     <Content Include="Cores\disksys.rom" Condition="Exists('Cores\disksys.rom')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="Libraries\rcheevos.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rcheevos.dll</Link>
     </Content>
   </ItemGroup>
   <ItemGroup>
