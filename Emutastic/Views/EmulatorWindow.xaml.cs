@@ -4027,8 +4027,9 @@ namespace Emutastic.Views
                         // PPSSPP's GPU thread self-cleans after retro_unload_game but takes
                         // longer to fully exit than N64/Dolphin (context_destroy is skipped).
                         string dllName = _core != null ? System.IO.Path.GetFileName(_core.CorePath).ToLowerInvariant() : "";
+                        bool skipFreeLibrary = dllName.Contains("dolphin");
                         int preDeleteMs = dllName.Contains("ppsspp") ? 3000 : 1500;
-                        System.Diagnostics.Trace.WriteLine($"GL sync cleanup: waiting {preDeleteMs}ms before wglDeleteContext + FreeLibrary 0x{deferredDll:X}");
+                        System.Diagnostics.Trace.WriteLine($"GL sync cleanup: waiting {preDeleteMs}ms before wglDeleteContext{(skipFreeLibrary ? " (FreeLibrary skipped for Dolphin)" : $" + FreeLibrary 0x{deferredDll:X}")}");
                         System.Threading.Thread.Sleep(preDeleteMs);
                         try
                         {
@@ -4039,13 +4040,16 @@ namespace Emutastic.Views
                         }
                         catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"GL sync delete: {ex.Message}"); }
 
-                        System.Threading.Thread.Sleep(500);
-                        try
+                        if (!skipFreeLibrary)
                         {
-                            NativeMethods.FreeLibrary(deferredDll);
-                            System.Diagnostics.Trace.WriteLine($"GL sync cleanup: FreeLibrary 0x{deferredDll:X} done.");
+                            System.Threading.Thread.Sleep(500);
+                            try
+                            {
+                                NativeMethods.FreeLibrary(deferredDll);
+                                System.Diagnostics.Trace.WriteLine($"GL sync cleanup: FreeLibrary 0x{deferredDll:X} done.");
+                            }
+                            catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"GL sync FreeLibrary: {ex.Message}"); }
                         }
-                        catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"GL sync FreeLibrary: {ex.Message}"); }
                     }
                     else
                     {
