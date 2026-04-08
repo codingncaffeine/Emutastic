@@ -2119,6 +2119,9 @@ namespace Emutastic.Views
             // Philips CD-i (SAME CDi / MAME — place cdibios.zip in System folder)
             new("CDi","Philips CD-i","cdibios.zip","CD-i BIOS (required)",0,null),
 
+            // Arcade — Neo Geo (Geolith core only; FBNeo has BIOS built-in)
+            new("Arcade","Arcade (Neo Geo)","neogeo.zip","Neo Geo BIOS (required for Geolith)",0,null),
+
             // Game Boy Advance (optional — mgba has built-in HLE BIOS)
             new("GBA","Game Boy Advance","gba_bios.bin","BIOS (optional, improves compatibility)",16384,"a860e8c0b6d573d191e4ec7db1b1e4f6"),
         };
