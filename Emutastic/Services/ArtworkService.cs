@@ -760,6 +760,26 @@ namespace Emutastic.Services
                 }
             }
 
+            // Step 5 — ScreenScraper 2D box art fallback (if enabled and libretro missed)
+            if (artworkPath == null && !string.IsNullOrWhiteSpace(console))
+            {
+                try
+                {
+                    var snapConfig = App.Configuration?.GetSnapConfiguration();
+                    if (snapConfig is { ScreenScraperEnabled: true }
+                        && !string.IsNullOrWhiteSpace(snapConfig.ScreenScraperUser))
+                    {
+                        var ss = new ScreenScraperService();
+                        artworkPath = await ss.FetchBoxArt2DAsync(
+                            snapConfig.ScreenScraperUser, snapConfig.ScreenScraperPassword,
+                            console, md5Hash, romPath ?? "");
+                        if (artworkPath != null)
+                            System.Diagnostics.Debug.WriteLine($"Artwork found (ScreenScraper 2D): {artworkPath}");
+                    }
+                }
+                catch { /* non-fatal — SS unavailable shouldn't block artwork flow */ }
+            }
+
             return (artworkPath, result);
         }
     }

@@ -149,6 +149,8 @@ namespace Emutastic.Services
             TryAddColumn(connection, "Games", "Rating", "INTEGER DEFAULT 0");
             TryAddColumn(connection, "Games", "Collection", "TEXT DEFAULT ''");
 
+            TryAddColumn(connection, "Games", "BoxArt3DPath", "TEXT DEFAULT ''");
+
             TryAddColumn(connection, "SaveStates", "Name",        "TEXT NOT NULL DEFAULT ''");
             TryAddColumn(connection, "SaveStates", "GameTitle",   "TEXT NOT NULL DEFAULT ''");
             TryAddColumn(connection, "SaveStates", "ConsoleName", "TEXT NOT NULL DEFAULT ''");
@@ -312,6 +314,33 @@ namespace Emutastic.Services
             cmd.Parameters.AddWithValue("$path", coverArtPath);
             cmd.Parameters.AddWithValue("$id", gameId);
             cmd.ExecuteNonQuery();
+        }
+
+        public void UpdateBoxArt3D(int gameId, string path)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "UPDATE Games SET BoxArt3DPath = $path WHERE Id = $id;";
+            cmd.Parameters.AddWithValue("$path", path);
+            cmd.Parameters.AddWithValue("$id", gameId);
+            cmd.ExecuteNonQuery();
+        }
+
+        public List<Game> GetGamesWithout3DBoxArtForConsole(string console)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = @"SELECT * FROM Games
+                                WHERE Console = $console
+                                AND   (BoxArt3DPath IS NULL OR BoxArt3DPath = '')
+                                ORDER BY Title;";
+            cmd.Parameters.AddWithValue("$console", console);
+            using var reader = cmd.ExecuteReader();
+            var games = new List<Game>();
+            while (reader.Read()) games.Add(ReadGame(reader));
+            return games;
         }
 
         public void UpdateHash(int gameId, string hash)
@@ -697,7 +726,18 @@ namespace Emutastic.Services
                 Collection = reader.IsDBNull(14) ? "" : reader.GetString(14),
                 LastPlayed = reader.IsDBNull(15) ? null :
                                   DateTime.TryParse(reader.GetString(15), out var dt) ? dt : null,
+                BoxArt3DPath = GetStringByName(reader, "BoxArt3DPath"),
             };
+        }
+
+        private static string GetStringByName(SqliteDataReader reader, string column)
+        {
+            try
+            {
+                int ord = reader.GetOrdinal(column);
+                return reader.IsDBNull(ord) ? "" : reader.GetString(ord);
+            }
+            catch { return ""; }
         }
 
         // Save State methods

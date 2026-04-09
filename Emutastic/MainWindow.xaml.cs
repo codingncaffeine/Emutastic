@@ -95,6 +95,12 @@ namespace Emutastic
             await Task.Run(() => _vm.Reload());  // GetAllGames() — stays off UI thread
             await _vm.FilterGamesAsync();        // sort/group in background, assign on UI thread
 
+            // Restore per-console 3D box art preferences
+            var snapCfg = App.Configuration?.GetSnapConfiguration();
+            if (snapCfg?.Use3DBoxArtConsoles?.Count > 0)
+                Game.Consoles3D = new System.Collections.Generic.HashSet<string>(snapCfg.Use3DBoxArtConsoles);
+            UpdateBoxArtToggleVisibility();
+
             _ = RetryMissingArtworkAsync();
         }
 
@@ -149,6 +155,72 @@ namespace Emutastic
                 return;
             }
             await FetchArtworkForGamesAsync(missing, displayName);
+        }
+
+        private async Task Fetch3DBoxArtForConsoleAsync(string console, string displayName)
+        {
+            var snapConfig = App.Configuration?.GetSnapConfiguration();
+            if (snapConfig == null || !snapConfig.ScreenScraperEnabled
+                || string.IsNullOrWhiteSpace(snapConfig.ScreenScraperUser))
+            {
+                SetStatus("ScreenScraper not configured — set up in Preferences → Snaps", autoClear: true);
+                return;
+            }
+
+            var games = await Task.Run(() => _db.GetGamesWithout3DBoxArtForConsole(console));
+            if (games.Count == 0)
+            {
+                SetStatus($"{displayName} — all 3D box art already downloaded", autoClear: true);
+                return;
+            }
+
+            var ss = new ScreenScraperService();
+            int total = games.Count;
+            int done = 0;
+            int fetched = 0;
+            // ScreenScraper limits concurrent requests per user — use 1 to be safe
+            var sem = new System.Threading.SemaphoreSlim(1, 1);
+
+            SetStatus($"{displayName} — starting 3D box art download for {total} games…");
+
+            foreach (var game in games)
+            {
+                await sem.WaitAsync();
+                try
+                {
+                    var result = await ss.FetchBoxArt3DAsync(
+                        snapConfig.ScreenScraperUser, snapConfig.ScreenScraperPassword,
+                        game.Console, game.RomHash, game.RomPath);
+
+                    if (result.OverQuota)
+                    {
+                        SetStatus($"{displayName} — ScreenScraper daily limit reached ({fetched} downloaded)", autoClear: true);
+                        return;
+                    }
+
+                    if (result.LocalPath != null)
+                    {
+                        _db.UpdateBoxArt3D(game.Id, result.LocalPath);
+                        game.BoxArt3DPath = result.LocalPath;
+                        System.Threading.Interlocked.Increment(ref fetched);
+                        Dispatcher.Invoke(() => _vm.RefreshGame(game));
+                    }
+
+                    int completed = System.Threading.Interlocked.Increment(ref done);
+                    int pct = (int)((completed / (double)total) * 100);
+                    Dispatcher.Invoke(() =>
+                        SetStatus($"{displayName} 3D Box Art — {pct}%  ({completed} of {total})  {game.Title}"));
+                }
+                finally { sem.Release(); }
+            }
+
+            SetStatus(fetched > 0
+                ? $"{displayName} — {fetched} 3D box art image{(fetched == 1 ? "" : "s")} downloaded"
+                : $"{displayName} — no 3D box art found on ScreenScraper", autoClear: true);
+
+            // Show the 2D/3D toggle if we got any
+            if (fetched > 0)
+                Dispatcher.Invoke(() => BoxArtTogglePanel.Visibility = Visibility.Visible);
         }
 
         // silentThreshold: games with ArtworkAttempts >= this value produce no status messages.
@@ -582,6 +654,7 @@ namespace Emutastic
                 SelectNavButton(btn);
                 _vm.SelectedConsole = tag;
                 await _vm.FilterGamesAsync();
+                UpdateBoxArtToggleVisibility();
                 ShowNavCount(btn, _vm.Games.Count);
                 string name = btn.Content is StackPanel sp
                     ? sp.Children.OfType<TextBlock>().FirstOrDefault()?.Text ?? tag
@@ -684,6 +757,15 @@ namespace Emutastic
                     var artItem = new MenuItem { Header = "⬇  Download Missing Artwork" };
                     artItem.Click += async (_, _) => await FetchMissingArtworkForConsoleAsync(console, displayName);
                     menu.Items.Add(artItem);
+
+                    var snapConfig = App.Configuration?.GetSnapConfiguration();
+                    if (snapConfig is { ScreenScraperEnabled: true }
+                        && !string.IsNullOrWhiteSpace(snapConfig.ScreenScraperUser))
+                    {
+                        var art3DItem = new MenuItem { Header = "⬇  Download 3D Box Art" };
+                        art3DItem.Click += async (_, _) => await Fetch3DBoxArtForConsoleAsync(console, displayName);
+                        menu.Items.Add(art3DItem);
+                    }
                     var editControlsItem = new MenuItem { Header = "🎮  Edit Controls…" };
                     editControlsItem.Click += (_, _) =>
                     {
@@ -811,6 +893,49 @@ namespace Emutastic
             {
                 GameGridView.Visibility = Visibility.Collapsed;
                 LibraryView.Visibility  = Visibility.Collapsed;
+            }
+        }
+
+        private void BoxArtToggle_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not ToggleButton clicked) return;
+            bool use3D = clicked.Tag?.ToString() == "3D";
+            BoxArt2D.IsChecked = !use3D;
+            BoxArt3D.IsChecked = use3D;
+
+            string console = _vm.SelectedConsole ?? "";
+            if (use3D)
+                Game.Consoles3D.Add(console);
+            else
+                Game.Consoles3D.Remove(console);
+
+            // Persist preference
+            var snapConfig = App.Configuration?.GetSnapConfiguration();
+            if (snapConfig != null)
+            {
+                snapConfig.Use3DBoxArtConsoles = new System.Collections.Generic.List<string>(Game.Consoles3D);
+                App.Configuration!.SetSnapConfiguration(snapConfig);
+            }
+
+            // Refresh only the current view
+            _vm.RefreshAllGames();
+        }
+
+        /// <summary>
+        /// Shows the 2D/3D toggle if any game in the current view has 3D box art.
+        /// Sets the toggle state based on the current console's preference.
+        /// </summary>
+        private void UpdateBoxArtToggleVisibility()
+        {
+            bool any3D = _vm.Games?.Any(g => !string.IsNullOrEmpty(g.BoxArt3DPath)) == true;
+            BoxArtTogglePanel.Visibility = any3D ? Visibility.Visible : Visibility.Collapsed;
+
+            if (any3D)
+            {
+                string console = _vm.SelectedConsole ?? "";
+                bool is3D = Game.Consoles3D.Contains(console);
+                BoxArt2D.IsChecked = !is3D;
+                BoxArt3D.IsChecked = is3D;
             }
         }
 

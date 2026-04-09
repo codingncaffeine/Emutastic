@@ -590,12 +590,11 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
 
-                            <!-- LEFT: grid/list view toggle -->
-                            <Border Grid.Column="0"
-                                    Background="#1E1E1E"
+                            <!-- LEFT: grid/list + 2D/3D toggles -->
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Border Background="#1E1E1E"
                                     CornerRadius="10"
                                     BorderThickness="0"
-                                    VerticalAlignment="Center"
                                     Margin="12,0,0,0">
                                 <StackPanel Orientation="Horizontal">
                                     <ToggleButton x:Name="ViewGrid"
@@ -609,6 +608,77 @@
                                                   Tag="List"/>
                                 </StackPanel>
                             </Border>
+
+                            <!-- 2D / 3D box art toggle -->
+                            <Border Background="#1E1E1E"
+                                    CornerRadius="10"
+                                    BorderThickness="0"
+                                    Margin="6,0,0,0"
+                                    x:Name="BoxArtTogglePanel"
+                                    Visibility="Collapsed">
+                                <StackPanel Orientation="Horizontal">
+                                    <ToggleButton x:Name="BoxArt2D"
+                                                  IsChecked="True"
+                                                  Click="BoxArtToggle_Click"
+                                                  Tag="2D"
+                                                  Width="28" Height="26" Cursor="Hand"
+                                                  ToolTip="2D Box Art">
+                                        <ToggleButton.Template>
+                                            <ControlTemplate TargetType="ToggleButton">
+                                                <Border x:Name="pill" Background="#2D2D2D" BorderBrush="#1A1A1A" BorderThickness="1,1,0,1" CornerRadius="10,0,0,10">
+                                                    <TextBlock x:Name="lbl" Text="2D" FontSize="9" FontWeight="SemiBold" FontFamily="{StaticResource PrimaryFont}"
+                                                               Foreground="#A0A0A0" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsChecked" Value="True">
+                                                        <Setter TargetName="pill" Property="Background" Value="#555555"/>
+                                                        <Setter TargetName="lbl"  Property="Foreground" Value="#E0E0E0"/>
+                                                    </Trigger>
+                                                    <MultiTrigger>
+                                                        <MultiTrigger.Conditions>
+                                                            <Condition Property="IsMouseOver" Value="True"/>
+                                                            <Condition Property="IsChecked"   Value="False"/>
+                                                        </MultiTrigger.Conditions>
+                                                        <MultiTrigger.Setters>
+                                                            <Setter TargetName="pill" Property="Background" Value="#3D3D3D"/>
+                                                        </MultiTrigger.Setters>
+                                                    </MultiTrigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </ToggleButton.Template>
+                                    </ToggleButton>
+                                    <ToggleButton x:Name="BoxArt3D"
+                                                  Click="BoxArtToggle_Click"
+                                                  Tag="3D"
+                                                  Width="28" Height="26" Cursor="Hand"
+                                                  ToolTip="3D Box Art">
+                                        <ToggleButton.Template>
+                                            <ControlTemplate TargetType="ToggleButton">
+                                                <Border x:Name="pill" Background="#2D2D2D" BorderBrush="#1A1A1A" BorderThickness="1" CornerRadius="0,10,10,0">
+                                                    <TextBlock x:Name="lbl" Text="3D" FontSize="9" FontWeight="SemiBold" FontFamily="{StaticResource PrimaryFont}"
+                                                               Foreground="#A0A0A0" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsChecked" Value="True">
+                                                        <Setter TargetName="pill" Property="Background" Value="#555555"/>
+                                                        <Setter TargetName="lbl"  Property="Foreground" Value="#E0E0E0"/>
+                                                    </Trigger>
+                                                    <MultiTrigger>
+                                                        <MultiTrigger.Conditions>
+                                                            <Condition Property="IsMouseOver" Value="True"/>
+                                                            <Condition Property="IsChecked"   Value="False"/>
+                                                        </MultiTrigger.Conditions>
+                                                        <MultiTrigger.Setters>
+                                                            <Setter TargetName="pill" Property="Background" Value="#3D3D3D"/>
+                                                        </MultiTrigger.Setters>
+                                                    </MultiTrigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </ToggleButton.Template>
+                                    </ToggleButton>
+                                </StackPanel>
+                            </Border>
+                            </StackPanel>
 
                             <!-- CENTER: Library / Save States nav, truly centered -->
                             <Border Grid.Column="1"
@@ -784,12 +854,12 @@
                                                 </MultiBinding>
                                             </Border.Height>
                                             <Grid>
-                                                <Border Visibility="{Binding CoverArtPath, Converter={StaticResource NullToVisibility}}">
+                                                <Border Visibility="{Binding DisplayArtPath, Converter={StaticResource NullToVisibility}}">
                                                     <Border.Background>
                                                         <SolidColorBrush Color="{Binding BackgroundColor, Converter={StaticResource StringToColor}}"/>
                                                     </Border.Background>
                                                 </Border>
-                                                <Border Visibility="{Binding CoverArtPath, Converter={StaticResource NullToVisibility}}">
+                                                <Border Visibility="{Binding DisplayArtPath, Converter={StaticResource NullToVisibility}}">
                                                     <Border.Background>
                                                         <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
                                                             <GradientStop Color="#33FFFFFF" Offset="0"/>
@@ -804,10 +874,10 @@
                                                            TextWrapping="Wrap" TextAlignment="Center"
                                                            VerticalAlignment="Center" HorizontalAlignment="Center"
                                                            Margin="12"
-                                                           Visibility="{Binding CoverArtPath, Converter={StaticResource NullToVisibility}}"/>
-                                                <Image Source="{Binding CoverArtPath, Converter={StaticResource PathToImage}}"
+                                                           Visibility="{Binding DisplayArtPath, Converter={StaticResource NullToVisibility}}"/>
+                                                <Image Source="{Binding DisplayArtPath, Converter={StaticResource PathToImage}}"
                                                        Stretch="Uniform"
-                                                       Visibility="{Binding CoverArtPath, Converter={StaticResource NotNullToVisibility}}"/>
+                                                       Visibility="{Binding DisplayArtPath, Converter={StaticResource NotNullToVisibility}}"/>
                                                 <TextBlock Text="♥" FontSize="14" Foreground="#FFFF6B6B"
                                                            VerticalAlignment="Top" HorizontalAlignment="Right" Margin="0,8,8,0"
                                                            Visibility="{Binding IsFavorite, Converter={StaticResource BoolToVisibility}}"/>
@@ -891,12 +961,12 @@
                                                                         </MultiBinding>
                                                                     </Border.Height>
                                                                     <Grid>
-                                                                        <Border Visibility="{Binding CoverArtPath, Converter={StaticResource NullToVisibility}}">
+                                                                        <Border Visibility="{Binding DisplayArtPath, Converter={StaticResource NullToVisibility}}">
                                                                             <Border.Background>
                                                                                 <SolidColorBrush Color="{Binding BackgroundColor, Converter={StaticResource StringToColor}}"/>
                                                                             </Border.Background>
                                                                         </Border>
-                                                                        <Border Visibility="{Binding CoverArtPath, Converter={StaticResource NullToVisibility}}">
+                                                                        <Border Visibility="{Binding DisplayArtPath, Converter={StaticResource NullToVisibility}}">
                                                                             <Border.Background>
                                                                                 <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
                                                                                     <GradientStop Color="#33FFFFFF" Offset="0"/>
@@ -911,10 +981,10 @@
                                                                                    TextWrapping="Wrap" TextAlignment="Center"
                                                                                    VerticalAlignment="Center" HorizontalAlignment="Center"
                                                                                    Margin="12"
-                                                                                   Visibility="{Binding CoverArtPath, Converter={StaticResource NullToVisibility}}"/>
-                                                                        <Image Source="{Binding CoverArtPath, Converter={StaticResource PathToImage}}"
+                                                                                   Visibility="{Binding DisplayArtPath, Converter={StaticResource NullToVisibility}}"/>
+                                                                        <Image Source="{Binding DisplayArtPath, Converter={StaticResource PathToImage}}"
                                                                                Stretch="Uniform"
-                                                                               Visibility="{Binding CoverArtPath, Converter={StaticResource NotNullToVisibility}}"/>
+                                                                               Visibility="{Binding DisplayArtPath, Converter={StaticResource NotNullToVisibility}}"/>
                                                                         <TextBlock Text="♥" FontSize="14" Foreground="#FFFF6B6B"
                                                                                    VerticalAlignment="Top" HorizontalAlignment="Right" Margin="0,8,8,0"
                                                                                    Visibility="{Binding IsFavorite, Converter={StaticResource BoolToVisibility}}"/>
@@ -987,14 +1057,14 @@
                                                 CornerRadius="4"
                                                 ClipToBounds="True">
                                             <Grid>
-                                                <Border Visibility="{Binding CoverArtPath, Converter={StaticResource NullToVisibility}}">
+                                                <Border Visibility="{Binding DisplayArtPath, Converter={StaticResource NullToVisibility}}">
                                                     <Border.Background>
                                                         <SolidColorBrush Color="{Binding BackgroundColor, Converter={StaticResource StringToColor}}"/>
                                                     </Border.Background>
                                                 </Border>
-                                                <Image Source="{Binding CoverArtPath, Converter={StaticResource PathToImage}}"
+                                                <Image Source="{Binding DisplayArtPath, Converter={StaticResource PathToImage}}"
                                                        Stretch="UniformToFill"
-                                                       Visibility="{Binding CoverArtPath, Converter={StaticResource NotNullToVisibility}}"/>
+                                                       Visibility="{Binding DisplayArtPath, Converter={StaticResource NotNullToVisibility}}"/>
                                             </Grid>
                                         </Border>
                                         <StackPanel Grid.Column="1"
