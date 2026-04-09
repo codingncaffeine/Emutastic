@@ -244,6 +244,9 @@
             CornerRadius="10"
             Effect="{StaticResource WindowShadow}">
 
+        <!-- Inner clip border ensures child content respects rounded corners -->
+        <Border CornerRadius="10" ClipToBounds="True">
+
         <Grid x:Name="RootGrid">
             <Grid.RowDefinitions>
                 <RowDefinition Height="38"/>
@@ -1205,5 +1208,6 @@
             </Border>
 
         </Grid>
+        </Border>
     </Border>
 </Window>
