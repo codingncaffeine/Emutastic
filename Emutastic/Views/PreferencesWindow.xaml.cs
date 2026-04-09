@@ -1564,8 +1564,86 @@ namespace Emutastic.Views
                     datProgress,
                     datStatus,
                     datBtn,
-                    isLast: i == KnownDats.Length - 1));
+                    isLast: false));
             }
+
+            // ── Vectrex Overlays row ──
+            extrasStack.Children.Add(new Rectangle
+            {
+                Height = 1,
+                Fill   = new SolidColorBrush(Color.FromRgb(0x30, 0x30, 0x33)),
+                Margin = new Thickness(0, 8, 0, 8)
+            });
+
+            string overlayDir    = AppPaths.GetFolder("Overlays", "Vectrex");
+            int    overlayCount  = System.IO.Directory.GetFiles(overlayDir, "*.png").Length;
+            bool   overlaysPresent = overlayCount >= 30; // expect ~38
+
+            var ovlBadge    = MakeBadge(overlaysPresent);
+            var ovlProgress = new ProgressBar { Height = 4, Minimum = 0, Maximum = 100, Value = 0, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 4, 0, 0) };
+            var ovlStatus   = new TextBlock   { FontSize = 10, Foreground = _brushTextMuted, Visibility = Visibility.Collapsed };
+            var ovlBtn      = new Button
+            {
+                Content           = overlaysPresent ? "Re-download" : "Download",
+                Style             = (Style)FindResource("SmallOutlineButton"),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            ovlBtn.Click += async (_, _) =>
+            {
+                ovlBtn.IsEnabled        = false;
+                ovlProgress.Visibility  = Visibility.Visible;
+                ovlStatus.Visibility    = Visibility.Visible;
+                ovlStatus.Text          = "Fetching overlay list…";
+                ovlProgress.Value       = 0;
+                try
+                {
+                    using var http = new System.Net.Http.HttpClient();
+                    http.DefaultRequestHeaders.Add("User-Agent", "Emutastic");
+
+                    // Get directory listing from GitHub API
+                    string apiUrl = "https://api.github.com/repos/libretro/overlay-borders/contents/1080%20GCE%20Vectrex/Game%20Overlay";
+                    var json = await http.GetStringAsync(apiUrl);
+                    var files = System.Text.Json.JsonDocument.Parse(json).RootElement.EnumerateArray()
+                        .Where(e => e.GetProperty("name").GetString()?.EndsWith(".png") == true)
+                        .ToList();
+
+                    if (files.Count == 0) throw new Exception("No overlay PNGs found in repository.");
+
+                    int done = 0;
+                    foreach (var file in files)
+                    {
+                        string name = file.GetProperty("name").GetString()!;
+                        string downloadUrl = file.GetProperty("download_url").GetString()!;
+                        string destPath = System.IO.Path.Combine(overlayDir, name);
+
+                        ovlStatus.Text = $"Downloading {name} ({done + 1}/{files.Count})…";
+                        var bytes = await http.GetByteArrayAsync(downloadUrl);
+                        await System.IO.File.WriteAllBytesAsync(destPath, bytes);
+
+                        done++;
+                        ovlProgress.Value = (int)(done * 100.0 / files.Count);
+                    }
+
+                    ovlStatus.Text = $"Downloaded {done} overlays successfully.";
+                    ovlProgress.Value = 100;
+                    ovlBadge.Background = new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58));
+                    ((TextBlock)ovlBadge.Child).Text       = "Present";
+                    ((TextBlock)ovlBadge.Child).Foreground = new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58));
+                    ovlBtn.Content = "Re-download";
+                }
+                catch (Exception ex)
+                {
+                    ovlStatus.Text = $"Failed: {ex.Message}";
+                }
+                finally { ovlBtn.IsEnabled = true; }
+            };
+
+            extrasStack.Children.Add(MakeExtrasRow(
+                "Vectrex Overlays",
+                "Game-specific screen overlays for Vectrex — enabled by default when present.",
+                ovlBadge, ovlProgress, ovlStatus, ovlBtn,
+                isLast: true));
 
             extrasCard.Child = extrasStack;
             CoresListPanel.Children.Add(extrasCard);
