@@ -17,11 +17,12 @@ namespace Emutastic.Services
     {
         private const string BaseUrl    = "https://www.screenscraper.fr/api2/";
         private const string SoftName   = "Emutastic";
-        private const string DevId      = "";
-        private const string DevPass    = "";
+        private const string DevId      = "stragee";
+        private const string DevPass    = "2ixrETMUmd9";
 
         private readonly HttpClient _http;
         private readonly string     _snapCacheFolder;
+        private readonly string     _boxArt3DCacheFolder;
 
         // Maps our internal console tags → ScreenScraper numeric system IDs
         private static readonly Dictionary<string, int> SystemIds = new()
@@ -58,13 +59,18 @@ namespace Emutastic.Services
             { "Vectrex",      102},
             { "3DO",          29 },
             { "Arcade",       75 },
+            { "NeoGeo",       142},
+            { "CDi",          133},
+            { "Odyssey2",     104},
         };
 
         public ScreenScraperService()
         {
             string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             _snapCacheFolder = Path.Combine(appData, "Emutastic", "Snaps");
+            _boxArt3DCacheFolder = Path.Combine(appData, "Emutastic", "BoxArt3D");
             Directory.CreateDirectory(_snapCacheFolder);
+            Directory.CreateDirectory(_boxArt3DCacheFolder);
 
             _http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
             _http.DefaultRequestHeaders.Add("User-Agent", $"{SoftName}/1.0");
@@ -77,10 +83,10 @@ namespace Emutastic.Services
         {
             try
             {
-                // Use the username as the devid — acceptable for personal-use apps
-                // when no official developer registration exists.
                 string url = $"{BaseUrl}ssuserInfos.php" +
-                             $"?softname={Uri.EscapeDataString(SoftName)}" +
+                             $"?devid={Uri.EscapeDataString(DevId)}" +
+                             $"&devpassword={Uri.EscapeDataString(DevPass)}" +
+                             $"&softname={Uri.EscapeDataString(SoftName)}" +
                              $"&output=json" +
                              $"&ssid={Uri.EscapeDataString(username)}" +
                              $"&sspassword={Uri.EscapeDataString(password)}";
@@ -151,7 +157,8 @@ namespace Emutastic.Services
 
             try
             {
-                string auth   = $"softname={Uri.EscapeDataString(SoftName)}&output=json" +
+                string auth   = $"devid={Uri.EscapeDataString(DevId)}&devpassword={Uri.EscapeDataString(DevPass)}" +
+                                $"&softname={Uri.EscapeDataString(SoftName)}&output=json" +
                                 $"&ssid={Uri.EscapeDataString(username)}&sspassword={Uri.EscapeDataString(password)}";
                 string romName = Uri.EscapeDataString(Path.GetFileName(romPath));
                 string md5Part = string.IsNullOrWhiteSpace(romHash)
@@ -215,6 +222,196 @@ namespace Emutastic.Services
                 await File.WriteAllBytesAsync(localPath, bytes);
                 System.Diagnostics.Debug.WriteLine($"[ScreenScraper] Snap saved: {localPath}");
                 return localPath;
+            }
+            catch { return null; }
+        }
+
+        /// <summary>
+        /// Result from a box art fetch — includes quota/error info for status display.
+        /// </summary>
+        public class BoxArt3DResult
+        {
+            public string? LocalPath { get; set; }
+            public bool    OverQuota { get; set; }
+            public string? ErrorMessage { get; set; }
+        }
+
+        /// <summary>
+        /// Fetches 3D box art image from ScreenScraper.
+        /// Returns path on success, or error/quota info on failure.
+        /// </summary>
+        public async Task<BoxArt3DResult> FetchBoxArt3DAsync(
+            string username, string password,
+            string console, string romHash, string romPath)
+        {
+            if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
+                return new BoxArt3DResult { ErrorMessage = "ScreenScraper not configured" };
+
+            if (!SystemIds.TryGetValue(console, out int systemId))
+                return new BoxArt3DResult { ErrorMessage = $"Console '{console}' not supported" };
+
+            string cacheKey = string.IsNullOrWhiteSpace(romHash)
+                ? Convert.ToHexString(System.Security.Cryptography.MD5.HashData(
+                    System.Text.Encoding.UTF8.GetBytes(romPath)))
+                : romHash;
+
+            // Cache hit
+            string cached = Path.Combine(_boxArt3DCacheFolder, $"{cacheKey}.png");
+            if (File.Exists(cached))
+                return new BoxArt3DResult { LocalPath = cached };
+
+            try
+            {
+                string auth = $"devid={Uri.EscapeDataString(DevId)}&devpassword={Uri.EscapeDataString(DevPass)}" +
+                              $"&softname={Uri.EscapeDataString(SoftName)}&output=json" +
+                              $"&ssid={Uri.EscapeDataString(username)}&sspassword={Uri.EscapeDataString(password)}";
+                string romName = Uri.EscapeDataString(Path.GetFileName(romPath));
+                string md5Part = string.IsNullOrWhiteSpace(romHash)
+                    ? ""
+                    : $"&md5={romHash.ToUpperInvariant()}";
+
+                string url = $"{BaseUrl}jeuInfos.php?{auth}&systemeid={systemId}{md5Part}&romnom={romName}";
+
+                var response = await _http.GetAsync(url);
+                string json = await response.Content.ReadAsStringAsync();
+
+                // Check for quota exceeded — SS returns 430 or a message in the header
+                if ((int)response.StatusCode == 430 || json.Contains("maximum", StringComparison.OrdinalIgnoreCase))
+                    return new BoxArt3DResult { OverQuota = true, ErrorMessage = "ScreenScraper daily request limit reached" };
+
+                if (!response.IsSuccessStatusCode)
+                    return new BoxArt3DResult { ErrorMessage = $"Server returned {(int)response.StatusCode}" };
+
+                string? imageUrl = ExtractBoxArt3DUrl(json);
+                if (imageUrl == null)
+                    return new BoxArt3DResult(); // No 3D art available — not an error
+
+                // Download the image
+                var imgResponse = await _http.GetAsync(imageUrl);
+                if (!imgResponse.IsSuccessStatusCode)
+                    return new BoxArt3DResult();
+
+                byte[] bytes = await imgResponse.Content.ReadAsByteArrayAsync();
+                await File.WriteAllBytesAsync(cached, bytes);
+                System.Diagnostics.Debug.WriteLine($"[ScreenScraper] 3D box art saved: {cached}");
+                return new BoxArt3DResult { LocalPath = cached };
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ScreenScraper] FetchBoxArt3D failed: {ex.Message}");
+                return new BoxArt3DResult { ErrorMessage = ex.Message };
+            }
+        }
+
+        /// <summary>
+        /// Fetches 2D box art from ScreenScraper. Used as a fallback when libretro thumbnails miss.
+        /// Returns local image path on success, null otherwise.
+        /// </summary>
+        public async Task<string?> FetchBoxArt2DAsync(
+            string username, string password,
+            string console, string romHash, string romPath)
+        {
+            if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
+                return null;
+
+            if (!SystemIds.TryGetValue(console, out int systemId)) return null;
+
+            string cacheKey = string.IsNullOrWhiteSpace(romHash)
+                ? Convert.ToHexString(System.Security.Cryptography.MD5.HashData(
+                    System.Text.Encoding.UTF8.GetBytes(romPath)))
+                : romHash;
+
+            // Cache hit
+            string cached = Path.Combine(_boxArt3DCacheFolder, $"{cacheKey}_2d.png");
+            if (File.Exists(cached)) return cached;
+
+            try
+            {
+                string auth = $"devid={Uri.EscapeDataString(DevId)}&devpassword={Uri.EscapeDataString(DevPass)}" +
+                              $"&softname={Uri.EscapeDataString(SoftName)}&output=json" +
+                              $"&ssid={Uri.EscapeDataString(username)}&sspassword={Uri.EscapeDataString(password)}";
+                string romName = Uri.EscapeDataString(Path.GetFileName(romPath));
+                string md5Part = string.IsNullOrWhiteSpace(romHash)
+                    ? ""
+                    : $"&md5={romHash.ToUpperInvariant()}";
+
+                string url = $"{BaseUrl}jeuInfos.php?{auth}&systemeid={systemId}{md5Part}&romnom={romName}";
+
+                var response = await _http.GetAsync(url);
+                if (!response.IsSuccessStatusCode) return null;
+
+                string json = await response.Content.ReadAsStringAsync();
+                string? imageUrl = ExtractBoxArt2DUrl(json);
+                if (imageUrl == null) return null;
+
+                var imgResponse = await _http.GetAsync(imageUrl);
+                if (!imgResponse.IsSuccessStatusCode) return null;
+
+                byte[] bytes = await imgResponse.Content.ReadAsByteArrayAsync();
+                await File.WriteAllBytesAsync(cached, bytes);
+                System.Diagnostics.Debug.WriteLine($"[ScreenScraper] 2D box art saved: {cached}");
+                return cached;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ScreenScraper] FetchBoxArt2D failed: {ex.Message}");
+                return null;
+            }
+        }
+
+        private static string? ExtractBoxArt2DUrl(string json)
+        {
+            try
+            {
+                var doc = JsonNode.Parse(json);
+                var medias = doc?["response"]?["jeu"]?["medias"]?.AsArray();
+                if (medias == null) return null;
+
+                string? us = null, eu = null, wor = null, jp = null, generic = null;
+
+                foreach (var media in medias)
+                {
+                    string? type = media?["type"]?.GetValue<string>();
+                    string? mediaUrl = media?["url"]?.GetValue<string>();
+                    if (string.IsNullOrWhiteSpace(type) || string.IsNullOrWhiteSpace(mediaUrl)) continue;
+
+                    if (type == "box-2D-us" || type == "box-2D-USA")       us = mediaUrl;
+                    else if (type == "box-2D-eu" || type == "box-2D-EUR")  eu = mediaUrl;
+                    else if (type == "box-2D-wor")                          wor = mediaUrl;
+                    else if (type == "box-2D-jp" || type == "box-2D-JAP")  jp = mediaUrl;
+                    else if (type == "box-2D")                              generic = mediaUrl;
+                }
+
+                return us ?? wor ?? eu ?? jp ?? generic;
+            }
+            catch { return null; }
+        }
+
+        private static string? ExtractBoxArt3DUrl(string json)
+        {
+            try
+            {
+                var doc = JsonNode.Parse(json);
+                var medias = doc?["response"]?["jeu"]?["medias"]?.AsArray();
+                if (medias == null) return null;
+
+                // Prefer region-specific: us → eu → wor → jp, then generic box-3D
+                string? us = null, eu = null, wor = null, jp = null, generic = null;
+
+                foreach (var media in medias)
+                {
+                    string? type = media?["type"]?.GetValue<string>();
+                    string? mediaUrl = media?["url"]?.GetValue<string>();
+                    if (string.IsNullOrWhiteSpace(type) || string.IsNullOrWhiteSpace(mediaUrl)) continue;
+
+                    if (type == "box-3D-us" || type == "box-3D-USA")       us = mediaUrl;
+                    else if (type == "box-3D-eu" || type == "box-3D-EUR")  eu = mediaUrl;
+                    else if (type == "box-3D-wor")                          wor = mediaUrl;
+                    else if (type == "box-3D-jp" || type == "box-3D-JAP")  jp = mediaUrl;
+                    else if (type == "box-3D")                              generic = mediaUrl;
+                }
+
+                return us ?? wor ?? eu ?? jp ?? generic;
             }
             catch { return null; }
         }

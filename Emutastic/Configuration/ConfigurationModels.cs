@@ -120,6 +120,9 @@ namespace Emutastic.Configuration
         public string ScreenScraperPassword { get; set; } = "";
         public bool   ScreenScraperEnabled  { get; set; } = false;
 
+        // Per-console 3D box art preference — list of console tags that prefer 3D
+        public List<string> Use3DBoxArtConsoles { get; set; } = new();
+
         // EmuMovies — scaffolded, not yet active
         public string EmuMoviesUser         { get; set; } = "";
         public string EmuMoviesPassword     { get; set; } = "";

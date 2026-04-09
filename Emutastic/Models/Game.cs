@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 
 namespace Emutastic.Models
 {
@@ -12,6 +13,16 @@ namespace Emutastic.Models
         public string RomPath { get; set; } = "";
         public string RomHash { get; set; } = "";
         public string CoverArtPath { get; set; } = "";
+        public string BoxArt3DPath { get; set; } = "";
+        /// <summary>
+        /// Returns 3D box art path when available and 3D mode is active for this console, otherwise 2D cover art.
+        /// </summary>
+        public string DisplayArtPath =>
+            Consoles3D.Contains(Console) && !string.IsNullOrEmpty(BoxArt3DPath) ? BoxArt3DPath : CoverArtPath;
+
+        /// <summary>Set of console tags that currently display 3D box art.</summary>
+        public static HashSet<string> Consoles3D { get; set; } = new();
+
         public string BackgroundColor { get; set; } = "#1F1F21";
         public string AccentColor { get; set; } = "#E03535";
         public int PlayCount { get; set; }

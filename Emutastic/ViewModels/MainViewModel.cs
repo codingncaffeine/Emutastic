@@ -105,6 +105,12 @@ namespace Emutastic.ViewModels
             }
         }
 
+        public void RefreshAllGames()
+        {
+            // Reassign to a new collection so the property-change fires and all bindings refresh.
+            Games = new ObservableCollection<Game>(Games);
+        }
+
         public void RemoveGame(Game game)
         {
             var inAll = _allGames.FirstOrDefault(g => g.Id == game.Id);
