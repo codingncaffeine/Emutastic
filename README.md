@@ -266,9 +266,13 @@ The vecx core uses hardware OpenGL rendering and has some non-obvious requiremen
 
 - **FBO must be sized before `context_reset`**: The libretro `SET_HW_RENDER` callback fires during `retro_load_game` with no geometry information yet — at that point the frontend can only create a placeholder FBO (e.g. 640×480). The core later reports its true geometry via `retro_get_system_av_info`. If `context_reset` is called while the FBO is still at 640×480, the core queries the FBO dimensions to set up its internal GL viewport and locks onto 640×480 for the session — permanently clipping the top and right edges of every frame. **Fix:** after `retro_load_game` returns, resize the FBO to `max_width × max_height` from `retro_system_av_info` *before* calling `context_reset`.
 
-- **Read the full FBO, not `base_width × base_height`**: vecx renders all game content into the full square FBO (e.g. 1024×1024). The reported `base_width=824` is not the render width — it is used together with `aspect_ratio` (≈0.8049) to tell the frontend to display the square image as portrait. If your frontend reads back only `base_width × base_height` pixels via `glReadPixels`, it will clip the right side of the image. **Fix:** read `fbo_width × fbo_height` and apply the core's `aspect_ratio` to the displayed image.
+- **Use the video callback dimensions, not the full FBO**: The FBO is square (e.g. 1024×1024 or 1080×1080) but the core renders to a portrait sub-region matching `vecx_res_hw` (e.g. 869×1080 or 824×1024). If your frontend reads back the entire FBO via `glReadPixels`, the extra black columns on the right cause the game to appear shifted to the left. **Fix:** use the `width` and `height` parameters from the `retro_video_refresh_t` callback for `glReadPixels`, not the FBO dimensions. The callback dimensions match the actual render area, and the core's `aspect_ratio` (≈0.8049) is already baked into those dimensions — `scaleX` will be ≈1.0, which is correct.
+
+  > Earlier we used the full FBO readback approach, but the vecx core's HW renderer now reports its actual render dimensions in the video callback. Using the callback dimensions eliminates both the centering issue and the need for a large AR squeeze transform.
 
 - **AR correction applies to readback HW cores**: Unlike Dolphin (which renders directly to a Win32 child window), vecx uses `glReadPixels` into a CPU buffer that the frontend displays like a software frame. The aspect ratio correction (scale transform) must be applied the same way as for software cores — not skipped.
+
+- **Game overlays**: Vectrex games originally shipped with transparent plastic overlays that sat on the CRT screen, adding color and static artwork around the game's vector graphics. The [libretro/overlay-borders](https://github.com/libretro/overlay-borders) repository provides 1080p PNG versions of 38 game overlays. These are rendered as a full-viewport transparent image on top of the game output — the overlay's opaque border frames the game while the transparent center lets the vectors show through.
 
 ### Neo Geo (Geolith)
 - You smell lunagarlic in the air?
@@ -331,21 +335,10 @@ rcheevos does not perform HTTP requests itself — the frontend must provide a `
 
 ## Known Limitations
 
-### EmuMovies / ScreenScraper — Artwork Scraping (Coming Soon)
-Login fields for EmuMovies and ScreenScraper are visible in Preferences. Artwork scraping is planned but not yet functional — developer API access for both services is pending. Once available, the app will be able to automatically download box art, screenshots, and metadata for your library.
-
 ### Philips CD-i — Analog Cursor Sensitivity
 The original CD-i TV remote controller featured a thumbpad that provided proportional cursor movement — pushing gently gave fine control, pushing fully moved the cursor quickly across the screen. The SAME CDi libretro core internally maps the thumbpad to a digital 4-way joystick port in MAME, so analog stick input is currently thresholded to on/off directional presses rather than providing a true sensitivity curve.
 
 This is a core-level limitation rather than a frontend issue. A proper fix would require modifying the SAME CDi core to expose the thumbpad as an analog input port (`IPT_AD_STICK_X/Y`) and updating the libretro joystick provider to pass raw axis values through without thresholding. This is something that may be explored as a future contribution to the SAME CDi core.
-
-### Nintendo DS — Full Touch and Layout Support
-Nintendo DS emulation includes full touch-screen and screen layout support:
-
-- **Touch input** — clicking and dragging on the bottom screen maps directly to DS stylus input. Games that rely on touch (Phantom Hourglass, Spirit Tracks, New Super Mario Bros., etc.) are fully playable.
-- **Screen layouts** — cycle through 8 layout modes from the in-game overlay menu (cog icon): Top/Bottom, Bottom/Top, Left/Right, Right/Left, Top Only, Bottom Only, Hybrid Top, and Hybrid Bottom. Your selected layout persists across sessions.
-
-The rotated 90° layout for book-style titles (Hotel Dusk: Room 215, Ninja Gaiden Dragon Sword) is not yet available, as it requires special handling beyond what desmume exposes as a core option.
 
 ---
 
