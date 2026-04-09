@@ -1378,6 +1378,7 @@ namespace Emutastic.Views
         private static readonly (string Tag, string Label, string? RedumpSlug, string? DirectUrl)[] KnownDats =
         {
             ("Arcade", "Arcade (FBNeo)",     null, "https://raw.githubusercontent.com/libretro/FBNeo/master/dats/FinalBurn%20Neo%20(ClrMame%20Pro%20XML%2C%20Arcade%20only).dat"),
+            ("NeoGeo", "Neo Geo (Geolith)", null, "https://raw.githubusercontent.com/libretro/libretro-database/master/dat/SNK%20-%20Neo%20Geo.dat"),
             ("SegaCD", "Sega CD / Mega CD",  "mcd",  null),
             ("Saturn", "Sega Saturn",        "ss",   null),
             ("PS1",    "PlayStation",         "psx",  null),
@@ -2119,8 +2120,9 @@ namespace Emutastic.Views
             // Philips CD-i (SAME CDi / MAME — place cdibios.zip in System folder)
             new("CDi","Philips CD-i","cdibios.zip","CD-i BIOS (required)",0,null),
 
-            // Arcade — Neo Geo (Geolith core only; FBNeo has BIOS built-in)
-            new("Arcade","Arcade (Neo Geo)","neogeo.zip","Neo Geo BIOS (required for Geolith)",0,null),
+            // Neo Geo (Geolith)
+            new("NeoGeo","Neo Geo","neogeo.zip","Neo Geo BIOS (required)",0,null),
+            new("NeoGeo","Neo Geo","aes.zip","AES BIOS (required)",0,null),
 
             // Game Boy Advance (optional — mgba has built-in HLE BIOS)
             new("GBA","Game Boy Advance","gba_bios.bin","BIOS (optional, improves compatibility)",16384,"a860e8c0b6d573d191e4ec7db1b1e4f6"),

@@ -515,6 +515,7 @@
                                 </StackPanel>
                             </Button>
                             <StackPanel x:Name="SNKSection">
+                                <Button Style="{StaticResource SidebarItemStyle}" Click="NavConsole_Click" Tag="NeoGeo"><StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/neogeo.jpg" Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Neo Geo" VerticalAlignment="Center"/></StackPanel></Button>
                                 <Button Style="{StaticResource SidebarItemStyle}" Click="NavConsole_Click" Tag="NGP"><StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/neo geo pocket.jpg" Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="NeoGeo Pocket" VerticalAlignment="Center"/></StackPanel></Button>
                             </StackPanel>
 

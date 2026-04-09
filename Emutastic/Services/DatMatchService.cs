@@ -22,6 +22,9 @@ namespace Emutastic.Services
         // Arcade short ROM name (e.g. "mslug") → full title (e.g. "Metal Slug - Super Vehicle-001")
         private readonly Dictionary<string, string> _arcadeNameIndex = new(StringComparer.OrdinalIgnoreCase);
 
+        // NeoGeo ROM filename (e.g. "samsho") → full title (e.g. "Samurai Shodown / Samurai Spirits")
+        private readonly Dictionary<string, string> _neoGeoNameIndex = new(StringComparer.OrdinalIgnoreCase);
+
         private readonly string _datsFolder;
         private bool _loaded = false;
 
@@ -50,11 +53,14 @@ namespace Emutastic.Services
             foreach (string datPath in Directory.EnumerateFiles(_datsFolder, "*.dat"))
             {
                 string console = Path.GetFileNameWithoutExtension(datPath);
-                LoadDat(datPath, console);
+                if (console.Equals("NeoGeo", StringComparison.OrdinalIgnoreCase))
+                    LoadClrmameproDat(datPath, console);
+                else
+                    LoadDat(datPath, console);
             }
 
             System.Diagnostics.Trace.WriteLine(
-                $"[DatMatchService] Loaded {_sha1Index.Count} entries from {_datsFolder}");
+                $"[DatMatchService] Loaded {_sha1Index.Count} SHA1 entries, {_neoGeoNameIndex.Count} NeoGeo titles from {_datsFolder}");
         }
 
         /// <summary>
@@ -114,6 +120,53 @@ namespace Emutastic.Services
         }
 
         /// <summary>
+        /// Parses a clrmamepro-format DAT file (used by the SNK - Neo Geo DAT).
+        /// Indexes ROM filename (without extension) → game description for title lookup.
+        /// </summary>
+        private void LoadClrmameproDat(string path, string console)
+        {
+            try
+            {
+                string? currentDescription = null;
+                foreach (string rawLine in File.ReadLines(path))
+                {
+                    string line = rawLine.Trim();
+                    if (line.StartsWith("description ", StringComparison.Ordinal))
+                    {
+                        int q1 = line.IndexOf('"');
+                        int q2 = line.LastIndexOf('"');
+                        if (q1 >= 0 && q2 > q1)
+                            currentDescription = line.Substring(q1 + 1, q2 - q1 - 1);
+                    }
+                    else if (line.StartsWith("rom (", StringComparison.Ordinal) ||
+                             line.StartsWith("rom(", StringComparison.Ordinal))
+                    {
+                        // Extract name field: rom ( name "filename.neo" ... )
+                        int nameIdx = line.IndexOf("name \"", StringComparison.Ordinal);
+                        if (nameIdx >= 0)
+                        {
+                            int q1 = line.IndexOf('"', nameIdx);
+                            int q2 = line.IndexOf('"', q1 + 1);
+                            if (q1 >= 0 && q2 > q1)
+                            {
+                                string romFile = line.Substring(q1 + 1, q2 - q1 - 1);
+                                string romName = Path.GetFileNameWithoutExtension(romFile);
+                                string title = currentDescription ?? romName;
+                                _neoGeoNameIndex.TryAdd(romName, title);
+                            }
+                        }
+                    }
+                }
+                System.Diagnostics.Trace.WriteLine(
+                    $"[DatMatchService] Loaded {_neoGeoNameIndex.Count} NeoGeo titles from {Path.GetFileName(path)}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[DatMatchService] Failed to load {path}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// Maps a short FBNeo ROM name (e.g. "mslug") to its full description title
         /// (e.g. "Metal Slug - Super Vehicle-001") from the Arcade DAT file.
         /// Returns null if no Arcade DAT is loaded or the name isn't found.
@@ -122,6 +175,17 @@ namespace Emutastic.Services
         {
             EnsureLoaded();
             return _arcadeNameIndex.TryGetValue(romName, out var title) ? title : null;
+        }
+
+        /// <summary>
+        /// Maps a NeoGeo ROM filename (e.g. "samsho") to its full description title
+        /// (e.g. "Samurai Shodown / Samurai Spirits") from the NeoGeo DAT file.
+        /// Returns null if no NeoGeo DAT is loaded or the name isn't found.
+        /// </summary>
+        public string? LookupNeoGeoTitle(string romName)
+        {
+            EnsureLoaded();
+            return _neoGeoNameIndex.TryGetValue(romName, out var title) ? title : null;
         }
 
         /// <summary>True if any DAT files were found and loaded.</summary>

@@ -31,7 +31,8 @@ Emutastic is not code-signed, so Windows SmartScreen may block the app on first 
 
 | System | Console Tag | Core (priority order) | BIOS Required |
 |---|---|---|---|
-| Arcade | Arcade | fbneo *(recommended)* → fbalpha2012 → fbalpha2012_cps1/2/3/neogeo → geolith (Neo Geo only) → mame2003_plus → mame2003 → mame2010 → mame2015 → mame2016 → mame → mame2000 | No (geolith requires `neogeo.zip`) |
+| Neo Geo | NeoGeo | geolith | `neogeo.zip` + `aes.zip` |
+| Arcade | Arcade | fbneo *(recommended)* → fbalpha2012 → fbalpha2012_cps1/2/3/neogeo → mame2003_plus → mame2003 → mame2010 → mame2015 → mame2016 → mame → mame2000 | No |
 | Nintendo Entertainment System | NES | nestopia → quicknes → fceumm | No |
 | Famicom Disk System | FDS | nestopia | `disksys.rom` |
 | Super Nintendo | SNES | snes9x → bsnes | No |
@@ -268,6 +269,12 @@ The vecx core uses hardware OpenGL rendering and has some non-obvious requiremen
 - **Read the full FBO, not `base_width × base_height`**: vecx renders all game content into the full square FBO (e.g. 1024×1024). The reported `base_width=824` is not the render width — it is used together with `aspect_ratio` (≈0.8049) to tell the frontend to display the square image as portrait. If your frontend reads back only `base_width × base_height` pixels via `glReadPixels`, it will clip the right side of the image. **Fix:** read `fbo_width × fbo_height` and apply the core's `aspect_ratio` to the displayed image.
 
 - **AR correction applies to readback HW cores**: Unlike Dolphin (which renders directly to a Win32 child window), vecx uses `glReadPixels` into a CPU buffer that the frontend displays like a software frame. The aspect ratio correction (scale transform) must be applied the same way as for software cores — not skipped.
+
+### Neo Geo (Geolith)
+- You smell lunagarlic in the air?
+- Neo Geo has its own dedicated section in the library, separate from Arcade. Geolith uses `.neo` ROM files — a self-contained format that doesn't require the split/merged ROM sets typical of MAME or FBNeo. If you also have a standard arcade romset that includes Neo Geo `.zip` files, those will import under Arcade (via FBNeo) as usual. The two collections are independent and don't conflict.
+- Requires `neogeo.zip` and `aes.zip` BIOS files in the system folder.
+- Download the **Neo Geo (Geolith)** DAT file from Preferences → Cores / Extras for automatic game title and artwork detection during import.
 
 ### PSP (PPSSPP)
 - The OpenGL context destruction step is skipped on window close to prevent a crash in the libretro context_destroy callback.

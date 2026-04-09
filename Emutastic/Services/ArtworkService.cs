@@ -73,6 +73,7 @@ namespace Emutastic.Services
             { "Vectrex",      "GCE - Vectrex"                                  },
             { "3DO",          "The 3DO Company - 3DO"                          },
             { "CDi",          "Philips - CD-i"                                 },
+            { "NeoGeo",       "SNK - Neo Geo"                                  },
             { "Arcade",       "FBNeo - Arcade Games"                           },
         };
 
@@ -581,6 +582,15 @@ namespace Emutastic.Services
                         titleCandidates.Add(arcadeTitle);
                 }
 
+                // NeoGeo (.neo) filenames are short names — resolve via DAT for thumbnail matching.
+                if (console == "NeoGeo")
+                {
+                    string romName = Path.GetFileNameWithoutExtension(romPath);
+                    string? neoTitle = _datMatcher.LookupNeoGeoTitle(romName);
+                    if (!string.IsNullOrWhiteSpace(neoTitle))
+                        titleCandidates.Add(neoTitle);
+                }
+
                 string rawStem = Path.GetFileNameWithoutExtension(romPath);
                 titleCandidates.Add(rawStem);
                 string cleaned = RomService.CleanTitle(Path.GetFileName(romPath));
@@ -673,6 +683,15 @@ namespace Emutastic.Services
                     string? arcadeTitle = _datMatcher.LookupArcadeTitle(romName);
                     if (!string.IsNullOrWhiteSpace(arcadeTitle))
                         titleCandidates.Add(arcadeTitle);
+                }
+
+                // NeoGeo (.neo) — resolve short ROM name to full title via DAT.
+                if (console == "NeoGeo" && !string.IsNullOrWhiteSpace(romPath))
+                {
+                    string romName = Path.GetFileNameWithoutExtension(romPath);
+                    string? neoTitle = _datMatcher.LookupNeoGeoTitle(romName);
+                    if (!string.IsNullOrWhiteSpace(neoTitle))
+                        titleCandidates.Add(neoTitle);
                 }
 
                 titleCandidates.Add(result.Title);

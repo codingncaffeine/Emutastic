@@ -365,6 +365,15 @@ namespace Emutastic.Services
 
             string manufacturer = RomService.DetectManufacturer(console);
             string title = overrideTitle ?? RomService.CleanTitle(fileName);
+
+            // NeoGeo: look up full title from DAT (e.g. "samsho" → "Samurai Shodown / Samurai Spirits")
+            if (console == "NeoGeo" && overrideTitle == null)
+            {
+                string romName = Path.GetFileNameWithoutExtension(romPath);
+                string? datTitle = _datMatcher.LookupNeoGeoTitle(romName);
+                if (datTitle != null) title = datTitle;
+            }
+
             var colors = RomService.GetConsoleColors(console);
 
             var game = new Game

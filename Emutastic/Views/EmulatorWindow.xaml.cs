@@ -854,26 +854,11 @@ namespace Emutastic.Views
 
                 if (!loaded)
                 {
-                    // Clean up GL + core state before returning so the close path
-                    // (Task.Run → Dispose) doesn't crash calling retro_deinit without
-                    // a GL context.  The GL context may be current from SET_HW_RENDER.
-                    if (_hwRenderActive && _hdc != IntPtr.Zero && _hglrc != IntPtr.Zero)
-                    {
-                        wglMakeCurrent(_hdc, _hglrc);
-                        try { _core?.Deinit(); }
-                        catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Failed-load retro_deinit: {ex.Message}"); }
-                        wglMakeCurrent(IntPtr.Zero, IntPtr.Zero);
-                        System.Diagnostics.Trace.WriteLine("Failed-load GL cleanup done.");
-                    }
-                    else
-                    {
-                        try { _core?.Deinit(); }
-                        catch { }
-                    }
-
-                    // Dispose the core now so the OnClosed cleanup path doesn't try
-                    // to interact with a partially-initialized core.
-                    try { _core.Dispose(); } catch { }
+                    // Do NOT call Deinit() or Dispose() here — cores that fail
+                    // retro_load_game (e.g. geolith without neogeo.zip) leave
+                    // internal state partially initialized, and any native cleanup
+                    // triggers an access violation in ntdll.  Let the DLL leak;
+                    // the close path checks _loadFailed and skips disposal.
                     _loadFailed = true;
 
                     Dispatcher.Invoke(() => MessageBox.Show($"Failed to load {_game.Title}\n\nCheck debug output for details.",
@@ -3089,6 +3074,17 @@ namespace Emutastic.Views
                         "button 5" => JOYPAD_L,  "button 6" => JOYPAD_R,
                         "button 7" => 12,         "button 8" => 13,
                         "coin"     => JOYPAD_SELECT, "start" => JOYPAD_START,
+                        "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
+                        "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
+                        _ => uint.MaxValue
+                    };
+
+                // ── Neo Geo / Geolith ────────────────────────────────────────
+                case "NeoGeo":
+                    return n switch {
+                        "a"      => JOYPAD_B,      "b"     => JOYPAD_A,
+                        "c"      => JOYPAD_Y,      "d"     => JOYPAD_X,
+                        "select" => JOYPAD_SELECT,  "start" => JOYPAD_START,
                         "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
                         "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
                         _ => uint.MaxValue
