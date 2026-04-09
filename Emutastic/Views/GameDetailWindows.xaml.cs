@@ -248,8 +248,7 @@ namespace Emutastic.Views
             var coreManager = new CoreManager(App.Configuration!);
 
             // Check for missing BIOS before attempting to launch.
-            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            string systemDir = System.IO.Path.Combine(appData, "Emutastic", "System");
+            string systemDir = AppPaths.GetFolder("System");
             string region = RomService.DetectRegion(_game.RomPath);
             string? romDir = System.IO.Path.GetDirectoryName(_game.RomPath);
             string? resolvedCore = coreManager.GetCorePath(_game.Console);

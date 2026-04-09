@@ -441,8 +441,7 @@ namespace Emutastic.Services
         }
 
         private static readonly string _importLogPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "Emutastic", "import_debug.log");
+            AppPaths.DataRoot, "import_debug.log");
 
         private void ImportLog(string message)
         {

@@ -14,10 +14,7 @@ namespace Emutastic.Services
 
         public ScreenshotService()
         {
-            _folder = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "Emutastic", "Screenshots");
-            Directory.CreateDirectory(_folder);
+            _folder = AppPaths.GetFolder("Screenshots");
         }
 
         /// <summary>

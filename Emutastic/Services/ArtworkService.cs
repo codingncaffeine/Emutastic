@@ -98,9 +98,7 @@ namespace Emutastic.Services
             string exeFolder = AppDomain.CurrentDomain.BaseDirectory;
             _vgdbPath = Path.Combine(exeFolder, "Assets", "openvgdb.sqlite");
 
-            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            _cacheFolder = Path.Combine(appData, "Emutastic", "Artwork");
-            Directory.CreateDirectory(_cacheFolder);
+            _cacheFolder = AppPaths.GetFolder("Artwork");
             // Build a hash→path index once so the repair pass is O(1) per game.
             _cacheIndex = Directory.EnumerateFiles(_cacheFolder)
                 .ToDictionary(

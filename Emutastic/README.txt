@@ -42,10 +42,22 @@ configurable in Preferences → Controls. Controllers are detected
 automatically — no refresh needed.
 
 
+DATA DIRECTORY
+--------------
+By default all app data is stored in:
+  %AppData%\Roaming\Emutastic\
+
+If you use ScreenScraper video snaps, these files (2-6 MB each) can add
+up quickly. You can move the entire data directory to another drive in
+Preferences → Library → Data Directory. The app will offer to move your
+existing files automatically.
+
+
 BIOS FILES
 ----------
 Place BIOS files in:
   %AppData%\Roaming\Emutastic\System\
+  (or wherever your data directory is set)
 
 You can also place them in the same folder as your ROMs for that system.
 See Preferences → System Files for the exact filenames required per system.
