@@ -274,13 +274,30 @@ namespace Emutastic.Services
 
                 var response = await _http.GetAsync(url);
                 string json = await response.Content.ReadAsStringAsync();
+                int statusCode = (int)response.StatusCode;
 
-                // Check for quota exceeded — SS returns 430 or a message in the header
-                if ((int)response.StatusCode == 430 || json.Contains("maximum", StringComparison.OrdinalIgnoreCase))
+                System.Diagnostics.Debug.WriteLine($"[ScreenScraper] 3D art response: HTTP {statusCode}, {json.Length} bytes");
+
+                // Check for quota exceeded — SS returns 430 for over-quota
+                if (statusCode == 430 || statusCode == 423)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[ScreenScraper] Quota exceeded (HTTP {statusCode})");
                     return new BoxArt3DResult { OverQuota = true, ErrorMessage = "ScreenScraper daily request limit reached" };
+                }
+
+                // SS sometimes returns 200 with an error body instead of game data
+                if (json.Contains("API closed", StringComparison.OrdinalIgnoreCase) ||
+                    json.Contains("maxrequestsreached", StringComparison.OrdinalIgnoreCase))
+                {
+                    System.Diagnostics.Debug.WriteLine($"[ScreenScraper] Quota exceeded (body): {json[..Math.Min(200, json.Length)]}");
+                    return new BoxArt3DResult { OverQuota = true, ErrorMessage = "ScreenScraper daily request limit reached" };
+                }
 
                 if (!response.IsSuccessStatusCode)
-                    return new BoxArt3DResult { ErrorMessage = $"Server returned {(int)response.StatusCode}" };
+                {
+                    System.Diagnostics.Debug.WriteLine($"[ScreenScraper] Non-success: HTTP {statusCode} — {json[..Math.Min(300, json.Length)]}");
+                    return new BoxArt3DResult { ErrorMessage = $"Server returned {statusCode}" };
+                }
 
                 string? imageUrl = ExtractBoxArt3DUrl(json);
                 if (imageUrl == null)

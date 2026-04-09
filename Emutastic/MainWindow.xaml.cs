@@ -194,9 +194,13 @@ namespace Emutastic
 
                     if (result.OverQuota)
                     {
-                        SetStatus($"{displayName} — ScreenScraper daily limit reached ({fetched} downloaded)", autoClear: true);
+                        Dispatcher.Invoke(() =>
+                            SetStatus($"{displayName} — ScreenScraper daily limit reached ({fetched} downloaded)", autoClear: true));
                         return;
                     }
+
+                    if (!string.IsNullOrEmpty(result.ErrorMessage))
+                        System.Diagnostics.Debug.WriteLine($"[3D BoxArt] {game.Title}: {result.ErrorMessage}");
 
                     if (result.LocalPath != null)
                     {
