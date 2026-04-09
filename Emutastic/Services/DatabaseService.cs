@@ -16,9 +16,7 @@ namespace Emutastic.Services
         {
             try
             {
-                string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-                string appFolder = Path.Combine(appData, "Emutastic");
-                Directory.CreateDirectory(appFolder);
+                string appFolder = AppPaths.GetFolder();
                 _dbPath = Path.Combine(appFolder, "library.db");
                 _connectionString = $"Data Source={_dbPath}";
                 InitializeDatabase();

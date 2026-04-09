@@ -1157,10 +1157,7 @@ namespace Emutastic
                 };
                 if (dialog.ShowDialog() == true)
                 {
-                    string appData = Environment.GetFolderPath(
-                        Environment.SpecialFolder.ApplicationData);
-                    string cacheFolder = Path.Combine(appData, "Emutastic", "Artwork");
-                    Directory.CreateDirectory(cacheFolder);
+                    string cacheFolder = AppPaths.GetFolder("Artwork");
                     string ext = Path.GetExtension(dialog.FileName);
                     string destPath = Path.Combine(cacheFolder,
                         $"{game.RomHash}_custom{ext}");

@@ -29,9 +29,7 @@ namespace Emutastic.Services
 
         public CoreOptionsService()
         {
-            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            _dir = Path.Combine(appData, "Emutastic", "CoreOptions");
-            Directory.CreateDirectory(_dir);
+            _dir = AppPaths.GetFolder("CoreOptions");
         }
 
         // ── Schema ────────────────────────────────────────────────────────────────

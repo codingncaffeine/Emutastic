@@ -66,11 +66,8 @@ namespace Emutastic.Services
 
         public ScreenScraperService()
         {
-            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            _snapCacheFolder = Path.Combine(appData, "Emutastic", "Snaps");
-            _boxArt3DCacheFolder = Path.Combine(appData, "Emutastic", "BoxArt3D");
-            Directory.CreateDirectory(_snapCacheFolder);
-            Directory.CreateDirectory(_boxArt3DCacheFolder);
+            _snapCacheFolder = AppPaths.GetFolder("Snaps");
+            _boxArt3DCacheFolder = AppPaths.GetFolder("BoxArt3D");
 
             _http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
             _http.DefaultRequestHeaders.Add("User-Agent", $"{SoftName}/1.0");

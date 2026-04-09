@@ -53,6 +53,7 @@ namespace Emutastic.Configuration
     public class UserPreferences : ConfigurationBase
     {
         public string DefaultLibraryPath { get; set; } = "";
+        public string CustomDataDirectory { get; set; } = "";
         public bool ScanLibraryOnStartup { get; set; } = true;
         public bool ShowHiddenFiles { get; set; } = false;
         public string Theme { get; set; } = "Dark"; // Light, Dark, System

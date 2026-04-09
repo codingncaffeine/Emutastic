@@ -130,6 +130,7 @@ namespace Emutastic
             {
                 Configuration = new JsonConfigurationService(Logger as ILogger<JsonConfigurationService>);
                 await Configuration.LoadAsync();
+                AppPaths.SetCustomRoot(Configuration.GetUserPreferences().CustomDataDirectory);
                 ApplyThemeResources();
                 Logger?.LogInformation("Configuration system initialized successfully");
             }

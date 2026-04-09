@@ -633,8 +633,7 @@ namespace Emutastic.Views
                 // ----------------------------------------------------------
                 try
                 {
-                    string logDir  = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Emutastic", "Logs");
-                    Directory.CreateDirectory(logDir);
+                    string logDir = AppPaths.GetFolder("Logs");
                     string logPath = Path.Combine(logDir, "emulator.log");
                     // Rotate if over 5 MB — keeps one previous session as .old
                     if (File.Exists(logPath) && new FileInfo(logPath).Length > 5 * 1024 * 1024)
@@ -670,11 +669,8 @@ namespace Emutastic.Views
                 _consoleHandler = ConsoleHandlerFactory.Create(game.Console);
                 Title = $"{game.Title} - {game.Console}";
 
-                string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-                string sysDir      = Path.Combine(appData, "Emutastic", "System");
-                string batteryDir  = Path.Combine(appData, "Emutastic", "BatterySaves", game.Console);
-                Directory.CreateDirectory(sysDir);
-                Directory.CreateDirectory(batteryDir);
+                string sysDir     = AppPaths.GetFolder("System");
+                string batteryDir = AppPaths.GetFolder("BatterySaves", game.Console);
                 _consoleHandler.PrepareSaveDirectory(batteryDir);
 
                 // Per-game .srm file named after the ROM file stem (not the DB title),
@@ -682,9 +678,8 @@ namespace Emutastic.Views
                 string romStem = Path.GetFileNameWithoutExtension(game.RomPath);
                 _srmPath = Path.Combine(batteryDir, SanitizeFileName(romStem) + ".srm");
 
-                _saveStatePath = Path.Combine(appData, "Emutastic", "Save States",
+                _saveStatePath = AppPaths.GetFolder("Save States",
                     SanitizeFileName(game.Console), SanitizeFileName(game.Title));
-                Directory.CreateDirectory(_saveStatePath);
                 _pendingLoadStatePath = pendingLoadStatePath;
 
                 string coreDllDir = Path.GetDirectoryName(core.CorePath) ?? sysDir;
