@@ -1012,8 +1012,9 @@ namespace Emutastic
                 else
                 {
                     SetStatus("No artwork found", autoClear: true);
-                    MessageBox.Show("Could not find artwork for this game.",
-                        "Artwork", MessageBoxButton.OK, MessageBoxImage.Information);
+                    var dlg = new ConfirmDialog("Artwork", "Could not find artwork for this game.", "OK", danger: false) { Owner = this };
+                    dlg.CancelBtn.Visibility = Visibility.Collapsed;
+                    dlg.ShowDialog();
                 }
             }));
 
