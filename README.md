@@ -339,13 +339,13 @@ The original CD-i TV remote controller featured a thumbpad that provided proport
 
 This is a core-level limitation rather than a frontend issue. A proper fix would require modifying the SAME CDi core to expose the thumbpad as an analog input port (`IPT_AD_STICK_X/Y`) and updating the libretro joystick provider to pass raw axis values through without thresholding. This is something that may be explored as a future contribution to the SAME CDi core.
 
-### Nintendo DS — Layout Modes and Touch Input
-Nintendo DS emulation works for a large portion of the library, but two features found in dedicated DS frontends are not yet implemented:
+### Nintendo DS — Full Touch and Layout Support
+Nintendo DS emulation includes full touch-screen and screen layout support:
 
-- **Layout modes** — standalone DS emulators typically offer stacked (default), side-by-side, top-screen-dominant, and rotated 90° views. The rotated layout is required for titles designed to be held like a book, such as Hotel Dusk: Room 215 and Ninja Gaiden Dragon Sword.
-- **Touch input** — the bottom screen stylus is not yet mapped to mouse input. Games that rely heavily on touch (Phantom Hourglass, Spirit Tracks, etc.) are not playable in the current state.
+- **Touch input** — clicking and dragging on the bottom screen maps directly to DS stylus input. Games that rely on touch (Phantom Hourglass, Spirit Tracks, New Super Mario Bros., etc.) are fully playable.
+- **Screen layouts** — cycle through 8 layout modes from the in-game overlay menu (cog icon): Top/Bottom, Bottom/Top, Left/Right, Right/Left, Top Only, Bottom Only, Hybrid Top, and Hybrid Bottom. Your selected layout persists across sessions.
 
-If there is community interest, both features can be added. Many games that use the bottom screen only for maps or menus are fully playable without them.
+The rotated 90° layout for book-style titles (Hotel Dusk: Room 215, Ninja Gaiden Dragon Sword) is not yet available, as it requires special handling beyond what desmume exposes as a core option.
 
 ---
 
