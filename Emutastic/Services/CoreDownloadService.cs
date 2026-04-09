@@ -67,7 +67,7 @@ namespace Emutastic.Services
             new() { FileName = "fbalpha2012_cps2_libretro.dll", DisplayName = "FB Alpha 2012 CPS-2",    Systems = ["Arcade"],                            Recommended = false },
             new() { FileName = "fbalpha2012_cps3_libretro.dll", DisplayName = "FB Alpha 2012 CPS-3",    Systems = ["Arcade"],                            Recommended = false },
             new() { FileName = "fbalpha2012_neogeo_libretro.dll",DisplayName = "FB Alpha 2012 Neo Geo", Systems = ["Arcade"],                            Recommended = false },
-            new() { FileName = "geolith_libretro.dll",         DisplayName = "Geolith (Neo Geo)",      Systems = ["Arcade"],                            Recommended = true  },
+            new() { FileName = "geolith_libretro.dll",         DisplayName = "Geolith (Neo Geo)",      Systems = ["NeoGeo"],                            Recommended = true  },
             new() { FileName = "mame_libretro.dll",             DisplayName = "MAME (current)",         Systems = ["Arcade"],                            Recommended = false },
             new() { FileName = "mame2000_libretro.dll",         DisplayName = "MAME 2000 (0.37b5)",     Systems = ["Arcade"],                            Recommended = false },
             new() { FileName = "mame2003_libretro.dll",         DisplayName = "MAME 2003 (0.78)",       Systems = ["Arcade"],                            Recommended = false },

@@ -61,6 +61,7 @@ namespace Emutastic.Services
             { ".vec",  "Vectrex"     },
             { ".gdi",  "Dreamcast"   },
             { ".cdi",  "Dreamcast"   },
+            { ".neo",  "NeoGeo"      },
             { ".zip",  "Arcade"      },
             { ".7z",   "Arcade"      },
         };
@@ -81,6 +82,7 @@ namespace Emutastic.Services
             { "PS1",          "Sony"       }, { "PSP",       "Sony"       },
             { "TG16",         "NEC"        }, { "TGCD",      "NEC"        },
             { "NGP",          "SNK"        },
+            { "NeoGeo",       "SNK"        },
             { "Atari2600",    "Atari"      },
             { "Atari7800",    "Atari"      },
             { "Jaguar",       "Atari"      },
@@ -114,6 +116,7 @@ namespace Emutastic.Services
             { "TG16",        ("#1A2E2E", "#009688") },
             { "Dreamcast",   ("#1A0A0A", "#FF6600") },
             { "CDi",         ("#1A1A2E", "#00897B") },
+            { "NeoGeo",      ("#1A0A1A", "#FFD700") },
             { "Arcade",      ("#0A0A0A", "#E03535") },
         };
 
@@ -191,9 +194,10 @@ namespace Emutastic.Services
             ("fbneo",         "Arcade"),
             ("fba",           "Arcade"),
             ("mame",          "Arcade"),
-            ("neo geo",       "Arcade"),  // must come after "neo geo pocket"
-            ("neogeo",        "Arcade"),
-            ("neo-geo",       "Arcade"),
+            ("neo geo",       "NeoGeo"),  // must come after "neo geo pocket"
+            ("neogeo",        "NeoGeo"),
+            ("neo-geo",       "NeoGeo"),
+            ("lunagarlic",    "NeoGeo"),
             ("cps1",          "Arcade"),
             ("cps2",          "Arcade"),
             ("cps3",          "Arcade"),
@@ -316,6 +320,7 @@ namespace Emutastic.Services
 
             { "Vectrex",      0.75 },  // Vectrex box
             { "3DO",          0.58 },  // exceptionally tall 3DO slipcase
+            { "NeoGeo",       0.73 },  // Neo Geo AES box art
             { "Arcade",       0.73 },  // arcade flyer art
         };
 

@@ -61,13 +61,13 @@ namespace Emutastic.Services
             { "Vectrex",     new[] { "vecx_libretro.dll"                }},
             { "3DO",         new[] { "opera_libretro.dll"               }},
             { "CDi",         new[] { "same_cdi_libretro.dll"            }},
+            { "NeoGeo",      new[] { "geolith_libretro.dll"              }},
             { "Arcade",      new[] { "fbneo_libretro.dll",
                                      "fbalpha2012_libretro.dll",
                                      "fbalpha2012_cps1_libretro.dll",
                                      "fbalpha2012_cps2_libretro.dll",
                                      "fbalpha2012_cps3_libretro.dll",
                                      "fbalpha2012_neogeo_libretro.dll",
-                                     "geolith_libretro.dll",
                                      "mame2003_plus_libretro.dll",
                                      "mame2003_libretro.dll",
                                      "mame2010_libretro.dll",
@@ -126,13 +126,14 @@ namespace Emutastic.Services
         // Consoles that require ALL listed files (not just any one).
         public static readonly Dictionary<string, string[]> ConsoleBiosRequireAll = new()
         {
+            { "NeoGeo",   new[] { "neogeo.zip", "aes.zip" } },
         };
 
         // Core-specific BIOS requirements — keyed by substring of the core DLL name.
-        // Checked only when the resolved core matches. Any ONE file present = satisfied.
+        // Checked only when the resolved core matches. ALL files must be present.
         public static readonly (string CoreMatch, string[] Files)[] CoreBiosMap =
         {
-            ("geolith", new[] { "neogeo.zip" }),
+            ("geolith", new[] { "neogeo.zip", "aes.zip" }),
         };
 
         /// <summary>
@@ -161,7 +162,7 @@ namespace Emutastic.Services
                 foreach (var (coreMatch, files) in CoreBiosMap)
                 {
                     if (coreName.Contains(coreMatch))
-                        return files.Any(FileFound) ? new List<string>() : new List<string>(files);
+                        return files.Where(f => !FileFound(f)).ToList();
                 }
             }
 
