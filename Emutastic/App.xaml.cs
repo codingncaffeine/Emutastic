@@ -14,7 +14,7 @@ namespace Emutastic
     {
         public static IConfigurationService? Configuration { get; private set; }
         public static ILogger? Logger { get; private set; }
-        public static CoreOptionsService CoreOptions { get; } = new();
+        public static CoreOptionsService CoreOptions { get; private set; } = null!;
 
         private static Mutex? _singleInstanceMutex;
 
@@ -131,6 +131,7 @@ namespace Emutastic
                 Configuration = new JsonConfigurationService(Logger as ILogger<JsonConfigurationService>);
                 await Configuration.LoadAsync();
                 AppPaths.SetCustomRoot(Configuration.GetUserPreferences().CustomDataDirectory);
+                CoreOptions = new CoreOptionsService();
                 ApplyThemeResources();
                 Logger?.LogInformation("Configuration system initialized successfully");
             }
