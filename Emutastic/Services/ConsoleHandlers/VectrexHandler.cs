@@ -11,6 +11,9 @@ namespace Emutastic.Services.ConsoleHandlers
             { "vecx_res_multi", "3" },
         };
 
-        public override bool UseFullFboReadback => true;
+        // The vecx HW renderer passes its actual render dimensions (e.g. 869×1080)
+        // in the video callback. Reading the full square FBO captures extra black columns
+        // on the right, making the game appear shifted left. Use the callback dimensions.
+        public override bool UseFullFboReadback => false;
     }
 }

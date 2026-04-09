@@ -225,6 +225,13 @@
                            VerticalAlignment="Center"
                            RenderOptions.BitmapScalingMode="NearestNeighbor"/>
 
+                    <!-- Vectrex game overlay (transparent PNG layered on top) -->
+                    <Image x:Name="VectrexOverlayImage"
+                           Stretch="Fill"
+                           IsHitTestVisible="False"
+                           Visibility="Collapsed"
+                           RenderOptions.BitmapScalingMode="HighQuality"/>
+
                     <!-- Inline load-state picker (shown above HUD, right-aligned) -->
                     <Border x:Name="LoadPickerPanel"
                             Visibility="Collapsed"
@@ -319,6 +326,11 @@
                                         Content="Flip Display"
                                         Style="{StaticResource OverlayMenuItemStyle}"
                                         Click="OverlayFlip_Click"/>
+                                <Button x:Name="OverlayToggleBtn"
+                                        Content="Overlay: On"
+                                        Visibility="Collapsed"
+                                        Style="{StaticResource OverlayMenuItemStyle}"
+                                        Click="OverlayToggle_Click"/>
                                 <Button x:Name="OverlayScreenLayoutBtn"
                                         Visibility="Collapsed"
                                         Style="{StaticResource OverlayMenuItemStyle}"

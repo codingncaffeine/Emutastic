@@ -665,6 +665,11 @@ namespace Emutastic.Views
                     OverlayScreenLayoutBtn.Visibility = Visibility.Visible;
                     UpdateScreenLayoutLabel();
                 }
+
+                // Load Vectrex game overlay if available
+                if (game.Console == "Vectrex")
+                    InitVectrexOverlay(game);
+
                 _core = core;
                 _consoleHandler = ConsoleHandlerFactory.Create(game.Console);
                 Title = $"{game.Title} - {game.Console}";
@@ -1308,10 +1313,12 @@ namespace Emutastic.Views
                     // any per-call frame count (handles 30fps games running at 60Hz VBL, etc.).
                     // A Stopwatch cap of 4× targetFrameMs guards against silent scenes.
                     // SW cores: classic Stopwatch sleep+spin for sub-millisecond accuracy.
+                    if (_isClosing) break;
+
                     if (isHwCore && _audioPlayer != null)
                     {
                         frameTimer.Restart();
-                        while (_audioPlayer.GetBufferedMs() > prefillMs &&
+                        while (!_isClosing && _audioPlayer.GetBufferedMs() > prefillMs &&
                                frameTimer.Elapsed.TotalMilliseconds < _targetFrameMs * 4)
                             System.Threading.Thread.Sleep(1);
                         frameTimer.Restart();
@@ -1320,9 +1327,9 @@ namespace Emutastic.Views
                     {
                         double elapsed = frameTimer.Elapsed.TotalMilliseconds;
                         double remaining = _targetFrameMs - elapsed;
-                        if (remaining > 1.5)
+                        if (remaining > 1.5 && !_isClosing)
                             System.Threading.Thread.Sleep((int)(remaining - 1.0));
-                        while (frameTimer.Elapsed.TotalMilliseconds < _targetFrameMs)
+                        while (!_isClosing && frameTimer.Elapsed.TotalMilliseconds < _targetFrameMs)
                             System.Threading.Thread.SpinWait(10);
                         frameTimer.Restart();
                     }
@@ -3963,6 +3970,49 @@ namespace Emutastic.Views
                     av.geometry.aspect_ratio);
         }
 
+        // ── Vectrex Overlay ───────────────────────────────────────────────
+
+        private string? _vectrexOverlayPath;
+
+        private void InitVectrexOverlay(Game game)
+        {
+            _vectrexOverlayPath = VectrexOverlayService.FindOverlay(game.RomPath);
+            if (_vectrexOverlayPath == null) return;
+
+            try
+            {
+                var bmp = new BitmapImage();
+                bmp.BeginInit();
+                bmp.UriSource = new Uri(_vectrexOverlayPath);
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.EndInit();
+                bmp.Freeze();
+                VectrexOverlayImage.Source = bmp;
+            }
+            catch { return; }
+
+            bool enabled = VectrexOverlayService.IsOverlayEnabled(game.Id);
+            ApplyVectrexOverlay(enabled);
+            OverlayToggleBtn.Visibility = Visibility.Visible;
+        }
+
+        private void ApplyVectrexOverlay(bool enabled)
+        {
+            VectrexOverlayImage.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+            OverlayToggleBtn.Content = enabled ? "Overlay: On" : "Overlay: Off";
+        }
+
+        private void OverlayToggle_Click(object sender, RoutedEventArgs e)
+        {
+            bool newState = VectrexOverlayImage.Visibility != Visibility.Visible;
+
+            ApplyVectrexOverlay(newState);
+            VectrexOverlayService.SetOverlayEnabled(_game.Id, newState);
+
+            OverlayMenu.Visibility = Visibility.Collapsed;
+            ResetOverlayTimer();
+        }
+
         private void CoreOptionsDone_Click(object sender, RoutedEventArgs e)
         {
             CoreOptionsPanel.Visibility = Visibility.Collapsed;
@@ -4181,6 +4231,10 @@ namespace Emutastic.Views
             _overlayTimer?.Stop();
             _mousePoller?.Stop();
             _audioPlayer?.Stop();
+
+            // Hide immediately so the user isn't staring at an unresponsive window
+            // while the emu thread and GL cleanup finish in the background.
+            Hide();
 
             // Save window size NOW while we're on the UI thread and the window is still alive.
             // This must happen before the Task.Run cleanup — native interop in cleanup can throw
