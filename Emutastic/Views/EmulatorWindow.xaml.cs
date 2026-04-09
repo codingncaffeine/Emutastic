@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
@@ -51,6 +52,22 @@ namespace Emutastic.Views
         private const uint RETRO_DEVICE_LIGHTGUN = 4;
         private const uint RETRO_DEVICE_ANALOG   = 5;
         private const uint RETRO_DEVICE_POINTER  = 6;
+
+        // Pointer device ID constants (touch input for NDS)
+        private const uint RETRO_DEVICE_ID_POINTER_X       = 0;
+        private const uint RETRO_DEVICE_ID_POINTER_Y       = 1;
+        private const uint RETRO_DEVICE_ID_POINTER_PRESSED = 2;
+
+        // Pointer state — mouse position normalized to libretro range (-32768..32767)
+        private short _pointerX;
+        private short _pointerY;
+        private volatile bool _pointerPressed;
+
+        // Mouse delta accumulation for RETRO_DEVICE_MOUSE (NDS touch via desmume)
+        private double _mouseLastPixelX = double.NaN;
+        private double _mouseLastPixelY = double.NaN;
+        private int _mouseDeltaX;
+        private int _mouseDeltaY;
 
         // RETRO_DEVICE_ANALOG index / id constants
         private const uint RETRO_DEVICE_INDEX_ANALOG_LEFT   = 0;
@@ -401,6 +418,7 @@ namespace Emutastic.Views
         [DllImport("opengl32.dll")] private static extern IntPtr wglGetCurrentContext();
         [DllImport("user32.dll")]   private static extern IntPtr GetDC(IntPtr hwnd);
         [DllImport("user32.dll")]   private static extern int    ReleaseDC(IntPtr hwnd, IntPtr hdc);
+        [DllImport("user32.dll")]   private static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
         [DllImport("gdi32.dll")]    private static extern int    ChoosePixelFormat(IntPtr hdc, ref PIXELFORMATDESCRIPTOR pfd);
         [DllImport("gdi32.dll")]    private static extern bool   SetPixelFormat(IntPtr hdc, int fmt, ref PIXELFORMATDESCRIPTOR pfd);
         [DllImport("gdi32.dll")]    private static extern bool   DescribePixelFormat(IntPtr hdc, int iPixelFormat, uint nBytes, ref PIXELFORMATDESCRIPTOR ppfd);
@@ -634,7 +652,20 @@ namespace Emutastic.Views
                 InitializeComponent();
                 SourceInitialized += OnSourceInitialized;
 
+                // Wire up mouse events for touch input (NDS)
+                GameScreen.MouseLeftButtonDown += GameScreen_PointerDown;
+                GameScreen.MouseLeftButtonUp   += GameScreen_PointerUp;
+                GameScreen.MouseMove           += GameScreen_PointerMove;
+                GameScreen.MouseLeave          += (_, _) => { _pointerPressed = false; _mouseLastPixelX = double.NaN; };
+
                 _game = game;
+
+                // Show NDS screen layout button in overlay
+                if (game.Console == "NDS")
+                {
+                    OverlayScreenLayoutBtn.Visibility = Visibility.Visible;
+                    UpdateScreenLayoutLabel();
+                }
                 _core = core;
                 _consoleHandler = ConsoleHandlerFactory.Create(game.Console);
                 Title = $"{game.Title} - {game.Console}";
@@ -711,6 +742,10 @@ namespace Emutastic.Views
             foreach (var kv in defaults) _coreOptions[kv.Key] = kv.Value;
             if (defaults.Count > 0)
                 System.Diagnostics.Trace.WriteLine($"Seeded {defaults.Count} default core options for {_game.Console}");
+
+            // NDS: default to touch mode (absolute pointer, no crosshair) instead of mouse mode
+            if (_game.Console == "NDS")
+                _coreOptions.TryAdd("desmume_pointer_type", "touch");
 
             // Apply legacy per-console overrides (e.g. N64 GFX plugin selection)
             var configSvc = _configService ?? App.Configuration;
@@ -2200,12 +2235,13 @@ namespace Emutastic.Views
                         if (data != IntPtr.Zero) Marshal.WriteIntPtr(data, _contentDirPtr);
                         return true;
 
-                    // Advertise joypad + analog + mouse capability
+                    // Advertise joypad + analog + mouse + pointer capability
                     case RETRO_ENVIRONMENT_GET_INPUT_DEVICE_CAPABILITIES:
                         if (data != IntPtr.Zero)
                             Marshal.WriteInt64(data, (1L << (int)RETRO_DEVICE_JOYPAD) |
                                                      (1L << (int)RETRO_DEVICE_ANALOG)  |
-                                                     (1L << (int)RETRO_DEVICE_MOUSE));
+                                                     (1L << (int)RETRO_DEVICE_MOUSE)   |
+                                                     (1L << (int)RETRO_DEVICE_POINTER));
                         return true;
 
                     // GET_FASTFORWARDING = (49 | 0x10000) — Dolphin asks if we're fast-forwarding.
@@ -2726,19 +2762,34 @@ namespace Emutastic.Views
             {
                 if (id == 0) // MOUSE_X delta
                 {
-                    if (_controllerManager == null || !_controllerManager.IsConnected) return 0;
-                    short x = _controllerManager.GetAnalogAxisValue(0, 0);
-                    return (short)(x / MouseAnalogScale);
+                    // WPF mouse delta (accumulated since last poll)
+                    int wpfDelta = Interlocked.Exchange(ref _mouseDeltaX, 0);
+
+                    // Controller analog stick fallback
+                    if (_controllerManager != null && _controllerManager.IsConnected)
+                    {
+                        short x = _controllerManager.GetAnalogAxisValue(0, 0);
+                        wpfDelta += (int)(x / MouseAnalogScale);
+                    }
+
+                    return (short)Math.Clamp(wpfDelta, short.MinValue, short.MaxValue);
                 }
-                if (id == 1) // MOUSE_Y delta — negate: XInput up=+, mouse down=+
+                if (id == 1) // MOUSE_Y delta
                 {
-                    if (_controllerManager == null || !_controllerManager.IsConnected) return 0;
-                    short y = _controllerManager.GetAnalogAxisValue(0, 1);
-                    return (short)(-y / MouseAnalogScale);
+                    int wpfDelta = Interlocked.Exchange(ref _mouseDeltaY, 0);
+
+                    if (_controllerManager != null && _controllerManager.IsConnected)
+                    {
+                        short y = _controllerManager.GetAnalogAxisValue(0, 1);
+                        wpfDelta += (int)(-y / MouseAnalogScale); // negate: XInput up=+, mouse down=+
+                    }
+
+                    return (short)Math.Clamp(wpfDelta, short.MinValue, short.MaxValue);
                 }
                 if (id == 2) // MOUSE_LEFT → Button 1
                 {
-                    bool pressed = _inputState[JOYPAD_B] ||
+                    bool pressed = _pointerPressed ||
+                                   _inputState[JOYPAD_B] ||
                                    (_controllerManager?.GetButtonState(JOYPAD_B) ?? false);
                     return pressed ? (short)1 : (short)0;
                 }
@@ -2791,6 +2842,19 @@ namespace Emutastic.Views
                         };
                     }
                 }
+            }
+
+            // Pointer device — touch input for NDS bottom screen.
+            // Coordinates span the full framebuffer; the DS core maps the bottom half to touch.
+            if (device == RETRO_DEVICE_POINTER)
+            {
+                return id switch
+                {
+                    RETRO_DEVICE_ID_POINTER_X       => _pointerPressed ? _pointerX : (short)0,
+                    RETRO_DEVICE_ID_POINTER_Y       => _pointerPressed ? _pointerY : (short)0,
+                    RETRO_DEVICE_ID_POINTER_PRESSED => _pointerPressed ? (short)1  : (short)0,
+                    _ => 0
+                };
             }
 
             return 0;
@@ -3100,6 +3164,48 @@ namespace Emutastic.Views
                 "l2" => 12, "r2" => 13, "l3" => 14, "r3" => 15,
                 _ => uint.MaxValue
             };
+        }
+
+        // ── Pointer / touch input (NDS bottom screen) ─────────────────────
+
+        private void UpdatePointerPosition(System.Windows.Input.MouseEventArgs e)
+        {
+            var pos = e.GetPosition(GameScreen);
+            double imgW = GameScreen.ActualWidth;
+            double imgH = GameScreen.ActualHeight;
+            if (imgW <= 0 || imgH <= 0) return;
+
+            // Normalize to -32768..32767 across the full rendered image
+            _pointerX = (short)Math.Clamp((pos.X / imgW * 65535) - 32768, -32768, 32767);
+            _pointerY = (short)Math.Clamp((pos.Y / imgH * 65535) - 32768, -32768, 32767);
+
+            // Accumulate pixel deltas for RETRO_DEVICE_MOUSE
+            if (!double.IsNaN(_mouseLastPixelX))
+            {
+                _mouseDeltaX += (int)(pos.X - _mouseLastPixelX);
+                _mouseDeltaY += (int)(pos.Y - _mouseLastPixelY);
+            }
+            _mouseLastPixelX = pos.X;
+            _mouseLastPixelY = pos.Y;
+        }
+
+        private void GameScreen_PointerDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            UpdatePointerPosition(e);
+            _pointerPressed = true;
+            GameScreen.CaptureMouse();
+        }
+
+        private void GameScreen_PointerUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            _pointerPressed = false;
+            GameScreen.ReleaseMouseCapture();
+        }
+
+        private void GameScreen_PointerMove(object sender, System.Windows.Input.MouseEventArgs e)
+        {
+            if (_pointerPressed)
+                UpdatePointerPosition(e);
         }
 
         private const short KEY_FULL = 32767;
@@ -3540,7 +3646,7 @@ namespace Emutastic.Views
                 var raConfig = _configService.GetRetroAchievementsConfiguration();
                 if (!raConfig.Enabled ||
                     string.IsNullOrWhiteSpace(raConfig.Username) ||
-                    string.IsNullOrWhiteSpace(raConfig.ApiKey))
+                    (string.IsNullOrWhiteSpace(raConfig.Password) && string.IsNullOrWhiteSpace(raConfig.Token)))
                 {
                     System.Diagnostics.Trace.WriteLine("[RA] Disabled or missing credentials — skipping.");
                     return;
@@ -3805,6 +3911,52 @@ namespace Emutastic.Views
             ResetOverlayTimer();
         }
 
+        // ── NDS Screen Layout cycling ─────────────────────────────────────
+
+        private static readonly string[] NdsScreenLayouts =
+        {
+            "top/bottom", "bottom/top", "left/right", "right/left",
+            "top only", "bottom only", "hybrid/top", "hybrid/bottom"
+        };
+
+        private static readonly Dictionary<string, string> NdsLayoutLabels = new()
+        {
+            { "top/bottom",    "Top / Bottom" },
+            { "bottom/top",    "Bottom / Top" },
+            { "left/right",    "Side by Side" },
+            { "right/left",    "Side by Side (reversed)" },
+            { "top only",      "Top Screen Only" },
+            { "bottom only",   "Bottom Screen Only" },
+            { "hybrid/top",    "Hybrid (Top focus)" },
+            { "hybrid/bottom", "Hybrid (Bottom focus)" },
+        };
+
+        private void UpdateScreenLayoutLabel()
+        {
+            string current = _coreOptions.TryGetValue("desmume_screens_layout", out var v) ? v : "top/bottom";
+            string label = NdsLayoutLabels.TryGetValue(current, out var l) ? l : current;
+            OverlayScreenLayoutBtn.Content = $"Screen Layout: {label}";
+        }
+
+        private void OverlayScreenLayout_Click(object sender, RoutedEventArgs e)
+        {
+            string current = _coreOptions.TryGetValue("desmume_screens_layout", out var v) ? v : "top/bottom";
+            int idx = Array.IndexOf(NdsScreenLayouts, current);
+            int next = (idx + 1) % NdsScreenLayouts.Length;
+            string newLayout = NdsScreenLayouts[next];
+
+            _coreOptions["desmume_screens_layout"] = newLayout;
+            _coreOptionsDirty = true;
+            UpdateScreenLayoutLabel();
+
+            // Persist the change so it survives restarts
+            string coreName = Path.GetFileNameWithoutExtension(_core.CorePath);
+            App.CoreOptions.SaveValues(coreName, new Dictionary<string, string>
+                { { "desmume_screens_layout", newLayout } });
+
+            ResetOverlayTimer();
+        }
+
         private void OverlayFlip_Click(object sender, RoutedEventArgs e)
         {
             _flipRotation = _flipRotation == 0u ? 2u : 0u;
@@ -3951,6 +4103,55 @@ namespace Emutastic.Views
                 handled = true;
             }
             return IntPtr.Zero;
+        }
+
+        // ---- Invisible edge/corner resize for borderless window ----
+        private const int _resizeBorder = 6;
+
+        private int HitTestEdge(Point p)
+        {
+            bool top    = p.Y < _resizeBorder;
+            bool bottom = p.Y >= RootBorder.ActualHeight - _resizeBorder;
+            bool left   = p.X < _resizeBorder;
+            bool right  = p.X >= RootBorder.ActualWidth  - _resizeBorder;
+
+            if (top && left)       return 4; // WMSZ_TOPLEFT
+            if (top && right)      return 5; // WMSZ_TOPRIGHT
+            if (bottom && left)    return 7; // WMSZ_BOTTOMLEFT
+            if (bottom && right)   return 8; // WMSZ_BOTTOMRIGHT
+            if (top)               return 3; // WMSZ_TOP
+            if (bottom)            return 6; // WMSZ_BOTTOM
+            if (left)              return 1; // WMSZ_LEFT
+            if (right)             return 2; // WMSZ_RIGHT
+            return 0;
+        }
+
+        private void RootBorder_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (WindowState != WindowState.Normal) { RootBorder.Cursor = null; return; }
+            int edge = HitTestEdge(e.GetPosition(RootBorder));
+            RootBorder.Cursor = edge switch
+            {
+                1 or 2 => Cursors.SizeWE,
+                3 or 6 => Cursors.SizeNS,
+                4 or 8 => Cursors.SizeNWSE,
+                5 or 7 => Cursors.SizeNESW,
+                _      => null
+            };
+        }
+
+        private void RootBorder_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (WindowState != WindowState.Normal) return;
+            int edge = HitTestEdge(e.GetPosition(RootBorder));
+            if (edge == 0) return;
+
+            // SC_SIZE = 0xF000, direction offset matches WMSZ values
+            const uint WM_SYSCOMMAND = 0x0112;
+            const int SC_SIZE = 0xF000;
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            SendMessage(hwnd, WM_SYSCOMMAND, (IntPtr)(SC_SIZE + edge), IntPtr.Zero);
+            e.Handled = true;
         }
 
         private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)

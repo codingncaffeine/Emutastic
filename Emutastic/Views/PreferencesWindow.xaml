@@ -1175,13 +1175,6 @@
                                          Style="{StaticResource DarkPasswordBox}"
                                          Margin="0,0,0,14"/>
 
-                            <!-- Web API Key (for Test Connection only) -->
-                            <TextBlock Text="Web API Key (optional — for testing connection)" FontSize="12"
-                                       Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,6"/>
-                            <PasswordBox x:Name="RAApiKeyBox"
-                                         Style="{StaticResource DarkPasswordBox}"
-                                         Margin="0,0,0,8"/>
-
                             <!-- Token status -->
                             <TextBlock x:Name="RATokenStatus"
                                        FontSize="11"
@@ -1191,7 +1184,7 @@
                             <!-- Test connection -->
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,24">
                                 <Button x:Name="RATestBtn"
-                                        Content="Test Connection"
+                                        Content="Login"
                                         Style="{StaticResource ActionBtn}"
                                         Click="RATestBtn_Click"
                                         Margin="0,0,12,0"/>

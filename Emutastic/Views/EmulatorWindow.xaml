@@ -5,7 +5,7 @@
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent"
-        ResizeMode="CanResizeWithGrip"
+        ResizeMode="CanResize"
         Width="854" Height="520"
         WindowStartupLocation="CenterOwner"
         KeyDown="Window_KeyDown"
@@ -148,11 +148,13 @@
         </Style>
     </Window.Resources>
 
-    <Border Background="Black"
+    <Border x:Name="RootBorder" Background="Black"
             BorderBrush="{StaticResource BorderSubtleBrush}"
             BorderThickness="1"
             CornerRadius="8"
-            Effect="{StaticResource WindowShadow}">
+            Effect="{StaticResource WindowShadow}"
+            MouseMove="RootBorder_MouseMove"
+            PreviewMouseLeftButtonDown="RootBorder_PreviewMouseLeftButtonDown">
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="32"/>
@@ -317,6 +319,10 @@
                                         Content="Flip Display"
                                         Style="{StaticResource OverlayMenuItemStyle}"
                                         Click="OverlayFlip_Click"/>
+                                <Button x:Name="OverlayScreenLayoutBtn"
+                                        Visibility="Collapsed"
+                                        Style="{StaticResource OverlayMenuItemStyle}"
+                                        Click="OverlayScreenLayout_Click"/>
                                 <Rectangle Height="1" Fill="#33FFFFFF" Margin="6,2,6,2"/>
                                 <TextBlock x:Name="OverlayCoreLabel"
                                            Foreground="#99FFFFFF"

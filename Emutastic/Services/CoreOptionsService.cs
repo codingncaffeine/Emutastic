@@ -121,8 +121,14 @@ namespace Emutastic.Services
         {
             try
             {
+                // Merge with existing saved values so callers that save a single option
+                // don't wipe out all other previously-saved options.
+                var existing = LoadValues(coreName);
+                foreach (var kv in values)
+                    existing[kv.Key] = kv.Value;
+
                 File.WriteAllText(Path.Combine(_dir, $"{coreName}.values.json"),
-                    JsonSerializer.Serialize(values, _json));
+                    JsonSerializer.Serialize(existing, _json));
             }
             catch { /* non-fatal */ }
         }
