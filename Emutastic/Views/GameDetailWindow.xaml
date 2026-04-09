@@ -52,21 +52,17 @@
                             </Border.Background>
                         </Border>
 
-                        <!-- Snap / screenshot image (static fallback) -->
+                        <!-- Video rendered via LibVLC callback → WriteableBitmap -->
+                        <Image x:Name="VideoImage"
+                               Stretch="UniformToFill"
+                               RenderOptions.BitmapScalingMode="LowQuality"
+                               Visibility="Collapsed"/>
+
+                        <!-- Cover art / screenshot — on top, stays visible until video is ready -->
                         <Image x:Name="HeaderImage"
                                Stretch="UniformToFill"
                                RenderOptions.BitmapScalingMode="HighQuality"
                                Visibility="Collapsed"/>
-
-                        <!-- Video snap (ScreenScraper .mp4, 4:3, silent loop) -->
-                        <MediaElement x:Name="SnapVideo"
-                                      Stretch="Uniform"
-                                      IsMuted="True"
-                                      LoadedBehavior="Manual"
-                                      UnloadedBehavior="Stop"
-                                      Visibility="Collapsed"
-                                      MediaEnded="SnapVideo_MediaEnded"
-                                      MediaOpened="SnapVideo_MediaOpened"/>
 
                         <!-- Gradient overlay -->
                         <Border>

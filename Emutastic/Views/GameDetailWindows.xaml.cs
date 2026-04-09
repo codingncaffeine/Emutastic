@@ -2,7 +2,9 @@ using Emutastic.Configuration;
 using Emutastic.Models;
 using Emutastic.Services;
 using Emutastic.Views;
+using LibVLCSharp.Shared;
 using System;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -16,6 +18,15 @@ namespace Emutastic.Views
     {
         private Game _game;
         private readonly DatabaseService _db = new();
+
+        // Shared LibVLC instance — expensive to create, reused across all detail windows
+        private static LibVLC? _libVLC;
+        private LibVLCSharp.Shared.MediaPlayer? _vlcPlayer;
+        private WriteableBitmap? _videoBitmap;
+        private IntPtr _videoBuffer;
+        private int _videoWidth, _videoHeight;
+        private bool _crossfadeDone;
+
         public GameDetailWindow(Game game)
         {
             InitializeComponent();
@@ -60,6 +71,9 @@ namespace Emutastic.Views
         {
             try
             {
+                // Show cover art immediately as a placeholder while video loads
+                ShowCoverArtPlaceholder();
+
                 // 1 — try ScreenScraper video snap if configured
                 var snapConfig = App.Configuration?.GetSnapConfiguration();
                 if (snapConfig is { ScreenScraperEnabled: true }
@@ -105,31 +119,109 @@ namespace Emutastic.Views
             catch { /* cosmetic — silently ignore */ }
         }
 
+        private void ShowCoverArtPlaceholder()
+        {
+            string artPath = _game.DisplayArtPath;
+            if (string.IsNullOrEmpty(artPath) || !System.IO.File.Exists(artPath)) return;
+
+            try
+            {
+                var bitmap = new BitmapImage();
+                bitmap.BeginInit();
+                bitmap.UriSource = new Uri(artPath, UriKind.Absolute);
+                bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                bitmap.EndInit();
+                bitmap.Freeze();
+
+                HeaderImage.Source = bitmap;
+                HeaderImage.Stretch = Stretch.UniformToFill;
+                HeaderImage.Visibility = Visibility.Visible;
+                ArtPlaceholderText.Visibility = Visibility.Collapsed;
+            }
+            catch { }
+        }
+
         private void PlaySnapVideo(string mp4Path)
         {
-            SnapVideo.Source = new Uri(mp4Path, UriKind.Absolute);
-            SnapVideo.Visibility = Visibility.Visible;
-            HeaderImage.Visibility = Visibility.Collapsed;
-            ArtPlaceholderText.Visibility = Visibility.Collapsed;
-            SnapVideo.Play();
-        }
+            _libVLC ??= new LibVLC("--no-audio", "--no-osd", "--no-snapshot-preview");
+            _crossfadeDone = false;
 
-        // Loop the video silently
-        private void SnapVideo_MediaEnded(object sender, RoutedEventArgs e)
-        {
-            SnapVideo.Position = TimeSpan.Zero;
-            SnapVideo.Play();
-        }
+            // ScreenScraper snaps are typically 320x240 — use fixed format
+            _videoWidth = 320;
+            _videoHeight = 240;
+            int stride = _videoWidth * 4;
 
-        private void SnapVideo_MediaOpened(object sender, RoutedEventArgs e)
-        {
-            // Nothing needed — Play() already called in PlaySnapVideo
+            if (_videoBuffer != IntPtr.Zero)
+                Marshal.FreeHGlobal(_videoBuffer);
+            _videoBuffer = Marshal.AllocHGlobal(stride * _videoHeight);
+
+            _videoBitmap = new WriteableBitmap(_videoWidth, _videoHeight, 96, 96, PixelFormats.Bgr32, null);
+            VideoImage.Source = _videoBitmap;
+
+            _vlcPlayer = new LibVLCSharp.Shared.MediaPlayer(_libVLC);
+            _vlcPlayer.SetVideoFormat("RV32", (uint)_videoWidth, (uint)_videoHeight, (uint)stride);
+
+            _vlcPlayer.SetVideoCallbacks(
+                // Lock: give VLC our buffer
+                (IntPtr opaque, IntPtr planes) =>
+                {
+                    Marshal.WriteIntPtr(planes, _videoBuffer);
+                    return IntPtr.Zero;
+                },
+                // Unlock: no-op
+                null,
+                // Display: blit to WriteableBitmap
+                (IntPtr opaque, IntPtr picture) =>
+                {
+                    Dispatcher.BeginInvoke(() =>
+                    {
+                        if (_videoBitmap == null || _videoBuffer == IntPtr.Zero) return;
+
+                        _videoBitmap.Lock();
+                        unsafe
+                        {
+                            Buffer.MemoryCopy(
+                                (void*)_videoBuffer, (void*)_videoBitmap.BackBuffer,
+                                stride * _videoHeight, stride * _videoHeight);
+                        }
+                        _videoBitmap.AddDirtyRect(new Int32Rect(0, 0, _videoWidth, _videoHeight));
+                        _videoBitmap.Unlock();
+
+                        // Crossfade once on first rendered frame
+                        if (!_crossfadeDone)
+                        {
+                            _crossfadeDone = true;
+                            VideoImage.Visibility = Visibility.Visible;
+                            ArtPlaceholderText.Visibility = Visibility.Collapsed;
+                            var fadeOut = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(400));
+                            fadeOut.Completed += (_, _) => HeaderImage.Visibility = Visibility.Collapsed;
+                            HeaderImage.BeginAnimation(OpacityProperty, fadeOut);
+                        }
+                    });
+                });
+
+            // Loop: when it ends, replay from the start
+            _vlcPlayer.EndReached += (_, _) =>
+                System.Threading.ThreadPool.QueueUserWorkItem(_ => _vlcPlayer?.Play());
+
+            using var media = new Media(_libVLC, mp4Path, FromType.FromPath);
+            media.AddOption(":input-repeat=65535");
+            _vlcPlayer.Play(media);
         }
 
         protected override void OnClosed(EventArgs e)
         {
-            SnapVideo.Stop();
-            SnapVideo.Source = null;
+            if (_vlcPlayer != null)
+            {
+                _vlcPlayer.Stop();
+                _vlcPlayer.Dispose();
+                _vlcPlayer = null;
+            }
+            if (_videoBuffer != IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(_videoBuffer);
+                _videoBuffer = IntPtr.Zero;
+            }
             base.OnClosed(e);
         }
 
