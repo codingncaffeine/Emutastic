@@ -35,6 +35,8 @@ namespace Emutastic.Configuration
         private readonly string _configPath;
         private readonly ILogger<JsonConfigurationService>? _logger;
         private readonly JsonSerializerOptions _jsonOptions;
+        private readonly System.Threading.SemaphoreSlim _saveLock = new(1, 1);
+        private bool _loadedSuccessfully;
 
         private ConfigData _data = new();
 
@@ -59,16 +61,33 @@ namespace Emutastic.Configuration
 
         public async Task SaveAsync()
         {
+            // Don't overwrite a good config file if we failed to load it —
+            // _data would be empty defaults and we'd erase the user's settings.
+            if (!_loadedSuccessfully)
+            {
+                _logger?.LogWarning("Skipping save — config was not loaded successfully");
+                return;
+            }
+
+            await _saveLock.WaitAsync();
             try
             {
                 _data.LastSaved = DateTime.UtcNow;
                 string json = JsonSerializer.Serialize(_data, _jsonOptions);
-                await File.WriteAllTextAsync(_configPath, json);
+                // Atomic write: write to temp file first, then rename over the real file.
+                // This prevents corruption if the app crashes mid-write.
+                string tmpPath = _configPath + ".tmp";
+                await File.WriteAllTextAsync(tmpPath, json);
+                File.Move(tmpPath, _configPath, overwrite: true);
             }
             catch (Exception ex)
             {
                 _logger?.LogError(ex, "Error saving configuration");
                 throw;
+            }
+            finally
+            {
+                _saveLock.Release();
             }
         }
 
@@ -79,6 +98,7 @@ namespace Emutastic.Configuration
                 if (!File.Exists(_configPath))
                 {
                     _data = new ConfigData();
+                    _loadedSuccessfully = true;
                     await SaveAsync();
                     return;
                 }
@@ -86,11 +106,25 @@ namespace Emutastic.Configuration
                 string json = await File.ReadAllTextAsync(_configPath);
                 var loaded = JsonSerializer.Deserialize<ConfigData>(json, _jsonOptions);
                 _data = loaded ?? new ConfigData();
+                _loadedSuccessfully = true;
             }
             catch (Exception ex)
             {
                 _logger?.LogError(ex, "Error loading configuration — using defaults");
+                System.Diagnostics.Trace.WriteLine($"CONFIG LOAD FAILED: {ex.Message}");
+
+                // Back up the corrupt file so the user doesn't lose data
+                try
+                {
+                    string backup = _configPath + ".corrupt";
+                    if (File.Exists(_configPath))
+                        File.Copy(_configPath, backup, overwrite: true);
+                    _logger?.LogWarning($"Corrupt config backed up to {backup}");
+                }
+                catch { }
+
                 _data = new ConfigData();
+                // _loadedSuccessfully stays false — SaveAsync will refuse to overwrite
             }
         }
 

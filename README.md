@@ -175,119 +175,14 @@ App data is stored at `%AppData%\Roaming\Emutastic\`:
 
 ## Core-Specific Notes
 
-### GameCube (Dolphin)
-- Dolphin requires the **OpenGL** video backend (`gfx_backend = OGL`). D3D11 and Vulkan are not reliable via the libretro interface on Windows.
-- The CPU core must be set to **CachedInterpreter** — JIT64 causes a crash inside .NET's process environment.
-- `fastmem` must be **disabled**.
-- `AllowHwSharedContext` must be **false** — without this the video output is black.
-- Controller port device type must be set after `LoadGame` is called, not before.
+Detailed per-system notes — configuration, known issues, workarounds, and implementation details — are in the **[Wiki](https://github.com/codingncaffeine/Emutastic/wiki)**.
 
-### Nintendo 64 (parallel_n64)
-- mupen64plus_next is listed as a fallback core.
-
-#### Emulation speed / timing pitfall
-
-N64 emulation ran at a locked **48fps on a 144Hz monitor** for a long time despite the core running at full speed. The root cause was using an **audio-driven timing loop** — the loop waited for the audio buffer to drain before calling `retro_run` again. On Windows, `WaveOut` drains its internal buffers in steps synchronized to the DWM compositor rate (144Hz ÷ 3 = 48 drain steps/sec). Each drain step released one frame's worth of budget, capping emulation at 48fps regardless of how fast the CPU was.
-
-The fix is a **Stopwatch-primary loop** for software cores: measure elapsed time with a high-resolution timer, sleep/spin the remainder of the frame budget, and let the audio buffer run slightly ahead. `AudioPlayer.GetBufferedMs()` must also use a time-based estimate (total samples enqueued minus playback time elapsed) rather than reading `BufferedWaveProvider.BufferedBytes`, which only decreases at WaveOut drain cadence.
-
-#### Teardown / close-crash pitfalls
-
-mupen64plus with the glide64 graphics plugin is one of the hardest libretro cores to shut down cleanly. The core uses **libco coroutines** (`co_switch`) and its own internal `EmuThread`, which means cleanup code can fire on unexpected threads and at unexpected times. Here is the full set of issues we hit and how they were resolved — if you are building a libretro frontend that supports N64 with HW rendering, you will likely run into the same problems:
-
-1. **`retro_deinit` must run with a current OpenGL context.** glide64's `retro_deinit` triggers GL cleanup calls (texture deletes, context queries). If no GL context is current on the calling thread, OPENGL32.dll's dispatch table is null → access violation at address `0xA38`. The solution is to call `retro_deinit` on the **emulation thread** (the same OS thread that called `retro_run`) while the GL context is still `wglMakeCurrent`'d — *before* releasing the context. Do **not** defer `retro_deinit` to a background/thread-pool thread; `wglMakeCurrent` will fail on a thread that never owned the context.
-
-2. **Skip `context_destroy` for mupen64plus.** mupen64plus's internal EmuThread continues running cleanup for hundreds of milliseconds after `retro_unload_game` returns (via `co_switch`). Calling the libretro `context_destroy` callback while that thread is still calling GL will crash. Let the quarantine period (below) handle it instead.
-
-3. **`wglDeleteContext` must happen after a delay.** Even after `retro_deinit`, the NVIDIA OpenGL driver may fire background callbacks (texture frees, fence signals) that call back into the core DLL. Deleting the HGLRC immediately causes those callbacks to hit a null dispatch table. Wait ~1.5–2 seconds after `retro_deinit` before calling `wglDeleteContext`.
-
-4. **`FreeLibrary` must happen after `wglDeleteContext`.** `wglDeleteContext` itself triggers NVIDIA driver cleanup that calls back into the core DLL code. If `FreeLibrary` has already unmapped the DLL, those callbacks hit unmapped memory → instant process termination. Call `FreeLibrary` *after* `wglDeleteContext`, not before.
-
-5. **All of the above must complete synchronously before launching another N64 game.** mupen64plus uses global state that is only reset when the DLL is fully unloaded and reloaded. If you fire-and-forget the cleanup (async quarantine), the user can launch a second N64 game before the first instance's DLL is freed → `LoadLibrary` returns the same mapping with stale globals → "Failed to initialize core". Make the cleanup blocking so the DLL is fully unloaded before the frontend considers the window closed.
-
-The correct teardown sequence (on the emu thread, then blocking on a background thread):
-```
-Emu thread:  retro_unload_game()
-             ← skip context_destroy
-             retro_deinit()          ← GL context still current
-             wglMakeCurrent(NULL)    ← release GL
-             thread exits
-
-Background:  join(emu_thread)
-             Sleep(1500ms)           ← drain residual driver callbacks
-             wglDeleteContext()
-             Sleep(500ms)
-             FreeLibrary()           ← DLL fully unloaded, safe to relaunch
-```
-
-### Dreamcast (Flycast)
-
-#### VMU saves / "No VMU Found"
-
-Getting battery saves to work on Dreamcast requires satisfying five separate conditions simultaneously — missing any one of them results in games reporting "No VMU Found" at the memory card screen:
-
-1. **`RETRO_ENVIRONMENT_SET_CONTROLLER_INFO` (cmd 35) must return `true`.** Returning `false` causes Flycast/Reicast to skip all sub-peripheral initialization entirely, so no VMU ever attaches — even if everything else is correct.
-
-2. **`RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE` (cmd 23) must supply a function pointer.** Even a no-op stub is fine, but returning `false` also blocks sub-peripheral setup.
-
-3. **Core options `reicast_device_portN_slot1 = "VMU"` must be pre-seeded before `retro_load_game`.** The core reads these during maple bus reconfiguration on load; if they aren't present yet the VMU slots default to empty.
-
-4. **`retro_set_controller_port_device` must be called for all 4 ports**, not just port 0. This triggers a full maple bus reconfiguration that attaches the VMU sub-peripherals for every port.
-
-5. **The `system/dc/` directory must exist before load, but VMU files must NOT be pre-created.** Flycast auto-creates `vmu_save_A1.bin` etc. in that directory using its own zlib-compressed format. If you pre-create the files (e.g. as empty 128KB blobs), the core will see them as corrupt and fail to attach the VMU — back to "No VMU Found".
-
-Note: the core option prefix is `reicast_` in this build, not `flycast_`.
-
-#### 30fps games running at 2× speed
-
-Some Dreamcast games (e.g. Hydro Thunder, Power Stone) run at a native **30fps** — they advance two game frames per `retro_run()` call and produce ~33ms of audio per call. A Stopwatch-primary loop that waits one `targetFrameMs` (16.7ms) between calls will therefore run the game at exactly 2× speed.
-
-The correct timing strategy for HW cores is **audio-drain waiting**: after each `retro_run()`, spin until `GetBufferedMs()` drops back below the pre-fill target (e.g. 150ms). Because the audio buffer drains at real-time rate, waiting for N frames of audio to drain takes exactly N real frame-times — automatically correct for any frame rate. This also naturally handles 60fps games without any special-casing.
-
-```
-// HW cores only (Dreamcast, GameCube, N64)
-while (audioPlayer.GetBufferedMs() > prefillMs &&
-       frameTimer.Elapsed.TotalMilliseconds < targetFrameMs * 4)
-    Thread.Sleep(1);
-```
-
-The `targetFrameMs * 4` cap handles silent scenes where no audio is produced (otherwise the loop would spin forever).
-
-Software cores (SNES, Genesis, etc.) keep a Stopwatch-primary loop because their audio output is more tightly coupled to the frame rate and the buffer estimate is more predictable.
-
-### Sega CD / Saturn / PS1 / TurboGrafx-CD / Dreamcast / 3DO
-- `.cue` files are fully supported for Sega CD, Saturn, PS1, TurboGrafx-CD, and 3DO.
-- `.chd` (compressed disc image) is supported for all of the above plus Dreamcast — SHA1 is computed from the CHD and matched against DAT files for automatic system detection.
-- Dreamcast also accepts `.gdi` and `.cdi` disc images directly.
-- Region is auto-detected from No-Intro/Redump filename conventions (e.g. `(USA)`, `(Japan)`, `(Europe)`) to select the correct BIOS.
-
-### Vectrex (vecx)
-The vecx core uses hardware OpenGL rendering and has some non-obvious requirements for frontends:
-
-- **FBO must be sized before `context_reset`**: The libretro `SET_HW_RENDER` callback fires during `retro_load_game` with no geometry information yet — at that point the frontend can only create a placeholder FBO (e.g. 640×480). The core later reports its true geometry via `retro_get_system_av_info`. If `context_reset` is called while the FBO is still at 640×480, the core queries the FBO dimensions to set up its internal GL viewport and locks onto 640×480 for the session — permanently clipping the top and right edges of every frame. **Fix:** after `retro_load_game` returns, resize the FBO to `max_width × max_height` from `retro_system_av_info` *before* calling `context_reset`.
-
-- **Use the video callback dimensions, not the full FBO**: The FBO is square (e.g. 1024×1024 or 1080×1080) but the core renders to a portrait sub-region matching `vecx_res_hw` (e.g. 869×1080 or 824×1024). If your frontend reads back the entire FBO via `glReadPixels`, the extra black columns on the right cause the game to appear shifted to the left. **Fix:** use the `width` and `height` parameters from the `retro_video_refresh_t` callback for `glReadPixels`, not the FBO dimensions. The callback dimensions match the actual render area, and the core's `aspect_ratio` (≈0.8049) is already baked into those dimensions — `scaleX` will be ≈1.0, which is correct.
-
-  > Earlier we used the full FBO readback approach, but the vecx core's HW renderer now reports its actual render dimensions in the video callback. Using the callback dimensions eliminates both the centering issue and the need for a large AR squeeze transform.
-
-- **AR correction applies to readback HW cores**: Unlike Dolphin (which renders directly to a Win32 child window), vecx uses `glReadPixels` into a CPU buffer that the frontend displays like a software frame. The aspect ratio correction (scale transform) must be applied the same way as for software cores — not skipped.
-
-- **Game overlays**: Vectrex games originally shipped with transparent plastic overlays that sat on the CRT screen, adding color and static artwork around the game's vector graphics. The [libretro/overlay-borders](https://github.com/libretro/overlay-borders) repository provides 1080p PNG versions of 38 game overlays. These are rendered as a full-viewport transparent image on top of the game output — the overlay's opaque border frames the game while the transparent center lets the vectors show through.
-
-### Neo Geo (Geolith)
-- You smell lunagarlic in the air?
-- Neo Geo has its own dedicated section in the library, separate from Arcade. Geolith uses `.neo` ROM files — a self-contained format that doesn't require the split/merged ROM sets typical of MAME or FBNeo. If you also have a standard arcade romset that includes Neo Geo `.zip` files, those will import under Arcade (via FBNeo) as usual. The two collections are independent and don't conflict.
-- Requires `neogeo.zip` and `aes.zip` BIOS files in the system folder.
-- Download the **Neo Geo (Geolith)** DAT file from Preferences → Cores / Extras for automatic game title and artwork detection during import.
-
-### PSP (PPSSPP)
-- The OpenGL context destruction step is skipped on window close to prevent a crash in the libretro context_destroy callback.
-
-### Philips CD-i (SAME CDi)
-- Games are supported as `.chd` disc images (recommended) or `.cue`/`.bin`.
-- BIOS ROM files (`cdibios.zip`) must be present in the system folder or alongside your ROMs. SAME CDi will not boot without them.
-- Both d-pad and analog stick are supported for cursor movement. The analog stick maps to the four directional inputs, mirroring how the original CD-i's "speed switch" controller worked — fast or slow, not a true analog curve.
-- Button 3 is mapped and supported for the small number of titles that use it (e.g. Mad Dog McCree).
+Highlights:
+- **[[Nintendo 64|https://github.com/codingncaffeine/Emutastic/wiki/Nintendo-64]]** — ParaLLEl-RDP via Vulkan swapchain (4x/8x upscaling), teardown sequence, timing
+- **[[GameCube|https://github.com/codingncaffeine/Emutastic/wiki/GameCube]]** — Dolphin libretro: OpenGL backend, CachedInterpreter, controller init order
+- **[[Dreamcast|https://github.com/codingncaffeine/Emutastic/wiki/Dreamcast]]** — VMU saves (5 conditions), 30fps timing fix
+- **[[RetroAchievements|https://github.com/codingncaffeine/Emutastic/wiki/RetroAchievements]]** — rcheevos integration pitfalls (CRT linking, auth, HTTP bridging)
+- And more: Vectrex, Neo Geo, PSP, CD-i, disc-based systems, emulation timing
 
 ---
 
@@ -295,41 +190,7 @@ The vecx core uses hardware OpenGL rendering and has some non-obvious requiremen
 
 Emutastic supports [RetroAchievements](https://retroachievements.org/) — earn achievements while playing retro games. Enable it in **Preferences → Achievements** with your RetroAchievements username and password. Achievements pop up as toast notifications during gameplay.
 
-The integration uses the [rcheevos](https://github.com/RetroAchievements/rcheevos) C library (`rc_client` API) loaded via P/Invoke. If you are building a similar integration into a .NET libretro frontend, here are the non-obvious problems we ran into:
-
-### Building rcheevos.dll for .NET
-
-rcheevos must be compiled as a shared library (`/DRC_SHARED`) with **static CRT linking** (`/MT`). If you build with `/MD` (dynamic CRT), the DLL will depend on `VCRUNTIME140.dll`. .NET's P/Invoke DLL loader does not search the same directories as a native exe would, so it cannot find the VC runtime — the load fails with a `DllNotFoundException` even though the DLL itself is present and correct. Building with `/MT` eliminates the dependency entirely (only `KERNEL32.dll` remains).
-
-You also need `/DRC_CLIENT_SUPPORTS_HASH` to enable the built-in ROM hashing that `rc_client_begin_identify_and_load_game` uses.
-
-### DLL placement in the build output
-
-If your `.csproj` references the DLL from a subfolder (e.g. `<Content Include="Libraries\rcheevos.dll">`), MSBuild preserves that relative path in the output — the DLL ends up at `bin\...\Libraries\rcheevos.dll` instead of next to the exe. .NET's native DLL search does not look in subdirectories. Add `<Link>rcheevos.dll</Link>` to flatten it:
-
-```xml
-<Content Include="Libraries\rcheevos.dll">
-  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-  <Link>rcheevos.dll</Link>
-</Content>
-```
-
-### Memory regions must be cached before game load
-
-rcheevos validates achievement addresses during `rc_client_begin_identify_and_load_game` by calling the `read_memory` callback. If your callback relies on memory region pointers that are only populated after load completes, every address check returns 0 and rcheevos disables all achievements with "Invalid address" errors. The fix is to call `retro_get_memory_data` / `retro_get_memory_size` and cache the pointers **before** calling `rc_client_begin_identify_and_load_game` — the libretro core has already allocated its memory regions by the time `retro_load_game` returns.
-
-### Web API Key vs Login Token
-
-RetroAchievements has two authentication mechanisms that are easy to confuse:
-
-- **Web API Key** — found on your [settings page](https://retroachievements.org/settings). This is for read-only web API queries (looking up game info, user profiles). It works with `API_GetUserProfile.php` and similar endpoints.
-- **Login Token** — returned by `rc_client_begin_login_with_password`. This is what rcheevos uses for gameplay session tracking, achievement unlocks, and all `rc_client` operations.
-
-These are **not interchangeable**. Passing the Web API Key to `rc_client_begin_login_with_token` will silently fail. The correct flow is: log in once with username + password → extract the token from `rc_client_get_user_info` → save the token for future sessions → use `rc_client_begin_login_with_token` on subsequent launches.
-
-### HTTP callback bridging
-
-rcheevos does not perform HTTP requests itself — the frontend must provide a `server_call` callback that executes HTTP requests and invokes a native callback with the response. The native callback function pointer must survive across the async HTTP call. Using `Marshal.GetFunctionPointerForDelegate` to capture the raw pointer before the async boundary, then `Marshal.GetDelegateForFunctionPointer` to invoke it in the completion handler, prevents GC of the managed delegate wrapper from breaking the callback.
+See the [RetroAchievements wiki page](https://github.com/codingncaffeine/Emutastic/wiki/RetroAchievements) for integration details.
 
 ---
 

@@ -667,7 +667,19 @@ namespace Emutastic.Services
             cmd.CommandText = "SELECT * FROM Games ORDER BY Title;";
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
-                games.Add(ReadGame(reader));
+            {
+                try
+                {
+                    games.Add(ReadGame(reader));
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Trace.WriteLine($"ReadGame failed: {ex.Message}");
+                    // Log column info for diagnosis
+                    for (int i = 0; i < reader.FieldCount; i++)
+                        System.Diagnostics.Trace.WriteLine($"  Col {i}: {reader.GetName(i)} = {(reader.IsDBNull(i) ? "NULL" : reader.GetValue(i))}");
+                }
+            }
             return games;
         }
 
@@ -707,24 +719,23 @@ namespace Emutastic.Services
         {
             return new Game
             {
-                Id = reader.GetInt32(0),
-                Title = reader.GetString(1),
-                Console = reader.GetString(2),
-                Manufacturer = reader.IsDBNull(3) ? "" : reader.GetString(3),
-                Year = reader.IsDBNull(4) ? 0 : reader.GetInt32(4),
-                RomPath = reader.IsDBNull(5) ? "" : reader.GetString(5),
-                RomHash = reader.IsDBNull(6) ? "" : reader.GetString(6),
-                CoverArtPath = reader.IsDBNull(7) ? "" : reader.GetString(7),
-                BackgroundColor = reader.IsDBNull(8) ? "#1F1F21" : reader.GetString(8),
-                AccentColor = reader.IsDBNull(9) ? "#E03535" : reader.GetString(9),
-                PlayCount = reader.IsDBNull(10) ? 0 : reader.GetInt32(10),
-                SaveCount = reader.IsDBNull(11) ? 0 : reader.GetInt32(11),
-                IsFavorite = reader.IsDBNull(12) ? false : reader.GetInt32(12) == 1,
-                Rating = reader.IsDBNull(13) ? 0 : reader.GetInt32(13),
-                Collection = reader.IsDBNull(14) ? "" : reader.GetString(14),
-                LastPlayed = reader.IsDBNull(15) ? null :
-                                  DateTime.TryParse(reader.GetString(15), out var dt) ? dt : null,
-                BoxArt3DPath = GetStringByName(reader, "BoxArt3DPath"),
+                Id              = reader.GetInt32(reader.GetOrdinal("Id")),
+                Title           = reader.GetString(reader.GetOrdinal("Title")),
+                Console         = reader.GetString(reader.GetOrdinal("Console")),
+                Manufacturer    = GetStringByName(reader, "Manufacturer"),
+                Year            = GetIntByName(reader, "Year"),
+                RomPath         = GetStringByName(reader, "RomPath"),
+                RomHash         = GetStringByName(reader, "RomHash"),
+                CoverArtPath    = GetStringByName(reader, "CoverArtPath"),
+                BackgroundColor = GetStringByName(reader, "BackgroundColor", "#1F1F21"),
+                AccentColor     = GetStringByName(reader, "AccentColor", "#E03535"),
+                PlayCount       = GetIntByName(reader, "PlayCount"),
+                SaveCount       = GetIntByName(reader, "SaveCount"),
+                IsFavorite      = GetIntByName(reader, "IsFavorite") == 1,
+                Rating          = GetIntByName(reader, "Rating"),
+                Collection      = GetStringByName(reader, "Collection"),
+                LastPlayed      = GetDateByName(reader, "LastPlayed"),
+                BoxArt3DPath    = GetStringByName(reader, "BoxArt3DPath"),
             };
         }
 
@@ -736,6 +747,38 @@ namespace Emutastic.Services
                 return reader.IsDBNull(ord) ? "" : reader.GetString(ord);
             }
             catch { return ""; }
+        }
+
+        private static string GetStringByName(SqliteDataReader reader, string column, string defaultValue)
+        {
+            try
+            {
+                int ord = reader.GetOrdinal(column);
+                return reader.IsDBNull(ord) ? defaultValue : reader.GetString(ord);
+            }
+            catch { return defaultValue; }
+        }
+
+        private static int GetIntByName(SqliteDataReader reader, string column)
+        {
+            try
+            {
+                int ord = reader.GetOrdinal(column);
+                return reader.IsDBNull(ord) ? 0 : reader.GetInt32(ord);
+            }
+            catch { return 0; }
+        }
+
+        private static DateTime? GetDateByName(SqliteDataReader reader, string column)
+        {
+            try
+            {
+                int ord = reader.GetOrdinal(column);
+                if (reader.IsDBNull(ord)) return null;
+                string val = reader.GetString(ord);
+                return DateTime.TryParse(val, out var dt) ? dt : null;
+            }
+            catch { return null; }
         }
 
         // Save State methods

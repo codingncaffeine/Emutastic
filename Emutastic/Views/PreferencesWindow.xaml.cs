@@ -884,20 +884,6 @@ namespace Emutastic.Views
         // Per-console plugin/option definitions
         private static readonly Dictionary<string, List<(string Key, string Label, List<string> Values, string Default, Dictionary<string, string> Descs)>> CoreSpecificOptions = new()
         {
-            ["N64"] = new()
-            {
-                (
-                    Key:     "parallel-n64-gfxplugin",
-                    Label:   "GFX Plugin",
-                    Values:  new() { "glide64", "angrylion", "rice" },
-                    Default: "glide64",
-                    Descs:   new() {
-                        ["glide64"]    = "GPU renderer — good balance of speed and accuracy",
-                        ["angrylion"]  = "Software renderer — most accurate, very slow",
-                        ["rice"]       = "GPU renderer — fastest, least accurate",
-                    }
-                )
-            }
         };
 
         // ── Core downloader ───────────────────────────────────────────────────
