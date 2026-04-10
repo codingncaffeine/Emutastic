@@ -96,6 +96,8 @@ namespace Emutastic
             var snapCfg = App.Configuration?.GetSnapConfiguration();
             if (snapCfg?.Use3DBoxArtConsoles?.Count > 0)
                 Game.Consoles3D = new System.Collections.Generic.HashSet<string>(snapCfg.Use3DBoxArtConsoles);
+            if (snapCfg?.ScreenScraperMaxThreads > 0)
+                ScreenScraperService.SetMaxThreads(snapCfg.ScreenScraperMaxThreads);
 
             // ── Phase 2: load data off UI thread, then filter on UI thread ──
             await Task.Run(() => _vm.Reload());  // GetAllGames() — stays off UI thread
@@ -181,8 +183,10 @@ namespace Emutastic
             int total = games.Count;
             int done = 0;
             int fetched = 0;
-            // ScreenScraper limits concurrent requests per user — use 1 to be safe
-            var sem = new System.Threading.SemaphoreSlim(1, 1);
+            // ScreenScraper throttling is handled internally by ScreenScraperService._throttle
+            // based on the user's maxthreads. We allow all games to queue in parallel.
+            int ssThreads = Math.Max(1, snapConfig.ScreenScraperMaxThreads);
+            var sem = new System.Threading.SemaphoreSlim(ssThreads, ssThreads);
 
             SetStatus($"{displayName} — starting 3D box art download for {total} games…");
 
