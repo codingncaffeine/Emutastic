@@ -95,5 +95,12 @@ namespace Emutastic.Services.ConsoleHandlers
         /// Most HW cores render at exactly base_width × base_height, so the default is false.
         /// </summary>
         bool UseFullFboReadback { get; }
+
+        /// <summary>
+        /// When true, use a WS_POPUP overlay window with glBlitFramebuffer + SwapBuffers
+        /// instead of glReadPixels CPU readback. Eliminates the GPU→CPU→GPU round-trip
+        /// that bottlenecks HW cores at high internal resolutions.
+        /// </summary>
+        bool UseGLOverlay { get; }
     }
 }

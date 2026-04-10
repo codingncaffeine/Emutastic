@@ -158,6 +158,7 @@ namespace Emutastic.Services.ConsoleHandlers
         // so SwapBuffers on our HwndHost DC presents an empty back buffer (black screen).
         // Use the same FBO-0 readback path as N64 instead.
         public override bool UseEmbeddedWindow => false;
+        public override bool UseGLOverlay => true;
 
         // Use the DLL's parent directory as the system directory so that
         // dolphin-emu\Sys\ can be placed alongside dolphin_libretro.dll.
