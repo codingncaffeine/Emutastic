@@ -31,10 +31,20 @@ namespace Emutastic.Services
         /// If this game's artwork file is already on disk but the DB path was never saved,
         /// returns the local path so the caller can update the DB without an HTTP request.
         /// </summary>
-        public string? FindCachedArtwork(string romHash)
+        public string? FindCachedArtwork(string romHash, string? console = null)
         {
             if (string.IsNullOrWhiteSpace(romHash)) return null;
-            return _cacheIndex.TryGetValue(romHash.ToLowerInvariant(), out var path) ? path : null;
+            // Check console subfolder first for a direct hit
+            if (!string.IsNullOrWhiteSpace(console))
+            {
+                string consoleFolder = AppPaths.GetFolder("Artwork", console);
+                foreach (string ext in new[] { ".png", ".jpg", ".jpeg" })
+                {
+                    string path = Path.Combine(consoleFolder, romHash + ext);
+                    if (File.Exists(path)) return path;
+                }
+            }
+            return _cacheIndex.TryGetValue(romHash.ToLowerInvariant(), out var cached) ? cached : null;
         }
         private readonly HttpClient _http;
 
@@ -100,7 +110,8 @@ namespace Emutastic.Services
 
             _cacheFolder = AppPaths.GetFolder("Artwork");
             // Build a hash→path index once so the repair pass is O(1) per game.
-            _cacheIndex = Directory.EnumerateFiles(_cacheFolder)
+            // Scan recursively so console subfolders are included.
+            _cacheIndex = Directory.EnumerateFiles(_cacheFolder, "*.*", SearchOption.AllDirectories)
                 .ToDictionary(
                     f => Path.GetFileNameWithoutExtension(f).ToLowerInvariant(),
                     f => f,
@@ -359,6 +370,28 @@ namespace Emutastic.Services
         /// For every candidate in the list, if it starts with a possessive prefix,
         /// appends a version without that prefix so we catch thumbnails stored either way.
         /// </summary>
+        /// <summary>
+        /// No-Intro uses "~" for alternate titles (e.g. "Chaotix ~ Knuckles' Chaotix (Japan, USA)").
+        /// Splits on "~" and adds each side as a separate candidate so we match whichever
+        /// name libretro uses for its thumbnail.
+        /// </summary>
+        private static void InjectTildeAlternates(List<string> candidates, string rawStem)
+        {
+            if (!rawStem.Contains('~')) return;
+            foreach (string part in rawStem.Split('~'))
+            {
+                string trimmed = part.Trim();
+                if (string.IsNullOrWhiteSpace(trimmed)) continue;
+                if (!candidates.Contains(trimmed, StringComparer.OrdinalIgnoreCase))
+                    candidates.Add(trimmed);
+                // Also add the cleaned version (strips region tags etc.)
+                string cleaned = RomService.CleanTitle(trimmed + ".dummy");
+                if (!string.IsNullOrWhiteSpace(cleaned) &&
+                    !candidates.Contains(cleaned, StringComparer.OrdinalIgnoreCase))
+                    candidates.Add(cleaned);
+            }
+        }
+
         private static void InjectPossessiveVariants(List<string> candidates)
         {
             int count = candidates.Count; // only iterate originals
@@ -395,6 +428,8 @@ namespace Emutastic.Services
         {
             { "neo twenty one", "Neo 21" },
             { "neo 21",         "Neo 21" },
+            { "brutal unleashed - above the claw", "Brutal - Above the Claw" },
+            { "brutal unleashed",                  "Brutal - Above the Claw" },
         };
 
         /// <summary>
@@ -502,11 +537,14 @@ namespace Emutastic.Services
                 $"{sanitized} (Europe)",
                 $"{sanitized} (USA, Europe)",
                 $"{sanitized} (Japan, USA)",
+                $"{sanitized} (Japan, USA) (En)",
                 $"{sanitized} (World) (En,Ja)",
                 $"{sanitized} (Japan, Europe) (En,Ja)",
                 $"{sanitized} (Japan) (En,Ja)",
                 $"{sanitized} (En,Ja)",
                 $"{sanitized} (USA, Europe) (En,Ja)",
+                $"{sanitized} (USA) (En)",
+                $"{sanitized} (Europe) (En)",
             };
 
             foreach (string v in variants)
@@ -515,7 +553,7 @@ namespace Emutastic.Services
             return urls;
         }
 
-        public async Task<string?> DownloadArtworkAsync(string imageUrl, string cacheKey)
+        public async Task<string?> DownloadArtworkAsync(string imageUrl, string cacheKey, string? console = null)
         {
             if (string.IsNullOrWhiteSpace(imageUrl)) return null;
 
@@ -529,11 +567,33 @@ namespace Emutastic.Services
             {
                 string ext = Path.GetExtension(imageUrl);
                 if (string.IsNullOrWhiteSpace(ext)) ext = ".png";
-                string localPath = Path.Combine(_cacheFolder, $"{cacheKey}{ext}");
+                string folder = !string.IsNullOrWhiteSpace(console)
+                    ? AppPaths.GetFolder("Artwork", console)
+                    : _cacheFolder;
+                string localPath = Path.Combine(folder, $"{cacheKey}{ext}");
 
                 if (File.Exists(localPath))
                 {
                     System.Diagnostics.Debug.WriteLine($"Artwork cache hit: {localPath}");
+                    return localPath;
+                }
+
+                // Check cache index for files from a previous library (may be in flat folder
+                // or a different subfolder). If found, move to the correct console subfolder.
+                string keyLower = cacheKey.ToLowerInvariant();
+                if (_cacheIndex.TryGetValue(keyLower, out string? existingPath) && File.Exists(existingPath))
+                {
+                    if (!string.Equals(existingPath, localPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        try { File.Move(existingPath, localPath, overwrite: false); }
+                        catch
+                        {
+                            // Destination already exists — delete the orphan
+                            try { File.Delete(existingPath); } catch { }
+                        }
+                    }
+                    _cacheIndex[keyLower] = localPath;
+                    System.Diagnostics.Debug.WriteLine($"Artwork cache hit (reused from previous library): {localPath}");
                     return localPath;
                 }
 
@@ -595,6 +655,9 @@ namespace Emutastic.Services
                 if (!titleCandidates.Contains(cleaned))
                     titleCandidates.Add(cleaned);
 
+                // No-Intro "~" alternate titles
+                InjectTildeAlternates(titleCandidates, rawStem);
+
                 // Convert GoodTools region codes to No-Intro style
                 string? noIntroSnap = ConvertGoodToolsToNoIntro(rawStem);
                 if (noIntroSnap != null && !titleCandidates.Contains(noIntroSnap))
@@ -621,7 +684,7 @@ namespace Emutastic.Services
                             string cacheKey = string.IsNullOrWhiteSpace(romHash)
                                 ? urlHash
                                 : $"{romHash}_{urlHash[..8]}";
-                            string? path = await DownloadArtworkAsync(url, cacheKey);
+                            string? path = await DownloadArtworkAsync(url, cacheKey, console);
                             if (path != null) return path;
                         }
                     }
@@ -637,7 +700,7 @@ namespace Emutastic.Services
                             System.Security.Cryptography.MD5.HashData(
                                 System.Text.Encoding.UTF8.GetBytes(matchUrl)));
                         string matchKey = string.IsNullOrWhiteSpace(romHash) ? matchHash : $"{romHash}_{matchHash[..8]}";
-                        string? fuzzyPath = await DownloadArtworkAsync(matchUrl, matchKey);
+                        string? fuzzyPath = await DownloadArtworkAsync(matchUrl, matchKey, console);
                         if (fuzzyPath != null) return fuzzyPath;
                     }
                 }
@@ -704,6 +767,10 @@ namespace Emutastic.Services
                     if (!titleCandidates.Contains(rawNoClean))
                         titleCandidates.Add(rawNoClean);
 
+                    // No-Intro uses "~" for alternate titles (e.g. "Chaotix ~ Knuckles' Chaotix").
+                    // Split and try each side so we match whichever name libretro uses.
+                    InjectTildeAlternates(titleCandidates, rawNoClean);
+
                     // Convert GoodTools region codes to No-Intro style so (U) matches (USA) etc.
                     string? noIntro = ConvertGoodToolsToNoIntro(rawNoClean);
                     if (noIntro != null && !titleCandidates.Contains(noIntro))
@@ -729,7 +796,7 @@ namespace Emutastic.Services
                             var urls = BuildLibretroUrlVariantsForFolder(systemFolder, titleCandidate, category);
                             foreach (string url in urls)
                             {
-                                artworkPath = await DownloadArtworkAsync(url, md5Hash);
+                                artworkPath = await DownloadArtworkAsync(url, md5Hash, console);
                                 if (artworkPath != null)
                                 {
                                     System.Diagnostics.Debug.WriteLine($"Artwork found ({category}): {url}");
@@ -747,7 +814,7 @@ namespace Emutastic.Services
                             string? matched = FindBestThumbnailTitle(titleCandidate, index);
                             if (matched == null) continue;
                             string matchUrl = $"https://thumbnails.libretro.com/{Uri.EscapeDataString(systemFolder)}/{category}/{Uri.EscapeDataString(matched)}.png";
-                            artworkPath = await DownloadArtworkAsync(matchUrl, md5Hash);
+                            artworkPath = await DownloadArtworkAsync(matchUrl, md5Hash, console);
                             if (artworkPath != null)
                             {
                                 System.Diagnostics.Debug.WriteLine($"Artwork found fuzzy ({category}): {matchUrl}");

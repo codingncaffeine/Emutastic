@@ -157,6 +157,12 @@ namespace Emutastic.Services
 
             // One-time migration: move old Collection column data into the new join table.
             MigrateCollectionsToJoinTable(connection);
+
+            // One-time migration: move artwork/snaps from flat folders into console subfolders.
+            MigrateArtworkToConsoleFolders(connection);
+
+            // One-time migration: deduplicate games with the same RomHash (from ~ alternate title ROMs).
+            DeduplicateByRomHash(connection);
         }
 
         private void MigrateCollectionsToJoinTable(SqliteConnection connection)
@@ -209,6 +215,346 @@ namespace Emutastic.Services
                 clearCmd.ExecuteNonQuery();
             }
             tx.Commit();
+        }
+
+        /// <summary>
+        /// One-time migration: moves artwork, 3D box art, screenshots, and snap files
+        /// from flat folders into per-console subfolders and updates DB paths.
+        /// Idempotent — files already in a subfolder are skipped.
+        /// </summary>
+        private void MigrateArtworkToConsoleFolders(SqliteConnection connection)
+        {
+            try
+            {
+                // ── 1. Artwork (CoverArtPath) and BoxArt3D (BoxArt3DPath) — DB-tracked ──
+                string artworkRoot  = AppPaths.GetFolder("Artwork");
+                string boxArt3DRoot = AppPaths.GetFolder("BoxArt3D");
+
+                var cmd = connection.CreateCommand();
+                cmd.CommandText = "SELECT Id, Console, CoverArtPath, BoxArt3DPath FROM Games;";
+                using var reader = cmd.ExecuteReader();
+
+                var updates = new List<(int id, string? newCover, string? new3D)>();
+                while (reader.Read())
+                {
+                    int id = reader.GetInt32(0);
+                    string console = reader.IsDBNull(1) ? "" : reader.GetString(1);
+                    string coverPath = reader.IsDBNull(2) ? "" : reader.GetString(2);
+                    string art3DPath = reader.IsDBNull(3) ? "" : reader.GetString(3);
+
+                    if (string.IsNullOrWhiteSpace(console)) continue;
+
+                    string? newCover = MoveFileToConsoleSubfolder(coverPath, artworkRoot, console);
+                    string? new3D   = MoveFileToConsoleSubfolder(art3DPath, boxArt3DRoot, console);
+
+                    if (newCover != null || new3D != null)
+                        updates.Add((id, newCover, new3D));
+                }
+                reader.Close();
+
+                if (updates.Count > 0)
+                {
+                    using var tx = connection.BeginTransaction();
+                    foreach (var (id, newCover, new3D) in updates)
+                    {
+                        if (newCover != null)
+                        {
+                            var u = connection.CreateCommand();
+                            u.CommandText = "UPDATE Games SET CoverArtPath = $path WHERE Id = $id;";
+                            u.Parameters.AddWithValue("$path", newCover);
+                            u.Parameters.AddWithValue("$id", id);
+                            u.ExecuteNonQuery();
+                        }
+                        if (new3D != null)
+                        {
+                            var u = connection.CreateCommand();
+                            u.CommandText = "UPDATE Games SET BoxArt3DPath = $path WHERE Id = $id;";
+                            u.Parameters.AddWithValue("$path", new3D);
+                            u.Parameters.AddWithValue("$id", id);
+                            u.ExecuteNonQuery();
+                        }
+                    }
+                    tx.Commit();
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[Migration] Moved {updates.Count} artwork paths to console subfolders");
+                }
+
+                // ── 2. Sweep remaining flat files by matching filename (hash) to games ──
+                SweepOrphanedArtworkFiles(connection, artworkRoot, "Artwork", "CoverArtPath");
+                SweepOrphanedArtworkFiles(connection, boxArt3DRoot, "BoxArt3D", "BoxArt3DPath");
+
+                // ── 3. Snaps (no DB column — file-only migration) ──
+                MigrateSnapFiles(connection);
+
+                // ── 4. Screenshots (no DB column — file-only migration) ──
+                MigrateScreenshotFiles();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Migration] ArtworkToConsoleFolders error: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Sweeps any remaining files in the flat root folder that weren't caught by the
+        /// DB-path migration. Matches filenames (hash-based) to games and moves them into
+        /// console subfolders. Also repairs the DB path if the column is empty.
+        /// </summary>
+        private void SweepOrphanedArtworkFiles(SqliteConnection connection, string rootFolder,
+            string folderName, string dbColumn)
+        {
+            var flatFiles = System.IO.Directory.EnumerateFiles(rootFolder, "*.*").ToList();
+            if (flatFiles.Count == 0) return;
+
+            // Build hash→(id, console) lookup — the filename stem is typically the romHash
+            var hashLookup = new Dictionary<string, (int id, string console)>(StringComparer.OrdinalIgnoreCase);
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT Id, RomHash, Console FROM Games WHERE RomHash != '' AND Console != '';";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                string hash = reader.GetString(1);
+                string console = reader.GetString(2);
+                hashLookup.TryAdd(hash, (reader.GetInt32(0), console));
+            }
+            reader.Close();
+
+            int moved = 0;
+            using var tx = connection.BeginTransaction();
+            foreach (string file in flatFiles)
+            {
+                string stem = System.IO.Path.GetFileNameWithoutExtension(file);
+                // Strip suffixes like "_custom", "_2d", or "_XXXXXXXX" (url hash)
+                string baseHash = stem.Contains('_') ? stem[..stem.IndexOf('_')] : stem;
+
+                if (!hashLookup.TryGetValue(baseHash, out var match)) continue;
+
+                string destFolder = AppPaths.GetFolder(folderName, match.console);
+                string destPath = System.IO.Path.Combine(destFolder, System.IO.Path.GetFileName(file));
+                try
+                {
+                    if (!System.IO.File.Exists(destPath))
+                        System.IO.File.Move(file, destPath);
+                    else
+                        System.IO.File.Delete(file); // duplicate — subfolder copy wins
+
+                    // If the DB column for this game is empty, fill it in
+                    var checkCmd = connection.CreateCommand();
+                    checkCmd.CommandText = $"SELECT {dbColumn} FROM Games WHERE Id = $id;";
+                    checkCmd.Parameters.AddWithValue("$id", match.id);
+                    string? existingPath = checkCmd.ExecuteScalar() as string;
+                    if (string.IsNullOrWhiteSpace(existingPath))
+                    {
+                        var upd = connection.CreateCommand();
+                        upd.CommandText = $"UPDATE Games SET {dbColumn} = $path WHERE Id = $id;";
+                        upd.Parameters.AddWithValue("$path", destPath);
+                        upd.Parameters.AddWithValue("$id", match.id);
+                        upd.ExecuteNonQuery();
+                    }
+                    moved++;
+                }
+                catch { }
+            }
+            tx.Commit();
+            if (moved > 0)
+                System.Diagnostics.Debug.WriteLine(
+                    $"[Migration] Swept {moved} orphaned files from {folderName}/ into console subfolders");
+        }
+
+        /// <summary>
+        /// If the file is in the flat root folder (not already in a console subfolder),
+        /// moves it to root/console/ and returns the new path. Otherwise returns null.
+        /// </summary>
+        private static string? MoveFileToConsoleSubfolder(string filePath, string rootFolder, string console)
+        {
+            if (string.IsNullOrWhiteSpace(filePath) || !System.IO.File.Exists(filePath))
+                return null;
+
+            string? fileDir = System.IO.Path.GetDirectoryName(filePath);
+            if (fileDir == null) return null;
+
+            // Normalize for comparison
+            string normalRoot = System.IO.Path.GetFullPath(rootFolder).TrimEnd(
+                System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
+            string normalDir = System.IO.Path.GetFullPath(fileDir).TrimEnd(
+                System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
+
+            // Only move if file is directly in the root (not already in a subfolder)
+            if (!string.Equals(normalDir, normalRoot, StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            string destFolder = AppPaths.GetFolder(
+                System.IO.Path.GetFileName(rootFolder), console);
+            string destPath = System.IO.Path.Combine(destFolder, System.IO.Path.GetFileName(filePath));
+
+            try
+            {
+                System.IO.File.Move(filePath, destPath, overwrite: false);
+                return destPath;
+            }
+            catch
+            {
+                // If the destination already exists, just update the path
+                if (System.IO.File.Exists(destPath)) return destPath;
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Moves snap .mp4 files from flat Snaps/ to Snaps/{Console}/ by matching
+        /// the filename (romHash) to games in the database.
+        /// </summary>
+        private void MigrateSnapFiles(SqliteConnection connection)
+        {
+            string snapsRoot = AppPaths.GetFolder("Snaps");
+            var flatFiles = System.IO.Directory.EnumerateFiles(snapsRoot, "*.mp4").ToList();
+            if (flatFiles.Count == 0) return;
+
+            // Build hash→console lookup from games
+            var hashToConsole = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT RomHash, Console FROM Games WHERE RomHash != '' AND Console != '';";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                string hash = reader.GetString(0);
+                string console = reader.GetString(1);
+                hashToConsole.TryAdd(hash, console);
+            }
+            reader.Close();
+
+            int moved = 0;
+            foreach (string file in flatFiles)
+            {
+                string key = System.IO.Path.GetFileNameWithoutExtension(file);
+                if (!hashToConsole.TryGetValue(key, out string? console)) continue;
+
+                string destFolder = AppPaths.GetFolder("Snaps", console);
+                string destPath = System.IO.Path.Combine(destFolder, System.IO.Path.GetFileName(file));
+                try
+                {
+                    System.IO.File.Move(file, destPath, overwrite: false);
+                    moved++;
+                }
+                catch { if (!System.IO.File.Exists(destPath)) continue; }
+            }
+            if (moved > 0)
+                System.Diagnostics.Debug.WriteLine($"[Migration] Moved {moved} snap files to console subfolders");
+        }
+
+        /// <summary>
+        /// Moves screenshot .png files from flat Screenshots/ to Screenshots/{Console}/
+        /// by parsing the console name from the filename.
+        /// </summary>
+        private static void MigrateScreenshotFiles()
+        {
+            string screenshotsRoot = AppPaths.GetFolder("Screenshots");
+            var flatFiles = System.IO.Directory.EnumerateFiles(screenshotsRoot, "*.png").ToList();
+            if (flatFiles.Count == 0) return;
+
+            int moved = 0;
+            foreach (string file in flatFiles)
+            {
+                string name = System.IO.Path.GetFileNameWithoutExtension(file);
+                // Expected format: "yyyyMMdd_HHmmss Title (Console)"
+                int parenOpen  = name.LastIndexOf('(');
+                int parenClose = name.LastIndexOf(')');
+                if (parenOpen < 0 || parenClose <= parenOpen) continue;
+
+                string console = name[(parenOpen + 1)..parenClose].Trim();
+                if (string.IsNullOrWhiteSpace(console)) continue;
+
+                string destFolder = AppPaths.GetFolder("Screenshots", console);
+                string destPath = System.IO.Path.Combine(destFolder, System.IO.Path.GetFileName(file));
+                try
+                {
+                    System.IO.File.Move(file, destPath, overwrite: false);
+                    moved++;
+                }
+                catch { }
+            }
+            if (moved > 0)
+                System.Diagnostics.Debug.WriteLine($"[Migration] Moved {moved} screenshot files to console subfolders");
+        }
+
+        /// <summary>
+        /// One-time migration: removes duplicate game entries that share the same RomHash
+        /// AND have identical titles. This safely handles No-Intro ~ alternate title ROMs
+        /// (e.g., "Chaotix ~ Knuckles' Chaotix") without deleting genuinely different games
+        /// that happen to share a hash (e.g., PS1 hash collisions from multi-disc CHDs).
+        /// </summary>
+        private void DeduplicateByRomHash(SqliteConnection connection)
+        {
+            // Find groups where the same hash+console+title appears more than once.
+            // This only catches exact-title duplicates — safe by design.
+            var findCmd = connection.CreateCommand();
+            findCmd.CommandText = @"
+                SELECT RomHash, Console, Title FROM Games
+                WHERE RomHash != '' AND RomHash IS NOT NULL
+                GROUP BY RomHash, Console, Title
+                HAVING COUNT(*) > 1;";
+
+            var dupeGroups = new List<(string hash, string console, string title)>();
+            using (var reader = findCmd.ExecuteReader())
+                while (reader.Read())
+                    dupeGroups.Add((reader.GetString(0), reader.GetString(1), reader.GetString(2)));
+
+            if (dupeGroups.Count == 0) return;
+
+            int removed = 0;
+            using var tx = connection.BeginTransaction();
+
+            foreach (var (hash, console, title) in dupeGroups)
+            {
+                var listCmd = connection.CreateCommand();
+                listCmd.CommandText = @"
+                    SELECT Id FROM Games WHERE RomHash = $hash AND Console = $console AND Title = $title
+                    ORDER BY
+                        CASE WHEN CoverArtPath IS NOT NULL AND CoverArtPath != '' THEN 0 ELSE 1 END,
+                        PlayCount DESC,
+                        IsFavorite DESC,
+                        Id ASC;";
+                listCmd.Parameters.AddWithValue("$hash", hash);
+                listCmd.Parameters.AddWithValue("$console", console);
+                listCmd.Parameters.AddWithValue("$title", title);
+
+                var ids = new List<int>();
+                using (var reader = listCmd.ExecuteReader())
+                    while (reader.Read())
+                        ids.Add(reader.GetInt32(0));
+
+                if (ids.Count <= 1) continue;
+
+                for (int i = 1; i < ids.Count; i++)
+                {
+                    var delCmd = connection.CreateCommand();
+                    delCmd.CommandText = "DELETE FROM Games WHERE Id = $id;";
+                    delCmd.Parameters.AddWithValue("$id", ids[i]);
+                    delCmd.ExecuteNonQuery();
+                    removed++;
+                }
+            }
+
+            tx.Commit();
+
+            if (removed > 0)
+                System.Diagnostics.Debug.WriteLine($"[Migration] Removed {removed} exact-title duplicate game entries");
+        }
+
+        /// <summary>
+        /// Returns the ID of an existing game with the given RomHash and Console, or null if none.
+        /// Used during import to prevent creating duplicates for ~ alternate title ROMs.
+        /// </summary>
+        public int? GetExistingGameIdByHash(string hash, string console)
+        {
+            if (string.IsNullOrEmpty(hash)) return null;
+            using var connection = OpenConnection();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT Id FROM Games WHERE RomHash = $hash AND Console = $console LIMIT 1;";
+            cmd.Parameters.AddWithValue("$hash", hash);
+            cmd.Parameters.AddWithValue("$console", console);
+            var result = cmd.ExecuteScalar();
+            return result != null ? Convert.ToInt32(result) : null;
         }
 
         private void TryAddColumn(SqliteConnection connection, string table, string column, string definition)
@@ -542,6 +888,9 @@ namespace Emutastic.Services
         public void DeleteGame(int gameId)
         {
             using var connection = OpenConnection();
+            // Clean up artwork files before deleting the DB record
+            CleanupArtworkFiles(connection, "SELECT CoverArtPath, BoxArt3DPath FROM Games WHERE Id = $id;",
+                new[] { ("$id", (object)gameId) });
             // Disable FK enforcement so save states are preserved when a game is removed from the library.
             using (var fk = connection.CreateCommand()) { fk.CommandText = "PRAGMA foreign_keys = OFF;"; fk.ExecuteNonQuery(); }
             // Clean up join table manually since FKs are disabled
@@ -557,6 +906,10 @@ namespace Emutastic.Services
             var ids = gameIds.ToList();
             if (ids.Count == 0) return;
             using var connection = OpenConnection();
+            // Clean up artwork files before deleting DB records
+            foreach (int id in ids)
+                CleanupArtworkFiles(connection, "SELECT CoverArtPath, BoxArt3DPath FROM Games WHERE Id = $id;",
+                    new[] { ("$id", (object)id) });
             using (var fk = connection.CreateCommand()) { fk.CommandText = "PRAGMA foreign_keys = OFF;"; fk.ExecuteNonQuery(); }
             using var tx = connection.BeginTransaction();
             // Clean up join table manually since FKs are disabled
@@ -589,11 +942,44 @@ namespace Emutastic.Services
         public void DeleteAllGamesForConsole(string console)
         {
             using var connection = OpenConnection();
+            // Artwork files are preserved so they can be reused if the library is re-imported.
             using (var fk = connection.CreateCommand()) { fk.CommandText = "PRAGMA foreign_keys = OFF;"; fk.ExecuteNonQuery(); }
             var cmd = connection.CreateCommand();
             cmd.CommandText = "DELETE FROM Games WHERE Console = $console;";
             cmd.Parameters.AddWithValue("$console", console);
             cmd.ExecuteNonQuery();
+        }
+
+        /// <summary>
+        /// Deletes artwork files (CoverArtPath, BoxArt3DPath) for games matching the query.
+        /// Called before DELETE so the files don't become orphans.
+        /// </summary>
+        private static void CleanupArtworkFiles(SqliteConnection connection, string query,
+            (string name, object value)[] parameters)
+        {
+            try
+            {
+                var cmd = connection.CreateCommand();
+                cmd.CommandText = query;
+                foreach (var (name, value) in parameters)
+                    cmd.Parameters.AddWithValue(name, value);
+
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    for (int i = 0; i < reader.FieldCount; i++)
+                    {
+                        if (reader.IsDBNull(i)) continue;
+                        string path = reader.GetString(i);
+                        if (!string.IsNullOrWhiteSpace(path) && System.IO.File.Exists(path))
+                        {
+                            try { System.IO.File.Delete(path); }
+                            catch { /* non-fatal */ }
+                        }
+                    }
+                }
+            }
+            catch { /* non-fatal — don't block the delete */ }
         }
 
         public List<Game> GetGamesWithoutArtworkForConsole(string console)

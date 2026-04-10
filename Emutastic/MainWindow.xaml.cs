@@ -91,14 +91,17 @@ namespace Emutastic
             UpdateTabStyles("Library");
             RefreshCollectionsSidebar();
 
-            // ── Phase 2: load data off UI thread, then filter on UI thread ──
-            await Task.Run(() => _vm.Reload());  // GetAllGames() — stays off UI thread
-            await _vm.FilterGamesAsync();        // sort/group in background, assign on UI thread
-
-            // Restore per-console 3D box art preferences
+            // Restore per-console 3D box art preferences BEFORE loading games,
+            // so DisplayArtPath evaluates correctly during initial binding.
             var snapCfg = App.Configuration?.GetSnapConfiguration();
             if (snapCfg?.Use3DBoxArtConsoles?.Count > 0)
                 Game.Consoles3D = new System.Collections.Generic.HashSet<string>(snapCfg.Use3DBoxArtConsoles);
+
+            // ── Phase 2: load data off UI thread, then filter on UI thread ──
+            await Task.Run(() => _vm.Reload());  // GetAllGames() — stays off UI thread
+            await _vm.FilterGamesAsync();        // sort/group in background, assign on UI thread
+            ScrollLibraryToTop();
+
             UpdateBoxArtToggleVisibility();
 
             _ = RetryMissingArtworkAsync();
@@ -128,7 +131,7 @@ namespace Emutastic
             {
                 foreach (var game in missing)
                 {
-                    string? cached = _artwork.FindCachedArtwork(game.RomHash);
+                    string? cached = _artwork.FindCachedArtwork(game.RomHash, game.Console);
                     if (cached != null)
                     {
                         _db.UpdateCoverArt(game.Id, cached);
@@ -354,6 +357,24 @@ namespace Emutastic
             double lines = e.Delta / 120.0 * SystemParameters.WheelScrollLines;
             sv.ScrollToVerticalOffset(sv.VerticalOffset - lines * 80);
             e.Handled = true;
+        }
+
+        /// <summary>
+        /// Scrolls all library views (grid, grouped, list) to the top.
+        /// Called after navigation so the view always starts at the first item.
+        /// </summary>
+        private void ScrollLibraryToTop()
+        {
+            // GameGridView (flat grid) — ListBox has an internal ScrollViewer
+            var gridSv = FindVisualChild<ScrollViewer>(GameGridView);
+            gridSv?.ScrollToTop();
+
+            // LibraryView (grouped scroll viewer)
+            LibraryView?.ScrollToTop();
+
+            // GameListView (list mode) — ListBox has an internal ScrollViewer
+            var listSv = FindVisualChild<ScrollViewer>(GameListView);
+            listSv?.ScrollToTop();
         }
 
         private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
@@ -615,6 +636,7 @@ namespace Emutastic
             {
                 _vm.SelectedConsole = console;
                 await _vm.FilterGamesAsync();
+                ScrollLibraryToTop();
                 UpdateToolbarTitle(console);
                 // Find and highlight the matching sidebar button if present
                 foreach (var child in SidebarPanel.Children.OfType<Button>())
@@ -633,6 +655,7 @@ namespace Emutastic
             SelectNavButton((Button)sender);
             _vm.SelectedConsole = "All Games";
             await _vm.FilterGamesAsync();
+            ScrollLibraryToTop();
             UpdateToolbarTitle("All Games");
         }
 
@@ -640,6 +663,7 @@ namespace Emutastic
         {
             SelectNavButton((Button)sender);
             _vm.LoadRecent(_db);
+            ScrollLibraryToTop();
             UpdateToolbarTitle("Recently Played");
         }
 
@@ -648,6 +672,7 @@ namespace Emutastic
             SelectNavButton((Button)sender);
             _isShowingFavorites = true;
             _vm.LoadFavorites(_db);
+            ScrollLibraryToTop();
             UpdateToolbarTitle("Favorites");
         }
 
@@ -658,6 +683,7 @@ namespace Emutastic
                 SelectNavButton(btn);
                 _vm.SelectedConsole = tag;
                 await _vm.FilterGamesAsync();
+                ScrollLibraryToTop();
                 UpdateBoxArtToggleVisibility();
                 ShowNavCount(btn, _vm.Games.Count);
                 string name = btn.Content is StackPanel sp
@@ -1157,7 +1183,7 @@ namespace Emutastic
                 };
                 if (dialog.ShowDialog() == true)
                 {
-                    string cacheFolder = AppPaths.GetFolder("Artwork");
+                    string cacheFolder = AppPaths.GetFolder("Artwork", game.Console);
                     string ext = Path.GetExtension(dialog.FileName);
                     string destPath = Path.Combine(cacheFolder,
                         $"{game.RomHash}_custom{ext}");
