@@ -2184,7 +2184,7 @@ namespace Emutastic.Views
 
             if (error == null)
             {
-                SSStatusLabel.Text = $"Connected ({maxThreads} thread{(maxThreads == 1 ? "" : "s")})";
+                SSStatusLabel.Text = $"Verified — {maxThreads} thread{(maxThreads == 1 ? "" : "s")} available";
                 // Save the thread limit and apply it immediately
                 var snap = _configService.GetSnapConfiguration();
                 snap.ScreenScraperMaxThreads = maxThreads;

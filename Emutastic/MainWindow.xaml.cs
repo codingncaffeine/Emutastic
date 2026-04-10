@@ -185,7 +185,7 @@ namespace Emutastic
             int overQuota = 0;
 
             int ssThreads = Math.Max(1, snapConfig.ScreenScraperMaxThreads);
-            SetStatus($"{displayName} — downloading 3D box art for {total} games ({ssThreads} threads)…");
+            SetStatus($"{displayName} — downloading 3D box art for {total} games…");
 
             // Each worker gets its own ScreenScraperService (own HttpClient / TCP connection)
             // so ScreenScraper sees N distinct concurrent connections, not 1 multiplexed connection.
