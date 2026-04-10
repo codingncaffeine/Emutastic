@@ -92,13 +92,17 @@ namespace Emutastic.Services
 
         /// <summary>
         /// Throttled HTTP GET — acquires a slot from the shared semaphore before making the request.
+        /// The semaphore counts concurrent in-flight requests across all callers/instances.
         /// </summary>
-        private async Task<HttpResponseMessage> ThrottledGetAsync(string url)
+        private Task<HttpResponseMessage> ThrottledGetAsync(string url)
         {
-            await _throttle.WaitAsync();
-            try { return await _http.GetAsync(url); }
-            finally { _throttle.Release(); }
+            // Throttle is now handled by the caller's semaphore so each game fetch
+            // (which may make multiple HTTP calls) counts as one concurrent slot.
+            return _http.GetAsync(url);
         }
+
+        /// <summary>Current max threads for display purposes.</summary>
+        public static int CurrentMaxThreads => _currentMaxThreads;
 
         /// <summary>
         /// Tests credentials. Returns null on success, or an error string to display to the user.
