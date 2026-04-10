@@ -59,6 +59,7 @@ namespace Emutastic.Services.ConsoleHandlers
         public override int PreferredHwContext => 3;  // RETRO_HW_CONTEXT_OPENGL_CORE
         public override bool AllowHwSharedContext => false;
         public override bool UseEmbeddedWindow => false;
+        public override bool UseGLOverlay => true;
 
         public override string ResolveSystemDirectory(string defaultDir, string coreDllDir)
         {

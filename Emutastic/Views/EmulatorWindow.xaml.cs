@@ -563,8 +563,15 @@ namespace Emutastic.Views
         private IntPtr _vulkanNegotiationPtr = IntPtr.Zero;
         private IntPtr _vulkanOverlayHwnd = IntPtr.Zero; // top-level popup window for Vulkan swapchain
         private volatile bool _vulkanPresenting;         // true after first PresentFrame succeeds
-        private Window? _vulkanHudWindow;                // transparent popup for HUD above Vulkan overlay
+        private Window? _vulkanHudWindow;                // transparent popup for HUD above Vulkan/GL overlay
         private Grid? _vulkanHudGrid;
+
+        // GL overlay: WS_POPUP window for direct glBlitFramebuffer + SwapBuffers presentation
+        private IntPtr _glOverlayHwnd = IntPtr.Zero;
+        private IntPtr _glOverlayDC   = IntPtr.Zero;
+        private int _glOverlayWidth, _glOverlayHeight;
+        private int _glPixelFormatIndex;  // stored from offscreen DC for overlay reuse
+        private int _glOverlayTraceCount;  // separate counter for blit trace (not reset by FPS display)
 
         private IntPtr _glHwnd     = IntPtr.Zero;
         private bool   _glHwndOwned = false;  // true when we own the GL window (must DestroyWindow on close)
@@ -1158,6 +1165,75 @@ namespace Emutastic.Views
                             System.Diagnostics.Trace.WriteLine("vsync re-disabled after context_reset.");
                         }
 
+                        // GL overlay: create WS_POPUP window for direct blit+swap presentation
+                        if (_consoleHandler.UseGLOverlay && _glOverlayHwnd == IntPtr.Zero)
+                        {
+                            Dispatcher.Invoke(() =>
+                            {
+                                GameScreen.Visibility = System.Windows.Visibility.Collapsed;
+                                var helper = new WindowInteropHelper(this);
+                                IntPtr ownerHwnd = helper.Handle;
+                                var viewportPoint = GameViewport.PointToScreen(new System.Windows.Point(0, 0));
+                                int vx = (int)viewportPoint.X;
+                                int vy = (int)viewportPoint.Y;
+                                int vw = (int)GameViewport.ActualWidth;
+                                int vh = (int)GameViewport.ActualHeight;
+                                if (vw < 1) vw = 640;
+                                if (vh < 1) vh = 480;
+                                const uint WS_POPUP = 0x80000000;
+                                const uint WS_VISIBLE = 0x10000000;
+                                const uint WS_CLIPSIBLINGS = 0x04000000;
+                                const uint WS_EX_NOACTIVATE = 0x08000000;
+                                _glOverlayHwnd = CreateWindowEx(
+                                    WS_EX_NOACTIVATE, "Static", "",
+                                    WS_POPUP | WS_VISIBLE | WS_CLIPSIBLINGS,
+                                    vx, vy, vw, vh,
+                                    ownerHwnd, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                                _glOverlayWidth = vw;
+                                _glOverlayHeight = vh;
+                                System.Diagnostics.Trace.WriteLine($"[GL Overlay] HWND=0x{_glOverlayHwnd:X} at ({vx},{vy}) {vw}x{vh}");
+
+                                // Hook move/resize/state events (same handler as Vulkan overlay)
+                                LocationChanged += VulkanOverlay_Reposition;
+                                SizeChanged += VulkanOverlay_Reposition;
+                                StateChanged += VulkanOverlay_StateChanged;
+                            });
+
+                            if (_glOverlayHwnd != IntPtr.Zero)
+                            {
+                                // Set up pixel format on overlay DC — MUST use the exact same
+                                // pixel format index as the offscreen DC so wglMakeCurrent can
+                                // switch between them with the same HGLRC.
+                                _glOverlayDC = GetDC(_glOverlayHwnd);
+                                var pfd = new PIXELFORMATDESCRIPTOR
+                                {
+                                    nSize = (ushort)Marshal.SizeOf<PIXELFORMATDESCRIPTOR>(), nVersion = 1,
+                                    dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER,
+                                    iPixelType = PFD_TYPE_RGBA, cColorBits = 32, cDepthBits = 24, cStencilBits = 8,
+                                };
+                                bool pfOk = SetPixelFormat(_glOverlayDC, _glPixelFormatIndex, ref pfd);
+                                System.Diagnostics.Trace.WriteLine($"[GL Overlay] SetPixelFormat idx={_glPixelFormatIndex} ok={pfOk}");
+
+                                // Verify wglMakeCurrent works on overlay DC
+                                bool mcOk = wglMakeCurrent(_glOverlayDC, _hglrc);
+                                System.Diagnostics.Trace.WriteLine($"[GL Overlay] wglMakeCurrent overlay={mcOk}");
+                                if (mcOk && swapFn != null) swapFn(0);
+                                wglMakeCurrent(_hdc, _hglrc);
+
+                                if (!mcOk)
+                                {
+                                    // Pixel format mismatch — fall back to readback path
+                                    System.Diagnostics.Trace.WriteLine("[GL Overlay] wglMakeCurrent failed — falling back to readback");
+                                    ReleaseDC(_glOverlayHwnd, _glOverlayDC);
+                                    _glOverlayDC = IntPtr.Zero;
+                                }
+                                else
+                                {
+                                    System.Diagnostics.Trace.WriteLine("[GL Overlay] DC and pixel format configured");
+                                }
+                            }
+                        }
+
                         if (_consoleHandler.AllowHwSharedContext)
                         {
                             wglMakeCurrent(IntPtr.Zero, IntPtr.Zero);
@@ -1332,6 +1408,13 @@ namespace Emutastic.Views
                         try { _core?.Deinit(); }
                         catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Emu-thread retro_deinit: {ex.Message}"); }
                         System.Diagnostics.Trace.WriteLine("Emu-thread retro_deinit complete.");
+                    }
+
+                    // Destroy GL overlay window on UI thread (if active)
+                    if (_glOverlayHwnd != IntPtr.Zero)
+                    {
+                        try { Dispatcher.Invoke(() => DestroyVulkanOverlay()); }
+                        catch { /* window may already be gone */ }
                     }
 
                     // Release the context so the cleanup task can quarantine-delete it.
@@ -1596,7 +1679,7 @@ namespace Emutastic.Views
                 // wglSwapIntervalEXT(0) is set.  Without PFD_DOUBLEBUFFER, SwapBuffers is a no-op
                 // (just glFlush) — no page flip, no DWM lock.
                 uint pfdFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL;
-                if (_consoleHandler.UseEmbeddedWindow) pfdFlags |= PFD_DOUBLEBUFFER;
+                if (_consoleHandler.UseEmbeddedWindow || _consoleHandler.UseGLOverlay) pfdFlags |= PFD_DOUBLEBUFFER;
 
                 var pfd = new PIXELFORMATDESCRIPTOR
                 {
@@ -1611,6 +1694,8 @@ namespace Emutastic.Views
                     System.Diagnostics.Trace.WriteLine("ChoosePixelFormat/SetPixelFormat failed");
                     return false;
                 }
+                _glPixelFormatIndex = fmt;
+                System.Diagnostics.Trace.WriteLine($"GL pixel format index={fmt} flags=0x{pfdFlags:X}");
 
                 IntPtr dummyCtx = wglCreateContext(_hdc);
                 if (dummyCtx == IntPtr.Zero || !wglMakeCurrent(_hdc, dummyCtx))
@@ -2767,6 +2852,61 @@ namespace Emutastic.Views
                 }
 
                 // data == (void*)-1 means RETRO_HW_FRAME_BUFFER_VALID.
+
+                // GL overlay: blit FBO → overlay window back buffer → SwapBuffers (zero CPU readback)
+                if (_glOverlayDC != IntPtr.Zero && _consoleHandler.UseGLOverlay)
+                {
+                    uint rw = width  > 0 ? width  : _fboWidth;
+                    uint rh = height > 0 ? height : _fboHeight;
+                    if (rw > 0 && rh > 0)
+                    {
+                        bool blitOk = false;
+                        try
+                        {
+                            // Switch context to overlay DC for presentation
+                            bool mc = wglMakeCurrent(_glOverlayDC, _hglrc);
+                            if (_glOverlayTraceCount < 3)
+                            {
+                                System.Diagnostics.Trace.WriteLine($"[GL Overlay] Blit frame {_glOverlayTraceCount}: {rw}x{rh} → {_glOverlayWidth}x{_glOverlayHeight} fbo={_fboId} mc={mc}");
+                                _glOverlayTraceCount++;
+                            }
+
+                            if (mc)
+                            {
+                                // Blit from our FBO to FBO 0 (overlay window's back buffer)
+                                _glBindFramebuffer!(GL_READ_FRAMEBUFFER, _fboId);
+                                _glBindFramebuffer!(GL_DRAW_FRAMEBUFFER, 0);
+                                // Dolphin renders top-down into the FBO — no Y flip needed
+                                _glBlitFramebuffer!(0, 0, (int)rw, (int)rh,
+                                                   0, 0, _glOverlayWidth, _glOverlayHeight,
+                                                   GL_COLOR_BUFFER_BIT, GL_LINEAR);
+                                _glBindFramebuffer!(GL_READ_FRAMEBUFFER, 0);
+                                _glBindFramebuffer!(GL_DRAW_FRAMEBUFFER, 0);
+
+                                SwapBuffers(_glOverlayDC);
+
+                                // Switch context back to offscreen DC for next retro_run
+                                wglMakeCurrent(_hdc, _hglrc);
+
+                                System.Threading.Interlocked.Increment(ref _frameCount);
+                                blitOk = true;
+                            }
+                            else
+                            {
+                                // wglMakeCurrent failed — restore context and fall through to readback
+                                wglMakeCurrent(_hdc, _hglrc);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Trace.WriteLine($"[GL Overlay] Blit error: {ex.Message}");
+                            wglMakeCurrent(_hdc, _hglrc);
+                        }
+                        if (blitOk) return;
+                        // Fall through to readback path if blit failed
+                    }
+                }
+
                 if (_consoleHandler.UseEmbeddedWindow)
                 {
                     // Dolphin: rendered directly to HwndHost FBO 0 on its EmuThread. Just present.
@@ -3872,9 +4012,9 @@ namespace Emutastic.Views
         {
             _overlayHiding = false; // cancel any in-flight hide
 
-            // Vulkan path: show HUD in a separate window above the Vulkan overlay
-            // so both the game and the HUD are visible simultaneously
-            if (_vulkanOverlayHwnd != IntPtr.Zero && _vulkanPresenting)
+            // Overlay window path (Vulkan or GL): show HUD in a separate window above
+            // the overlay so both the game and the HUD are visible simultaneously
+            if ((_vulkanOverlayHwnd != IntPtr.Zero && _vulkanPresenting) || _glOverlayHwnd != IntPtr.Zero)
             {
                 EnsureVulkanHudWindow();
                 // Reparent OverlayHud into the HUD window (once)
@@ -4613,6 +4753,7 @@ namespace Emutastic.Views
                 // launch another game (prevents stale global state / "Failed to initialize").
                 //
                 // For other HW cores: fire-and-forget async quarantine (longer delays).
+                bool glSyncHandledDll = false;
                 if (_hwRenderActive && (_hglrc != IntPtr.Zero || _secondaryCtx != IntPtr.Zero))
                 {
                     IntPtr hglrcQ    = _hglrc;         _hglrc        = IntPtr.Zero;
@@ -4621,6 +4762,7 @@ namespace Emutastic.Views
 
                     if (deferredDll != IntPtr.Zero)
                     {
+                        glSyncHandledDll = true; // prevent Vulkan stash path from re-stashing this DLL
                         // Synchronous path: retro_deinit already ran on emu thread with GL.
                         // Wait for residual driver/GPU-thread callbacks, then delete + free.
                         // PPSSPP's GPU thread self-cleans after retro_unload_game but takes
@@ -4687,7 +4829,7 @@ namespace Emutastic.Views
                 // (ExitThread).  Stash the DLL handle for deferred FreeLibrary at the
                 // start of the next session — by then the ExitThread'd threads are dead
                 // and FreeLibrary gives clean globals for the next LoadLibrary.
-                if (!(_hwRenderActive && (_hglrc != IntPtr.Zero || _secondaryCtx != IntPtr.Zero)))
+                if (!glSyncHandledDll && !(_hwRenderActive && (_hglrc != IntPtr.Zero || _secondaryCtx != IntPtr.Zero)))
                 {
                     IntPtr deferredDll = _core?.DeferredFreeHandle ?? IntPtr.Zero;
                     if (deferredDll != IntPtr.Zero)
@@ -4751,28 +4893,30 @@ namespace Emutastic.Views
         // =========================================================================
         private void VulkanOverlay_Reposition(object? sender, EventArgs e)
         {
-            if (_vulkanOverlayHwnd == IntPtr.Zero) return;
-            RepositionVulkanOverlay();
+            if (_vulkanOverlayHwnd == IntPtr.Zero && _glOverlayHwnd == IntPtr.Zero) return;
+            RepositionOverlayWindow();
         }
 
         private void VulkanOverlay_StateChanged(object? sender, EventArgs e)
         {
-            if (_vulkanOverlayHwnd == IntPtr.Zero) return;
+            IntPtr overlayHwnd = _vulkanOverlayHwnd != IntPtr.Zero ? _vulkanOverlayHwnd : _glOverlayHwnd;
+            if (overlayHwnd == IntPtr.Zero) return;
             if (WindowState == WindowState.Minimized)
             {
-                ShowWindow(_vulkanOverlayHwnd, 0); // SW_HIDE
+                ShowWindow(overlayHwnd, 0); // SW_HIDE
                 _vulkanHudWindow?.Hide();
             }
             else
             {
-                ShowWindow(_vulkanOverlayHwnd, 5); // SW_SHOW
-                RepositionVulkanOverlay();
+                ShowWindow(overlayHwnd, 5); // SW_SHOW
+                RepositionOverlayWindow();
             }
         }
 
-        private void RepositionVulkanOverlay()
+        private void RepositionOverlayWindow()
         {
-            if (_vulkanOverlayHwnd == IntPtr.Zero) return;
+            IntPtr overlayHwnd = _vulkanOverlayHwnd != IntPtr.Zero ? _vulkanOverlayHwnd : _glOverlayHwnd;
+            if (overlayHwnd == IntPtr.Zero) return;
             try
             {
                 var viewportPoint = GameViewport.PointToScreen(new System.Windows.Point(0, 0));
@@ -4783,7 +4927,14 @@ namespace Emutastic.Views
 
                 const uint SWP_NOZORDER = 0x0004;
                 const uint SWP_NOACTIVATE = 0x0010;
-                SetWindowPos(_vulkanOverlayHwnd, IntPtr.Zero, vx, vy, vw, vh, SWP_NOZORDER | SWP_NOACTIVATE);
+                SetWindowPos(overlayHwnd, IntPtr.Zero, vx, vy, vw, vh, SWP_NOZORDER | SWP_NOACTIVATE);
+
+                // GL overlay: update cached dimensions (SwapBuffers uses current window size)
+                if (_glOverlayHwnd != IntPtr.Zero)
+                {
+                    _glOverlayWidth = vw;
+                    _glOverlayHeight = vh;
+                }
 
                 // Debounce swapchain recreation — vkDeviceWaitIdle + destroy + create is too
                 // expensive to run on every pixel of a window drag.  Reposition the Win32
@@ -4816,7 +4967,7 @@ namespace Emutastic.Views
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Trace.WriteLine($"[Vulkan] Overlay reposition: {ex.Message}");
+                System.Diagnostics.Trace.WriteLine($"Overlay reposition: {ex.Message}");
             }
         }
 
@@ -4844,6 +4995,18 @@ namespace Emutastic.Views
             {
                 DestroyWindow(_vulkanOverlayHwnd);
                 _vulkanOverlayHwnd = IntPtr.Zero;
+            }
+
+            // GL overlay cleanup
+            if (_glOverlayDC != IntPtr.Zero && _glOverlayHwnd != IntPtr.Zero)
+            {
+                ReleaseDC(_glOverlayHwnd, _glOverlayDC);
+                _glOverlayDC = IntPtr.Zero;
+            }
+            if (_glOverlayHwnd != IntPtr.Zero)
+            {
+                DestroyWindow(_glOverlayHwnd);
+                _glOverlayHwnd = IntPtr.Zero;
             }
         }
     }
