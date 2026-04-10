@@ -285,6 +285,7 @@ namespace Emutastic.Views
             try
             {
                 string corePath = coreManager.GetCorePath(_game.Console)!;
+                EmulatorWindow.FreeStaleDll(); // must be BEFORE LoadLibrary
                 var core = new LibretroCore(corePath);
                 var emulator = new EmulatorWindow(_game, core);
                 emulator.ShowDialog();

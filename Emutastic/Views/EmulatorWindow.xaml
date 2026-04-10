@@ -217,7 +217,7 @@
             </Grid>
 
             <!-- Game viewport -->
-            <Border Grid.Row="1" Background="Black">
+            <Border x:Name="GameBorder" Grid.Row="1" Background="Black">
                 <Grid x:Name="GameViewport">
                     <Image x:Name="GameScreen"
                            Stretch="Uniform"
@@ -391,7 +391,7 @@
                         </Border>
 
                         <!-- Pill -->
-                        <Border Background="#CC1C1C1E"
+                        <Border Background="#991C1C1E"
                                 CornerRadius="28"
                                 Padding="6,0"
                                 HorizontalAlignment="Center">

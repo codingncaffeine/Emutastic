@@ -12,6 +12,10 @@ namespace Emutastic.Services.ConsoleHandlers
         public override string ConsoleName => "N64";
         public override bool UsesAnalogStick => true;
 
+        // Request Vulkan context for ParaLLEl-RDP (GPU-accelerated LLE renderer).
+        // If the core doesn't support Vulkan, it will fall back to its own preferred context.
+        public override int PreferredHwContext => 6; // RETRO_HW_CONTEXT_VULKAN
+
         // parallel-n64 is built on mupen64plus which ALWAYS spawns an internal EmuThread,
         // even for software plugins like angrylion.  That EmuThread needs its own GL context.
         // Returning true for SET_HW_SHARED_CONTEXT tells mupen64plus to create a shared
@@ -26,7 +30,7 @@ namespace Emutastic.Services.ConsoleHandlers
 
         public override Dictionary<string, string> GetDefaultCoreOptions() => new()
         {
-            ["parallel-n64-gfxplugin"]             = "glide64",
+            ["parallel-n64-gfxplugin"]             = "parallel",
             ["parallel-n64-cpucore"]               = "dynamic_recompiler",
             ["parallel-n64-disable_expmem"]        = "disabled",
             ["parallel-n64-framerate"]             = "fullspeed",
@@ -42,6 +46,8 @@ namespace Emutastic.Services.ConsoleHandlers
             ["parallel-n64-astick-deadzone"]       = "15",
             ["parallel-n64-astick-sensitivity"]    = "100",
             ["parallel-n64-gfxplugin-accuracy"]    = "low",
+            ["parallel-n64-parallel-rdp-upscaling"] = "4x",
+            ["parallel-n64-parallel-rdp-synchronous"] = "enabled",
             ["parallel-n64-screensize"]            = "640x480",
             ["parallel-n64-aspectratiohint"]       = "normal",
             ["parallel-n64-filtering"]             = "automatic",

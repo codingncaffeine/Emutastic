@@ -22,22 +22,6 @@ namespace Emutastic.Views
         // Per-console core options that are user-configurable
         private static readonly Dictionary<string, List<CoreOptionDefinition>> ConsoleSpecificOptions = new()
         {
-            ["N64"] = new()
-            {
-                new CoreOptionDefinition
-                {
-                    Key = "parallel-n64-gfxplugin",
-                    DisplayName = "GFX Plugin",
-                    ValidValues = new() { "glide64", "angrylion", "rice" },
-                    DefaultValue = "glide64",
-                    Descriptions = new()
-                    {
-                        ["glide64"] = "GPU (OpenGL, good balance)",
-                        ["angrylion"] = "Software (accurate, very slow)",
-                        ["rice"] = "GPU (OpenGL, fast, less accurate)",
-                    }
-                }
-            }
         };
 
         public CorePreferencesWindow()

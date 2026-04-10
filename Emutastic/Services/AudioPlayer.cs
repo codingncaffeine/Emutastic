@@ -24,6 +24,12 @@ namespace Emutastic.Services
         // have to rely on the audio driver's resampler, which can produce artefacts.
         private const int OutputSampleRate = 44100;
 
+        /// <summary>
+        /// WaveOut desired latency in ms. Set before calling Start().
+        /// Higher values absorb FPS dips better (Vulkan readback cores).
+        /// </summary>
+        public int DesiredLatencyMs { get; set; } = 120;
+
         public AudioPlayer(int sampleRate = 44100)
         {
             _sampleRate = sampleRate;
@@ -60,7 +66,7 @@ namespace Emutastic.Services
 
                 _waveOut = new WaveOutEvent
                 {
-                    DesiredLatency = 80,
+                    DesiredLatency = DesiredLatencyMs,
                     DeviceNumber = -1
                 };
 

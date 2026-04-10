@@ -138,7 +138,11 @@ namespace Emutastic
             catch (Exception ex)
             {
                 Logger?.LogError(ex, "Failed to initialize configuration system");
-                Configuration = new JsonConfigurationService(null);
+                System.Diagnostics.Trace.WriteLine($"CONFIG INIT FAILED: {ex.Message}");
+                // Don't replace Configuration — if LoadAsync partially succeeded,
+                // the existing instance still has the loaded data.
+                // Only create a fallback if Configuration is null.
+                Configuration ??= new JsonConfigurationService(null);
             }
         }
 

@@ -265,6 +265,25 @@ namespace Emutastic.Views
         private static GCHandle? _vehGcHandle;
         private static IntPtr _vehHandle;
         private static IntPtr _dummyPage = IntPtr.Zero; // reusable zeroed page for NULL fixups
+        private static volatile bool _vulkanTeardownComplete; // set after Vulkan context disposed
+        private static IntPtr _staleDllHandle;  // DLL handle from previous session that needs freeing before next launch
+
+        /// <summary>
+        /// Free any stale core DLL from a previous Vulkan session.
+        /// MUST be called BEFORE LoadLibrary/new LibretroCore — otherwise LoadLibrary
+        /// increments the refcount on the still-loaded DLL, FreeLibrary only decrements
+        /// it back, and the DLL never actually unloads (globals stay stale).
+        /// </summary>
+        public static void FreeStaleDll()
+        {
+            IntPtr staleDll = System.Threading.Interlocked.Exchange(ref _staleDllHandle, IntPtr.Zero);
+            if (staleDll != IntPtr.Zero)
+            {
+                System.Diagnostics.Trace.WriteLine($"Freeing stale DLL before core load: 0x{staleDll:X}");
+                try { NativeMethods.FreeLibrary(staleDll); }
+                catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Stale DLL free: {ex.Message}"); }
+            }
+        }
 
         private const uint EXCEPTION_ACCESS_VIOLATION = 0xC0000005;
         private const int EXCEPTION_CONTINUE_SEARCH = 0;
@@ -307,6 +326,37 @@ namespace Emutastic.Views
                              $"addr=0x{faultAddr:X16}";
                 OutputDebugStringW(msg);
                 System.Diagnostics.Trace.WriteLine(msg);
+
+                // ---------------------------------------------------------------
+                // Fixup C: Post-teardown driver/core thread AVs.
+                //
+                // After Vulkan teardown, background threads from nvoglv64.dll,
+                // ParaLLEl-RDP, and the core may AV on destroyed swapchain/surface
+                // resources.  VkDevice/VkInstance are kept alive (leaked) so the
+                // driver's device tables stay clean for relaunch.
+                //
+                // Catch ALL post-teardown AVs and ExitThread the faulting thread.
+                // Only do this on background threads (not the main thread).
+                // ---------------------------------------------------------------
+                if (_vulkanTeardownComplete)
+                {
+                    try
+                    {
+                        IntPtr exitThreadAddr = NativeMethods2.GetProcAddress(
+                            NativeMethods2.GetModuleHandle("kernel32.dll"), "ExitThread");
+                        if (exitThreadAddr != IntPtr.Zero)
+                        {
+                            Marshal.WriteInt64(contextPtr, CTX_RCX, 0);
+                            Marshal.WriteInt64(contextPtr, CTX_RIP, exitThreadAddr.ToInt64());
+
+                            string fixMsg = $"  → ExitThread redirect for post-teardown AV in [{modName}]";
+                            OutputDebugStringW(fixMsg);
+                            System.Diagnostics.Trace.WriteLine(fixMsg);
+                            return EXCEPTION_CONTINUE_EXECUTION;
+                        }
+                    }
+                    catch { }
+                }
 
                 // ---------------------------------------------------------------
                 // Fixup A: GL dispatch-table null-deref in OPENGL32.DLL.
@@ -504,7 +554,16 @@ namespace Emutastic.Views
         private byte[] _hwFlippedBuffer = Array.Empty<byte>();
         private uint   _hwFlippedWidth  = 0;   // actual readback dimensions (may differ from _fboWidth/Height)
         private uint   _hwFlippedHeight = 0;
-        private volatile bool _hwVideoPending = false;  // drop frame if UI thread hasn't consumed last one
+        private volatile bool _hwVideoPending = false;  // true while a BeginInvoke frame callback is queued
+
+        // ── Vulkan HW rendering ─────────────────────────────────────────────────
+        private VulkanContext? _vulkanContext;
+        private bool _isVulkanHwRender = false;
+        private IntPtr _vulkanNegotiationPtr = IntPtr.Zero;
+        private IntPtr _vulkanOverlayHwnd = IntPtr.Zero; // top-level popup window for Vulkan swapchain
+        private volatile bool _vulkanPresenting;         // true after first PresentFrame succeeds
+        private Window? _vulkanHudWindow;                // transparent popup for HUD above Vulkan overlay
+        private Grid? _vulkanHudGrid;
 
         private IntPtr _glHwnd     = IntPtr.Zero;
         private bool   _glHwndOwned = false;  // true when we own the GL window (must DestroyWindow on close)
@@ -543,6 +602,11 @@ namespace Emutastic.Views
         private const uint PM_REMOVE = 0x0001;
         [DllImport("user32.dll")] private static extern bool PeekMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax, uint wRemoveMsg);
         [DllImport("user32.dll")] private static extern bool DispatchMessage(ref MSG lpmsg);
+        [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+        [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+        [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
+        [StructLayout(LayoutKind.Sequential)] private struct POINT { public int X, Y; }
+        [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
 
         [StructLayout(LayoutKind.Sequential)]
         private struct RECT { public int Left, Top, Right, Bottom; }
@@ -767,6 +831,11 @@ namespace Emutastic.Views
                 _coreOptions[kv.Key] = kv.Value;
                 System.Diagnostics.Trace.WriteLine($"User value: {kv.Key} = {kv.Value}");
             }
+
+            // N64: force ParaLLEl-RDP — other plugins (glide64, rice, angrylion) are broken/slow.
+            // This overrides any legacy config that may still have a different plugin saved.
+            if (_game.Console == "N64")
+                _coreOptions["parallel-n64-gfxplugin"] = "parallel";
         }
 
         // =========================================================================
@@ -870,6 +939,7 @@ namespace Emutastic.Views
             // Raise emu thread priority so the OS doesn't preempt it mid-frame.
             System.Threading.Thread.CurrentThread.Priority = System.Threading.ThreadPriority.AboveNormal;
 
+            _vulkanTeardownComplete = false;
             InstallCrashDiagnostics();
 
             try
@@ -960,6 +1030,8 @@ namespace Emutastic.Views
                 System.Diagnostics.Trace.WriteLine($"Audio sample rate from core: {reportedRate} → using {sampleRate}");
                 _audioPlayer?.Dispose();
                 _audioPlayer = new AudioPlayer(sampleRate);
+                if (_isVulkanHwRender)
+                    _audioPlayer.DesiredLatencyMs = 200;
 
                 Dispatcher.Invoke(() =>
                 {
@@ -989,58 +1061,108 @@ namespace Emutastic.Views
                 // Calling it too early puts mupen64plus / Dolphin in an invalid state.
                 if (_hwRenderActive && _hwContextReset != null)
                 {
-                    // Always re-acquire the context on the emu thread for context_reset.
-                    // For shared-context cores (N64) the context was pre-created here and
-                    // is still current, so this is a no-op — but being explicit is safe.
-                    // For single-threaded cores it makes the context current for retro_run.
-                    wglMakeCurrent(_hdc, _hglrc);
-                    System.Diagnostics.Trace.WriteLine($"Pre-context_reset: wglMakeCurrent _hglrc=0x{_hglrc:X}");
-
-                    // Resize FBO to final dimensions BEFORE context_reset.  The initial
-                    // FBO is only 640×480 (created during SET_HW_RENDER mid-LoadGame).
-                    // Cores like vecx query the FBO size during context_reset to set up
-                    // their GL viewport; if the FBO is still 640×480, the viewport clips
-                    // game content that extends beyond 640×480 — causing the top and right
-                    // edges to be cut off for the lifetime of the session.
-                    if (!_consoleHandler.AllowHwSharedContext && !_consoleHandler.UseEmbeddedWindow)
+                    if (_isVulkanHwRender)
                     {
-                        var geom = _core.AvInfo.geometry;
-                        uint needW = geom.max_width  > 0 ? geom.max_width  : geom.base_width;
-                        uint needH = geom.max_height > 0 ? geom.max_height : geom.base_height;
-                        if (needW > _fboWidth || needH > _fboHeight)
+                        // Initialize VulkanContext now — by this point the core has sent
+                        // both SET_HW_RENDER and SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE.
+                        if (_vulkanContext == null)
                         {
-                            System.Diagnostics.Trace.WriteLine(
-                                $"Pre-context_reset FBO resize: {_fboWidth}x{_fboHeight} → {needW}x{needH}");
-                            CreateFBO(needW, needH);
+                            // Create a top-level popup window for Vulkan swapchain presentation.
+                            // We can't use HwndHost (WS_CHILD) because EmulatorWindow has
+                            // AllowsTransparency="True" — layered windows don't composite children.
+                            // A top-level WS_POPUP window owned by our HWND avoids this limitation.
+                            IntPtr vulkanHwnd = IntPtr.Zero;
+                            Dispatcher.Invoke(() =>
+                            {
+                                GameScreen.Visibility = System.Windows.Visibility.Collapsed;
+
+                                var helper = new WindowInteropHelper(this);
+                                IntPtr ownerHwnd = helper.Handle;
+
+                                // Get viewport bounds in screen coordinates
+                                var viewportPoint = GameViewport.PointToScreen(new System.Windows.Point(0, 0));
+                                int vx = (int)viewportPoint.X;
+                                int vy = (int)viewportPoint.Y;
+                                int vw = (int)GameViewport.ActualWidth;
+                                int vh = (int)GameViewport.ActualHeight;
+                                if (vw < 1) vw = 640;
+                                if (vh < 1) vh = 480;
+
+                                const uint WS_POPUP = 0x80000000;
+                                const uint WS_VISIBLE = 0x10000000;
+                                const uint WS_CLIPSIBLINGS = 0x04000000;
+                                const uint WS_EX_NOACTIVATE = 0x08000000;
+                                _vulkanOverlayHwnd = CreateWindowEx(
+                                    WS_EX_NOACTIVATE, "Static", "",
+                                    WS_POPUP | WS_VISIBLE | WS_CLIPSIBLINGS,
+                                    vx, vy, vw, vh,
+                                    ownerHwnd, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                                vulkanHwnd = _vulkanOverlayHwnd;
+                                System.Diagnostics.Trace.WriteLine($"[Vulkan] Overlay HWND=0x{vulkanHwnd:X} at ({vx},{vy}) {vw}x{vh}");
+
+                                // Hook move/resize/state events to keep overlay in sync
+                                LocationChanged += VulkanOverlay_Reposition;
+                                SizeChanged += VulkanOverlay_Reposition;
+                                StateChanged += VulkanOverlay_StateChanged;
+                            });
+
+                            _vulkanContext = new VulkanContext();
+                            if (!_vulkanContext.Initialize(_vulkanNegotiationPtr, vulkanHwnd))
+                            {
+                                System.Diagnostics.Trace.WriteLine("[Vulkan] Init failed at context_reset time");
+                                _vulkanContext?.Dispose();
+                                _vulkanContext = null;
+                                _isVulkanHwRender = false;
+                                _hwRenderActive = false;
+                                return;
+                            }
+                            System.Diagnostics.Trace.WriteLine($"[Vulkan] Context initialized at context_reset time (swapchain={_vulkanContext.HasSwapchain})");
+                        }
+
+                        _consoleHandler.OnBeforeContextReset();
+                        System.Diagnostics.Trace.WriteLine("Calling context_reset (Vulkan, post-LoadGame)...");
+                        _hwContextReset.Invoke();
+                        _consoleHandler.OnAfterContextReset();
+                        System.Diagnostics.Trace.WriteLine("context_reset done (Vulkan).");
+                    }
+                    else
+                    {
+                        // GL path: re-acquire context, resize FBO, call context_reset.
+                        wglMakeCurrent(_hdc, _hglrc);
+                        System.Diagnostics.Trace.WriteLine($"Pre-context_reset: wglMakeCurrent _hglrc=0x{_hglrc:X}");
+
+                        if (!_consoleHandler.AllowHwSharedContext && !_consoleHandler.UseEmbeddedWindow)
+                        {
+                            var geom = _core.AvInfo.geometry;
+                            uint needW = geom.max_width  > 0 ? geom.max_width  : geom.base_width;
+                            uint needH = geom.max_height > 0 ? geom.max_height : geom.base_height;
+                            if (needW > _fboWidth || needH > _fboHeight)
+                            {
+                                System.Diagnostics.Trace.WriteLine(
+                                    $"Pre-context_reset FBO resize: {_fboWidth}x{_fboHeight} → {needW}x{needH}");
+                                CreateFBO(needW, needH);
+                            }
+                        }
+
+                        _consoleHandler.OnBeforeContextReset();
+                        System.Diagnostics.Trace.WriteLine("Calling context_reset (post-LoadGame, per libretro spec)...");
+                        _hwContextReset.Invoke();
+                        _consoleHandler.OnAfterContextReset();
+                        System.Diagnostics.Trace.WriteLine("context_reset done.");
+
+                        var swapFn = GetGLProc<wglSwapIntervalEXTDelegate>("wglSwapIntervalEXT");
+                        if (swapFn != null)
+                        {
+                            swapFn(0);
+                            System.Diagnostics.Trace.WriteLine("vsync re-disabled after context_reset.");
+                        }
+
+                        if (_consoleHandler.AllowHwSharedContext)
+                        {
+                            wglMakeCurrent(IntPtr.Zero, IntPtr.Zero);
+                            System.Diagnostics.Trace.WriteLine("GL context released for EmuThread (shared context mode).");
                         }
                     }
-
-                    _consoleHandler.OnBeforeContextReset();
-                    System.Diagnostics.Trace.WriteLine("Calling context_reset (post-LoadGame, per libretro spec)...");
-                    _hwContextReset.Invoke();
-                    _consoleHandler.OnAfterContextReset();
-                    System.Diagnostics.Trace.WriteLine("context_reset done.");
-
-                    // Re-apply vsync=0 after context_reset — glide64 calls wglSwapIntervalEXT(1)
-                    // during init, which would cap the loop at monitorHz÷3 (48fps on 144Hz).
-                    // GetProcAddress intercepts the extension for future calls; this covers any
-                    // wglSwapIntervalEXT call glide64 made via the real extension pointer it
-                    // cached before context_reset.
-                    var swapFn = GetGLProc<wglSwapIntervalEXTDelegate>("wglSwapIntervalEXT");
-                    if (swapFn != null)
-                    {
-                        swapFn(0);
-                        System.Diagnostics.Trace.WriteLine("vsync re-disabled after context_reset.");
-                    }
-
-                    if (_consoleHandler.AllowHwSharedContext)
-                    {
-                        // Release so the core's EmuThread can claim the context for rendering.
-                        // N64: EmuThread renders into FBO 0; video callback reads it back.
-                        wglMakeCurrent(IntPtr.Zero, IntPtr.Zero);
-                        System.Diagnostics.Trace.WriteLine("GL context released for EmuThread (shared context mode).");
-                    }
-                    // else: keep current for single-threaded retro_run readback.
                 }
 
                 // If launched via "Load" from the save states browser, queue the state to be applied
@@ -1060,8 +1182,11 @@ namespace Emutastic.Views
                     _pendingLoadStatePath = null;
                 }
 
-                IntPtr curCtx = wglGetCurrentContext();
-                System.Diagnostics.Trace.WriteLine($"Pre-loop GL: current=0x{curCtx:X} _hglrc=0x{_hglrc:X}");
+                if (!_isVulkanHwRender)
+                {
+                    IntPtr curCtx = wglGetCurrentContext();
+                    System.Diagnostics.Trace.WriteLine($"Pre-loop GL: current=0x{curCtx:X} _hglrc=0x{_hglrc:X}");
+                }
                 EmulationLoop(fps);
             }
             catch (Exception ex)
@@ -1099,7 +1224,44 @@ namespace Emutastic.Views
                 }
                 catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"SRAM save: {ex.Message}"); }
 
-                if (_hwRenderActive && _hdc != IntPtr.Zero)
+                // ── Vulkan teardown ──────────────────────────────────────────
+                // Correct order: context_destroy → unload_game → deinit
+                // context_destroy tells ParaLLEl-RDP to release its Vulkan objects
+                // BEFORE the core is deinitialized.  Without this, the Vulkan
+                // driver's internal state is left dirty and the next session crashes.
+                if (_hwRenderActive && _isVulkanHwRender)
+                {
+                    if (_hwContextDestroy != null)
+                    {
+                        try
+                        {
+                            System.Diagnostics.Trace.WriteLine("Calling context_destroy (Vulkan)...");
+                            _hwContextDestroy.Invoke();
+                            System.Diagnostics.Trace.WriteLine("context_destroy done (Vulkan).");
+                        }
+                        catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"context_destroy (Vulkan): {ex.Message}"); }
+                    }
+
+                    try { _core?.UnloadGame(); }
+                    catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"UnloadGame (Vulkan): {ex.Message}"); }
+
+                    try { _core?.Deinit(); }
+                    catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"retro_deinit (Vulkan): {ex.Message}"); }
+
+                    if (_vulkanContext != null)
+                    {
+                        _vulkanContext.Dispose();
+                        _vulkanContext = null;
+                    }
+                    // Destroy overlay window on UI thread
+                    try { Dispatcher.Invoke(() => DestroyVulkanOverlay()); }
+                    catch { /* window may already be gone */ }
+                    _isVulkanHwRender = false;
+                    _vulkanTeardownComplete = true;
+                    System.Diagnostics.Trace.WriteLine("Vulkan teardown complete.");
+                }
+                // ── GL teardown ─────────────────────────────────────────────
+                else if (_hwRenderActive && _hdc != IntPtr.Zero)
                 {
                     // AllowHwSharedContext=true (N64/glide64): we released our GL context
                     // to the core's EmuThread after context_reset. Re-acquire it NOW so
@@ -1216,9 +1378,11 @@ namespace Emutastic.Views
             // WaveOut drains (N64 VI rate 60.098Hz ≠ our 60fps Stopwatch), the buffer
             // drifts down.  Running an extra retro_run when it dips below 80ms refills
             // it without audible stutter.
-            const int prefillMs    = 150;   // fill to this level before starting the Stopwatch loop
-            const int lowWatermark = 80;    // run an extra retro_run if buffer dips this low
-            const int backpressureMs = 300; // pause if buffer exceeds this (core running too fast)
+            // Vulkan readback cores need a bigger audio cushion — the synchronous
+            // GPU→CPU copy adds per-frame latency that causes deeper audio dips.
+            int prefillMs    = _isVulkanHwRender ? 250 : 150;
+            int lowWatermark = _isVulkanHwRender ? 120 : 80;
+            int backpressureMs = _isVulkanHwRender ? 500 : 300;
             // Seed the shared field — SET_SYSTEM_AV_INFO may update it mid-run (e.g. Flycast
             // switches from 60fps menus to 30fps gameplay for titles like Hydro Thunder).
             _targetFrameMs = 1000.0 / targetFps;
@@ -1653,7 +1817,6 @@ namespace Emutastic.Views
             uint h = rh > 0 ? rh : _fboHeight;
             if (w == 0 || h == 0) return;
 
-            // Drop this frame if the UI thread hasn't consumed the previous one yet.
             if (_hwVideoPending) return;
 
             try
@@ -1736,7 +1899,6 @@ namespace Emutastic.Views
             uint w = rw > 0 ? rw : _fboWidth;
             uint h = rh > 0 ? rh : _fboHeight;
             if (w == 0 || h == 0) return;
-            if (_hwVideoPending) return;
 
             try
             {
@@ -1980,6 +2142,28 @@ namespace Emutastic.Views
                             $"SET_HW_RENDER: type={hw.context_type} v{hw.version_major}.{hw.version_minor}" +
                             $" depth={hw.depth} stencil={hw.stencil}");
 
+                        // ── Vulkan path ──────────────────────────────────────────
+                        // Defer VulkanContext creation to context_reset time, because
+                        // the core sends SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE
+                        // AFTER SET_HW_RENDER during retro_load_game.
+                        if (hw.context_type == RETRO_HW_CONTEXT_VULKAN)
+                        {
+                            _isVulkanHwRender = true;
+                            _hwRenderActive = true;
+
+                            if (hw.context_reset != IntPtr.Zero)
+                                _hwContextReset = Marshal.GetDelegateForFunctionPointer<retro_hw_context_reset_t>(hw.context_reset);
+                            if (hw.context_destroy != IntPtr.Zero)
+                                _hwContextDestroy = Marshal.GetDelegateForFunctionPointer<retro_hw_context_reset_t>(hw.context_destroy);
+
+                            // get_current_framebuffer unused for Vulkan
+                            Marshal.WriteIntPtr(data, 16, IntPtr.Zero);
+
+                            System.Diagnostics.Trace.WriteLine($"SET_HW_RENDER: Vulkan noted, init deferred to context_reset. context_destroy={hw.context_destroy:X}");
+                            return true;
+                        }
+
+                        // ── OpenGL path ──────────────────────────────────────────
                         if (hw.context_type != RETRO_HW_CONTEXT_OPENGL &&
                             hw.context_type != RETRO_HW_CONTEXT_OPENGL_CORE)
                         {
@@ -2023,7 +2207,16 @@ namespace Emutastic.Views
                     }
 
                     case RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE:
+                    {
+                        if (_isVulkanHwRender && _vulkanContext != null)
+                        {
+                            IntPtr ifacePtr = _vulkanContext.BuildHwRenderInterface();
+                            Marshal.WriteIntPtr(data, ifacePtr);
+                            System.Diagnostics.Trace.WriteLine("GET_HW_RENDER_INTERFACE: Vulkan interface provided");
+                            return true;
+                        }
                         return false;
+                    }
 
                     // ------------------------------------------------------------------
                     // Pixel format
@@ -2103,7 +2296,10 @@ namespace Emutastic.Views
                                 Key          = key,
                                 Description  = desc,
                                 ValidValues  = validValues,
-                                DefaultValue = _coreOptions.TryGetValue(key, out string? dv) ? dv : ""
+                                // Store the core's true default (first value in the list per
+                                // libretro convention), not the currently active value — so
+                                // "Reset to Defaults" actually resets to the core defaults.
+                                DefaultValue = validValues.Length > 0 ? validValues[0] : ""
                             });
 
                             ptr += IntPtr.Size * 2;
@@ -2286,8 +2482,19 @@ namespace Emutastic.Views
                     case RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS:
                     case RETRO_ENVIRONMENT_SET_SUBSYSTEM_INFO:
                     case RETRO_ENVIRONMENT_SET_MEMORY_MAPS:
+                        return true;
+
                     case RETRO_ENVIRONMENT_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE:
-                        return false;
+                    {
+                        if (data == IntPtr.Zero) return false;
+                        _vulkanNegotiationPtr = data;
+                        // Log what we actually received for debugging
+                        uint negType = (uint)Marshal.ReadInt32(data, 0);
+                        uint negVer = (uint)Marshal.ReadInt32(data, 4);
+                        System.Diagnostics.Trace.WriteLine(
+                            $"Stored Vulkan context negotiation interface: ptr=0x{data:X} type={negType} version={negVer}");
+                        return true;
+                    }
 
                     case RETRO_ENVIRONMENT_SET_HW_SHARED_CONTEXT:
                         // N64/glide64's EmuThread needs this to create a shared GL context.
@@ -2511,6 +2718,53 @@ namespace Emutastic.Views
         {
             if (_hwRenderActive)
             {
+                // ── Vulkan path ──────────────────────────────────────────────
+                if (_isVulkanHwRender && _vulkanContext != null)
+                {
+                    if (_vulkanContext.HasSwapchain)
+                    {
+                        // Direct GPU presentation — no CPU readback
+                        if (_vulkanContext.PresentFrame(width, height))
+                        {
+                            _vulkanPresenting = true;
+                            System.Threading.Interlocked.Increment(ref _frameCount);
+                        }
+                        return;
+                    }
+
+                    // Fallback: CPU readback to WriteableBitmap
+                    if (_hwVideoPending) return;
+
+                    var (pixels, w, h) = _vulkanContext.ReadbackFrame(width, height);
+                    if (pixels != null && w > 0 && h > 0)
+                    {
+                        System.Threading.Interlocked.Increment(ref _frameCount);
+                        uint capturedW = (uint)w, capturedH = (uint)h;
+
+                        _hwVideoPending = true;
+                        Dispatcher.BeginInvoke(() =>
+                        {
+                            try
+                            {
+                                if (_bitmap == null || _videoWidth != capturedW || _videoHeight != capturedH || _bitmap.Format != PixelFormats.Bgra32)
+                                {
+                                    _videoWidth = capturedW; _videoHeight = capturedH;
+                                    _bitmap = new WriteableBitmap((int)capturedW, (int)capturedH, 96, 96, PixelFormats.Bgra32, null);
+                                    GameScreen.Source = _bitmap;
+                                    UpdateDisplayAspectRatio(capturedW, capturedH, _core?.AvInfo.geometry.aspect_ratio ?? 0f);
+                                }
+                                _bitmap.Lock();
+                                Marshal.Copy(pixels, 0, _bitmap.BackBuffer, (int)(capturedW * capturedH * 4));
+                                _bitmap.AddDirtyRect(new Int32Rect(0, 0, (int)capturedW, (int)capturedH));
+                                _bitmap.Unlock();
+                            }
+                            catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[Vulkan] Bitmap: {ex.Message}"); }
+                            finally { _hwVideoPending = false; }
+                        }, DispatcherPriority.Render);
+                    }
+                    return;
+                }
+
                 // data == (void*)-1 means RETRO_HW_FRAME_BUFFER_VALID.
                 if (_consoleHandler.UseEmbeddedWindow)
                 {
@@ -3611,13 +3865,48 @@ namespace Emutastic.Views
         // =========================================================================
         // Overlay HUD
         // =========================================================================
+        private bool _overlayHiding; // guards against stale fade-out Completed callbacks
+
         private void ShowOverlay()
         {
-            if (OverlayHud.Visibility != Visibility.Visible)
+            _overlayHiding = false; // cancel any in-flight hide
+
+            // Vulkan path: show HUD in a separate window above the Vulkan overlay
+            // so both the game and the HUD are visible simultaneously
+            if (_vulkanOverlayHwnd != IntPtr.Zero && _vulkanPresenting)
             {
-                OverlayHud.Visibility = Visibility.Visible;
-                var fade = new System.Windows.Media.Animation.DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150));
-                OverlayHud.BeginAnimation(OpacityProperty, fade);
+                EnsureVulkanHudWindow();
+                // Reparent OverlayHud into the HUD window (once)
+                if (OverlayHud.Parent == GameViewport)
+                {
+                    GameViewport.Children.Remove(OverlayHud);
+                    _vulkanHudGrid!.Children.Add(OverlayHud);
+                }
+                if (OverlayHud.Visibility != Visibility.Visible)
+                {
+                    OverlayHud.Visibility = Visibility.Visible;
+                    var fade = new System.Windows.Media.Animation.DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150));
+                    OverlayHud.BeginAnimation(OpacityProperty, fade);
+                }
+                RepositionVulkanHud();
+                _vulkanHudWindow!.Show();
+                // Ensure HUD window is above the Vulkan overlay
+                var hudHwnd = new System.Windows.Interop.WindowInteropHelper(_vulkanHudWindow).Handle;
+                if (hudHwnd != IntPtr.Zero)
+                {
+                    const uint SWP_NOMOVE = 0x0002, SWP_NOSIZE = 0x0001, SWP_NOACTIVATE = 0x0010;
+                    SetWindowPos(hudHwnd, IntPtr.Zero, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                }
+            }
+            else
+            {
+                // Non-Vulkan path: show HUD in the main window
+                if (OverlayHud.Visibility != Visibility.Visible)
+                {
+                    OverlayHud.Visibility = Visibility.Visible;
+                    var fade = new System.Windows.Media.Animation.DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150));
+                    OverlayHud.BeginAnimation(OpacityProperty, fade);
+                }
             }
             _overlayTimer?.Stop();
             _overlayTimer?.Start();
@@ -3625,12 +3914,53 @@ namespace Emutastic.Views
 
         private void HideOverlay()
         {
+            _overlayHiding = true;
             _overlayTimer?.Stop();
             OverlayMenu.Visibility = Visibility.Collapsed;
             CloseSaveMenu();
             var fade = new System.Windows.Media.Animation.DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(300));
-            fade.Completed += (_, _) => OverlayHud.Visibility = Visibility.Collapsed;
+            fade.Completed += (_, _) =>
+            {
+                if (!_overlayHiding) return;
+                OverlayHud.Visibility = Visibility.Collapsed;
+                // Vulkan path: hide the HUD window
+                if (_vulkanHudWindow != null && _vulkanHudWindow.IsVisible)
+                    _vulkanHudWindow.Hide();
+            };
             OverlayHud.BeginAnimation(OpacityProperty, fade);
+        }
+
+        private void EnsureVulkanHudWindow()
+        {
+            if (_vulkanHudWindow != null) return;
+            _vulkanHudGrid = new Grid();
+            _vulkanHudWindow = new Window
+            {
+                WindowStyle = WindowStyle.None,
+                AllowsTransparency = true,
+                Background = System.Windows.Media.Brushes.Transparent,
+                ShowInTaskbar = false,
+                Content = _vulkanHudGrid,
+                Owner = this,
+            };
+        }
+
+        private void RepositionVulkanHud()
+        {
+            if (_vulkanHudWindow == null) return;
+            var hudHwnd = new System.Windows.Interop.WindowInteropHelper(_vulkanHudWindow).Handle;
+            if (hudHwnd == IntPtr.Zero) return;
+            try
+            {
+                var viewportPoint = GameViewport.PointToScreen(new System.Windows.Point(0, 0));
+                int vx = (int)viewportPoint.X;
+                int vy = (int)viewportPoint.Y;
+                int vw = Math.Max(1, (int)GameViewport.ActualWidth);
+                int vh = Math.Max(1, (int)GameViewport.ActualHeight);
+                const uint SWP_NOZORDER = 0x0004, SWP_NOACTIVATE = 0x0010;
+                SetWindowPos(hudHwnd, IntPtr.Zero, vx, vy, vw, vh, SWP_NOZORDER | SWP_NOACTIVATE);
+            }
+            catch { }
         }
 
         private void ResetOverlayTimer()
@@ -4232,6 +4562,11 @@ namespace Emutastic.Views
             _mousePoller?.Stop();
             _audioPlayer?.Stop();
 
+            // Hide Vulkan overlay and HUD immediately so they don't linger during cleanup
+            if (_vulkanOverlayHwnd != IntPtr.Zero)
+                ShowWindow(_vulkanOverlayHwnd, 0); // SW_HIDE
+            _vulkanHudWindow?.Hide();
+
             // Hide immediately so the user isn't staring at an unresponsive window
             // while the emu thread and GL cleanup finish in the background.
             Hide();
@@ -4343,6 +4678,25 @@ namespace Emutastic.Views
                     }
                 }
 
+                // ── Vulkan / non-GL DLL cleanup ─────────────────────────────────
+                // VkDevice/VkInstance are intentionally leaked (deferred in VulkanContext)
+                // so nvoglv64.dll's device tables stay clean for relaunch.
+                //
+                // Any residual driver/core threads that AV are caught by VEH Fixup C
+                // (ExitThread).  Stash the DLL handle for deferred FreeLibrary at the
+                // start of the next session — by then the ExitThread'd threads are dead
+                // and FreeLibrary gives clean globals for the next LoadLibrary.
+                if (!(_hwRenderActive && (_hglrc != IntPtr.Zero || _secondaryCtx != IntPtr.Zero)))
+                {
+                    IntPtr deferredDll = _core?.DeferredFreeHandle ?? IntPtr.Zero;
+                    if (deferredDll != IntPtr.Zero)
+                    {
+                        string dllName = _core != null ? System.IO.Path.GetFileName(_core.CorePath).ToLowerInvariant() : "";
+                        _staleDllHandle = deferredDll;
+                        System.Diagnostics.Trace.WriteLine($"Vulkan DLL cleanup: stashed 0x{deferredDll:X} ({dllName}) for deferred FreeLibrary on next launch");
+                    }
+                }
+
                 if (_hdc != IntPtr.Zero && _glHwnd != IntPtr.Zero) { ReleaseDC(_glHwnd, _hdc); _hdc = IntPtr.Zero; }
                 // Destroy the offscreen GL window if we created it; HwndHost owns its own window.
                 if (_glHwndOwned && _glHwnd != IntPtr.Zero) { DestroyWindow(_glHwnd); _glHwndOwned = false; }
@@ -4389,6 +4743,84 @@ namespace Emutastic.Views
                 // immediately without cancelling — WPF then destroys the window normally.
                 Dispatcher.Invoke(() => Close());
             });
+        }
+
+        // =========================================================================
+        // Vulkan overlay window — position sync
+        // =========================================================================
+        private void VulkanOverlay_Reposition(object? sender, EventArgs e)
+        {
+            if (_vulkanOverlayHwnd == IntPtr.Zero) return;
+            RepositionVulkanOverlay();
+        }
+
+        private void VulkanOverlay_StateChanged(object? sender, EventArgs e)
+        {
+            if (_vulkanOverlayHwnd == IntPtr.Zero) return;
+            if (WindowState == WindowState.Minimized)
+            {
+                ShowWindow(_vulkanOverlayHwnd, 0); // SW_HIDE
+                _vulkanHudWindow?.Hide();
+            }
+            else
+            {
+                ShowWindow(_vulkanOverlayHwnd, 5); // SW_SHOW
+                RepositionVulkanOverlay();
+            }
+        }
+
+        private void RepositionVulkanOverlay()
+        {
+            if (_vulkanOverlayHwnd == IntPtr.Zero) return;
+            try
+            {
+                var viewportPoint = GameViewport.PointToScreen(new System.Windows.Point(0, 0));
+                int vx = (int)viewportPoint.X;
+                int vy = (int)viewportPoint.Y;
+                int vw = Math.Max(1, (int)GameViewport.ActualWidth);
+                int vh = Math.Max(1, (int)GameViewport.ActualHeight);
+
+                const uint SWP_NOZORDER = 0x0004;
+                const uint SWP_NOACTIVATE = 0x0010;
+                SetWindowPos(_vulkanOverlayHwnd, IntPtr.Zero, vx, vy, vw, vh, SWP_NOZORDER | SWP_NOACTIVATE);
+
+                // Tell VulkanContext the new size so it can recreate the swapchain
+                if (_vulkanContext != null && _vulkanContext.HasSwapchain)
+                    _vulkanContext.RecreateSwapchain((uint)vw, (uint)vh);
+
+                // Keep HUD window in sync if it's showing
+                RepositionVulkanHud();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[Vulkan] Overlay reposition: {ex.Message}");
+            }
+        }
+
+        private void DestroyVulkanOverlay()
+        {
+            LocationChanged -= VulkanOverlay_Reposition;
+            SizeChanged -= VulkanOverlay_Reposition;
+            StateChanged -= VulkanOverlay_StateChanged;
+
+            // Reparent OverlayHud back to main window if it's in the HUD window
+            if (_vulkanHudGrid != null && OverlayHud.Parent == _vulkanHudGrid)
+            {
+                _vulkanHudGrid.Children.Remove(OverlayHud);
+                GameViewport.Children.Add(OverlayHud);
+            }
+            if (_vulkanHudWindow != null)
+            {
+                _vulkanHudWindow.Close();
+                _vulkanHudWindow = null;
+                _vulkanHudGrid = null;
+            }
+
+            if (_vulkanOverlayHwnd != IntPtr.Zero)
+            {
+                DestroyWindow(_vulkanOverlayHwnd);
+                _vulkanOverlayHwnd = IntPtr.Zero;
+            }
         }
     }
 
