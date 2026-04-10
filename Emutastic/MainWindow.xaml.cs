@@ -185,41 +185,52 @@ namespace Emutastic
             int fetched = 0;
             int overQuota = 0;
 
-            SetStatus($"{displayName} — starting 3D box art download for {total} games…");
+            SetStatus($"{displayName} — downloading 3D box art for {total} games ({ScreenScraperService.CurrentMaxThreads} threads)…");
 
-            var tasks = games.Select(async game =>
+            int ssThreads = Math.Max(1, snapConfig.ScreenScraperMaxThreads);
+            var sem = new System.Threading.SemaphoreSlim(ssThreads, ssThreads);
+
+            var tasks = games.Select(game => Task.Run(async () =>
             {
                 if (System.Threading.Interlocked.CompareExchange(ref overQuota, 0, 0) != 0)
-                    return; // skip remaining games once quota is hit
-
-                var result = await ss.FetchBoxArt3DAsync(
-                    snapConfig.ScreenScraperUser, snapConfig.ScreenScraperPassword,
-                    game.Console, game.RomHash, game.RomPath);
-
-                if (result.OverQuota)
-                {
-                    System.Threading.Interlocked.Exchange(ref overQuota, 1);
-                    Dispatcher.Invoke(() =>
-                        SetStatus($"{displayName} — ScreenScraper daily limit reached ({fetched} downloaded)", autoClear: true));
                     return;
-                }
 
-                if (!string.IsNullOrEmpty(result.ErrorMessage))
-                    System.Diagnostics.Debug.WriteLine($"[3D BoxArt] {game.Title}: {result.ErrorMessage}");
-
-                if (result.LocalPath != null)
+                await sem.WaitAsync();
+                try
                 {
-                    _db.UpdateBoxArt3D(game.Id, result.LocalPath);
-                    game.BoxArt3DPath = result.LocalPath;
-                    System.Threading.Interlocked.Increment(ref fetched);
-                    Dispatcher.Invoke(() => _vm.RefreshGame(game));
-                }
+                    if (System.Threading.Interlocked.CompareExchange(ref overQuota, 0, 0) != 0)
+                        return;
 
-                int completed = System.Threading.Interlocked.Increment(ref done);
-                int pct = (int)((completed / (double)total) * 100);
-                Dispatcher.Invoke(() =>
-                    SetStatus($"{displayName} 3D Box Art — {pct}%  ({completed} of {total})  {game.Title}"));
-            });
+                    var result = await ss.FetchBoxArt3DAsync(
+                        snapConfig.ScreenScraperUser, snapConfig.ScreenScraperPassword,
+                        game.Console, game.RomHash, game.RomPath);
+
+                    if (result.OverQuota)
+                    {
+                        System.Threading.Interlocked.Exchange(ref overQuota, 1);
+                        Dispatcher.Invoke(() =>
+                            SetStatus($"{displayName} — ScreenScraper daily limit reached ({fetched} downloaded)", autoClear: true));
+                        return;
+                    }
+
+                    if (!string.IsNullOrEmpty(result.ErrorMessage))
+                        System.Diagnostics.Debug.WriteLine($"[3D BoxArt] {game.Title}: {result.ErrorMessage}");
+
+                    if (result.LocalPath != null)
+                    {
+                        _db.UpdateBoxArt3D(game.Id, result.LocalPath);
+                        game.BoxArt3DPath = result.LocalPath;
+                        System.Threading.Interlocked.Increment(ref fetched);
+                        Dispatcher.Invoke(() => _vm.RefreshGame(game));
+                    }
+
+                    int completed = System.Threading.Interlocked.Increment(ref done);
+                    int pct = (int)((completed / (double)total) * 100);
+                    Dispatcher.Invoke(() =>
+                        SetStatus($"{displayName} 3D Box Art — {pct}%  ({completed} of {total})  {game.Title}"));
+                }
+                finally { sem.Release(); }
+            })).ToList();
 
             await Task.WhenAll(tasks);
 
