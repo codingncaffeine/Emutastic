@@ -30,7 +30,8 @@ namespace Emutastic.Services
                 string safeConsole = SanitizeFileName(console);
                 string timestamp   = DateTime.Now.ToString("yyyyMMdd_HHmmss");
                 string fileName    = $"{timestamp} {safeTitle} ({safeConsole}).png";
-                string filePath    = Path.Combine(_folder, fileName);
+                string consoleFolder = AppPaths.GetFolder("Screenshots", safeConsole);
+                string filePath    = Path.Combine(consoleFolder, fileName);
 
                 var encoder = new PngBitmapEncoder();
                 encoder.Frames.Add(BitmapFrame.Create(bitmap));
@@ -54,7 +55,7 @@ namespace Emutastic.Services
         {
             var results = new List<Screenshot>();
 
-            foreach (string file in Directory.EnumerateFiles(_folder, "*.png")
+            foreach (string file in Directory.EnumerateFiles(_folder, "*.png", SearchOption.AllDirectories)
                                              .OrderByDescending(f => f))
             {
                 var ss = ParseFileName(file);

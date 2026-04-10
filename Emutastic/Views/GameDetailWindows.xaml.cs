@@ -82,7 +82,7 @@ namespace Emutastic.Views
                     var ss = new ScreenScraperService();
 
                     // Check cache first (instant, no network)
-                    string? cached = ss.FindCachedSnap(_game.RomHash);
+                    string? cached = ss.FindCachedSnap(_game.RomHash, _game.Console);
                     if (cached == null)
                         cached = await ss.FetchSnapAsync(
                             snapConfig.ScreenScraperUser, snapConfig.ScreenScraperPassword,

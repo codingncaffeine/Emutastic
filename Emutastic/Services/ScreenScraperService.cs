@@ -121,9 +121,16 @@ namespace Emutastic.Services
         /// <summary>
         /// Returns the local path to a cached .mp4 snap, or null if not found / not yet fetched.
         /// </summary>
-        public string? FindCachedSnap(string cacheKey)
+        public string? FindCachedSnap(string cacheKey, string? console = null)
         {
             if (string.IsNullOrWhiteSpace(cacheKey)) return null;
+            // Check console subfolder first
+            if (!string.IsNullOrWhiteSpace(console))
+            {
+                string consolePath = Path.Combine(AppPaths.GetFolder("Snaps", console), $"{cacheKey}.mp4");
+                if (File.Exists(consolePath)) return consolePath;
+            }
+            // Fall back to flat folder (pre-migration files)
             string path = Path.Combine(_snapCacheFolder, $"{cacheKey}.mp4");
             return File.Exists(path) ? path : null;
         }
@@ -148,8 +155,8 @@ namespace Emutastic.Services
                     System.Text.Encoding.UTF8.GetBytes(romPath)))
                 : romHash;
 
-            // Cache hit
-            string? cached = FindCachedSnap(cacheKey);
+            // Cache hit — check console subfolder first, then flat
+            string? cached = FindCachedSnap(cacheKey, console);
             if (cached != null) return cached;
 
             try
@@ -171,7 +178,7 @@ namespace Emutastic.Services
                 string? snapUrl = ExtractVideoUrl(json);
                 if (snapUrl == null) return null;
 
-                return await DownloadSnapAsync(snapUrl, cacheKey);
+                return await DownloadSnapAsync(snapUrl, cacheKey, console);
             }
             catch (Exception ex)
             {
@@ -207,11 +214,14 @@ namespace Emutastic.Services
             catch { return null; }
         }
 
-        private async Task<string?> DownloadSnapAsync(string snapUrl, string cacheKey)
+        private async Task<string?> DownloadSnapAsync(string snapUrl, string cacheKey, string? console = null)
         {
             try
             {
-                string localPath = Path.Combine(_snapCacheFolder, $"{cacheKey}.mp4");
+                string folder = !string.IsNullOrWhiteSpace(console)
+                    ? AppPaths.GetFolder("Snaps", console)
+                    : _snapCacheFolder;
+                string localPath = Path.Combine(folder, $"{cacheKey}.mp4");
                 var snapResponse = await _http.GetAsync(snapUrl);
                 if (!snapResponse.IsSuccessStatusCode) return null;
 
@@ -252,10 +262,15 @@ namespace Emutastic.Services
                     System.Text.Encoding.UTF8.GetBytes(romPath)))
                 : romHash;
 
-            // Cache hit
-            string cached = Path.Combine(_boxArt3DCacheFolder, $"{cacheKey}.png");
+            // Cache hit — check console subfolder first, then flat
+            string consoleFolder = AppPaths.GetFolder("BoxArt3D", console);
+            string cached = Path.Combine(consoleFolder, $"{cacheKey}.png");
             if (File.Exists(cached))
                 return new BoxArt3DResult { LocalPath = cached };
+            // Fall back to flat folder (pre-migration files)
+            string flatCached = Path.Combine(_boxArt3DCacheFolder, $"{cacheKey}.png");
+            if (File.Exists(flatCached))
+                return new BoxArt3DResult { LocalPath = flatCached };
 
             try
             {
@@ -300,7 +315,7 @@ namespace Emutastic.Services
                 if (imageUrl == null)
                     return new BoxArt3DResult(); // No 3D art available — not an error
 
-                // Download the image
+                // Download the image to console subfolder
                 var imgResponse = await _http.GetAsync(imageUrl);
                 if (!imgResponse.IsSuccessStatusCode)
                     return new BoxArt3DResult();
@@ -335,9 +350,12 @@ namespace Emutastic.Services
                     System.Text.Encoding.UTF8.GetBytes(romPath)))
                 : romHash;
 
-            // Cache hit
-            string cached = Path.Combine(_boxArt3DCacheFolder, $"{cacheKey}_2d.png");
+            // Cache hit — check console subfolder first, then flat
+            string consoleFolder2D = AppPaths.GetFolder("BoxArt3D", console);
+            string cached = Path.Combine(consoleFolder2D, $"{cacheKey}_2d.png");
             if (File.Exists(cached)) return cached;
+            string flatCached2D = Path.Combine(_boxArt3DCacheFolder, $"{cacheKey}_2d.png");
+            if (File.Exists(flatCached2D)) return flatCached2D;
 
             try
             {

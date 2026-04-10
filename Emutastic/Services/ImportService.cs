@@ -410,6 +410,16 @@ namespace Emutastic.Services
                 game.RomHash = hash;
                 _db.UpdateHash(game.Id, hash);
 
+                // Check if another game with the same hash already exists (~ alternate title ROMs).
+                // If so, delete this duplicate and skip artwork fetch.
+                int? existingId = _db.GetExistingGameIdByHash(hash, console);
+                if (existingId != null && existingId.Value != game.Id)
+                {
+                    _db.DeleteGame(game.Id);
+                    ImportLog($"[{System.IO.Path.GetFileName(romPath)}] DUPLICATE of id={existingId.Value}, deleted id={game.Id}");
+                    return;
+                }
+
                 var (artworkPath, metadata) = await _artwork.FetchArtworkAsync(hash, romPath, console);
 
                 if (artworkPath != null)

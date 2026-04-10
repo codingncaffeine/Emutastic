@@ -90,18 +90,43 @@ namespace Emutastic.ViewModels
 
         public void RefreshGame(Game updated)
         {
+            // Merge non-default fields from 'updated' onto the existing game so partial
+            // objects (e.g. from the missing-artwork query) don't wipe fields like
+            // BoxArt3DPath, PlayCount, IsFavorite, etc.
+            void MergeOnto(Game target)
+            {
+                if (!string.IsNullOrEmpty(updated.Title))     target.Title = updated.Title;
+                if (!string.IsNullOrEmpty(updated.CoverArtPath)) target.CoverArtPath = updated.CoverArtPath;
+                if (!string.IsNullOrEmpty(updated.BoxArt3DPath)) target.BoxArt3DPath = updated.BoxArt3DPath;
+                if (!string.IsNullOrEmpty(updated.RomHash))   target.RomHash = updated.RomHash;
+                if (!string.IsNullOrEmpty(updated.RomPath))   target.RomPath = updated.RomPath;
+                if (updated.BackgroundColor != "#1F1F21")     target.BackgroundColor = updated.BackgroundColor;
+                if (updated.AccentColor != "#E03535")          target.AccentColor = updated.AccentColor;
+                if (updated.PlayCount > 0)   target.PlayCount = updated.PlayCount;
+                if (updated.SaveCount > 0)   target.SaveCount = updated.SaveCount;
+                if (updated.IsFavorite)      target.IsFavorite = true;
+                if (updated.Rating > 0)      target.Rating = updated.Rating;
+                if (updated.LastPlayed != null) target.LastPlayed = updated.LastPlayed;
+            }
+
             var existing = _allGames.FirstOrDefault(g => g.Id == updated.Id);
             if (existing != null)
             {
+                MergeOnto(existing);
                 int idx = _allGames.IndexOf(existing);
-                _allGames[idx] = updated;
+                _allGames[idx] = existing; // re-seat to trigger collection change
+            }
+            else
+            {
+                _allGames.Add(updated);
             }
 
             var inView = Games.FirstOrDefault(g => g.Id == updated.Id);
             if (inView != null)
             {
+                if (inView != existing) MergeOnto(inView);
                 int idx = Games.IndexOf(inView);
-                Games[idx] = updated;
+                Games[idx] = inView; // re-seat to trigger collection change
             }
         }
 
