@@ -120,6 +120,7 @@ namespace Emutastic.Configuration
         public string ScreenScraperUser     { get; set; } = "";
         public string ScreenScraperPassword { get; set; } = "";
         public bool   ScreenScraperEnabled  { get; set; } = false;
+        public int    ScreenScraperMaxThreads { get; set; } = 1;
 
         // Per-console 3D box art preference — list of console tags that prefer 3D
         public List<string> Use3DBoxArtConsoles { get; set; } = new();

@@ -24,6 +24,23 @@ namespace Emutastic.Services
         private readonly string     _snapCacheFolder;
         private readonly string     _boxArt3DCacheFolder;
 
+        // Shared throttle — limits concurrent ScreenScraper API requests across all callers.
+        // Configured from the user's maxthreads value returned by ssuserInfos.
+        private static System.Threading.SemaphoreSlim _throttle = new(1, 1);
+        private static int _currentMaxThreads = 1;
+
+        /// <summary>
+        /// Sets the maximum concurrent ScreenScraper API requests based on the user's account tier.
+        /// </summary>
+        public static void SetMaxThreads(int maxThreads)
+        {
+            maxThreads = Math.Max(1, maxThreads);
+            if (maxThreads == _currentMaxThreads) return;
+            _currentMaxThreads = maxThreads;
+            _throttle = new System.Threading.SemaphoreSlim(maxThreads, maxThreads);
+            System.Diagnostics.Debug.WriteLine($"[ScreenScraper] Throttle set to {maxThreads} threads");
+        }
+
         // Maps our internal console tags → ScreenScraper numeric system IDs
         private static readonly Dictionary<string, int> SystemIds = new()
         {
@@ -74,9 +91,19 @@ namespace Emutastic.Services
         }
 
         /// <summary>
+        /// Throttled HTTP GET — acquires a slot from the shared semaphore before making the request.
+        /// </summary>
+        private async Task<HttpResponseMessage> ThrottledGetAsync(string url)
+        {
+            await _throttle.WaitAsync();
+            try { return await _http.GetAsync(url); }
+            finally { _throttle.Release(); }
+        }
+
+        /// <summary>
         /// Tests credentials. Returns null on success, or an error string to display to the user.
         /// </summary>
-        public async Task<string?> TestLoginAsync(string username, string password)
+        public async Task<(string? error, int maxThreads)> TestLoginAsync(string username, string password)
         {
             try
             {
@@ -94,7 +121,7 @@ namespace Emutastic.Services
                 System.Diagnostics.Debug.WriteLine($"[ScreenScraper] Login response ({(int)response.StatusCode}): {json}");
 
                 if (!response.IsSuccessStatusCode)
-                    return $"Server returned {(int)response.StatusCode}";
+                    return ($"Server returned {(int)response.StatusCode}", 1);
 
                 var doc = JsonNode.Parse(json);
 
@@ -103,18 +130,26 @@ namespace Emutastic.Services
                 if (headerSuccess == "false")
                 {
                     string? error = doc?["header"]?["error"]?.GetValue<string>();
-                    return string.IsNullOrWhiteSpace(error) ? "Login failed" : error;
+                    return (string.IsNullOrWhiteSpace(error) ? "Login failed" : error, 1);
                 }
 
                 // Accept either response shape (with or without "response" wrapper)
-                bool hasUser = doc?["response"]?["ssuser"] != null
-                            || doc?["ssuser"] != null;
+                var ssuser = doc?["response"]?["ssuser"] ?? doc?["ssuser"];
+                if (ssuser == null)
+                    return ("Login failed — unexpected response format", 1);
 
-                return hasUser ? null : "Login failed — unexpected response format";
+                // Parse maxthreads from user info (defaults to 1 for free users)
+                int maxThreads = 1;
+                string? maxThreadsStr = ssuser["maxthreads"]?.GetValue<string>();
+                if (!string.IsNullOrEmpty(maxThreadsStr) && int.TryParse(maxThreadsStr, out int parsed) && parsed > 0)
+                    maxThreads = parsed;
+
+                System.Diagnostics.Debug.WriteLine($"[ScreenScraper] User {username}: maxthreads={maxThreads}");
+                return (null, maxThreads);
             }
             catch (Exception ex)
             {
-                return $"Connection error: {ex.Message}";
+                return ($"Connection error: {ex.Message}", 1);
             }
         }
 
@@ -171,7 +206,7 @@ namespace Emutastic.Services
 
                 string url = $"{BaseUrl}jeuInfos.php?{auth}&systemeid={systemId}{md5Part}&romnom={romName}";
 
-                var response = await _http.GetAsync(url);
+                var response = await ThrottledGetAsync(url);
                 if (!response.IsSuccessStatusCode) return null;
 
                 string json    = await response.Content.ReadAsStringAsync();
@@ -222,7 +257,7 @@ namespace Emutastic.Services
                     ? AppPaths.GetFolder("Snaps", console)
                     : _snapCacheFolder;
                 string localPath = Path.Combine(folder, $"{cacheKey}.mp4");
-                var snapResponse = await _http.GetAsync(snapUrl);
+                var snapResponse = await ThrottledGetAsync(snapUrl);
                 if (!snapResponse.IsSuccessStatusCode) return null;
 
                 byte[] bytes = await snapResponse.Content.ReadAsByteArrayAsync();
@@ -284,7 +319,7 @@ namespace Emutastic.Services
 
                 string url = $"{BaseUrl}jeuInfos.php?{auth}&systemeid={systemId}{md5Part}&romnom={romName}";
 
-                var response = await _http.GetAsync(url);
+                var response = await ThrottledGetAsync(url);
                 string json = await response.Content.ReadAsStringAsync();
                 int statusCode = (int)response.StatusCode;
 
@@ -316,7 +351,7 @@ namespace Emutastic.Services
                     return new BoxArt3DResult(); // No 3D art available — not an error
 
                 // Download the image to console subfolder
-                var imgResponse = await _http.GetAsync(imageUrl);
+                var imgResponse = await ThrottledGetAsync(imageUrl);
                 if (!imgResponse.IsSuccessStatusCode)
                     return new BoxArt3DResult();
 
@@ -369,14 +404,14 @@ namespace Emutastic.Services
 
                 string url = $"{BaseUrl}jeuInfos.php?{auth}&systemeid={systemId}{md5Part}&romnom={romName}";
 
-                var response = await _http.GetAsync(url);
+                var response = await ThrottledGetAsync(url);
                 if (!response.IsSuccessStatusCode) return null;
 
                 string json = await response.Content.ReadAsStringAsync();
                 string? imageUrl = ExtractBoxArt2DUrl(json);
                 if (imageUrl == null) return null;
 
-                var imgResponse = await _http.GetAsync(imageUrl);
+                var imgResponse = await ThrottledGetAsync(imageUrl);
                 if (!imgResponse.IsSuccessStatusCode) return null;
 
                 byte[] bytes = await imgResponse.Content.ReadAsByteArrayAsync();

@@ -2180,9 +2180,22 @@ namespace Emutastic.Views
             SSStatusLabel.Foreground = (System.Windows.Media.Brush)FindResource("TextMutedBrush");
 
             var ss = new Emutastic.Services.ScreenScraperService();
-            string? error = await ss.TestLoginAsync(SSUsernameBox.Text.Trim(), SSPasswordBox.Password);
+            var (error, maxThreads) = await ss.TestLoginAsync(SSUsernameBox.Text.Trim(), SSPasswordBox.Password);
 
-            SSStatusLabel.Text = error == null ? "Connected" : error;
+            if (error == null)
+            {
+                SSStatusLabel.Text = $"Connected ({maxThreads} thread{(maxThreads == 1 ? "" : "s")})";
+                // Save the thread limit and apply it immediately
+                var snap = _configService.GetSnapConfiguration();
+                snap.ScreenScraperMaxThreads = maxThreads;
+                _configService.SetSnapConfiguration(snap);
+                _ = _configService.SaveAsync();
+                Services.ScreenScraperService.SetMaxThreads(maxThreads);
+            }
+            else
+            {
+                SSStatusLabel.Text = error;
+            }
             SSStatusLabel.Foreground = error == null
                 ? System.Windows.Media.Brushes.LightGreen
                 : (System.Windows.Media.Brush)FindResource("AccentBrush");
