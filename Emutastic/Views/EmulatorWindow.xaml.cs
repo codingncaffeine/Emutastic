@@ -180,6 +180,7 @@ namespace Emutastic.Views
         }
         private DispatcherTimer? _overlayTimer;
         private DispatcherTimer? _mousePoller;
+        private DispatcherTimer? _swapchainResizeTimer;
         private System.Windows.Point _lastMousePos = new(-1, -1);
 
         // Analog-to-mouse delta for cores that use RETRO_DEVICE_MOUSE for pointer input.
@@ -4784,9 +4785,31 @@ namespace Emutastic.Views
                 const uint SWP_NOACTIVATE = 0x0010;
                 SetWindowPos(_vulkanOverlayHwnd, IntPtr.Zero, vx, vy, vw, vh, SWP_NOZORDER | SWP_NOACTIVATE);
 
-                // Tell VulkanContext the new size so it can recreate the swapchain
+                // Debounce swapchain recreation — vkDeviceWaitIdle + destroy + create is too
+                // expensive to run on every pixel of a window drag.  Reposition the Win32
+                // overlay instantly (cheap) but defer the heavy Vulkan work until 150ms after
+                // the last resize event.
                 if (_vulkanContext != null && _vulkanContext.HasSwapchain)
-                    _vulkanContext.RecreateSwapchain((uint)vw, (uint)vh);
+                {
+                    uint newW = (uint)vw, newH = (uint)vh;
+                    if (_swapchainResizeTimer == null)
+                    {
+                        _swapchainResizeTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+                        _swapchainResizeTimer.Tick += (_, _) =>
+                        {
+                            _swapchainResizeTimer.Stop();
+                            if (_vulkanContext != null && _vulkanContext.HasSwapchain)
+                            {
+                                var vp = GameViewport;
+                                uint w = (uint)Math.Max(1, (int)vp.ActualWidth);
+                                uint h = (uint)Math.Max(1, (int)vp.ActualHeight);
+                                _vulkanContext.RecreateSwapchain(w, h);
+                            }
+                        };
+                    }
+                    _swapchainResizeTimer.Stop();
+                    _swapchainResizeTimer.Start();
+                }
 
                 // Keep HUD window in sync if it's showing
                 RepositionVulkanHud();
@@ -4802,6 +4825,7 @@ namespace Emutastic.Views
             LocationChanged -= VulkanOverlay_Reposition;
             SizeChanged -= VulkanOverlay_Reposition;
             StateChanged -= VulkanOverlay_StateChanged;
+            if (_swapchainResizeTimer != null) { _swapchainResizeTimer.Stop(); _swapchainResizeTimer = null; }
 
             // Reparent OverlayHud back to main window if it's in the HUD window
             if (_vulkanHudGrid != null && OverlayHud.Parent == _vulkanHudGrid)
