@@ -179,15 +179,19 @@ namespace Emutastic
                 return;
             }
 
-            var ss = new ScreenScraperService();
             int total = games.Count;
             int done = 0;
             int fetched = 0;
             int overQuota = 0;
 
-            SetStatus($"{displayName} — downloading 3D box art for {total} games ({ScreenScraperService.CurrentMaxThreads} threads)…");
-
             int ssThreads = Math.Max(1, snapConfig.ScreenScraperMaxThreads);
+            SetStatus($"{displayName} — downloading 3D box art for {total} games ({ssThreads} threads)…");
+
+            // Each worker gets its own ScreenScraperService (own HttpClient / TCP connection)
+            // so ScreenScraper sees N distinct concurrent connections, not 1 multiplexed connection.
+            var workers = new System.Collections.Concurrent.ConcurrentQueue<ScreenScraperService>();
+            for (int i = 0; i < ssThreads; i++)
+                workers.Enqueue(new ScreenScraperService());
             var sem = new System.Threading.SemaphoreSlim(ssThreads, ssThreads);
 
             var tasks = games.Select(game => Task.Run(async () =>
@@ -196,12 +200,15 @@ namespace Emutastic
                     return;
 
                 await sem.WaitAsync();
+                ScreenScraperService worker;
+                while (!workers.TryDequeue(out worker!))
+                    await Task.Delay(10);
                 try
                 {
                     if (System.Threading.Interlocked.CompareExchange(ref overQuota, 0, 0) != 0)
                         return;
 
-                    var result = await ss.FetchBoxArt3DAsync(
+                    var result = await worker.FetchBoxArt3DAsync(
                         snapConfig.ScreenScraperUser, snapConfig.ScreenScraperPassword,
                         game.Console, game.RomHash, game.RomPath);
 
@@ -229,7 +236,11 @@ namespace Emutastic
                     Dispatcher.Invoke(() =>
                         SetStatus($"{displayName} 3D Box Art — {pct}%  ({completed} of {total})  {game.Title}"));
                 }
-                finally { sem.Release(); }
+                finally
+                {
+                    workers.Enqueue(worker);
+                    sem.Release();
+                }
             })).ToList();
 
             await Task.WhenAll(tasks);
