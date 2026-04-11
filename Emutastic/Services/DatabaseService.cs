@@ -164,6 +164,11 @@ namespace Emutastic.Services
 
             // One-time migration: deduplicate games with the same RomHash (from ~ alternate title ROMs).
             DeduplicateByRomHash(connection);
+
+            // One-time migration: clear BoxArt3DPath entries that are actually 2D art (_2d suffix).
+            // Old FetchBoxArt2DAsync stored 2D images in the BoxArt3D folder; these aren't 3D box art
+            // and prevent the real 3D fetch from running.
+            CleanupBogus3DPaths(connection);
         }
 
         private void MigrateCollectionsToJoinTable(SqliteConnection connection)
@@ -540,6 +545,33 @@ namespace Emutastic.Services
 
             if (removed > 0)
                 System.Diagnostics.Debug.WriteLine($"[Migration] Removed {removed} exact-title duplicate game entries");
+        }
+
+        /// <summary>
+        /// Clears BoxArt3DPath entries that contain "_2d" — these are 2D images that were
+        /// incorrectly stored in the BoxArt3D folder by the old FetchBoxArt2DAsync.
+        /// Moves them to ScreenScraperArtPath (if empty) so the 2D art isn't lost.
+        /// </summary>
+        private static void CleanupBogus3DPaths(SqliteConnection connection)
+        {
+            var cmd = connection.CreateCommand();
+
+            // First, preserve the 2D art by moving to ScreenScraperArtPath where it's empty
+            cmd.CommandText = @"UPDATE Games
+                SET ScreenScraperArtPath = BoxArt3DPath
+                WHERE BoxArt3DPath LIKE '%\_2d.%' ESCAPE '\'
+                AND (ScreenScraperArtPath IS NULL OR ScreenScraperArtPath = '');";
+            int moved = cmd.ExecuteNonQuery();
+
+            // Clear the bogus 3D paths
+            cmd.CommandText = @"UPDATE Games
+                SET BoxArt3DPath = ''
+                WHERE BoxArt3DPath LIKE '%\_2d.%' ESCAPE '\';";
+            int cleared = cmd.ExecuteNonQuery();
+
+            if (cleared > 0)
+                System.Diagnostics.Debug.WriteLine(
+                    $"[Migration] Cleared {cleared} bogus _2d entries from BoxArt3DPath ({moved} preserved as ScreenScraperArtPath)");
         }
 
         /// <summary>
