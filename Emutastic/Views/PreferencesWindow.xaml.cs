@@ -1998,6 +1998,7 @@ namespace Emutastic.Views
                             cmd.CommandText = @"
                                 UPDATE Games SET CoverArtPath = REPLACE(CoverArtPath, $old, $new) WHERE CoverArtPath LIKE $like;
                                 UPDATE Games SET BoxArt3DPath = REPLACE(BoxArt3DPath, $old, $new) WHERE BoxArt3DPath LIKE $like;
+                                UPDATE Games SET ScreenScraperArtPath = REPLACE(ScreenScraperArtPath, $old, $new) WHERE ScreenScraperArtPath LIKE $like;
                                 UPDATE SaveStates SET FilePath   = REPLACE(FilePath,   $old, $new) WHERE FilePath   LIKE $like;
                                 UPDATE SaveStates SET Screenshot = REPLACE(Screenshot, $old, $new) WHERE Screenshot LIKE $like;";
                             cmd.Parameters.AddWithValue("$old", oldPrefix);

@@ -122,8 +122,8 @@ namespace Emutastic
         }
 
         // ── Artwork retry on startup ──
-        // Runs after the grid is already visible. Capped at 25 per session so it
-        // doesn't block the UI thread or hammer the server on large libraries.
+        // Runs after the grid is already visible. Retries all games missing cover art.
+        // Games with prior failed attempts are fetched silently (no status bar updates).
         private async Task RetryMissingArtworkAsync()
         {
             var missing = await Task.Run(() => _db.GetGamesWithoutArtwork());
@@ -337,6 +337,13 @@ namespace Emutastic
                     var (artworkPath, ssArtPath, metadata) = await _artwork.FetchArtworkAsync(
                         game.RomHash, game.RomPath, game.Console);
 
+                    // Store ScreenScraper 2D art regardless of libretro result
+                    if (ssArtPath != null)
+                    {
+                        _db.UpdateScreenScraperArt(game.Id, ssArtPath);
+                        game.ScreenScraperArtPath = ssArtPath;
+                    }
+
                     if (artworkPath != null)
                     {
                         _db.UpdateCoverArt(game.Id, artworkPath);
@@ -348,19 +355,14 @@ namespace Emutastic
                             game.Title = metadata.Title;
                             _db.UpdateTitle(game.Id, metadata.Title);
                         }
-
-                        if (ssArtPath != null)
-                        {
-                            _db.UpdateScreenScraperArt(game.Id, ssArtPath);
-                            game.ScreenScraperArtPath = ssArtPath;
-                        }
-
-                        Dispatcher.Invoke(() => _vm.RefreshGame(game));
                     }
-                    else
+                    else if (ssArtPath == null)
                     {
                         _db.IncrementArtworkAttempts(game.Id);
                     }
+
+                    if (artworkPath != null || ssArtPath != null)
+                        Dispatcher.Invoke(() => _vm.RefreshGame(game));
 
                     int completed = System.Threading.Interlocked.Increment(ref done);
                     int pct = (int)((completed / (double)total) * 100);
@@ -388,6 +390,12 @@ namespace Emutastic
                     var (artworkPath, ssArtPath, metadata) = await _artwork.FetchArtworkAsync(
                         game.RomHash, game.RomPath, game.Console);
 
+                    if (ssArtPath != null)
+                    {
+                        _db.UpdateScreenScraperArt(game.Id, ssArtPath);
+                        game.ScreenScraperArtPath = ssArtPath;
+                    }
+
                     if (artworkPath != null)
                     {
                         _db.UpdateCoverArt(game.Id, artworkPath);
@@ -398,19 +406,14 @@ namespace Emutastic
                             game.Title = metadata.Title;
                             _db.UpdateTitle(game.Id, metadata.Title);
                         }
-
-                        if (ssArtPath != null)
-                        {
-                            _db.UpdateScreenScraperArt(game.Id, ssArtPath);
-                            game.ScreenScraperArtPath = ssArtPath;
-                        }
-
-                        Dispatcher.Invoke(() => _vm.RefreshGame(game));
                     }
-                    else
+                    else if (ssArtPath == null)
                     {
                         _db.IncrementArtworkAttempts(game.Id);
                     }
+
+                    if (artworkPath != null || ssArtPath != null)
+                        Dispatcher.Invoke(() => _vm.RefreshGame(game));
                 }
                 finally { sem.Release(); }
             });
@@ -1260,17 +1263,23 @@ namespace Emutastic
                 var (artworkPath, ssArtPath, metadata) = await _artwork.FetchArtworkAsync(
                     game.RomHash, game.RomPath, game.Console);
 
+                if (ssArtPath != null)
+                {
+                    _db.UpdateScreenScraperArt(game.Id, ssArtPath);
+                    game.ScreenScraperArtPath = ssArtPath;
+                }
+
                 if (artworkPath != null)
                 {
                     _db.UpdateCoverArt(game.Id, artworkPath);
                     game.CoverArtPath = artworkPath;
-                    if (ssArtPath != null)
-                    {
-                        _db.UpdateScreenScraperArt(game.Id, ssArtPath);
-                        game.ScreenScraperArtPath = ssArtPath;
-                    }
                     _vm.RefreshGame(game);
                     SetStatus("Artwork updated", autoClear: true);
+                }
+                else if (ssArtPath != null)
+                {
+                    _vm.RefreshGame(game);
+                    SetStatus("Artwork updated (ScreenScraper)", autoClear: true);
                 }
                 else
                 {

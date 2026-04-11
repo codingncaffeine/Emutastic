@@ -846,10 +846,6 @@ namespace Emutastic.Services
                 catch { /* non-fatal — SS unavailable shouldn't block artwork flow */ }
             }
 
-            // If libretro missed but ScreenScraper hit, use SS as the cover art fallback
-            if (artworkPath == null && screenScraperArtPath != null)
-                artworkPath = screenScraperArtPath;
-
             return (artworkPath, screenScraperArtPath, result);
         }
     }
