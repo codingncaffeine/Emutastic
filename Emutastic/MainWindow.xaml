@@ -1113,6 +1113,15 @@
                                    Margin="0,6,0,0"/>
                     </StackPanel>
 
+                    <!-- Favorites grouped view (inside library area) -->
+                    <ScrollViewer x:Name="FavoritesGroupedView"
+                                  Visibility="Collapsed"
+                                  VerticalScrollBarVisibility="Auto"
+                                  Style="{StaticResource MinimalScrollViewer}">
+                        <StackPanel x:Name="FavoritesPanel"
+                                    Margin="{DynamicResource LibraryGridPadding}"/>
+                    </ScrollViewer>
+
                     </Grid>
 
                     <!-- Screenshots view -->

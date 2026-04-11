@@ -456,6 +456,26 @@ namespace Emutastic
             if (navBtn != null)
                 SelectNavButton(navBtn);
 
+            // Toggle between favorites grouped view and normal library grid
+            if (tag == "Favorites")
+            {
+                FavoritesGroupedView.Visibility = Visibility.Visible;
+                GameGridView.Visibility = Visibility.Collapsed;
+                LibraryView.Visibility = Visibility.Collapsed;
+                PopulateFavoritesView();
+            }
+            else
+            {
+                FavoritesGroupedView.Visibility = Visibility.Collapsed;
+                // Re-apply the IsGroupedView bindings that we broke by setting Visibility directly
+                GameGridView.SetBinding(VisibilityProperty,
+                    new System.Windows.Data.Binding("IsGroupedView")
+                    { Converter = (System.Windows.Data.IValueConverter)FindResource("InverseBoolToVisibility") });
+                LibraryView.SetBinding(VisibilityProperty,
+                    new System.Windows.Data.Binding("IsGroupedView")
+                    { Converter = (System.Windows.Data.IValueConverter)FindResource("BoolToVisibility") });
+            }
+
             ScrollLibraryToTop();
             UpdateBoxArtToggleVisibility();
 
@@ -706,22 +726,33 @@ namespace Emutastic
             GameListView.Visibility = listActive ? Visibility.Visible : Visibility.Collapsed;
             if (!listActive)
             {
-                // Restore binding-driven visibility for the two grid views.
-                GameGridView.SetBinding(VisibilityProperty,
-                    new System.Windows.Data.Binding("IsGroupedView")
-                    {
-                        Converter = (System.Windows.Data.IValueConverter)FindResource("InverseBoolToVisibility")
-                    });
-                LibraryView.SetBinding(VisibilityProperty,
-                    new System.Windows.Data.Binding("IsGroupedView")
-                    {
-                        Converter = (System.Windows.Data.IValueConverter)FindResource("BoolToVisibility")
-                    });
+                if (_vm.IsShowingFavorites)
+                {
+                    // Favorites uses its own grouped panel, not the binding-driven views
+                    FavoritesGroupedView.Visibility = Visibility.Visible;
+                    GameGridView.Visibility = Visibility.Collapsed;
+                    LibraryView.Visibility = Visibility.Collapsed;
+                }
+                else
+                {
+                    // Restore binding-driven visibility for the two grid views.
+                    GameGridView.SetBinding(VisibilityProperty,
+                        new System.Windows.Data.Binding("IsGroupedView")
+                        {
+                            Converter = (System.Windows.Data.IValueConverter)FindResource("InverseBoolToVisibility")
+                        });
+                    LibraryView.SetBinding(VisibilityProperty,
+                        new System.Windows.Data.Binding("IsGroupedView")
+                        {
+                            Converter = (System.Windows.Data.IValueConverter)FindResource("BoolToVisibility")
+                        });
+                }
             }
             else
             {
                 GameGridView.Visibility = Visibility.Collapsed;
                 LibraryView.Visibility  = Visibility.Collapsed;
+                FavoritesGroupedView.Visibility = Visibility.Collapsed;
             }
         }
 
@@ -732,11 +763,22 @@ namespace Emutastic
             BoxArt2D.IsChecked = !use3D;
             BoxArt3D.IsChecked = use3D;
 
-            string console = _vm.SelectedConsole ?? "";
-            if (use3D)
-                Game.Consoles3D.Add(console);
+            // In favorites view, toggle applies to all consoles shown
+            if (_vm.IsShowingFavorites)
+            {
+                var consoles = _vm.Games.Select(g => g.Console).Distinct();
+                foreach (var c in consoles)
+                {
+                    if (use3D) Game.Consoles3D.Add(c);
+                    else       Game.Consoles3D.Remove(c);
+                }
+            }
             else
-                Game.Consoles3D.Remove(console);
+            {
+                string console = _vm.SelectedConsole ?? "";
+                if (use3D) Game.Consoles3D.Add(console);
+                else       Game.Consoles3D.Remove(console);
+            }
 
             // Persist preference
             var snapConfig = App.Configuration?.GetSnapConfiguration();
@@ -748,6 +790,10 @@ namespace Emutastic
 
             // Refresh only the current view
             _vm.RefreshAllGames();
+
+            // Rebuild favorites view if active so art paths update
+            if (FavoritesGroupedView.Visibility == Visibility.Visible)
+                PopulateFavoritesView();
         }
 
         /// <summary>
@@ -1225,6 +1271,105 @@ namespace Emutastic
                     wrap.Children.Add(card);
                 }
                 SaveStatesPanel.Children.Add(wrap);
+            }
+        }
+
+        private void PopulateFavoritesView()
+        {
+            FavoritesPanel.Children.Clear();
+            var favs = _db.GetFavorites();
+
+            if (favs.Count == 0)
+            {
+                FavoritesPanel.Children.Add(new TextBlock
+                {
+                    Text = "No favorites yet. Right-click a game and choose Add to Favorites.",
+                    FontFamily = (System.Windows.Media.FontFamily)FindResource("PrimaryFont"),
+                    FontSize = 13,
+                    Foreground = (System.Windows.Media.Brush)FindResource("TextMutedBrush"),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Margin = new Thickness(0, 60, 0, 0),
+                });
+                return;
+            }
+
+            var grouped = favs.GroupBy(g => g.Console).OrderBy(g => g.Key);
+
+            foreach (var group in grouped)
+            {
+                // Console header — same style as save states
+                var header = new TextBlock
+                {
+                    Text       = group.Key.Length > 0 ? group.Key : "Unknown",
+                    FontFamily = (System.Windows.Media.FontFamily)FindResource("PrimaryFont"),
+                    FontSize   = 13,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = (System.Windows.Media.Brush)FindResource("TextSecondaryBrush"),
+                    Margin     = new Thickness(0, 16, 0, 8),
+                };
+                FavoritesPanel.Children.Add(header);
+
+                var wrap = new WrapPanel { Orientation = Orientation.Horizontal };
+                foreach (var game in group.OrderBy(g => g.Title))
+                {
+                    // Reuse the same card dimensions as the library grid
+                    var card = new Border
+                    {
+                        Width        = 148,
+                        Margin       = new Thickness(0, 0, 12, 12),
+                        CornerRadius = new CornerRadius(8),
+                        ClipToBounds = true,
+                        Cursor       = Cursors.Hand,
+                        Background   = System.Windows.Media.Brushes.Transparent,
+                        DataContext  = game,
+                    };
+
+                    var artBorder = new Border
+                    {
+                        Height       = 200,
+                        ClipToBounds = true,
+                        Background   = System.Windows.Media.Brushes.Transparent,
+                    };
+
+                    string? artPath = game.DisplayArtPath;
+                    if (!string.IsNullOrEmpty(artPath) && File.Exists(artPath))
+                    {
+                        try
+                        {
+                            var img = new System.Windows.Controls.Image
+                            {
+                                Source  = new System.Windows.Media.Imaging.BitmapImage(new Uri(artPath)),
+                                Stretch = System.Windows.Media.Stretch.Uniform,
+                            };
+                            artBorder.Child = img;
+                        }
+                        catch { }
+                    }
+                    else
+                    {
+                        artBorder.Child = new TextBlock
+                        {
+                            Text              = game.Title,
+                            FontFamily        = (System.Windows.Media.FontFamily)FindResource("PrimaryFont"),
+                            FontSize          = 13,
+                            FontWeight        = FontWeights.SemiBold,
+                            Foreground        = new System.Windows.Media.SolidColorBrush(
+                                System.Windows.Media.Color.FromArgb(0xCC, 0xFF, 0xFF, 0xFF)),
+                            TextWrapping      = TextWrapping.Wrap,
+                            TextAlignment     = TextAlignment.Center,
+                            VerticalAlignment = VerticalAlignment.Center,
+                            HorizontalAlignment = HorizontalAlignment.Center,
+                            Margin            = new Thickness(12),
+                        };
+                    }
+
+                    card.Child = artBorder;
+                    card.MouseLeftButtonDown += (_, e) => GameCard_Click(card, e);
+                    card.MouseRightButtonUp  += (_, e) => GameCard_RightClick(card, e);
+
+                    wrap.Children.Add(card);
+                }
+                FavoritesPanel.Children.Add(wrap);
             }
         }
 
