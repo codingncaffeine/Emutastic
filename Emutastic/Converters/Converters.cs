@@ -1,5 +1,6 @@
 ﻿using Emutastic.Services;
 using System;
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.IO;
 using System.Windows;
@@ -77,22 +78,48 @@ namespace Emutastic.Converters
 
     public class PathToImageConverter : IValueConverter
     {
+        // Thread-safe cache: once an image is decoded + frozen it's shareable across threads.
+        // WeakReference lets the GC reclaim images that are no longer displayed.
+        private static readonly ConcurrentDictionary<string, WeakReference<BitmapImage>> _cache = new();
+
+        /// <summary>Clears the entire image cache (call after bulk artwork changes).</summary>
+        public static void ClearCache() => _cache.Clear();
+
+        /// <summary>Evicts a single path from the cache (call when artwork is re-downloaded).</summary>
+        public static void Evict(string? path)
+        {
+            if (!string.IsNullOrEmpty(path))
+                _cache.TryRemove(path, out _);
+        }
+
         public object? Convert(object value, Type targetType, object parameter, CultureInfo culture)
         {
             try
             {
-                if (value is string path &&
-                    !string.IsNullOrWhiteSpace(path) &&
-                    File.Exists(path))
+                if (value is not string path || string.IsNullOrWhiteSpace(path))
+                    return null;
+
+                // Cache hit — return immediately, no File.Exists, no decode.
+                if (_cache.TryGetValue(path, out var weakRef))
                 {
-                    var bitmap = new BitmapImage();
-                    bitmap.BeginInit();
-                    bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                    bitmap.UriSource = new Uri(path, UriKind.Absolute);
-                    bitmap.EndInit();
-                    bitmap.Freeze();
-                    return bitmap;
+                    if (weakRef.TryGetTarget(out var cached))
+                        return cached;
+                    _cache.TryRemove(path, out _); // GC collected the image; remove dead entry
                 }
+
+                if (!File.Exists(path))
+                    return null;
+
+                var bitmap = new BitmapImage();
+                bitmap.BeginInit();
+                bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                bitmap.DecodePixelWidth = 300; // cards are ≤148px; 300 covers 2x DPI scaling
+                bitmap.UriSource = new Uri(path, UriKind.Absolute);
+                bitmap.EndInit();
+                bitmap.Freeze();
+
+                _cache[path] = new WeakReference<BitmapImage>(bitmap);
+                return bitmap;
             }
             catch { }
             return null;
