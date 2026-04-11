@@ -890,156 +890,533 @@ namespace Emutastic.Views
         private readonly CoreDownloadService _downloader = new();
         private CancellationTokenSource? _downloadAllCts;
 
-        private void BuildDownloadSection(string coresFolder)
+        // Console-to-category mapping for accordion grouping
+        private static readonly (string Category, string[] Consoles)[] ConsoleCategories =
         {
-            CoresListPanel.Children.Add(new TextBlock
-            {
-                Text = "DOWNLOAD CORES",
-                FontSize = 10,
-                FontWeight = FontWeights.SemiBold,
-                Foreground = _brushTextMuted,
-                Margin = new Thickness(0, 0, 0, 8)
-            });
+            ("Nintendo",  new[] { "NES", "FDS", "SNES", "N64", "GameCube", "GB", "GBC", "GBA", "NDS", "VirtualBoy" }),
+            ("Sega",      new[] { "Genesis", "SegaCD", "Sega32X", "Saturn", "SMS", "GameGear", "SG1000", "Dreamcast" }),
+            ("Sony",      new[] { "PS1", "PSP" }),
+            ("NEC",       new[] { "TG16", "TGCD" }),
+            ("Atari",     new[] { "Atari2600", "Atari7800", "Jaguar" }),
+            ("Arcade",    new[] { "Arcade", "NeoGeo" }),
+            ("Other",     new[] { "NGP", "ColecoVision", "Vectrex", "3DO", "CDi" }),
+        };
 
-            // "Download All Recommended" button row
+        private void BuildCoresPanel()
+        {
+            CoresListPanel.Children.Clear();
+            string coresFolder = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Cores");
+            var prefs = _configService.GetCorePreferences();
+
+            // ── Download All button + progress ──
+            var recommended = CoreDownloadService.Catalog.Where(c => c.Recommended).ToList();
+            int installedCount = recommended.Count(c => System.IO.File.Exists(
+                System.IO.Path.Combine(coresFolder, c.FileName)));
+
+            var dlAllRow = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+            dlAllRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            dlAllRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
             var dlAllBtn = new Button
             {
                 Content = "Download All Recommended",
                 Style = (Style)FindResource("AccentButton"),
-                HorizontalAlignment = HorizontalAlignment.Left,
-                Margin = new Thickness(0, 0, 0, 12)
+                VerticalAlignment = VerticalAlignment.Center
             };
+            Grid.SetColumn(dlAllBtn, 0);
+
+            var dlSummary = new TextBlock
+            {
+                Text = $"{installedCount} of {recommended.Count} installed",
+                FontSize = 11,
+                Foreground = _brushTextMuted,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(12, 0, 0, 0)
+            };
+            Grid.SetColumn(dlSummary, 1);
+
+            dlAllRow.Children.Add(dlAllBtn);
+            dlAllRow.Children.Add(dlSummary);
+            CoresListPanel.Children.Add(dlAllRow);
 
             var allProgressBar = new ProgressBar
             {
-                Height = 4,
-                Minimum = 0,
-                Maximum = 100,
-                Value = 0,
+                Height = 4, Minimum = 0, Maximum = 100, Value = 0,
                 Visibility = Visibility.Collapsed,
-                Margin = new Thickness(0, 4, 0, 8)
+                Margin = new Thickness(0, 0, 0, 4)
             };
-
             var allStatusText = new TextBlock
             {
-                FontSize = 11,
-                Foreground = _brushTextMuted,
+                FontSize = 11, Foreground = _brushTextMuted,
                 Visibility = Visibility.Collapsed,
                 Margin = new Thickness(0, 0, 0, 8)
             };
-
-            CoresListPanel.Children.Add(dlAllBtn);
             CoresListPanel.Children.Add(allProgressBar);
             CoresListPanel.Children.Add(allStatusText);
 
-            // Per-core rows (recommended only)
-            var recommended = CoreDownloadService.Catalog.Where(c => c.Recommended).ToList();
-            var rowMap = new Dictionary<string, (ProgressBar Bar, TextBlock Status, Button Btn)>();
+            // Track per-core download UI for "Download All"
+            var dlRowMap = new Dictionary<string, (ProgressBar Bar, TextBlock Status, Button Btn)>();
 
-            var coreCard = new Border
+            // ── Two-level accordion: Category → Console → Cores ──
+            foreach (var (category, consoleList) in ConsoleCategories)
             {
-                Background = new SolidColorBrush(Color.FromRgb(0x1F, 0x1F, 0x21)),
-                CornerRadius = new CornerRadius(6),
-                Padding = new Thickness(14, 10, 14, 10),
-                Margin = new Thickness(0, 0, 0, 4)
-            };
-            var coreCardStack = new StackPanel();
+                var categoryConsoles = consoleList
+                    .Where(c => Services.CoreManager.ConsoleCoreMap.ContainsKey(c))
+                    .ToList();
+                if (categoryConsoles.Count == 0) continue;
 
-            for (int i = 0; i < recommended.Count; i++)
-            {
-                var entry = recommended[i];
-                bool installed = System.IO.File.Exists(System.IO.Path.Combine(coresFolder, entry.FileName));
-
-                bool hasBackup = CoreDownloadService.HasBackup(coresFolder, entry.FileName);
-
-                var row = new Grid { Margin = new Thickness(0, 0, 0, i < recommended.Count - 1 ? 6 : 0) };
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(220) });
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-                // Name + systems
-                var nameStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-                nameStack.Children.Add(new TextBlock { Text = entry.DisplayName, FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = _brushText });
-                nameStack.Children.Add(new TextBlock { Text = string.Join(", ", entry.Systems), FontSize = 10, Foreground = _brushTextMuted, Margin = new Thickness(0, 2, 0, 0) });
-                Grid.SetColumn(nameStack, 0);
-
-                // Status badge + progress
-                var statusStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-                var badge = new Border
+                // Count installed across entire category
+                int catInstalled = 0, catTotal = 0;
+                foreach (string c in categoryConsoles)
                 {
-                    CornerRadius = new CornerRadius(4),
-                    Padding = new Thickness(8, 3, 8, 3),
-                    Background = installed
+                    var cores = Services.CoreManager.ConsoleCoreMap[c];
+                    catTotal += cores.Length;
+                    catInstalled += cores.Count(dll =>
+                        System.IO.File.Exists(System.IO.Path.Combine(coresFolder, dll)));
+                }
+
+                // Category accordion header
+                var catBody = new StackPanel { Visibility = Visibility.Collapsed };
+                var catChevron = new TextBlock
+                {
+                    Text = "▸", FontSize = 14,
+                    Foreground = _brushText,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 10, 0),
+                    RenderTransformOrigin = new Point(0.5, 0.5),
+                    RenderTransform = new RotateTransform(0)
+                };
+
+                var catHeaderGrid = new Grid { Cursor = Cursors.Hand };
+                catHeaderGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                catHeaderGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                catHeaderGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                catHeaderGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                Grid.SetColumn(catChevron, 0);
+
+                var catLabel = new TextBlock
+                {
+                    Text = category,
+                    FontSize = 14,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = _brushText,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Grid.SetColumn(catLabel, 1);
+
+                var catConsoleSummary = new TextBlock
+                {
+                    Text = $"{categoryConsoles.Count} {(categoryConsoles.Count == 1 ? "system" : "systems")}",
+                    FontSize = 11,
+                    Foreground = _brushTextMuted,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 10, 0)
+                };
+                Grid.SetColumn(catConsoleSummary, 2);
+
+                var catBadge = new Border
+                {
+                    Background = catInstalled > 0
                         ? new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58))
                         : new SolidColorBrush(Color.FromArgb(0x22, 0x88, 0x88, 0x88)),
+                    CornerRadius = new CornerRadius(4),
+                    Padding = new Thickness(6, 2, 6, 2),
+                    VerticalAlignment = VerticalAlignment.Center
                 };
-                badge.Child = new TextBlock
+                catBadge.Child = new TextBlock
                 {
-                    Text = installed ? "Installed" : "Not installed",
+                    Text = catInstalled == catTotal ? $"{catTotal}" : $"{catInstalled}/{catTotal}",
                     FontSize = 10,
-                    Foreground = installed
+                    Foreground = catInstalled > 0
                         ? new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58))
                         : _brushTextMuted
                 };
-                var rowProgress = new ProgressBar { Height = 4, Minimum = 0, Maximum = 100, Value = 0, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 4, 0, 0) };
-                var rowStatus   = new TextBlock   { FontSize = 10, Foreground = _brushTextMuted, Visibility = Visibility.Collapsed };
-                statusStack.Children.Add(badge);
-                statusStack.Children.Add(rowProgress);
-                statusStack.Children.Add(rowStatus);
-                Grid.SetColumn(statusStack, 1);
+                Grid.SetColumn(catBadge, 3);
 
-                // Button panel: Download + optional Revert
-                var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+                catHeaderGrid.Children.Add(catChevron);
+                catHeaderGrid.Children.Add(catLabel);
+                catHeaderGrid.Children.Add(catConsoleSummary);
+                catHeaderGrid.Children.Add(catBadge);
 
-                var revertBtn = new Button
+                var catHeaderBorder = new Border
                 {
-                    Content = "Revert",
-                    Style = (Style)FindResource("SmallOutlineButton"),
-                    Margin = new Thickness(0, 0, 6, 0),
-                    Visibility = hasBackup ? Visibility.Visible : Visibility.Collapsed,
-                    ToolTip = "Restore the previous version of this core"
+                    Background = new SolidColorBrush(Color.FromRgb(0x1F, 0x1F, 0x21)),
+                    CornerRadius = new CornerRadius(6),
+                    Padding = new Thickness(14, 12, 14, 12),
+                    Margin = new Thickness(0, 6, 0, 0)
                 };
-                revertBtn.Click += (_, _) =>
+                catHeaderBorder.Child = catHeaderGrid;
+
+                var capturedCatBody = catBody;
+                var capturedCatChevron = catChevron;
+                catHeaderBorder.MouseLeftButtonUp += (_, _) =>
                 {
-                    try
+                    bool expanding = capturedCatBody.Visibility == Visibility.Collapsed;
+                    capturedCatBody.Visibility = expanding ? Visibility.Visible : Visibility.Collapsed;
+                    ((RotateTransform)capturedCatChevron.RenderTransform).Angle = expanding ? 90 : 0;
+                };
+
+                CoresListPanel.Children.Add(catHeaderBorder);
+
+                // Console accordions inside the category body
+                foreach (string consoleName in categoryConsoles)
+                {
+                    string[] candidates = Services.CoreManager.ConsoleCoreMap[consoleName];
+
+                    // Build full core list: ALL candidates from ConsoleCoreMap + download catalog
+                    var allCores = candidates
+                        .Select(dll => new
+                        {
+                            Dll = dll,
+                            Path = System.IO.Path.Combine(coresFolder, dll),
+                            Friendly = FormatCoreName(dll),
+                            Installed = System.IO.File.Exists(System.IO.Path.Combine(coresFolder, dll)),
+                            CatalogEntry = CoreDownloadService.Catalog.FirstOrDefault(
+                                c => c.FileName.Equals(dll, StringComparison.OrdinalIgnoreCase))
+                        })
+                        .ToList();
+
+                    int coreCount = allCores.Count;
+                    int coreInstalled = allCores.Count(c => c.Installed);
+
+                    // Determine preferred/active core name
+                    string? savedPref = prefs.PreferredCores.TryGetValue(consoleName, out var p) ? p : null;
+                    var activeCoreObj = allCores.FirstOrDefault(c => c.Dll == savedPref && c.Installed)
+                        ?? allCores.FirstOrDefault(c => c.Installed);
+                    string activeCoreName = activeCoreObj?.Friendly ?? "Not installed";
+
+                    // ── Accordion header ──
+                    var bodyPanel = new StackPanel { Visibility = Visibility.Collapsed };
+                    var chevron = new TextBlock
                     {
-                        CoreDownloadService.Revert(coresFolder, entry.FileName);
-                        revertBtn.Visibility = Visibility.Collapsed;
-                        rowStatus.Text = "Reverted to previous version";
-                        rowStatus.Visibility = Visibility.Visible;
-                    }
-                    catch (Exception ex)
+                        Text = "▸",
+                        FontSize = 12,
+                        Foreground = _brushTextMuted,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(0, 0, 8, 0),
+                        RenderTransformOrigin = new Point(0.5, 0.5),
+                        RenderTransform = new RotateTransform(0)
+                    };
+
+                    var headerGrid = new Grid
                     {
-                        rowStatus.Text = $"Revert failed: {ex.Message}";
-                        rowStatus.Visibility = Visibility.Visible;
+                        Margin = new Thickness(0, 0, 0, 0),
+                        Cursor = Cursors.Hand
+                    };
+                    headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // chevron
+                    headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // console name
+                    headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // active core
+                    headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // count badge
+
+                    Grid.SetColumn(chevron, 0);
+
+                    var consoleLbl = new TextBlock
+                    {
+                        Text = consoleName,
+                        FontSize = 13,
+                        FontWeight = FontWeights.SemiBold,
+                        Foreground = _brushText,
+                        VerticalAlignment = VerticalAlignment.Center
+                    };
+                    Grid.SetColumn(consoleLbl, 1);
+
+                    var activeLbl = new TextBlock
+                    {
+                        Text = activeCoreName,
+                        FontSize = 11,
+                        Foreground = _brushTextMuted,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(0, 0, 10, 0)
+                    };
+                    Grid.SetColumn(activeLbl, 2);
+
+                    var countBadge = new Border
+                    {
+                        Background = coreInstalled > 0
+                            ? new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58))
+                            : new SolidColorBrush(Color.FromArgb(0x22, 0x88, 0x88, 0x88)),
+                        CornerRadius = new CornerRadius(4),
+                        Padding = new Thickness(6, 2, 6, 2),
+                        VerticalAlignment = VerticalAlignment.Center
+                    };
+                    countBadge.Child = new TextBlock
+                    {
+                        Text = coreInstalled == coreCount
+                            ? $"{coreCount}"
+                            : $"{coreInstalled}/{coreCount}",
+                        FontSize = 10,
+                        Foreground = coreInstalled > 0
+                            ? new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58))
+                            : _brushTextMuted
+                    };
+                    Grid.SetColumn(countBadge, 3);
+
+                    headerGrid.Children.Add(chevron);
+                    headerGrid.Children.Add(consoleLbl);
+                    headerGrid.Children.Add(activeLbl);
+                    headerGrid.Children.Add(countBadge);
+
+                    var headerBorder = new Border
+                    {
+                        Background = new SolidColorBrush(Color.FromRgb(0x1A, 0x1A, 0x1C)),
+                        CornerRadius = new CornerRadius(6),
+                        Padding = new Thickness(12, 8, 14, 8),
+                        Margin = new Thickness(12, 2, 0, 2)
+                    };
+                    headerBorder.Child = headerGrid;
+
+                    // Toggle expand/collapse
+                    var capturedBody = bodyPanel;
+                    var capturedChevron = chevron;
+                    headerBorder.MouseLeftButtonUp += (_, _) =>
+                    {
+                        bool expanding = capturedBody.Visibility == Visibility.Collapsed;
+                        capturedBody.Visibility = expanding ? Visibility.Visible : Visibility.Collapsed;
+                        ((RotateTransform)capturedChevron.RenderTransform).Angle = expanding ? 90 : 0;
+                    };
+
+                    catBody.Children.Add(headerBorder);
+
+                    // ── Accordion body ──
+                    var bodyCard = new Border
+                    {
+                        Background = new SolidColorBrush(Color.FromRgb(0x17, 0x17, 0x19)),
+                        CornerRadius = new CornerRadius(0, 0, 6, 6),
+                        Padding = new Thickness(14, 8, 14, 10),
+                        Margin = new Thickness(24, 0, 0, 4)
+                    };
+                    var bodyStack = new StackPanel();
+
+                    // Core rows inside the accordion
+                    var installedCores = allCores.Where(c => c.Installed).ToList();
+
+                    for (int i = 0; i < allCores.Count; i++)
+                    {
+                        var core = allCores[i];
+
+                        var coreRow = new Grid { Margin = new Thickness(0, i > 0 ? 6 : 0, 0, 0) };
+                        coreRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });  // preferred indicator
+                        coreRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // name
+                        coreRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });  // version
+                        coreRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });  // buttons
+
+                        // Preferred indicator (filled circle for preferred, empty for others)
+                        bool isPreferred = core.Installed && core.Dll == (activeCoreObj?.Dll ?? "");
+                        var prefIndicator = new TextBlock
+                        {
+                            Text = core.Installed
+                                ? (isPreferred ? "●" : "○")
+                                : " ",
+                            FontSize = 10,
+                            Foreground = isPreferred
+                                ? new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58))
+                                : _brushTextMuted,
+                            VerticalAlignment = VerticalAlignment.Center,
+                            Margin = new Thickness(0, 0, 8, 0),
+                            Cursor = core.Installed && installedCores.Count > 1 ? Cursors.Hand : Cursors.Arrow,
+                            ToolTip = core.Installed && installedCores.Count > 1
+                                ? "Click to set as preferred core"
+                                : null
+                        };
+                        Grid.SetColumn(prefIndicator, 0);
+
+                        // Click to set preferred
+                        if (core.Installed && installedCores.Count > 1)
+                        {
+                            string capturedDll = core.Dll;
+                            string capturedConsole = consoleName;
+                            prefIndicator.MouseLeftButtonUp += (_, e) =>
+                            {
+                                var current = _configService.GetCorePreferences();
+                                current.PreferredCores[capturedConsole] = capturedDll;
+                                _configService.SetCorePreferences(current);
+                                _ = _configService.SaveAsync();
+                                BuildCoresPanel();
+                                e.Handled = true;
+                            };
+                        }
+
+                        // Core name
+                        var nameBlock = new TextBlock
+                        {
+                            Text = core.Friendly,
+                            FontSize = 12,
+                            FontWeight = core.Installed ? FontWeights.SemiBold : FontWeights.Normal,
+                            Foreground = core.Installed ? _brushText : _brushTextMuted,
+                            VerticalAlignment = VerticalAlignment.Center,
+                            ToolTip = core.Dll // DLL name on hover
+                        };
+                        Grid.SetColumn(nameBlock, 1);
+
+                        // Version (installed only)
+                        var versionBlock = new TextBlock
+                        {
+                            Text = core.Installed ? GetCoreVersion(core.Path) : "",
+                            FontSize = 10,
+                            Foreground = _brushTextMuted,
+                            VerticalAlignment = VerticalAlignment.Center,
+                            FontFamily = new FontFamily("Consolas"),
+                            Margin = new Thickness(8, 0, 8, 0)
+                        };
+                        Grid.SetColumn(versionBlock, 2);
+
+                        // Buttons
+                        var btnPanel = new StackPanel
+                        {
+                            Orientation = Orientation.Horizontal,
+                            VerticalAlignment = VerticalAlignment.Center
+                        };
+
+                        if (core.CatalogEntry != null)
+                        {
+                            bool hasBackup = core.Installed && CoreDownloadService.HasBackup(coresFolder, core.Dll);
+
+                            var rowProgress = new ProgressBar
+                            {
+                                Height = 3, Width = 60, Minimum = 0, Maximum = 100, Value = 0,
+                                Visibility = Visibility.Collapsed,
+                                VerticalAlignment = VerticalAlignment.Center,
+                                Margin = new Thickness(0, 0, 6, 0)
+                            };
+                            var rowStatus = new TextBlock
+                            {
+                                FontSize = 10, Foreground = _brushTextMuted,
+                                Visibility = Visibility.Collapsed,
+                                VerticalAlignment = VerticalAlignment.Center,
+                                Margin = new Thickness(0, 0, 6, 0)
+                            };
+
+                            var revertBtn = new Button
+                            {
+                                Content = "Revert",
+                                Style = (Style)FindResource("SmallOutlineButton"),
+                                Margin = new Thickness(0, 0, 4, 0),
+                                Visibility = hasBackup ? Visibility.Visible : Visibility.Collapsed,
+                                ToolTip = "Restore the previous version of this core"
+                            };
+                            string capturedFileName = core.Dll;
+                            var capturedRevertStatus = rowStatus;
+                            revertBtn.Click += (_, _) =>
+                            {
+                                try
+                                {
+                                    CoreDownloadService.Revert(coresFolder, capturedFileName);
+                                    revertBtn.Visibility = Visibility.Collapsed;
+                                    capturedRevertStatus.Text = "Reverted";
+                                    capturedRevertStatus.Visibility = Visibility.Visible;
+                                }
+                                catch (Exception ex)
+                                {
+                                    capturedRevertStatus.Text = $"Failed: {ex.Message}";
+                                    capturedRevertStatus.Visibility = Visibility.Visible;
+                                }
+                            };
+
+                            var badge = MakeBadge(core.Installed);
+                            var dlBtn = new Button
+                            {
+                                Content = core.Installed ? "⟳" : "↓",
+                                Style = (Style)FindResource("SmallOutlineButton"),
+                                Width = 28, Height = 24,
+                                Padding = new Thickness(0),
+                                ToolTip = core.Installed ? "Re-download" : "Download",
+                                VerticalAlignment = VerticalAlignment.Center
+                            };
+
+                            dlBtn.Click += (_, _) => StartSingleDownload(
+                                core.CatalogEntry, coresFolder, badge, rowProgress, rowStatus, dlBtn, revertBtn);
+
+                            dlRowMap[core.Dll] = (rowProgress, rowStatus, dlBtn);
+
+                            btnPanel.Children.Add(rowProgress);
+                            btnPanel.Children.Add(rowStatus);
+                            btnPanel.Children.Add(revertBtn);
+                            btnPanel.Children.Add(dlBtn);
+                        }
+                        Grid.SetColumn(btnPanel, 3);
+
+                        coreRow.Children.Add(prefIndicator);
+                        coreRow.Children.Add(nameBlock);
+                        coreRow.Children.Add(versionBlock);
+                        coreRow.Children.Add(btnPanel);
+                        bodyStack.Children.Add(coreRow);
                     }
-                };
 
-                var dlBtn = new Button
-                {
-                    Content = installed ? "Re-download" : "Download",
-                    Style = (Style)FindResource("SmallOutlineButton"),
-                    VerticalAlignment = VerticalAlignment.Center
-                };
+                    // ── Console-specific plugin options ──
+                    if (CoreSpecificOptions.TryGetValue(consoleName, out var options))
+                    {
+                        prefs.CoreOptionOverrides.TryGetValue(consoleName, out var savedOverrides);
 
-                dlBtn.Click += (_, _) => StartSingleDownload(entry, coresFolder, badge, rowProgress, rowStatus, dlBtn, revertBtn);
+                        foreach (var opt in options)
+                        {
+                            bodyStack.Children.Add(new Rectangle
+                            {
+                                Height = 1,
+                                Fill = new SolidColorBrush(Color.FromRgb(0x30, 0x30, 0x33)),
+                                Margin = new Thickness(0, 8, 0, 8)
+                            });
 
-                btnPanel.Children.Add(revertBtn);
-                btnPanel.Children.Add(dlBtn);
-                Grid.SetColumn(btnPanel, 2);
+                            var optRow = new StackPanel { Orientation = Orientation.Horizontal };
+                            optRow.Children.Add(new TextBlock
+                            {
+                                Text = opt.Label,
+                                FontSize = 12,
+                                Foreground = _brushText,
+                                VerticalAlignment = VerticalAlignment.Center,
+                                Width = 140
+                            });
 
-                row.Children.Add(nameStack);
-                row.Children.Add(statusStack);
-                row.Children.Add(btnPanel);
+                            var optStack = new StackPanel();
+                            var optCombo = new ComboBox
+                            {
+                                Style = (Style)FindResource("PrefComboBox"),
+                                Width = 200,
+                                ItemsSource = opt.Values
+                            };
 
-                rowMap[entry.FileName] = (rowProgress, rowStatus, dlBtn);
-                coreCardStack.Children.Add(row);
+                            string currentVal = savedOverrides != null && savedOverrides.TryGetValue(opt.Key, out var sv) ? sv : opt.Default;
+                            optCombo.SelectedIndex = opt.Values.IndexOf(opt.Values.Contains(currentVal) ? currentVal : opt.Default);
+
+                            var descBlock = new TextBlock
+                            {
+                                Text = opt.Descs.TryGetValue(currentVal, out var d) ? d : "",
+                                FontSize = 11,
+                                Foreground = _brushTextMuted,
+                                Margin = new Thickness(0, 4, 0, 0),
+                                TextWrapping = TextWrapping.Wrap,
+                                Width = 200
+                            };
+
+                            string capturedOptConsole = consoleName;
+                            optCombo.SelectionChanged += (_, _) =>
+                            {
+                                string val = opt.Values[optCombo.SelectedIndex];
+                                descBlock.Text = opt.Descs.TryGetValue(val, out var desc) ? desc : "";
+                                var current = _configService.GetCorePreferences();
+                                if (!current.CoreOptionOverrides.TryGetValue(capturedOptConsole, out var overrides))
+                                    current.CoreOptionOverrides[capturedOptConsole] = overrides = new();
+                                overrides[opt.Key] = val;
+                                _configService.SetCorePreferences(current);
+                                _ = _configService.SaveAsync();
+                            };
+
+                            optStack.Children.Add(optCombo);
+                            optStack.Children.Add(descBlock);
+                            optRow.Children.Add(optStack);
+                            bodyStack.Children.Add(optRow);
+                        }
+                    }
+
+                    bodyCard.Child = bodyStack;
+                    bodyPanel.Children.Add(bodyCard);
+                    catBody.Children.Add(bodyPanel);
+                }
+
+                CoresListPanel.Children.Add(catBody);
             }
 
-            coreCard.Child = coreCardStack;
-            CoresListPanel.Children.Add(coreCard);
-
-            // "Download All" handler
+            // ── "Download All" handler ──
             dlAllBtn.Click += async (_, _) =>
             {
                 _downloadAllCts?.Cancel();
@@ -1048,7 +1425,7 @@ namespace Emutastic.Views
 
                 dlAllBtn.IsEnabled = false;
                 allProgressBar.Visibility = Visibility.Visible;
-                allStatusText.Visibility  = Visibility.Visible;
+                allStatusText.Visibility = Visibility.Visible;
 
                 int done = 0;
                 foreach (var entry in recommended)
@@ -1056,23 +1433,23 @@ namespace Emutastic.Views
                     if (ct.IsCancellationRequested) break;
                     allStatusText.Text = $"Downloading {entry.DisplayName}… ({done + 1}/{recommended.Count})";
 
-                    if (rowMap.TryGetValue(entry.FileName, out var r))
+                    if (dlRowMap.TryGetValue(entry.FileName, out var r))
                     {
-                        r.Bar.Visibility    = Visibility.Visible;
+                        r.Bar.Visibility = Visibility.Visible;
                         r.Status.Visibility = Visibility.Visible;
-                        r.Btn.IsEnabled     = false;
+                        r.Btn.IsEnabled = false;
                     }
 
                     try
                     {
                         var prog = new Progress<int>(v =>
                         {
-                            if (rowMap.TryGetValue(entry.FileName, out var r2)) r2.Bar.Value = v;
+                            if (dlRowMap.TryGetValue(entry.FileName, out var r2)) r2.Bar.Value = v;
                             allProgressBar.Value = (done * 100 + v) / recommended.Count;
                         });
                         await _downloader.DownloadAsync(entry, coresFolder, prog, ct);
 
-                        if (rowMap.TryGetValue(entry.FileName, out var r3))
+                        if (dlRowMap.TryGetValue(entry.FileName, out var r3))
                         {
                             r3.Bar.Visibility = Visibility.Collapsed;
                             r3.Status.Text = "Done";
@@ -1081,7 +1458,7 @@ namespace Emutastic.Views
                     catch (OperationCanceledException) { break; }
                     catch (Exception ex)
                     {
-                        if (rowMap.TryGetValue(entry.FileName, out var r4))
+                        if (dlRowMap.TryGetValue(entry.FileName, out var r4))
                             r4.Status.Text = $"Error: {ex.Message}";
                     }
 
@@ -1093,39 +1470,32 @@ namespace Emutastic.Views
                     ? "Cancelled."
                     : $"Done — {done}/{recommended.Count} cores downloaded.";
                 dlAllBtn.IsEnabled = true;
-
-                // Rebuild to reflect newly installed state
                 BuildCoresPanel();
             };
+
+            BuildExtrasSection();
         }
 
         private async void StartSingleDownload(CoreEntry entry, string coresFolder,
             Border badge, ProgressBar bar, TextBlock statusText, Button dlBtn, Button? revertBtn = null)
         {
-            dlBtn.IsEnabled       = false;
-            bar.Visibility        = Visibility.Visible;
+            dlBtn.IsEnabled = false;
+            bar.Visibility = Visibility.Visible;
             statusText.Visibility = Visibility.Visible;
-            statusText.Text       = "Downloading…";
+            statusText.Text = "…";
             bar.Value = 0;
 
             try
             {
                 var prog = new Progress<int>(v => bar.Value = v);
                 await _downloader.DownloadAsync(entry, coresFolder, prog);
-                statusText.Text = "Updated";
-                badge.Background = new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58));
-                if (badge.Child is TextBlock tb)
-                {
-                    tb.Text = "Installed";
-                    tb.Foreground = new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58));
-                }
+                statusText.Text = "Done";
                 bar.Visibility = Visibility.Collapsed;
-                dlBtn.Content  = "Re-download";
+                dlBtn.Content = "⟳";
+                dlBtn.ToolTip = "Re-download";
                 dlBtn.IsEnabled = true;
-                // Show revert button now that a backup exists
                 if (revertBtn != null)
                     revertBtn.Visibility = Visibility.Visible;
-                // Rebuild installed-cores section
                 BuildCoresPanel();
             }
             catch (Exception ex)
@@ -1133,228 +1503,6 @@ namespace Emutastic.Views
                 statusText.Text = $"Error: {ex.Message}";
                 dlBtn.IsEnabled = true;
             }
-        }
-
-        private void BuildCoresPanel()
-        {
-            CoresListPanel.Children.Clear();
-            string coresFolder = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Cores");
-
-            BuildDownloadSection(coresFolder);
-
-            // ── Separator between download section and installed cores ──
-            CoresListPanel.Children.Add(new Rectangle
-            {
-                Height = 1,
-                Fill = new SolidColorBrush(Color.FromRgb(0x30, 0x30, 0x33)),
-                Margin = new Thickness(0, 16, 0, 0)
-            });
-            CoresListPanel.Children.Add(new TextBlock
-            {
-                Text = "INSTALLED CORES",
-                FontSize = 10,
-                FontWeight = FontWeights.SemiBold,
-                Foreground = _brushTextMuted,
-                Margin = new Thickness(0, 12, 0, 6)
-            });
-            var prefs = _configService.GetCorePreferences();
-
-            bool anyConsole = false;
-
-            foreach (var kv in Services.CoreManager.ConsoleCoreMap.OrderBy(x => x.Key))
-            {
-                string consoleName = kv.Key;
-                string[] candidates = kv.Value;
-
-                // Gather installed cores for this console
-                var installed = candidates
-                    .Select(dll => new {
-                        Dll = dll,
-                        Path = System.IO.Path.Combine(coresFolder, dll),
-                        Friendly = FormatCoreName(dll)
-                    })
-                    .Where(c => System.IO.File.Exists(c.Path))
-                    .ToList();
-
-                if (installed.Count == 0) continue;
-                anyConsole = true;
-
-                // ── Console section header ──
-                CoresListPanel.Children.Add(new TextBlock
-                {
-                    Text = consoleName,
-                    FontSize = 10,
-                    FontWeight = FontWeights.SemiBold,
-                    Foreground = _brushTextMuted,
-                    Margin = new Thickness(0, 16, 0, 6)
-                });
-
-                var card = new Border
-                {
-                    Background = new SolidColorBrush(Color.FromRgb(0x1F, 0x1F, 0x21)),
-                    CornerRadius = new CornerRadius(6),
-                    Padding = new Thickness(14, 12, 14, 12),
-                    Margin = new Thickness(0, 0, 0, 4)
-                };
-                var cardStack = new StackPanel();
-
-                // ── Core rows ──
-                foreach (var core in installed)
-                {
-                    string version = GetCoreVersion(core.Path);
-                    var coreRow = new Grid { Margin = new Thickness(0, 0, 0, 4) };
-                    coreRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(220) });
-                    coreRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                    coreRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-                    var nameStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-                    nameStack.Children.Add(new TextBlock { Text = core.Friendly, FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = _brushText });
-                    nameStack.Children.Add(new TextBlock { Text = core.Dll, FontSize = 10, Foreground = _brushTextMuted, FontFamily = new FontFamily("Consolas"), Margin = new Thickness(0, 2, 0, 0) });
-                    Grid.SetColumn(nameStack, 0);
-
-                    var installedBadge = new Border
-                    {
-                        Background = new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58)),
-                        CornerRadius = new CornerRadius(4),
-                        Padding = new Thickness(8, 3, 8, 3),
-                        VerticalAlignment = VerticalAlignment.Center
-                    };
-                    installedBadge.Child = new TextBlock { Text = "Installed", FontSize = 10, Foreground = new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58)) };
-                    Grid.SetColumn(installedBadge, 1);
-
-                    var versionBlock = new TextBlock
-                    {
-                        Text = version,
-                        FontSize = 11,
-                        Foreground = _brushTextMuted,
-                        VerticalAlignment = VerticalAlignment.Center,
-                        FontFamily = new FontFamily("Consolas"),
-                        ToolTip = version.Length == 10 && version[4] == '-' ? "File last modified (no version resource)" : null
-                    };
-                    Grid.SetColumn(versionBlock, 2);
-
-                    coreRow.Children.Add(nameStack);
-                    coreRow.Children.Add(installedBadge);
-                    coreRow.Children.Add(versionBlock);
-                    cardStack.Children.Add(coreRow);
-                }
-
-                // ── Preferred core picker (only when >1 installed) ──
-                if (installed.Count > 1)
-                {
-                    cardStack.Children.Add(new Rectangle { Height = 1, Fill = new SolidColorBrush(Color.FromRgb(0x30, 0x30, 0x33)), Margin = new Thickness(0, 10, 0, 10) });
-
-                    var pickerRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-                    pickerRow.Children.Add(new TextBlock
-                    {
-                        Text = "Preferred Core",
-                        FontSize = 12,
-                        Foreground = _brushText,
-                        VerticalAlignment = VerticalAlignment.Center,
-                        Width = 140
-                    });
-
-                    var preferredCombo = new ComboBox
-                    {
-                        Style = (Style)FindResource("PrefComboBox"),
-                        Width = 220,
-                        ItemsSource = installed.Select(c => c.Friendly).ToList()
-                    };
-
-                    // Select current preference or first installed
-                    string? savedPref = prefs.PreferredCores.TryGetValue(consoleName, out var p) ? p : null;
-                    int prefIdx = installed.FindIndex(c => c.Dll == savedPref);
-                    preferredCombo.SelectedIndex = prefIdx >= 0 ? prefIdx : 0;
-
-                    preferredCombo.SelectionChanged += (_, _) =>
-                    {
-                        int idx = preferredCombo.SelectedIndex;
-                        if (idx < 0 || idx >= installed.Count) return;
-                        var current = _configService.GetCorePreferences();
-                        current.PreferredCores[consoleName] = installed[idx].Dll;
-                        _configService.SetCorePreferences(current);
-                        _ = _configService.SaveAsync();
-                    };
-
-                    pickerRow.Children.Add(preferredCombo);
-                    cardStack.Children.Add(pickerRow);
-                }
-
-                // ── Console-specific plugin options (e.g. N64 GFX plugin) ──
-                if (CoreSpecificOptions.TryGetValue(consoleName, out var options))
-                {
-                    prefs.CoreOptionOverrides.TryGetValue(consoleName, out var savedOverrides);
-
-                    foreach (var opt in options)
-                    {
-                        cardStack.Children.Add(new Rectangle { Height = 1, Fill = new SolidColorBrush(Color.FromRgb(0x30, 0x30, 0x33)), Margin = new Thickness(0, 10, 0, 10) });
-
-                        var optRow = new StackPanel { Orientation = Orientation.Horizontal };
-                        optRow.Children.Add(new TextBlock
-                        {
-                            Text = opt.Label,
-                            FontSize = 12,
-                            Foreground = _brushText,
-                            VerticalAlignment = VerticalAlignment.Center,
-                            Width = 140
-                        });
-
-                        var optStack = new StackPanel();
-                        var optCombo = new ComboBox
-                        {
-                            Style = (Style)FindResource("PrefComboBox"),
-                            Width = 220,
-                            ItemsSource = opt.Values
-                        };
-
-                        string currentVal = savedOverrides != null && savedOverrides.TryGetValue(opt.Key, out var sv) ? sv : opt.Default;
-                        optCombo.SelectedIndex = opt.Values.IndexOf(opt.Values.Contains(currentVal) ? currentVal : opt.Default);
-
-                        var descBlock = new TextBlock
-                        {
-                            Text = opt.Descs.TryGetValue(currentVal, out var d) ? d : "",
-                            FontSize = 11,
-                            Foreground = _brushTextMuted,
-                            Margin = new Thickness(0, 4, 0, 0),
-                            TextWrapping = TextWrapping.Wrap,
-                            Width = 220
-                        };
-
-                        optCombo.SelectionChanged += (_, _) =>
-                        {
-                            string val = opt.Values[optCombo.SelectedIndex];
-                            descBlock.Text = opt.Descs.TryGetValue(val, out var desc) ? desc : "";
-                            var current = _configService.GetCorePreferences();
-                            if (!current.CoreOptionOverrides.TryGetValue(consoleName, out var overrides))
-                                current.CoreOptionOverrides[consoleName] = overrides = new();
-                            overrides[opt.Key] = val;
-                            _configService.SetCorePreferences(current);
-                            _ = _configService.SaveAsync();
-                        };
-
-                        optStack.Children.Add(optCombo);
-                        optStack.Children.Add(descBlock);
-                        optRow.Children.Add(optStack);
-                        cardStack.Children.Add(optRow);
-                    }
-                }
-
-                card.Child = cardStack;
-                CoresListPanel.Children.Add(card);
-            }
-
-            if (!anyConsole)
-            {
-                CoresListPanel.Children.Add(new TextBlock
-                {
-                    Text = "No cores found in the Cores folder.",
-                    FontSize = 13,
-                    Foreground = _brushTextMuted,
-                    Margin = new Thickness(0, 8, 0, 0)
-                });
-            }
-
-            BuildExtrasSection();
         }
 
         // ── Extras section (SDL3 + DAT files) ────────────────────────────────
