@@ -24,6 +24,7 @@ namespace Emutastic
         private DatabaseService _db = null!;
         private ImportService _importer = null!;
         private ArtworkService _artwork = null!;
+        private ArtworkFetchService _artworkFetch = null!;
         private ControllerManager? _controllerManager;
         private CoreManager _coreManager = null!;
         private Button? _selectedNavButton;
@@ -31,7 +32,7 @@ namespace Emutastic
         private readonly HashSet<string> _selectedScreenshots = new(); // selected file paths
         private System.Windows.Threading.DispatcherTimer? _dragLeaveTimer;
         private GameDetailWindow? _openDetailWindow;
-        private bool _isShowingFavorites;
+        // _vm.IsShowingFavorites moved to MainViewModel
 
         public MainWindow()
         {
@@ -55,6 +56,10 @@ namespace Emutastic
             _coreManager = new CoreManager(App.Configuration!);
             _importer    = new ImportService(_db, _coreManager, App.Configuration);
             _vm          = new MainViewModel(_db);  // empty _allGames until Reload() runs
+            _artworkFetch = new ArtworkFetchService(_db, _artwork, _vm);
+            _vm.Navigated += OnNavigated;
+            _artworkFetch.BoxArt3DFetched += () =>
+                Dispatcher.Invoke(() => BoxArtTogglePanel.Visibility = Visibility.Visible);
             DataContext  = _vm;                     // _vm is now non-null; clicks work
 
             _importer.StatusChanged += msg =>
@@ -110,7 +115,7 @@ namespace Emutastic
             // Pre-build per-console caches in the background so switching feels instant.
             _ = _vm.PreloadConsoleCachesAsync();
 
-            _ = RetryMissingArtworkAsync();
+            _ = _artworkFetch.RetryMissingArtworkAsync();
         }
 
         private void InitializeControllerManager()
@@ -121,305 +126,14 @@ namespace Emutastic
             }
         }
 
-        // ── Artwork retry on startup ──
-        // Runs after the grid is already visible. Retries all games missing cover art.
-        // Games with prior failed attempts are fetched silently (no status bar updates).
-        private async Task RetryMissingArtworkAsync()
-        {
-            var missing = await Task.Run(() => _db.GetGamesWithoutArtwork());
-            if (missing.Count == 0) return;
+        private Task FetchMissingArtworkForConsoleAsync(string console, string displayName)
+            => _artworkFetch.FetchMissingArtworkForConsoleAsync(console, displayName);
 
-            // Repair pass: fix games whose artwork file is already on disk but the DB
-            // path was never saved (e.g. background task killed on last shutdown).
-            // This is instant — no HTTP requests — and removes the bulk of false positives.
-            var stillMissing = new List<Models.Game>();
-            await Task.Run(() =>
-            {
-                foreach (var game in missing)
-                {
-                    string? cached = _artwork.FindCachedArtwork(game.RomHash, game.Console);
-                    if (cached != null)
-                    {
-                        _db.UpdateCoverArt(game.Id, cached);
-                        game.CoverArtPath = cached;
-                        Dispatcher.Invoke(() => _vm.RefreshGame(game));
-                    }
-                    else
-                    {
-                        stillMissing.Add(game);
-                    }
-                }
-            });
+        private Task Fetch3DBoxArtForConsoleAsync(string console, string displayName)
+            => _artworkFetch.Fetch3DBoxArtForConsoleAsync(console, displayName);
 
-            if (stillMissing.Count == 0) return;
-            await FetchArtworkForGamesAsync(stillMissing, "Artwork", silentThreshold: 1);
-        }
-
-        private async Task FetchScreenScraperArtForConsoleAsync(string console, string displayName)
-        {
-            var snapCfg = App.Configuration?.GetSnapConfiguration();
-            if (snapCfg == null || !snapCfg.ScreenScraperEnabled
-                || string.IsNullOrWhiteSpace(snapCfg.ScreenScraperUser))
-                return;
-
-            var allForConsole = await Task.Run(() => _db.GetGamesWithoutScreenScraperArt()
-                .Where(g => g.Console == console).ToList());
-            if (allForConsole.Count == 0)
-            {
-                SetStatus($"{displayName} — all ScreenScraper 2D art already downloaded", autoClear: true);
-                return;
-            }
-
-            SetStatus($"{displayName} — fetching ScreenScraper 2D art (0 of {allForConsole.Count})…");
-            int done = 0;
-            int fetched = 0;
-            var ss = new ScreenScraperService();
-            var sem = new System.Threading.SemaphoreSlim(1, 1);
-
-            var tasks = allForConsole.Select(async game =>
-            {
-                await sem.WaitAsync();
-                try
-                {
-                    string? path = await ss.FetchBoxArt2DAsync(
-                        snapCfg.ScreenScraperUser, snapCfg.ScreenScraperPassword,
-                        game.Console, game.RomHash, game.RomPath);
-
-                    if (path != null)
-                    {
-                        _db.UpdateScreenScraperArt(game.Id, path);
-                        game.ScreenScraperArtPath = path;
-                        System.Threading.Interlocked.Increment(ref fetched);
-                        Dispatcher.Invoke(() => _vm.RefreshGame(game));
-                    }
-
-                    int completed = System.Threading.Interlocked.Increment(ref done);
-                    if (completed % 10 == 0 || completed == allForConsole.Count)
-                        Dispatcher.Invoke(() =>
-                            SetStatus($"{displayName} — ScreenScraper 2D art ({completed} of {allForConsole.Count})"));
-                }
-                finally { sem.Release(); }
-            });
-
-            await Task.WhenAll(tasks);
-            SetStatus(fetched > 0
-                ? $"{displayName} — {fetched} ScreenScraper image{(fetched == 1 ? "" : "s")} downloaded"
-                : $"{displayName} — no ScreenScraper artwork found", autoClear: true);
-        }
-
-        private async Task FetchMissingArtworkForConsoleAsync(string console, string displayName)
-        {
-            var missing = await Task.Run(() => _db.GetGamesWithoutArtworkForConsole(console));
-            if (missing.Count == 0)
-            {
-                SetStatus($"{displayName} — all artwork already downloaded", autoClear: true);
-                return;
-            }
-            await FetchArtworkForGamesAsync(missing, displayName);
-        }
-
-        private async Task Fetch3DBoxArtForConsoleAsync(string console, string displayName)
-        {
-            var snapConfig = App.Configuration?.GetSnapConfiguration();
-            if (snapConfig == null || !snapConfig.ScreenScraperEnabled
-                || string.IsNullOrWhiteSpace(snapConfig.ScreenScraperUser))
-            {
-                SetStatus("ScreenScraper not configured — set up in Preferences → Snaps", autoClear: true);
-                return;
-            }
-
-            var games = await Task.Run(() => _db.GetGamesWithout3DBoxArtForConsole(console));
-            if (games.Count == 0)
-            {
-                SetStatus($"{displayName} — all 3D box art already downloaded", autoClear: true);
-                return;
-            }
-
-            int total = games.Count;
-            int done = 0;
-            int fetched = 0;
-            int overQuota = 0;
-
-            int ssThreads = Math.Max(1, snapConfig.ScreenScraperMaxThreads);
-            SetStatus($"{displayName} — downloading 3D box art for {total} games…");
-
-            // Each worker gets its own ScreenScraperService (own HttpClient / TCP connection)
-            // so ScreenScraper sees N distinct concurrent connections, not 1 multiplexed connection.
-            var workers = new System.Collections.Concurrent.ConcurrentQueue<ScreenScraperService>();
-            for (int i = 0; i < ssThreads; i++)
-                workers.Enqueue(new ScreenScraperService());
-            var sem = new System.Threading.SemaphoreSlim(ssThreads, ssThreads);
-
-            var tasks = games.Select(game => Task.Run(async () =>
-            {
-                if (System.Threading.Interlocked.CompareExchange(ref overQuota, 0, 0) != 0)
-                    return;
-
-                await sem.WaitAsync();
-                ScreenScraperService worker;
-                while (!workers.TryDequeue(out worker!))
-                    await Task.Delay(10);
-                try
-                {
-                    if (System.Threading.Interlocked.CompareExchange(ref overQuota, 0, 0) != 0)
-                        return;
-
-                    var result = await worker.FetchBoxArt3DAsync(
-                        snapConfig.ScreenScraperUser, snapConfig.ScreenScraperPassword,
-                        game.Console, game.RomHash, game.RomPath);
-
-                    if (result.OverQuota)
-                    {
-                        System.Threading.Interlocked.Exchange(ref overQuota, 1);
-                        Dispatcher.Invoke(() =>
-                            SetStatus($"{displayName} — ScreenScraper daily limit reached ({fetched} downloaded)", autoClear: true));
-                        return;
-                    }
-
-                    if (!string.IsNullOrEmpty(result.ErrorMessage))
-                        System.Diagnostics.Debug.WriteLine($"[3D BoxArt] {game.Title}: {result.ErrorMessage}");
-
-                    if (result.LocalPath != null)
-                    {
-                        _db.UpdateBoxArt3D(game.Id, result.LocalPath);
-                        game.BoxArt3DPath = result.LocalPath;
-                        System.Threading.Interlocked.Increment(ref fetched);
-                        Dispatcher.Invoke(() => _vm.RefreshGame(game));
-                    }
-
-                    int completed = System.Threading.Interlocked.Increment(ref done);
-                    int pct = (int)((completed / (double)total) * 100);
-                    Dispatcher.Invoke(() =>
-                        SetStatus($"{displayName} 3D Box Art — {pct}%  ({completed} of {total})  {game.Title}"));
-                }
-                finally
-                {
-                    workers.Enqueue(worker);
-                    sem.Release();
-                }
-            })).ToList();
-
-            await Task.WhenAll(tasks);
-
-            SetStatus(fetched > 0
-                ? $"{displayName} — {fetched} 3D box art image{(fetched == 1 ? "" : "s")} downloaded"
-                : $"{displayName} — no 3D box art found on ScreenScraper", autoClear: true);
-
-            // Show the 2D/3D toggle if we got any
-            if (fetched > 0)
-                Dispatcher.Invoke(() => BoxArtTogglePanel.Visibility = Visibility.Visible);
-        }
-
-        // silentThreshold: games with ArtworkAttempts >= this value produce no status messages.
-        // Pass int.MaxValue (default) to always show progress — used for manual fetches.
-        // Pass 2 for the auto startup retry so repeat failures are completely silent.
-        private async Task FetchArtworkForGamesAsync(List<Models.Game> games, string label,
-            int silentThreshold = int.MaxValue)
-        {
-            // Separate into "loud" (new / few attempts) and "silent" (repeated failures) groups.
-            var loudGames   = games.Where(g => g.ArtworkAttempts < silentThreshold).ToList();
-            var silentGames = games.Where(g => g.ArtworkAttempts >= silentThreshold).ToList();
-
-            int total   = loudGames.Count;
-            int done    = 0;
-            int fetched = 0;
-            var sem     = new System.Threading.SemaphoreSlim(6, 6);
-
-            if (total > 0)
-                SetStatus($"{label} — starting artwork fetch for {total} games…");
-
-            // Process loud games with status updates.
-            var loudTasks = loudGames.Select(async game =>
-            {
-                await sem.WaitAsync();
-                try
-                {
-                    var (artworkPath, ssArtPath, metadata) = await _artwork.FetchArtworkAsync(
-                        game.RomHash, game.RomPath, game.Console);
-
-                    // Store ScreenScraper 2D art regardless of libretro result
-                    if (ssArtPath != null)
-                    {
-                        _db.UpdateScreenScraperArt(game.Id, ssArtPath);
-                        game.ScreenScraperArtPath = ssArtPath;
-                    }
-
-                    if (artworkPath != null)
-                    {
-                        _db.UpdateCoverArt(game.Id, artworkPath);
-                        game.CoverArtPath = artworkPath;
-                        System.Threading.Interlocked.Increment(ref fetched);
-
-                        if (metadata != null && !string.IsNullOrWhiteSpace(metadata.Title))
-                        {
-                            game.Title = metadata.Title;
-                            _db.UpdateTitle(game.Id, metadata.Title);
-                        }
-                    }
-                    else if (ssArtPath == null)
-                    {
-                        _db.IncrementArtworkAttempts(game.Id);
-                    }
-
-                    if (artworkPath != null || ssArtPath != null)
-                        Dispatcher.Invoke(() => _vm.RefreshGame(game));
-
-                    int completed = System.Threading.Interlocked.Increment(ref done);
-                    int pct = (int)((completed / (double)total) * 100);
-                    Dispatcher.Invoke(() =>
-                        SetStatus($"{label} — {pct}%  ({completed} of {total})  {game.Title}"));
-                }
-                finally { sem.Release(); }
-            });
-
-            await Task.WhenAll(loudTasks);
-
-            if (total > 0)
-            {
-                SetStatus(fetched > 0
-                    ? $"{label} — {fetched} image{(fetched == 1 ? "" : "s")} downloaded"
-                    : $"{label} — no artwork found", autoClear: true);
-            }
-
-            // Process silent games in the background with no status output.
-            var silentTasks = silentGames.Select(async game =>
-            {
-                await sem.WaitAsync();
-                try
-                {
-                    var (artworkPath, ssArtPath, metadata) = await _artwork.FetchArtworkAsync(
-                        game.RomHash, game.RomPath, game.Console);
-
-                    if (ssArtPath != null)
-                    {
-                        _db.UpdateScreenScraperArt(game.Id, ssArtPath);
-                        game.ScreenScraperArtPath = ssArtPath;
-                    }
-
-                    if (artworkPath != null)
-                    {
-                        _db.UpdateCoverArt(game.Id, artworkPath);
-                        game.CoverArtPath = artworkPath;
-
-                        if (metadata != null && !string.IsNullOrWhiteSpace(metadata.Title))
-                        {
-                            game.Title = metadata.Title;
-                            _db.UpdateTitle(game.Id, metadata.Title);
-                        }
-                    }
-                    else if (ssArtPath == null)
-                    {
-                        _db.IncrementArtworkAttempts(game.Id);
-                    }
-
-                    if (artworkPath != null || ssArtPath != null)
-                        Dispatcher.Invoke(() => _vm.RefreshGame(game));
-                }
-                finally { sem.Release(); }
-            });
-
-            await Task.WhenAll(silentTasks);
-        }
+        private Task FetchScreenScraperArtForConsoleAsync(string console, string displayName)
+            => _artworkFetch.FetchScreenScraperArtForConsoleAsync(console, displayName);
 
         // ── Game grid scrolling ───────────────────────────────────────────────
         // Override mouse wheel on both views so the system WheelScrollLines setting
@@ -661,7 +375,7 @@ namespace Emutastic
                 await _importer.ImportFilesAsync(files);
                 await Task.Run(() => _vm.Reload());
                 await _vm.FilterGamesAsync();
-                UpdateToolbarTitle(_vm.SelectedConsole);
+                _vm.ToolbarTitle = _vm.SelectedConsole;
             }
             base.OnDrop(e);
         }
@@ -686,7 +400,6 @@ namespace Emutastic
         // ── Navigation ──
         private void SelectNavButton(Button btn)
         {
-            _isShowingFavorites = false; // cleared here; NavFavorites_Click sets it back to true
             if (_selectedNavButton != null)
             {
                 _selectedNavButton.Background = System.Windows.Media.Brushes.Transparent;
@@ -728,64 +441,73 @@ namespace Emutastic
         private async void GroupSeeAll_Click(object sender, MouseButtonEventArgs e)
         {
             if (sender is FrameworkElement el && el.Tag is string console)
+                await _vm.NavigateToConsoleCommand.ExecuteAsync(console);
+        }
+
+        /// <summary>
+        /// Handles View-side effects after any ViewModel navigation command completes:
+        /// sidebar highlight, scroll-to-top, game count badge, box-art toggle.
+        /// </summary>
+        private void OnNavigated(string tag)
+        {
+            // Find the sidebar button that matches this navigation target
+            Button? navBtn = FindSidebarButton(tag);
+            if (navBtn != null)
+                SelectNavButton(navBtn);
+
+            ScrollLibraryToTop();
+            UpdateBoxArtToggleVisibility();
+
+            // Show per-console game count badge
+            if (navBtn != null && !string.IsNullOrEmpty(tag)
+                && tag != "All Games" && tag != "Recent" && tag != "Favorites"
+                && tag != "RecentlyAdded" && !tag.StartsWith("Collection:"))
             {
-                _vm.SelectedConsole = console;
-                await _vm.FilterGamesAsync();
-                ScrollLibraryToTop();
-                UpdateToolbarTitle(console);
-                // Find and highlight the matching sidebar button if present
-                foreach (var child in SidebarPanel.Children.OfType<Button>())
+                ShowNavCount(navBtn, _vm.Games.Count);
+
+                // Derive display name from the button content for toolbar
+                string name = navBtn.Content is StackPanel sp
+                    ? sp.Children.OfType<TextBlock>().FirstOrDefault()?.Text ?? tag
+                    : tag;
+                _vm.ToolbarTitle = name;
+            }
+        }
+
+        private Button? FindSidebarButton(string tag)
+        {
+            // Check console buttons in the sidebar panel
+            // Console buttons use CommandParameter (not Tag) after MVVM migration
+            string? GetButtonTag(Button b) => (b.CommandParameter as string) ?? (b.Tag as string);
+
+            foreach (var child in SidebarPanel.Children.OfType<FrameworkElement>())
+            {
+                if (child is Button btn && GetButtonTag(btn) == tag)
+                    return btn;
+                if (child is StackPanel sp)
                 {
-                    if (child.Tag is string t && t == console)
+                    foreach (var nested in sp.Children.OfType<Button>())
                     {
-                        SelectNavButton(child);
-                        break;
+                        if (GetButtonTag(nested) == tag)
+                            return nested;
                     }
                 }
             }
-        }
 
-        private async void NavAllGames_Click(object sender, RoutedEventArgs e)
-        {
-            SelectNavButton((Button)sender);
-            _vm.SelectedConsole = "All Games";
-            await _vm.FilterGamesAsync();
-            ScrollLibraryToTop();
-            UpdateToolbarTitle("All Games");
-        }
+            // Check special nav buttons
+            if (tag == "All Games") return FindName("NavAllGames") as Button
+                ?? SidebarPanel.Children.OfType<Button>()
+                    .FirstOrDefault(b => b.Content?.ToString()?.Contains("All Games") == true);
+            if (tag == "Recent") return SidebarPanel.Children.OfType<Button>()
+                .FirstOrDefault(b => b.Content?.ToString()?.Contains("Recently Played") == true);
+            if (tag == "Favorites") return SidebarPanel.Children.OfType<Button>()
+                .FirstOrDefault(b => b.Content?.ToString()?.Contains("Favorites") == true);
+            if (tag == "RecentlyAdded") return SidebarPanel.Children.OfType<Button>()
+                .FirstOrDefault(b => b.Content?.ToString()?.Contains("Recently Added") == true);
+            if (tag.StartsWith("Collection:") && int.TryParse(tag.AsSpan(11), out int colId))
+                return UserCollectionsPanel.Children.OfType<Button>()
+                    .FirstOrDefault(b => b.Tag is int id && id == colId);
 
-        private void NavRecent_Click(object sender, RoutedEventArgs e)
-        {
-            SelectNavButton((Button)sender);
-            _vm.LoadRecent(_db);
-            ScrollLibraryToTop();
-            UpdateToolbarTitle("Recently Played");
-        }
-
-        private void NavFavorites_Click(object sender, RoutedEventArgs e)
-        {
-            SelectNavButton((Button)sender);
-            _isShowingFavorites = true;
-            _vm.LoadFavorites(_db);
-            ScrollLibraryToTop();
-            UpdateToolbarTitle("Favorites");
-        }
-
-        private async void NavConsole_Click(object sender, RoutedEventArgs e)
-        {
-            if (sender is Button btn && btn.Tag is string tag)
-            {
-                SelectNavButton(btn);
-                _vm.SelectedConsole = tag;
-                await _vm.FilterGamesAsync();
-                ScrollLibraryToTop();
-                UpdateBoxArtToggleVisibility();
-                ShowNavCount(btn, _vm.Games.Count);
-                string name = btn.Content is StackPanel sp
-                    ? sp.Children.OfType<TextBlock>().FirstOrDefault()?.Text ?? tag
-                    : tag;
-                UpdateToolbarTitle(name);
-            }
+            return null;
         }
 
         private void SidebarPanel_RightClick(object sender, MouseButtonEventArgs e)
@@ -835,7 +557,9 @@ namespace Emutastic
                     return;
                 }
 
-                if (source is Button consoleBtn && consoleBtn.Tag is string console && !string.IsNullOrEmpty(console))
+                if (source is Button consoleBtn
+                    && ((consoleBtn.CommandParameter as string) ?? (consoleBtn.Tag as string)) is string console
+                    && !string.IsNullOrEmpty(console))
                 {
                     e.Handled = true;
                     string displayName = console;
@@ -870,12 +594,7 @@ namespace Emutastic
                         { Owner = this };
                         if (dlg.ShowDialog() != true) return;
                         _db.DeleteAllGamesForConsole(console);
-                        _ = Task.Run(() => _vm.Reload()).ContinueWith(_ =>
-                            Dispatcher.Invoke(async () =>
-                            {
-                                await _vm.FilterGamesAsync();
-                                UpdateToolbarTitle(_vm.SelectedConsole);
-                            }));
+                        _ = ReloadAndFilterAsync();
                     };
                     menu.Items.Add(item);
 
@@ -915,26 +634,12 @@ namespace Emutastic
             }
         }
 
-        private void NavRecentlyAdded_Click(object sender, RoutedEventArgs e)
-        {
-            SelectNavButton((Button)sender);
-            var games = _db.GetRecentlyAdded(25);
-            _vm.Games = new ObservableCollection<Game>(games);
-            _vm.IsGroupedView = false;
-            _vm.GameCountText = $"{games.Count} games";
-            UpdateToolbarTitle("Recently Added");
-        }
-
         private void NavUserCollection_Click(object sender, RoutedEventArgs e)
         {
             if (sender is not Button btn || btn.Tag is not int collectionId) return;
-            SelectNavButton(btn);
-            var games = _db.GetGamesByCollectionId(collectionId);
-            _vm.Games = new ObservableCollection<Game>(games);
-            _vm.IsGroupedView = false;
-            _vm.GameCountText = $"{games.Count} games";
             string displayName = btn.Content?.ToString()?.Replace("📂  ", "") ?? "Collection";
-            UpdateToolbarTitle(displayName);
+            _vm.ToolbarTitle = displayName;
+            _vm.NavigateToCollectionCommand.Execute(collectionId);
         }
 
         public void RefreshCollectionsSidebar()
@@ -980,25 +685,12 @@ namespace Emutastic
                 await _importer.ImportFilesAsync(dialog.FileNames);
                 await Task.Run(() => _vm.Reload());
                 await _vm.FilterGamesAsync();
-                UpdateToolbarTitle(_vm.SelectedConsole);
+                _vm.ToolbarTitle = _vm.SelectedConsole;
             }
         }
 
-        private void UpdateToolbarTitle(string title) => ToolbarTitle.Text = title;
-
-        private CancellationTokenSource? _statusClearCts;
         private void SetStatus(string msg, bool autoClear = false)
-        {
-            _statusClearCts?.Cancel();
-            StatusText.Text = msg;
-            if (!autoClear) return;
-            _statusClearCts = new CancellationTokenSource();
-            var token = _statusClearCts.Token;
-            _ = Task.Delay(3000, token).ContinueWith(_ =>
-                Dispatcher.Invoke(() => StatusText.Text = ""), token,
-                TaskContinuationOptions.OnlyOnRanToCompletion,
-                TaskScheduler.Default);
-        }
+            => _vm.SetStatus(msg, autoClear);
 
         // ── View toggle (grid / list) ──
         private void ViewToggle_Click(object sender, RoutedEventArgs e)
@@ -1216,7 +908,7 @@ namespace Emutastic
                 game.IsFavorite = !game.IsFavorite;
                 _db.ToggleFavorite(game.Id, game.IsFavorite);
                 _vm.RefreshGame(game);
-                if (_isShowingFavorites)
+                if (_vm.IsShowingFavorites)
                     _vm.LoadFavorites(_db);
             }));
 
@@ -1259,31 +951,9 @@ namespace Emutastic
             // ── Download Cover Art ──
             menu.Items.Add(MakeMenuItem("⬇  Download Cover Art", async () =>
             {
-                SetStatus($"Fetching artwork for {game.Title}…");
-                var (artworkPath, ssArtPath, metadata) = await _artwork.FetchArtworkAsync(
-                    game.RomHash, game.RomPath, game.Console);
-
-                if (ssArtPath != null)
+                var (artworkPath, ssArtPath) = await _artworkFetch.FetchSingleGameArtworkAsync(game);
+                if (artworkPath == null && ssArtPath == null)
                 {
-                    _db.UpdateScreenScraperArt(game.Id, ssArtPath);
-                    game.ScreenScraperArtPath = ssArtPath;
-                }
-
-                if (artworkPath != null)
-                {
-                    _db.UpdateCoverArt(game.Id, artworkPath);
-                    game.CoverArtPath = artworkPath;
-                    _vm.RefreshGame(game);
-                    SetStatus("Artwork updated", autoClear: true);
-                }
-                else if (ssArtPath != null)
-                {
-                    _vm.RefreshGame(game);
-                    SetStatus("Artwork updated (ScreenScraper)", autoClear: true);
-                }
-                else
-                {
-                    SetStatus("No artwork found", autoClear: true);
                     var dlg = new ConfirmDialog("Artwork", "Could not find artwork for this game.", "OK", danger: false) { Owner = this };
                     dlg.CancelBtn.Visibility = Visibility.Collapsed;
                     dlg.ShowDialog();
@@ -1464,6 +1134,13 @@ namespace Emutastic
                 e.Handled = true;
                 DeleteScreenshotsWithConfirm(_selectedScreenshots.ToList());
             }
+        }
+
+        private async Task ReloadAndFilterAsync()
+        {
+            await Task.Run(() => _vm.Reload());
+            await _vm.FilterGamesAsync();
+            _vm.ToolbarTitle = _vm.SelectedConsole;
         }
 
         private async Task DeleteGamesWithConfirmAsync(List<Game> toDelete)
