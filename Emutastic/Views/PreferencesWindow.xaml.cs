@@ -2200,6 +2200,13 @@ namespace Emutastic.Views
                 ? System.Windows.Media.Brushes.LightGreen
                 : (System.Windows.Media.Brush)FindResource("AccentBrush");
             SSTestBtn.IsEnabled = true;
+
+            if (error == null)
+            {
+                var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
+                timer.Tick += (_, _) => { SSStatusLabel.Text = ""; timer.Stop(); };
+                timer.Start();
+            }
         }
 
         private void SnapsSaveBtn_Click(object sender, RoutedEventArgs e)
