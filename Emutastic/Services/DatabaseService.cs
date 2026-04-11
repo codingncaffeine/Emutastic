@@ -695,6 +695,12 @@ namespace Emutastic.Services
 
         public void UpdateBoxArt3D(int gameId, string path)
         {
+            // Guard: never store 2D art paths as 3D box art
+            if (!string.IsNullOrEmpty(path) && path.Contains("_2d", StringComparison.OrdinalIgnoreCase))
+            {
+                System.Diagnostics.Debug.WriteLine($"[DB] Rejected 2D path for BoxArt3DPath: {path}");
+                return;
+            }
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             var cmd = connection.CreateCommand();
