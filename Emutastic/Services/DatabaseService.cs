@@ -232,36 +232,39 @@ namespace Emutastic.Services
         {
             try
             {
-                // ── 1. Artwork (CoverArtPath) and BoxArt3D (BoxArt3DPath) — DB-tracked ──
+                // ── 1. Artwork (CoverArtPath), BoxArt3D, and ss2d (ScreenScraperArtPath) — DB-tracked ──
                 string artworkRoot  = AppPaths.GetFolder("Artwork");
                 string boxArt3DRoot = AppPaths.GetFolder("BoxArt3D");
+                string ss2dRoot     = AppPaths.GetFolder("ss2d");
 
                 var cmd = connection.CreateCommand();
-                cmd.CommandText = "SELECT Id, Console, CoverArtPath, BoxArt3DPath FROM Games;";
+                cmd.CommandText = "SELECT Id, Console, CoverArtPath, BoxArt3DPath, ScreenScraperArtPath FROM Games;";
                 using var reader = cmd.ExecuteReader();
 
-                var updates = new List<(int id, string? newCover, string? new3D)>();
+                var updates = new List<(int id, string? newCover, string? new3D, string? newSS)>();
                 while (reader.Read())
                 {
                     int id = reader.GetInt32(0);
                     string console = reader.IsDBNull(1) ? "" : reader.GetString(1);
                     string coverPath = reader.IsDBNull(2) ? "" : reader.GetString(2);
                     string art3DPath = reader.IsDBNull(3) ? "" : reader.GetString(3);
+                    string ssArtPath = reader.IsDBNull(4) ? "" : reader.GetString(4);
 
                     if (string.IsNullOrWhiteSpace(console)) continue;
 
                     string? newCover = MoveFileToConsoleSubfolder(coverPath, artworkRoot, console);
                     string? new3D   = MoveFileToConsoleSubfolder(art3DPath, boxArt3DRoot, console);
+                    string? newSS   = MoveFileToConsoleSubfolder(ssArtPath, ss2dRoot, console);
 
-                    if (newCover != null || new3D != null)
-                        updates.Add((id, newCover, new3D));
+                    if (newCover != null || new3D != null || newSS != null)
+                        updates.Add((id, newCover, new3D, newSS));
                 }
                 reader.Close();
 
                 if (updates.Count > 0)
                 {
                     using var tx = connection.BeginTransaction();
-                    foreach (var (id, newCover, new3D) in updates)
+                    foreach (var (id, newCover, new3D, newSS) in updates)
                     {
                         if (newCover != null)
                         {
@@ -279,6 +282,14 @@ namespace Emutastic.Services
                             u.Parameters.AddWithValue("$id", id);
                             u.ExecuteNonQuery();
                         }
+                        if (newSS != null)
+                        {
+                            var u = connection.CreateCommand();
+                            u.CommandText = "UPDATE Games SET ScreenScraperArtPath = $path WHERE Id = $id;";
+                            u.Parameters.AddWithValue("$path", newSS);
+                            u.Parameters.AddWithValue("$id", id);
+                            u.ExecuteNonQuery();
+                        }
                     }
                     tx.Commit();
                     System.Diagnostics.Debug.WriteLine(
@@ -288,6 +299,7 @@ namespace Emutastic.Services
                 // ── 2. Sweep remaining flat files by matching filename (hash) to games ──
                 SweepOrphanedArtworkFiles(connection, artworkRoot, "Artwork", "CoverArtPath");
                 SweepOrphanedArtworkFiles(connection, boxArt3DRoot, "BoxArt3D", "BoxArt3DPath");
+                SweepOrphanedArtworkFiles(connection, ss2dRoot, "ss2d", "ScreenScraperArtPath");
 
                 // ── 3. Snaps (no DB column — file-only migration) ──
                 MigrateSnapFiles(connection);
@@ -612,10 +624,12 @@ namespace Emutastic.Services
             cmd.CommandText = @"
                 INSERT OR IGNORE INTO Games
                     (Title, Console, Manufacturer, Year, RomPath, RomHash,
-                     CoverArtPath, BackgroundColor, AccentColor, Rating, Collection, DateAdded)
+                     CoverArtPath, BoxArt3DPath, ScreenScraperArtPath,
+                     BackgroundColor, AccentColor, Rating, Collection, DateAdded)
                 VALUES
                     ($title, $console, $manufacturer, $year, $romPath, $romHash,
-                     $coverArt, $bgColor, $accentColor, 0, '', $dateAdded);";
+                     $coverArt, $boxArt3D, $ssArt,
+                     $bgColor, $accentColor, 0, '', $dateAdded);";
 
             cmd.Parameters.AddWithValue("$title", game.Title);
             cmd.Parameters.AddWithValue("$console", game.Console);
@@ -624,6 +638,8 @@ namespace Emutastic.Services
             cmd.Parameters.AddWithValue("$romPath", game.RomPath);
             cmd.Parameters.AddWithValue("$romHash", game.RomHash ?? "");
             cmd.Parameters.AddWithValue("$coverArt", game.CoverArtPath ?? "");
+            cmd.Parameters.AddWithValue("$boxArt3D", game.BoxArt3DPath ?? "");
+            cmd.Parameters.AddWithValue("$ssArt", game.ScreenScraperArtPath ?? "");
             cmd.Parameters.AddWithValue("$bgColor", game.BackgroundColor);
             cmd.Parameters.AddWithValue("$accentColor", game.AccentColor);
             cmd.Parameters.AddWithValue("$dateAdded", DateTime.Now.ToString("o"));
@@ -1016,7 +1032,7 @@ namespace Emutastic.Services
         }
 
         /// <summary>
-        /// Deletes artwork files (CoverArtPath, BoxArt3DPath) for games matching the query.
+        /// Deletes artwork files (CoverArtPath, BoxArt3DPath, ScreenScraperArtPath) for games matching the query.
         /// Called before DELETE so the files don't become orphans.
         /// </summary>
         private static void CleanupArtworkFiles(SqliteConnection connection, string query,

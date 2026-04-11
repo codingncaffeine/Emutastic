@@ -422,20 +422,26 @@ namespace Emutastic.Services
 
                 var (artworkPath, ssArtPath, metadata) = await _artwork.FetchArtworkAsync(hash, romPath, console);
 
+                if (ssArtPath != null)
+                {
+                    _db.UpdateScreenScraperArt(game.Id, ssArtPath);
+                    game.ScreenScraperArtPath = ssArtPath;
+                }
+
                 if (artworkPath != null)
                 {
                     _db.UpdateCoverArt(game.Id, artworkPath);
                     game.CoverArtPath = artworkPath;
 
-                    if (ssArtPath != null)
-                    {
-                        _db.UpdateScreenScraperArt(game.Id, ssArtPath);
-                        game.ScreenScraperArtPath = ssArtPath;
-                    }
-
                     if (metadata != null && !string.IsNullOrWhiteSpace(metadata.Title))
                         game.Title = metadata.Title;
 
+                    GameImported?.Invoke(game);
+                }
+                else if (ssArtPath != null)
+                {
+                    if (metadata != null && !string.IsNullOrWhiteSpace(metadata.Title))
+                        game.Title = metadata.Title;
                     GameImported?.Invoke(game);
                 }
                 else

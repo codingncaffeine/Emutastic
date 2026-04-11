@@ -18,7 +18,7 @@ namespace Emutastic.Models
 
         /// <summary>
         /// Returns the best available art path based on user preferences:
-        /// 3D box art (when enabled for this console) > ScreenScraper 2D (when preferred) > libretro 2D.
+        /// 3D > ScreenScraper 2D (when preferred) > libretro 2D > ScreenScraper 2D (fallback).
         /// </summary>
         public string DisplayArtPath
         {
@@ -28,7 +28,12 @@ namespace Emutastic.Models
                     return BoxArt3DPath;
                 if (PreferScreenScraper2D && !string.IsNullOrEmpty(ScreenScraperArtPath))
                     return ScreenScraperArtPath;
-                return CoverArtPath;
+                if (!string.IsNullOrEmpty(CoverArtPath))
+                    return CoverArtPath;
+                // Last resort: show SS 2D art even if not preferred, better than nothing
+                if (!string.IsNullOrEmpty(ScreenScraperArtPath))
+                    return ScreenScraperArtPath;
+                return "";
             }
         }
 
