@@ -1212,7 +1212,7 @@ namespace Emutastic.Services
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             var cmd = connection.CreateCommand();
-            cmd.CommandText = "SELECT * FROM Games WHERE IsFavorite = 1 ORDER BY Title;";
+            cmd.CommandText = "SELECT * FROM Games WHERE IsFavorite = 1 ORDER BY Console, Title;";
             using var reader = cmd.ExecuteReader();
             return ReadAllGames(reader);
         }
