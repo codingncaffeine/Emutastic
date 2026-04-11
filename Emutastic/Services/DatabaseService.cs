@@ -1160,6 +1160,7 @@ namespace Emutastic.Services
                 FROM Games
                 WHERE (CoverArtPath IS NULL OR CoverArtPath = '')
                 AND   (RomHash IS NOT NULL AND RomHash != '')
+                AND   ArtworkAttempts < 3
                 ORDER BY ArtworkAttempts ASC;";
 
             using var reader = cmd.ExecuteReader();

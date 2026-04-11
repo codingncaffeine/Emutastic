@@ -245,6 +245,25 @@ namespace Emutastic.ViewModels
                 game.Year = year;
         }
 
+        /// <summary>
+        /// Batch-updates metadata for many games using an O(1) lookup instead of
+        /// repeated FirstOrDefault scans. Prevents UI-thread stalls on large libraries.
+        /// </summary>
+        public void BulkUpdateMetadata(List<(int id, string dev, string pub, string genre, string desc, int year)> updates)
+        {
+            var lookup = _allGames.ToDictionary(g => g.Id);
+            foreach (var (id, dev, pub, genre, desc, year) in updates)
+            {
+                if (!lookup.TryGetValue(id, out var game)) continue;
+                game.Developer = dev;
+                game.Publisher = pub;
+                game.Genre = genre;
+                game.Description = desc;
+                if (year > 0 && game.Year == 0)
+                    game.Year = year;
+            }
+        }
+
         public void RemoveGame(Game game)
         {
             var inAll = _allGames.FirstOrDefault(g => g.Id == game.Id);

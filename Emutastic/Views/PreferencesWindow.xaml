@@ -525,6 +525,11 @@
                                  GroupName="NavGroup"
                                  Style="{StaticResource NavBtn}"
                                  Checked="NavBtn_Checked"/>
+                    <RadioButton x:Name="NavCoreOptions"
+                                 Content="Core Options"
+                                 GroupName="NavGroup"
+                                 Style="{StaticResource NavBtn}"
+                                 Checked="NavBtn_Checked"/>
                     <RadioButton x:Name="NavLibrary"
                                  Content="Library"
                                  GroupName="NavGroup"
@@ -537,11 +542,6 @@
                                  Checked="NavBtn_Checked"/>
                     <RadioButton x:Name="NavSnaps"
                                  Content="Snaps"
-                                 GroupName="NavGroup"
-                                 Style="{StaticResource NavBtn}"
-                                 Checked="NavBtn_Checked"/>
-                    <RadioButton x:Name="NavCoreOptions"
-                                 Content="Core Options"
                                  GroupName="NavGroup"
                                  Style="{StaticResource NavBtn}"
                                  Checked="NavBtn_Checked"/>

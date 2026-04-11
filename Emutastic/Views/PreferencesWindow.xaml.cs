@@ -149,6 +149,11 @@ namespace Emutastic.Views
             try
             {
                 ControllerImage.Source = new BitmapImage(new Uri(def.ControllerImage, UriKind.Relative));
+                // FDS image is too zoomed-in compared to other consoles — scale it down
+                ControllerImage.RenderTransformOrigin = new Point(0.5, 0.5);
+                ControllerImage.RenderTransform = consoleTag == "FDS"
+                    ? new ScaleTransform(0.7, 0.7)
+                    : null;
             }
             catch { ControllerImage.Source = null; }
 
@@ -658,6 +663,17 @@ namespace Emutastic.Views
         }
 
         // ── BIOS panel ────────────────────────────────────────────────────────
+        // BIOS category groupings matching the cores tab
+        private static readonly (string Category, string[] ConsoleDisplays)[] BiosCategories =
+        {
+            ("Nintendo",  new[] { "Famicom Disk System", "Game Boy Advance" }),
+            ("Sega",      new[] { "Sega CD", "Saturn" }),
+            ("Sony",      new[] { "PlayStation" }),
+            ("NEC",       new[] { "TurboGrafx-CD" }),
+            ("Arcade",    new[] { "Neo Geo" }),
+            ("Other",     new[] { "3DO", "Philips CD-i" }),
+        };
+
         private void BuildBiosPanel()
         {
             BiosPanel.Children.Clear();
@@ -672,7 +688,7 @@ namespace Emutastic.Views
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(6),
                 Padding  = new Thickness(14, 10, 14, 10),
-                Margin   = new Thickness(0, 0, 0, 16)
+                Margin   = new Thickness(0, 0, 0, 12)
             };
             var bannerStack = new StackPanel();
             bannerStack.Children.Add(new TextBlock
@@ -716,35 +732,299 @@ namespace Emutastic.Views
                         .ToArray()
                 );
 
-            var groups = KnownBios.All.GroupBy(b => b.ConsoleDisplay);
-            foreach (var group in groups)
+            // Build lookup: ConsoleDisplay → BIOS entries
+            var biosGroups = KnownBios.All.GroupBy(b => b.ConsoleDisplay)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            // Two-level accordion: Category → Console → BIOS files
+            foreach (var (category, consoleDisplays) in BiosCategories)
             {
-                // Console group header
-                var header = new TextBlock
-                {
-                    Text = group.Key.ToUpperInvariant(),
-                    FontSize = 10,
-                    FontWeight = FontWeights.SemiBold,
-                    Foreground = _brushTextMuted,
-                    Margin = new Thickness(0, 14, 0, 6)
-                };
-                BiosPanel.Children.Add(header);
+                var activeDisplays = consoleDisplays
+                    .Where(d => biosGroups.ContainsKey(d))
+                    .ToList();
+                if (activeDisplays.Count == 0) continue;
 
-                // Gather ROM dirs for this console group (may span multiple console tags)
-                var consoleTags = KnownBios.All
-                    .Where(b => b.ConsoleDisplay == group.Key)
-                    .Select(b => b.Console)
-                    .Distinct();
-                var romDirs = consoleTags
-                    .SelectMany(tag => romDirsByConsole.TryGetValue(tag, out var dirs) ? dirs : Array.Empty<string>())
-                    .Where(d => d != null)
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToArray();
-
-                foreach (var entry in group)
+                // Count found/total across the category
+                int catFound = 0, catTotal = 0;
+                foreach (string display in activeDisplays)
                 {
-                    BiosPanel.Children.Add(BuildBiosRow(entry, sysDir, romDirs!));
+                    foreach (var entry in biosGroups[display])
+                    {
+                        catTotal++;
+                        string path = System.IO.Path.Combine(sysDir, entry.Filename);
+                        if (System.IO.File.Exists(path))
+                            catFound++;
+                        else
+                        {
+                            // Check ROM dirs
+                            var consoleTags = KnownBios.All
+                                .Where(b => b.ConsoleDisplay == display)
+                                .Select(b => b.Console).Distinct();
+                            var romDirs = consoleTags
+                                .SelectMany(tag => romDirsByConsole.TryGetValue(tag, out var dirs) ? dirs : Array.Empty<string>())
+                                .Where(d => d != null)
+                                .Distinct(StringComparer.OrdinalIgnoreCase);
+                            if (romDirs.Any(dir => System.IO.File.Exists(
+                                System.IO.Path.Combine(dir, System.IO.Path.GetFileName(entry.Filename)))))
+                                catFound++;
+                        }
+                    }
                 }
+
+                // Category accordion header
+                var catBody = new StackPanel { Visibility = Visibility.Collapsed };
+                var catChevron = new TextBlock
+                {
+                    Text = "▸", FontSize = 14,
+                    Foreground = _brushText,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 10, 0),
+                    RenderTransformOrigin = new Point(0.5, 0.5),
+                    RenderTransform = new RotateTransform(0)
+                };
+
+                var catHeaderGrid = new Grid { Cursor = Cursors.Hand };
+                catHeaderGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                catHeaderGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                catHeaderGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                catHeaderGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                Grid.SetColumn(catChevron, 0);
+
+                var catLabel = new TextBlock
+                {
+                    Text = category,
+                    FontSize = 14,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = _brushText,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Grid.SetColumn(catLabel, 1);
+
+                var catSummary = new TextBlock
+                {
+                    Text = $"{activeDisplays.Count} {(activeDisplays.Count == 1 ? "system" : "systems")}",
+                    FontSize = 11,
+                    Foreground = _brushTextMuted,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 10, 0)
+                };
+                Grid.SetColumn(catSummary, 2);
+
+                var catBadge = new Border
+                {
+                    Background = catFound == catTotal && catTotal > 0
+                        ? new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58))
+                        : catFound > 0
+                            ? new SolidColorBrush(Color.FromArgb(0x22, 0xFF, 0xA5, 0x00))
+                            : new SolidColorBrush(Color.FromArgb(0x22, 0x88, 0x88, 0x88)),
+                    CornerRadius = new CornerRadius(4),
+                    Padding = new Thickness(6, 2, 6, 2),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                catBadge.Child = new TextBlock
+                {
+                    Text = $"{catFound}/{catTotal}",
+                    FontSize = 10,
+                    Foreground = catFound == catTotal && catTotal > 0
+                        ? new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58))
+                        : catFound > 0
+                            ? new SolidColorBrush(Color.FromRgb(0xFF, 0xA5, 0x00))
+                            : _brushTextMuted
+                };
+                Grid.SetColumn(catBadge, 3);
+
+                catHeaderGrid.Children.Add(catChevron);
+                catHeaderGrid.Children.Add(catLabel);
+                catHeaderGrid.Children.Add(catSummary);
+                catHeaderGrid.Children.Add(catBadge);
+
+                var catHeaderBorder = new Border
+                {
+                    Background = new SolidColorBrush(Color.FromRgb(0x1F, 0x1F, 0x21)),
+                    CornerRadius = new CornerRadius(6),
+                    Padding = new Thickness(14, 12, 14, 12),
+                    Margin = new Thickness(0, 6, 0, 0)
+                };
+                catHeaderBorder.Child = catHeaderGrid;
+
+                var capturedCatBody = catBody;
+                var capturedCatChevron = catChevron;
+                catHeaderBorder.MouseLeftButtonUp += (_, _) =>
+                {
+                    bool expanding = capturedCatBody.Visibility == Visibility.Collapsed;
+                    capturedCatBody.Visibility = expanding ? Visibility.Visible : Visibility.Collapsed;
+                    ((RotateTransform)capturedCatChevron.RenderTransform).Angle = expanding ? 90 : 0;
+                };
+
+                BiosPanel.Children.Add(catHeaderBorder);
+
+                // Console accordions inside the category
+                foreach (string consoleDisplay in activeDisplays)
+                {
+                    var entries = biosGroups[consoleDisplay];
+
+                    // ROM dirs for this console group
+                    var consoleTags2 = entries.Select(b => b.Console).Distinct();
+                    var romDirs2 = consoleTags2
+                        .SelectMany(tag => romDirsByConsole.TryGetValue(tag, out var dirs) ? dirs : Array.Empty<string>())
+                        .Where(d => d != null)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToArray();
+
+                    // Count found for this console
+                    int consoleFound = 0;
+                    foreach (var entry in entries)
+                    {
+                        string path = System.IO.Path.Combine(sysDir, entry.Filename);
+                        if (System.IO.File.Exists(path) || romDirs2.Any(dir =>
+                            System.IO.File.Exists(System.IO.Path.Combine(dir, System.IO.Path.GetFileName(entry.Filename)))))
+                            consoleFound++;
+                    }
+
+                    // Single-BIOS consoles: show the file inline without a nested accordion
+                    if (entries.Count == 1)
+                    {
+                        var inlineCard = new Border
+                        {
+                            Background = new SolidColorBrush(Color.FromRgb(0x1A, 0x1A, 0x1C)),
+                            CornerRadius = new CornerRadius(6),
+                            Padding = new Thickness(12, 8, 14, 8),
+                            Margin = new Thickness(12, 2, 0, 2)
+                        };
+                        var inlineGrid = new Grid();
+                        inlineGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                        inlineGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                        var inlineRow = (FrameworkElement)BuildBiosRow(entries[0], sysDir, romDirs2!);
+                        inlineRow.Margin = new Thickness(0);
+                        Grid.SetColumn(inlineRow, 0);
+
+                        var inlineBadge = new Border
+                        {
+                            Background = consoleFound == 1
+                                ? new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58))
+                                : new SolidColorBrush(Color.FromArgb(0x22, 0xE0, 0x35, 0x35)),
+                            CornerRadius = new CornerRadius(4),
+                            Padding = new Thickness(6, 2, 6, 2),
+                            VerticalAlignment = VerticalAlignment.Center
+                        };
+                        inlineBadge.Child = new TextBlock
+                        {
+                            Text = consoleFound == 1 ? "found" : "missing",
+                            FontSize = 10,
+                            Foreground = consoleFound == 1
+                                ? new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58))
+                                : new SolidColorBrush(Color.FromRgb(0xE0, 0x35, 0x35))
+                        };
+                        Grid.SetColumn(inlineBadge, 1);
+
+                        inlineGrid.Children.Add(inlineRow);
+                        inlineGrid.Children.Add(inlineBadge);
+                        inlineCard.Child = inlineGrid;
+                        catBody.Children.Add(inlineCard);
+                        continue;
+                    }
+
+                    // Multi-BIOS consoles: nested accordion
+                    var consoleBody = new StackPanel { Visibility = Visibility.Collapsed };
+                    var consoleChevron = new TextBlock
+                    {
+                        Text = "▸", FontSize = 12,
+                        Foreground = _brushTextMuted,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(0, 0, 8, 0),
+                        RenderTransformOrigin = new Point(0.5, 0.5),
+                        RenderTransform = new RotateTransform(0)
+                    };
+
+                    var consoleHeaderGrid = new Grid { Cursor = Cursors.Hand };
+                    consoleHeaderGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                    consoleHeaderGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                    consoleHeaderGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                    Grid.SetColumn(consoleChevron, 0);
+
+                    var consoleLbl = new TextBlock
+                    {
+                        Text = consoleDisplay,
+                        FontSize = 13,
+                        FontWeight = FontWeights.SemiBold,
+                        Foreground = _brushText,
+                        VerticalAlignment = VerticalAlignment.Center
+                    };
+                    Grid.SetColumn(consoleLbl, 1);
+
+                    var consoleBadge = new Border
+                    {
+                        Background = consoleFound == entries.Count
+                            ? new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58))
+                            : consoleFound > 0
+                                ? new SolidColorBrush(Color.FromArgb(0x22, 0xFF, 0xA5, 0x00))
+                                : new SolidColorBrush(Color.FromArgb(0x22, 0xE0, 0x35, 0x35)),
+                        CornerRadius = new CornerRadius(4),
+                        Padding = new Thickness(6, 2, 6, 2),
+                        VerticalAlignment = VerticalAlignment.Center
+                    };
+                    consoleBadge.Child = new TextBlock
+                    {
+                        Text = consoleFound == entries.Count
+                            ? $"{entries.Count} found"
+                            : consoleFound > 0
+                                ? $"{consoleFound}/{entries.Count} found"
+                                : "missing",
+                        FontSize = 10,
+                        Foreground = consoleFound == entries.Count
+                            ? new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58))
+                            : consoleFound > 0
+                                ? new SolidColorBrush(Color.FromRgb(0xFF, 0xA5, 0x00))
+                                : new SolidColorBrush(Color.FromRgb(0xE0, 0x35, 0x35))
+                    };
+                    Grid.SetColumn(consoleBadge, 2);
+
+                    consoleHeaderGrid.Children.Add(consoleChevron);
+                    consoleHeaderGrid.Children.Add(consoleLbl);
+                    consoleHeaderGrid.Children.Add(consoleBadge);
+
+                    var consoleHeaderBorder = new Border
+                    {
+                        Background = new SolidColorBrush(Color.FromRgb(0x1A, 0x1A, 0x1C)),
+                        CornerRadius = new CornerRadius(6),
+                        Padding = new Thickness(12, 8, 14, 8),
+                        Margin = new Thickness(12, 2, 0, 2)
+                    };
+                    consoleHeaderBorder.Child = consoleHeaderGrid;
+
+                    var capturedConsoleBody = consoleBody;
+                    var capturedConsoleChevron = consoleChevron;
+                    consoleHeaderBorder.MouseLeftButtonUp += (_, _) =>
+                    {
+                        bool expanding = capturedConsoleBody.Visibility == Visibility.Collapsed;
+                        capturedConsoleBody.Visibility = expanding ? Visibility.Visible : Visibility.Collapsed;
+                        ((RotateTransform)capturedConsoleChevron.RenderTransform).Angle = expanding ? 90 : 0;
+                    };
+
+                    catBody.Children.Add(consoleHeaderBorder);
+
+                    // BIOS file rows inside the console accordion
+                    var bodyCard = new Border
+                    {
+                        Background = new SolidColorBrush(Color.FromRgb(0x17, 0x17, 0x19)),
+                        CornerRadius = new CornerRadius(0, 0, 6, 6),
+                        Padding = new Thickness(10, 6, 10, 6),
+                        Margin = new Thickness(24, 0, 0, 4)
+                    };
+                    var bodyStack = new StackPanel();
+
+                    foreach (var entry in entries)
+                        bodyStack.Children.Add(BuildBiosRow(entry, sysDir, romDirs2!));
+
+                    bodyCard.Child = bodyStack;
+                    consoleBody.Children.Add(bodyCard);
+                    catBody.Children.Add(consoleBody);
+                }
+
+                BiosPanel.Children.Add(catBody);
             }
         }
 
@@ -2449,29 +2729,67 @@ namespace Emutastic.Views
                 return;
             }
 
-            foreach (var (coreName, displayName, consoleName) in cores)
+            // Build a console→category lookup from ConsoleCategories
+            var consoleToCat = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (cat, consoles) in ConsoleCategories)
+                foreach (var c in consoles)
+                    consoleToCat[c] = cat;
+
+            // Group cores by manufacturer category, preserving ConsoleCategories order
+            var coresByCategory = new Dictionary<string, List<(string CoreName, string DisplayName, string ConsoleName)>>();
+            foreach (var core in cores)
             {
-                string capturedName = coreName;
-                string label = consoleName.Length > 0 ? $"{displayName} ({consoleName})" : displayName;
-                var btn = new Button
+                string cat = consoleToCat.GetValueOrDefault(core.ConsoleName, "Other");
+                if (!coresByCategory.ContainsKey(cat))
+                    coresByCategory[cat] = new();
+                coresByCategory[cat].Add(core);
+            }
+
+            // Render grouped list — category headers with cores underneath
+            string? firstCoreName = null;
+            var categoryOrder = ConsoleCategories.Select(c => c.Category).ToList();
+            // Add "Other" if not already present
+            if (!categoryOrder.Contains("Other")) categoryOrder.Add("Other");
+
+            foreach (var category in categoryOrder)
+            {
+                if (!coresByCategory.TryGetValue(category, out var catCores)) continue;
+
+                // Category header label
+                CoreOptionsCoreList.Children.Add(new TextBlock
                 {
-                    Content = label,
-                    HorizontalAlignment = HorizontalAlignment.Stretch,
-                    HorizontalContentAlignment = HorizontalAlignment.Left,
-                    Background = Brushes.Transparent,
-                    BorderThickness = new Thickness(0),
-                    Foreground = _brushText,
-                    FontSize = 12,
-                    Padding = new Thickness(10, 8, 10, 8),
-                    Cursor = System.Windows.Input.Cursors.Hand
-                };
-                btn.Click += (_, _) => LoadCoreOptionsForCore(capturedName);
-                CoreOptionsCoreList.Children.Add(btn);
+                    Text = category.ToUpperInvariant(),
+                    FontSize = 10,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = _brushTextMuted,
+                    Margin = new Thickness(10, 12, 0, 4)
+                });
+
+                foreach (var (coreName, displayName, consoleName) in catCores)
+                {
+                    firstCoreName ??= coreName;
+                    string capturedName = coreName;
+                    string label = consoleName.Length > 0 ? $"{displayName} ({consoleName})" : displayName;
+                    var btn = new Button
+                    {
+                        Content = label,
+                        HorizontalAlignment = HorizontalAlignment.Stretch,
+                        HorizontalContentAlignment = HorizontalAlignment.Left,
+                        Background = Brushes.Transparent,
+                        BorderThickness = new Thickness(0),
+                        Foreground = _brushText,
+                        FontSize = 12,
+                        Padding = new Thickness(10, 8, 10, 8),
+                        Cursor = System.Windows.Input.Cursors.Hand
+                    };
+                    btn.Click += (_, _) => LoadCoreOptionsForCore(capturedName);
+                    CoreOptionsCoreList.Children.Add(btn);
+                }
             }
 
             // Auto-select the first core
-            if (cores.Count > 0)
-                LoadCoreOptionsForCore(cores[0].Item1);
+            if (firstCoreName != null)
+                LoadCoreOptionsForCore(firstCoreName);
         }
 
         private void LoadCoreOptionsForCore(string coreName)
