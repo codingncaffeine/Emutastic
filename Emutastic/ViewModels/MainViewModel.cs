@@ -1,16 +1,17 @@
-﻿using Emutastic.Models;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using Emutastic.Models;
 using Emutastic.Services;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
 using System.Linq;
-using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Emutastic.ViewModels
 {
-    public class MainViewModel : INotifyPropertyChanged
+    public partial class MainViewModel : ObservableObject
     {
         private readonly DatabaseService _db;
         private ObservableCollection<Game> _allGames = new();
@@ -28,24 +29,19 @@ namespace Emutastic.ViewModels
             }
         }
 
+        [ObservableProperty]
         private string _selectedConsole = "All Games";
-        public string SelectedConsole
-        {
-            get => _selectedConsole;
-            set { _selectedConsole = value; OnPropertyChanged(); }
-        }
 
         // Cached filtered results — reused across console-switch round trips.
         // Invalidated whenever games are added, removed, or reloaded.
         private readonly Dictionary<string, ObservableCollection<Game>> _consoleCache = new();
         private bool _filterDirty = true;
 
+        [ObservableProperty]
         private string _gameCountText = "";
-        public string GameCountText
-        {
-            get => _gameCountText;
-            set { _gameCountText = value; OnPropertyChanged(); }
-        }
+
+        [ObservableProperty]
+        private string _statusText = "";
 
         private ObservableCollection<ConsoleGroup> _groupedGames = new();
         public ObservableCollection<ConsoleGroup> GroupedGames
@@ -59,17 +55,90 @@ namespace Emutastic.ViewModels
             }
         }
 
+        [ObservableProperty]
         private bool _isGroupedView;
-        public bool IsGroupedView
-        {
-            get => _isGroupedView;
-            set { _isGroupedView = value; OnPropertyChanged(); }
-        }
+
+        [ObservableProperty]
+        private string _toolbarTitle = "";
+
+        [ObservableProperty]
+        private bool _isShowingFavorites;
+
+        /// <summary>Raised after any navigation command completes. Arg is the console tag or category name.</summary>
+        public event Action<string>? Navigated;
+
+        public IAsyncRelayCommand<string> NavigateToConsoleCommand { get; }
+        public IAsyncRelayCommand NavigateToAllGamesCommand { get; }
+        public IRelayCommand NavigateToRecentCommand { get; }
+        public IRelayCommand NavigateToFavoritesCommand { get; }
+        public IRelayCommand NavigateToRecentlyAddedCommand { get; }
+        public IRelayCommand<int> NavigateToCollectionCommand { get; }
 
         public MainViewModel(DatabaseService db)
         {
             _db = db;
-            // Data is loaded asynchronously by the caller via Reload() + FilterGamesAsync().
+
+            NavigateToConsoleCommand = new AsyncRelayCommand<string>(NavigateToConsoleAsync);
+            NavigateToAllGamesCommand = new AsyncRelayCommand(NavigateToAllGamesAsync);
+            NavigateToRecentCommand = new RelayCommand(NavigateToRecent);
+            NavigateToFavoritesCommand = new RelayCommand(NavigateToFavorites);
+            NavigateToRecentlyAddedCommand = new RelayCommand(NavigateToRecentlyAdded);
+            NavigateToCollectionCommand = new RelayCommand<int>(NavigateToCollection);
+        }
+
+        private async Task NavigateToConsoleAsync(string? tag)
+        {
+            if (string.IsNullOrEmpty(tag)) return;
+            IsShowingFavorites = false;
+            SelectedConsole = tag;
+            await FilterGamesAsync();
+            Navigated?.Invoke(tag);
+        }
+
+        private async Task NavigateToAllGamesAsync()
+        {
+            IsShowingFavorites = false;
+            SelectedConsole = "All Games";
+            await FilterGamesAsync();
+            ToolbarTitle = "All Games";
+            Navigated?.Invoke("All Games");
+        }
+
+        private void NavigateToRecent()
+        {
+            IsShowingFavorites = false;
+            LoadRecent(_db);
+            ToolbarTitle = "Recently Played";
+            Navigated?.Invoke("Recent");
+        }
+
+        private void NavigateToFavorites()
+        {
+            IsShowingFavorites = true;
+            LoadFavorites(_db);
+            ToolbarTitle = "Favorites";
+            Navigated?.Invoke("Favorites");
+        }
+
+        private void NavigateToRecentlyAdded()
+        {
+            IsShowingFavorites = false;
+            var games = _db.GetRecentlyAdded(25);
+            Games = new ObservableCollection<Game>(games);
+            IsGroupedView = false;
+            GameCountText = $"{games.Count} games";
+            ToolbarTitle = "Recently Added";
+            Navigated?.Invoke("RecentlyAdded");
+        }
+
+        private void NavigateToCollection(int collectionId)
+        {
+            IsShowingFavorites = false;
+            var games = _db.GetGamesByCollectionId(collectionId);
+            Games = new ObservableCollection<Game>(games);
+            IsGroupedView = false;
+            GameCountText = $"{games.Count} games";
+            Navigated?.Invoke($"Collection:{collectionId}");
         }
 
         public void Reload()
@@ -149,7 +218,7 @@ namespace Emutastic.ViewModels
 
         public async Task FilterGamesAsync()
         {
-            var console = _selectedConsole;
+            var console = SelectedConsole;
 
             // Cache hit — reuse the previously built collection for this console.
             if (!_filterDirty && _consoleCache.TryGetValue(console, out var cached))
@@ -234,6 +303,25 @@ namespace Emutastic.ViewModels
             });
         }
 
+        private CancellationTokenSource? _statusClearCts;
+        private readonly SynchronizationContext? _uiContext = SynchronizationContext.Current;
+
+        public void SetStatus(string msg, bool autoClear = false)
+        {
+            _statusClearCts?.Cancel();
+            StatusText = msg;
+            if (!autoClear) return;
+            _statusClearCts = new CancellationTokenSource();
+            var token = _statusClearCts.Token;
+            _ = Task.Delay(3000, token).ContinueWith(_ =>
+            {
+                if (_uiContext != null)
+                    _uiContext.Post(_ => StatusText = "", null);
+                else
+                    StatusText = "";
+            }, token, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default);
+        }
+
         public void InvalidateCache()
         {
             _filterDirty = true;
@@ -256,14 +344,10 @@ namespace Emutastic.ViewModels
             new Game { Title = "Ocarina of Time",       Console = "N64",     Manufacturer = "Nintendo", Year = 1998, BackgroundColor = "#2A9D8F", AccentColor = "#57CC99", PlayCount = 11, SaveCount = 9,  LastPlayed = DateTime.Now.AddDays(-6), IsFavorite = true },
             new Game { Title = "Sonic the Hedgehog",    Console = "Genesis", Manufacturer = "Sega",     Year = 1991, BackgroundColor = "#0096FF", AccentColor = "#FFD700", PlayCount = 14, SaveCount = 0,  LastPlayed = DateTime.Now.AddDays(-3) },
             new Game { Title = "Symphony of the Night", Console = "PS1",     Manufacturer = "Sony",     Year = 1997, BackgroundColor = "#1A0A2E", AccentColor = "#9C27B0", PlayCount = 8,  SaveCount = 7,  LastPlayed = DateTime.Now.AddDays(-9), IsFavorite = true },
-            new Game { Title = "Pokémon Red",           Console = "GB",      Manufacturer = "Nintendo", Year = 1996, BackgroundColor = "#CC0000", AccentColor = "#FF6B6B", PlayCount = 30, SaveCount = 1,  LastPlayed = DateTime.Now.AddDays(-1), IsFavorite = true },
+            new Game { Title = "Pokemon Red",           Console = "GB",      Manufacturer = "Nintendo", Year = 1996, BackgroundColor = "#CC0000", AccentColor = "#FF6B6B", PlayCount = 30, SaveCount = 1,  LastPlayed = DateTime.Now.AddDays(-1), IsFavorite = true },
             new Game { Title = "Tetris",                Console = "GB",      Manufacturer = "Nintendo", Year = 1989, BackgroundColor = "#1565C0", AccentColor = "#42A5F5", PlayCount = 45, SaveCount = 0,  LastPlayed = DateTime.Now.AddDays(-1) },
-            new Game { Title = "Pokémon FireRed",       Console = "GBA",     Manufacturer = "Nintendo", Year = 2004, BackgroundColor = "#CC0000", AccentColor = "#FF6B6B", PlayCount = 20, SaveCount = 3,  LastPlayed = DateTime.Now.AddDays(-2) },
+            new Game { Title = "Pokemon FireRed",       Console = "GBA",     Manufacturer = "Nintendo", Year = 2004, BackgroundColor = "#CC0000", AccentColor = "#FF6B6B", PlayCount = 20, SaveCount = 3,  LastPlayed = DateTime.Now.AddDays(-2) },
             new Game { Title = "Chrono Trigger",        Console = "SNES",    Manufacturer = "Nintendo", Year = 1995, BackgroundColor = "#264653", AccentColor = "#2A9D8F", PlayCount = 4,  SaveCount = 6,  LastPlayed = DateTime.Now.AddDays(-5), IsFavorite = true },
         ];
-
-        public event PropertyChangedEventHandler? PropertyChanged;
-        protected void OnPropertyChanged([CallerMemberName] string? name = null)
-            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
 }
