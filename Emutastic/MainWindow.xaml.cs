@@ -33,6 +33,8 @@ namespace Emutastic
         private System.Windows.Threading.DispatcherTimer? _dragLeaveTimer;
         private GameDetailWindow? _openDetailWindow;
         // _vm.IsShowingFavorites moved to MainViewModel
+        private string _currentNavTag = "All Games";
+        private readonly Dictionary<string, double> _scrollPositions = new();
 
         public MainWindow()
         {
@@ -171,20 +173,48 @@ namespace Emutastic
 
         /// <summary>
         /// Scrolls all library views (grid, grouped, list) to the top.
-        /// Called after navigation so the view always starts at the first item.
+        /// Called on initial load only.
         /// </summary>
         private void ScrollLibraryToTop()
         {
-            // GameGridView (flat grid) — ListBox has an internal ScrollViewer
             var gridSv = FindVisualChild<ScrollViewer>(GameGridView);
             gridSv?.ScrollToTop();
-
-            // LibraryView (grouped scroll viewer)
             LibraryView?.ScrollToTop();
-
-            // GameListView (list mode) — ListBox has an internal ScrollViewer
             var listSv = FindVisualChild<ScrollViewer>(GameListView);
             listSv?.ScrollToTop();
+        }
+
+        private void SaveScrollPosition(string tag)
+        {
+            var sv = FindActiveScrollViewer();
+            if (sv != null)
+                _scrollPositions[tag] = sv.VerticalOffset;
+        }
+
+        private void RestoreScrollPosition(string tag)
+        {
+            if (_scrollPositions.TryGetValue(tag, out double offset))
+            {
+                var sv = FindActiveScrollViewer();
+                sv?.ScrollToVerticalOffset(offset);
+            }
+            else
+            {
+                // First visit — start at top
+                var sv = FindActiveScrollViewer();
+                sv?.ScrollToTop();
+            }
+        }
+
+        private ScrollViewer? FindActiveScrollViewer()
+        {
+            if (FavoritesGroupedView.Visibility == Visibility.Visible)
+                return FavoritesGroupedView;
+            if (GameListView.Visibility == Visibility.Visible)
+                return FindVisualChild<ScrollViewer>(GameListView);
+            if (LibraryView.Visibility == Visibility.Visible)
+                return LibraryView;
+            return FindVisualChild<ScrollViewer>(GameGridView);
         }
 
         private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
@@ -476,7 +506,21 @@ namespace Emutastic
                     { Converter = (System.Windows.Data.IValueConverter)FindResource("BoolToVisibility") });
             }
 
-            ScrollLibraryToTop();
+            // Save scroll position for the view we're leaving, restore for the one we're entering
+            SaveScrollPosition(_currentNavTag);
+            _currentNavTag = tag;
+
+            // Hide content during scroll restore to avoid visible jump from top
+            if (_scrollPositions.ContainsKey(tag))
+            {
+                GameContentGrid.Opacity = 0;
+                Dispatcher.InvokeAsync(() =>
+                {
+                    RestoreScrollPosition(tag);
+                    GameContentGrid.Opacity = 1;
+                }, System.Windows.Threading.DispatcherPriority.Loaded);
+            }
+
             UpdateBoxArtToggleVisibility();
 
             // Show per-console game count badge
