@@ -326,6 +326,10 @@
                                         Content="Flip Display"
                                         Style="{StaticResource OverlayMenuItemStyle}"
                                         Click="OverlayFlip_Click"/>
+                                <Button x:Name="OverlayShaderBtn"
+                                        Content="Shader: None"
+                                        Style="{StaticResource OverlayMenuItemStyle}"
+                                        Click="OverlayShader_Click"/>
                                 <Button x:Name="OverlayToggleBtn"
                                         Content="Overlay: On"
                                         Visibility="Collapsed"

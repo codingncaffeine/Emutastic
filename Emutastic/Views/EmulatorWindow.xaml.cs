@@ -17,6 +17,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Microsoft.Extensions.Logging;
+using Emutastic.Effects;
 
 namespace Emutastic.Views
 {
@@ -532,6 +533,7 @@ namespace Emutastic.Views
         private IntPtr _secondaryCtx = IntPtr.Zero;  // main-thread rendering context, shares with _hglrc
         private wglCreateContextAttribsARBDelegate? _wglCreateContextAttribsARB;
         private bool   _hwRenderActive  = false;
+        private ShaderPreset _activeShader = ShaderPreset.None;
         private bool   _vsyncDisabled   = false;
         private GameHwndHost? _hwndHost;
 
@@ -856,6 +858,9 @@ namespace Emutastic.Views
                 // Restore saved window size for this console
                 RestoreWindowSize();
 
+                // Restore saved shader preset for this game
+                RestoreShaderPreset();
+
                 // Overlay: set core label and start hide timer
                 OverlayCoreLabel.Text = System.IO.Path.GetFileNameWithoutExtension(_core.CorePath);
                 _overlayTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2.5) };
@@ -1122,6 +1127,7 @@ namespace Emutastic.Views
                                 _vulkanContext = null;
                                 _isVulkanHwRender = false;
                                 _hwRenderActive = false;
+                                Dispatcher.BeginInvoke(() => OverlayShaderBtn.Visibility = Visibility.Visible);
                                 return;
                             }
                             System.Diagnostics.Trace.WriteLine($"[Vulkan] Context initialized at context_reset time (swapchain={_vulkanContext.HasSwapchain})");
@@ -1959,6 +1965,7 @@ namespace Emutastic.Views
                             _bitmap = new WriteableBitmap((int)capturedW, (int)capturedH, 96, 96, PixelFormats.Bgra32, null);
                             GameScreen.Source = _bitmap;
                             UpdateDisplayAspectRatio(capturedW, capturedH, _core?.AvInfo.geometry.aspect_ratio ?? 0f);
+                            UpdateShaderScreenHeight(capturedH);
                         }
                         _bitmap.Lock();
                         Marshal.Copy(_hwFlippedBuffer, 0, _bitmap.BackBuffer, (int)(capturedW * capturedH * 4));
@@ -2070,6 +2077,7 @@ namespace Emutastic.Views
                             _bitmap = new WriteableBitmap((int)capturedW, (int)capturedH, 96, 96, PixelFormats.Bgra32, null);
                             GameScreen.Source = _bitmap;
                             UpdateDisplayAspectRatio(capturedW, capturedH, _core?.AvInfo.geometry.aspect_ratio ?? 0f);
+                            UpdateShaderScreenHeight(capturedH);
                         }
                         _bitmap.Lock();
                         Marshal.Copy(_hwFlippedBuffer, 0, _bitmap.BackBuffer, (int)(capturedW * capturedH * 4));
@@ -2236,6 +2244,7 @@ namespace Emutastic.Views
                         {
                             _isVulkanHwRender = true;
                             _hwRenderActive = true;
+                            Dispatcher.BeginInvoke(() => OverlayShaderBtn.Visibility = Visibility.Collapsed);
 
                             if (hw.context_reset != IntPtr.Zero)
                                 _hwContextReset = Marshal.GetDelegateForFunctionPointer<retro_hw_context_reset_t>(hw.context_reset);
@@ -2261,6 +2270,7 @@ namespace Emutastic.Views
 
                         CreateFBO(640, 480);
                         _hwRenderActive = true;
+                        Dispatcher.BeginInvoke(() => OverlayShaderBtn.Visibility = Visibility.Collapsed);
 
                         if (hw.context_reset != IntPtr.Zero)
                             _hwContextReset = Marshal.GetDelegateForFunctionPointer<retro_hw_context_reset_t>(hw.context_reset);
@@ -2838,6 +2848,7 @@ namespace Emutastic.Views
                                     _bitmap = new WriteableBitmap((int)capturedW, (int)capturedH, 96, 96, PixelFormats.Bgra32, null);
                                     GameScreen.Source = _bitmap;
                                     UpdateDisplayAspectRatio(capturedW, capturedH, _core?.AvInfo.geometry.aspect_ratio ?? 0f);
+                                    UpdateShaderScreenHeight(capturedH);
                                 }
                                 _bitmap.Lock();
                                 Marshal.Copy(pixels, 0, _bitmap.BackBuffer, (int)(capturedW * capturedH * 4));
@@ -2986,6 +2997,7 @@ namespace Emutastic.Views
                             _bitmap = new WriteableBitmap((int)w, (int)h, 96, 96, pf, null);
                             GameScreen.Source = _bitmap;
                             UpdateDisplayAspectRatio(w, h, _core?.AvInfo.geometry.aspect_ratio ?? 0f);
+                            UpdateShaderScreenHeight(h);
                         }
                         _bitmap.Lock();
                         try
@@ -4045,6 +4057,8 @@ namespace Emutastic.Views
                 if (OverlayHud.Visibility != Visibility.Visible)
                 {
                     OverlayHud.Visibility = Visibility.Visible;
+                    // Clear any held fade-out animation before starting fade-in
+                    OverlayHud.BeginAnimation(OpacityProperty, null);
                     var fade = new System.Windows.Media.Animation.DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150));
                     OverlayHud.BeginAnimation(OpacityProperty, fade);
                 }
@@ -4439,6 +4453,68 @@ namespace Emutastic.Views
             if (_core?.AvInfo is { } av)
                 UpdateDisplayAspectRatio(av.geometry.base_width, av.geometry.base_height,
                     av.geometry.aspect_ratio);
+        }
+
+        // ── Shader Effects ────────────────────────────────────────────────
+
+        private void OverlayShader_Click(object sender, RoutedEventArgs e)
+        {
+            // Cycle to next preset
+            var values = Enum.GetValues<ShaderPreset>();
+            int next = ((int)_activeShader + 1) % values.Length;
+            _activeShader = values[next];
+
+            ApplyShader(_activeShader);
+            UpdateShaderLabel();
+
+            // Persist per-game
+            _configService.SetValue($"shader_{_game.Id}", _activeShader.ToString());
+            _ = _configService.SaveAsync();
+
+            OverlayMenu.Visibility = Visibility.Collapsed;
+            ResetOverlayTimer();
+        }
+
+        private void ApplyShader(ShaderPreset preset)
+        {
+            if (preset == ShaderPreset.Smooth)
+            {
+                GameScreen.Effect = null;
+                RenderOptions.SetBitmapScalingMode(GameScreen, BitmapScalingMode.HighQuality);
+            }
+            else
+            {
+                RenderOptions.SetBitmapScalingMode(GameScreen, BitmapScalingMode.NearestNeighbor);
+                GameScreen.Effect = ShaderEffectFactory.Create(preset, _videoHeight > 0 ? _videoHeight : 240);
+            }
+        }
+
+        private void UpdateShaderLabel()
+        {
+            OverlayShaderBtn.Content = $"Shader: {_activeShader.DisplayName()}";
+        }
+
+        private void RestoreShaderPreset()
+        {
+            try
+            {
+                string saved = _configService.GetValue($"shader_{_game.Id}", "None");
+                if (Enum.TryParse<ShaderPreset>(saved, out var p))
+                    _activeShader = p;
+                ApplyShader(_activeShader);
+                UpdateShaderLabel();
+            }
+            catch { }
+        }
+
+        private void UpdateShaderScreenHeight(uint height)
+        {
+            if (GameScreen.Effect is CrtScanlinesEffect crt)
+                crt.ScreenHeight = height;
+            else if (GameScreen.Effect is LcdGridEffect lcd)
+                lcd.ScreenHeight = height;
+            else if (GameScreen.Effect is GameBoyDmgLcdEffect dmgLcd)
+                dmgLcd.ScreenHeight = height;
         }
 
         // ── Vectrex Overlay ───────────────────────────────────────────────
