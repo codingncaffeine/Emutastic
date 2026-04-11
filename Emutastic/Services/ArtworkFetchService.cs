@@ -72,6 +72,7 @@ namespace Emutastic.Services
             // Repair pass: fix games whose artwork file is already on disk but the DB
             // path was never saved (e.g. background task killed on last shutdown).
             var stillMissing = new List<Game>();
+            var repaired = new List<Game>();
             await Task.Run(() =>
             {
                 foreach (var game in missing)
@@ -81,7 +82,7 @@ namespace Emutastic.Services
                     {
                         _db.UpdateCoverArt(game.Id, cached);
                         game.CoverArtPath = cached;
-                        OnUI(() => _vm.RefreshGame(game));
+                        repaired.Add(game);
                     }
                     else
                     {
@@ -89,6 +90,10 @@ namespace Emutastic.Services
                     }
                 }
             });
+
+            // Batch-refresh repaired games on the UI thread instead of one Post per game
+            if (repaired.Count > 0)
+                OnUI(() => { foreach (var g in repaired) _vm.RefreshGame(g); });
 
             if (stillMissing.Count == 0) return;
             await FetchArtworkForGamesAsync(stillMissing, "Artwork", silentThreshold: 1);
@@ -491,12 +496,7 @@ namespace Emutastic.Services
             {
                 OnUI(() =>
                 {
-                    foreach (var (id, dev, pub, genre, desc, year) in updates)
-                    {
-                        _vm.UpdateGameMetadata(id, dev, pub, genre, desc);
-                        if (year > 0)
-                            _vm.UpdateGameYear(id, year);
-                    }
+                    _vm.BulkUpdateMetadata(updates);
                     _vm.SetStatus($"Metadata updated for {updates.Count} games", autoClear: true);
                 });
             }
