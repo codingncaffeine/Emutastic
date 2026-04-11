@@ -1,8 +1,10 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Emutastic.Converters;
 using Emutastic.Models;
 using Emutastic.Services;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -34,8 +36,8 @@ namespace Emutastic.ViewModels
 
         // Cached filtered results — reused across console-switch round trips.
         // Invalidated whenever games are added, removed, or reloaded.
-        private readonly Dictionary<string, ObservableCollection<Game>> _consoleCache = new();
-        private bool _filterDirty = true;
+        private readonly ConcurrentDictionary<string, ObservableCollection<Game>> _consoleCache = new();
+        private volatile bool _filterDirty = true;
 
         [ObservableProperty]
         private string _gameCountText = "";
@@ -165,9 +167,21 @@ namespace Emutastic.ViewModels
             void MergeOnto(Game target)
             {
                 if (!string.IsNullOrEmpty(updated.Title))     target.Title = updated.Title;
-                if (!string.IsNullOrEmpty(updated.CoverArtPath)) target.CoverArtPath = updated.CoverArtPath;
-                if (!string.IsNullOrEmpty(updated.BoxArt3DPath)) target.BoxArt3DPath = updated.BoxArt3DPath;
-                if (!string.IsNullOrEmpty(updated.ScreenScraperArtPath)) target.ScreenScraperArtPath = updated.ScreenScraperArtPath;
+                if (!string.IsNullOrEmpty(updated.CoverArtPath))
+                {
+                    PathToImageConverter.Evict(target.CoverArtPath);
+                    target.CoverArtPath = updated.CoverArtPath;
+                }
+                if (!string.IsNullOrEmpty(updated.BoxArt3DPath))
+                {
+                    PathToImageConverter.Evict(target.BoxArt3DPath);
+                    target.BoxArt3DPath = updated.BoxArt3DPath;
+                }
+                if (!string.IsNullOrEmpty(updated.ScreenScraperArtPath))
+                {
+                    PathToImageConverter.Evict(target.ScreenScraperArtPath);
+                    target.ScreenScraperArtPath = updated.ScreenScraperArtPath;
+                }
                 if (!string.IsNullOrEmpty(updated.RomHash))   target.RomHash = updated.RomHash;
                 if (!string.IsNullOrEmpty(updated.RomPath))   target.RomPath = updated.RomPath;
                 if (updated.BackgroundColor != "#1F1F21")     target.BackgroundColor = updated.BackgroundColor;
@@ -285,15 +299,16 @@ namespace Emutastic.ViewModels
         {
             return Task.Run(() =>
             {
-                var consoles = _allGames.Select(g => g.Console).Distinct().ToList();
-                foreach (string console in consoles)
+                // Single pass: group + sort all games at once instead of N separate Where+OrderBy.
+                var grouped = _allGames.GroupBy(g => g.Console)
+                    .ToDictionary(g => g.Key, g => g.OrderBy(x => x.Title).ToList());
+
+                foreach (var (console, sorted) in grouped)
                 {
-                    if (_consoleCache.ContainsKey(console)) continue;
-                    var sorted = _allGames.Where(g => g.Console == console)
-                                          .OrderBy(g => g.Title).ToList();
-                    _consoleCache[console] = new ObservableCollection<Game>(sorted);
+                    if (!_consoleCache.ContainsKey(console))
+                        _consoleCache[console] = new ObservableCollection<Game>(sorted);
                 }
-                // Also preload "All Games"
+
                 if (!_consoleCache.ContainsKey("All Games"))
                 {
                     var all = _allGames.OrderBy(g => g.Console).ThenBy(g => g.Title).ToList();

@@ -748,9 +748,7 @@ namespace Emutastic.Services
                                 ORDER BY Title;";
             cmd.Parameters.AddWithValue("$console", console);
             using var reader = cmd.ExecuteReader();
-            var games = new List<Game>();
-            while (reader.Read()) games.Add(ReadGame(reader));
-            return games;
+            return ReadAllGames(reader);
         }
 
         public List<Game> GetGamesWithoutScreenScraperArt()
@@ -763,9 +761,7 @@ namespace Emutastic.Services
                                 AND   RomHash != ''
                                 ORDER BY Console, Title;";
             using var reader = cmd.ExecuteReader();
-            var games = new List<Game>();
-            while (reader.Read()) games.Add(ReadGame(reader));
-            return games;
+            return ReadAllGames(reader);
         }
 
         public void UpdateHash(int gameId, string hash)
@@ -888,7 +884,6 @@ namespace Emutastic.Services
 
         public List<Game> GetGamesByCollectionId(int collectionId)
         {
-            var games = new List<Game>();
             using var connection = OpenConnection();
             var cmd = connection.CreateCommand();
             cmd.CommandText = @"
@@ -898,9 +893,7 @@ namespace Emutastic.Services
                 ORDER BY g.Title;";
             cmd.Parameters.AddWithValue("$cid", collectionId);
             using var reader = cmd.ExecuteReader();
-            while (reader.Read())
-                games.Add(ReadGame(reader));
-            return games;
+            return ReadAllGames(reader);
         }
 
         public void VacuumDatabase()
@@ -913,15 +906,13 @@ namespace Emutastic.Services
 
         public List<Game> GetRecentlyAdded(int limit = 25)
         {
-            var games = new List<Game>();
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             var cmd = connection.CreateCommand();
             cmd.CommandText = "SELECT * FROM Games ORDER BY DateAdded DESC LIMIT $limit;";
             cmd.Parameters.AddWithValue("$limit", limit);
             using var reader = cmd.ExecuteReader();
-            while (reader.Read()) games.Add(ReadGame(reader));
-            return games;
+            return ReadAllGames(reader);
         }
 
         public void ToggleFavorite(int gameId, bool isFavorite)
@@ -1133,39 +1124,36 @@ namespace Emutastic.Services
             var cmd = connection.CreateCommand();
             cmd.CommandText = "SELECT * FROM Games ORDER BY Title;";
             using var reader = cmd.ExecuteReader();
-            while (reader.Read())
+            if (!reader.Read()) return games;
+            var o = new OrdinalMap(reader);
+            do
             {
                 try
                 {
-                    games.Add(ReadGame(reader));
+                    games.Add(ReadGame(reader, o));
                 }
                 catch (Exception ex)
                 {
                     System.Diagnostics.Trace.WriteLine($"ReadGame failed: {ex.Message}");
-                    // Log column info for diagnosis
                     for (int i = 0; i < reader.FieldCount; i++)
                         System.Diagnostics.Trace.WriteLine($"  Col {i}: {reader.GetName(i)} = {(reader.IsDBNull(i) ? "NULL" : reader.GetValue(i))}");
                 }
-            }
+            } while (reader.Read());
             return games;
         }
 
         public List<Game> GetFavorites()
         {
-            var games = new List<Game>();
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             var cmd = connection.CreateCommand();
             cmd.CommandText = "SELECT * FROM Games WHERE IsFavorite = 1 ORDER BY Title;";
             using var reader = cmd.ExecuteReader();
-            while (reader.Read())
-                games.Add(ReadGame(reader));
-            return games;
+            return ReadAllGames(reader);
         }
 
         public List<Game> GetRecentlyPlayed()
         {
-            var games = new List<Game>();
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             var cmd = connection.CreateCommand();
@@ -1175,78 +1163,101 @@ namespace Emutastic.Services
                 ORDER BY LastPlayed DESC
                 LIMIT 20;";
             using var reader = cmd.ExecuteReader();
-            while (reader.Read())
-                games.Add(ReadGame(reader));
-            return games;
+            return ReadAllGames(reader);
         }
 
         // GetByCollection(string) removed — use GetGamesByCollectionId(int) instead.
 
-        private Game ReadGame(SqliteDataReader reader)
+        /// <summary>
+        /// Resolves column ordinals once per reader, then reuses for every row.
+        /// Returns -1 for columns that don't exist in the result set.
+        /// </summary>
+        private sealed class OrdinalMap
+        {
+            public readonly int Id, Title, Console, Manufacturer, Year, RomPath, RomHash,
+                CoverArtPath, BackgroundColor, AccentColor, PlayCount, SaveCount,
+                IsFavorite, Rating, Collection, LastPlayed, BoxArt3DPath,
+                ScreenScraperArtPath, ArtworkAttempts;
+
+            public OrdinalMap(SqliteDataReader reader)
+            {
+                Id       = TryOrd(reader, "Id");
+                Title    = TryOrd(reader, "Title");
+                Console  = TryOrd(reader, "Console");
+                Manufacturer = TryOrd(reader, "Manufacturer");
+                Year     = TryOrd(reader, "Year");
+                RomPath  = TryOrd(reader, "RomPath");
+                RomHash  = TryOrd(reader, "RomHash");
+                CoverArtPath    = TryOrd(reader, "CoverArtPath");
+                BackgroundColor = TryOrd(reader, "BackgroundColor");
+                AccentColor     = TryOrd(reader, "AccentColor");
+                PlayCount  = TryOrd(reader, "PlayCount");
+                SaveCount  = TryOrd(reader, "SaveCount");
+                IsFavorite = TryOrd(reader, "IsFavorite");
+                Rating     = TryOrd(reader, "Rating");
+                Collection = TryOrd(reader, "Collection");
+                LastPlayed = TryOrd(reader, "LastPlayed");
+                BoxArt3DPath = TryOrd(reader, "BoxArt3DPath");
+                ScreenScraperArtPath = TryOrd(reader, "ScreenScraperArtPath");
+                ArtworkAttempts = TryOrd(reader, "ArtworkAttempts");
+            }
+
+            private static int TryOrd(SqliteDataReader r, string col)
+            { try { return r.GetOrdinal(col); } catch { return -1; } }
+        }
+
+        private static Game ReadGame(SqliteDataReader reader, OrdinalMap o)
         {
             return new Game
             {
-                Id              = reader.GetInt32(reader.GetOrdinal("Id")),
-                Title           = reader.GetString(reader.GetOrdinal("Title")),
-                Console         = reader.GetString(reader.GetOrdinal("Console")),
-                Manufacturer    = GetStringByName(reader, "Manufacturer"),
-                Year            = GetIntByName(reader, "Year"),
-                RomPath         = GetStringByName(reader, "RomPath"),
-                RomHash         = GetStringByName(reader, "RomHash"),
-                CoverArtPath    = GetStringByName(reader, "CoverArtPath"),
-                BackgroundColor = GetStringByName(reader, "BackgroundColor", "#1F1F21"),
-                AccentColor     = GetStringByName(reader, "AccentColor", "#E03535"),
-                PlayCount       = GetIntByName(reader, "PlayCount"),
-                SaveCount       = GetIntByName(reader, "SaveCount"),
-                IsFavorite      = GetIntByName(reader, "IsFavorite") == 1,
-                Rating          = GetIntByName(reader, "Rating"),
-                Collection      = GetStringByName(reader, "Collection"),
-                LastPlayed      = GetDateByName(reader, "LastPlayed"),
-                BoxArt3DPath    = GetStringByName(reader, "BoxArt3DPath"),
-                ScreenScraperArtPath = GetStringByName(reader, "ScreenScraperArtPath"),
+                Id              = reader.GetInt32(o.Id),
+                Title           = reader.GetString(o.Title),
+                Console         = reader.GetString(o.Console),
+                Manufacturer    = GetStr(reader, o.Manufacturer),
+                Year            = GetInt(reader, o.Year),
+                RomPath         = GetStr(reader, o.RomPath),
+                RomHash         = GetStr(reader, o.RomHash),
+                CoverArtPath    = GetStr(reader, o.CoverArtPath),
+                BackgroundColor = GetStr(reader, o.BackgroundColor, "#1F1F21"),
+                AccentColor     = GetStr(reader, o.AccentColor, "#E03535"),
+                PlayCount       = GetInt(reader, o.PlayCount),
+                SaveCount       = GetInt(reader, o.SaveCount),
+                IsFavorite      = GetInt(reader, o.IsFavorite) == 1,
+                Rating          = GetInt(reader, o.Rating),
+                Collection      = GetStr(reader, o.Collection),
+                LastPlayed      = GetDate(reader, o.LastPlayed),
+                BoxArt3DPath    = GetStr(reader, o.BoxArt3DPath),
+                ScreenScraperArtPath = GetStr(reader, o.ScreenScraperArtPath),
+                ArtworkAttempts = GetInt(reader, o.ArtworkAttempts),
             };
         }
 
-        private static string GetStringByName(SqliteDataReader reader, string column)
+        private static List<Game> ReadAllGames(SqliteDataReader reader)
         {
-            try
-            {
-                int ord = reader.GetOrdinal(column);
-                return reader.IsDBNull(ord) ? "" : reader.GetString(ord);
-            }
-            catch { return ""; }
+            var games = new List<Game>();
+            if (!reader.Read()) return games;
+            var o = new OrdinalMap(reader);
+            do { games.Add(ReadGame(reader, o)); } while (reader.Read());
+            return games;
         }
 
-        private static string GetStringByName(SqliteDataReader reader, string column, string defaultValue)
+        private static Game? ReadSingleGame(SqliteDataReader reader)
         {
-            try
-            {
-                int ord = reader.GetOrdinal(column);
-                return reader.IsDBNull(ord) ? defaultValue : reader.GetString(ord);
-            }
-            catch { return defaultValue; }
+            if (!reader.Read()) return null;
+            return ReadGame(reader, new OrdinalMap(reader));
         }
 
-        private static int GetIntByName(SqliteDataReader reader, string column)
-        {
-            try
-            {
-                int ord = reader.GetOrdinal(column);
-                return reader.IsDBNull(ord) ? 0 : reader.GetInt32(ord);
-            }
-            catch { return 0; }
-        }
+        private static string GetStr(SqliteDataReader r, int ord, string def = "")
+            => ord >= 0 && !r.IsDBNull(ord) ? r.GetString(ord) : def;
 
-        private static DateTime? GetDateByName(SqliteDataReader reader, string column)
+        private static int GetInt(SqliteDataReader r, int ord)
+            => ord >= 0 && !r.IsDBNull(ord) ? r.GetInt32(ord) : 0;
+
+        private static DateTime? GetDate(SqliteDataReader r, int ord)
         {
-            try
-            {
-                int ord = reader.GetOrdinal(column);
-                if (reader.IsDBNull(ord)) return null;
-                string val = reader.GetString(ord);
-                return DateTime.TryParse(val, out var dt) ? dt : null;
-            }
-            catch { return null; }
+            if (ord < 0 || r.IsDBNull(ord)) return null;
+            string val = r.GetString(ord);
+            return DateTime.TryParse(val, out var dt) ? dt : null;
         }
 
         // Save State methods
@@ -1259,7 +1270,7 @@ namespace Emutastic.Services
             cmd.CommandText = "SELECT * FROM Games WHERE Id = $id;";
             cmd.Parameters.AddWithValue("$id", id);
             using var reader = cmd.ExecuteReader();
-            return reader.Read() ? ReadGame(reader) : null;
+            return ReadSingleGame(reader);
         }
 
         public int InsertSaveState(SaveState s)
