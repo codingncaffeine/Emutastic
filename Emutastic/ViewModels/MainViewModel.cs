@@ -35,9 +35,9 @@ namespace Emutastic.ViewModels
             set { _selectedConsole = value; OnPropertyChanged(); }
         }
 
-        // Cached "All Games" flat-list result — reused across console-switch round trips.
+        // Cached filtered results — reused across console-switch round trips.
         // Invalidated whenever games are added, removed, or reloaded.
-        private ObservableCollection<Game>? _cachedAllGames;
+        private readonly Dictionary<string, ObservableCollection<Game>> _consoleCache = new();
         private bool _filterDirty = true;
 
         private string _gameCountText = "";
@@ -150,10 +150,11 @@ namespace Emutastic.ViewModels
         {
             var console = _selectedConsole;
 
-            // Cache hit for "All Games" flat list.
-            if (console == "All Games" && !_filterDirty && _cachedAllGames != null)
+            // Cache hit — reuse the previously built collection for this console.
+            if (!_filterDirty && _consoleCache.TryGetValue(console, out var cached))
             {
-                Games = _cachedAllGames;
+                Games = cached;
+                IsGroupedView = false;
                 UpdateCount();
                 return;
             }
@@ -167,11 +168,9 @@ namespace Emutastic.ViewModels
             });
 
             var oc = new ObservableCollection<Game>(result);
+            _consoleCache[console] = oc;
             if (console == "All Games")
-            {
-                _cachedAllGames = oc;
-                _filterDirty    = false;
-            }
+                _filterDirty = false;
 
             Games         = oc;
             IsGroupedView = false;
@@ -208,10 +207,36 @@ namespace Emutastic.ViewModels
             GameCountText = filtered.Count == 1 ? "1 result" : $"{filtered.Count} results";
         }
 
+        /// <summary>
+        /// Pre-builds the per-console ObservableCollections in the background so
+        /// clicking a console in the sidebar is instant (no sorting/allocation on UI thread).
+        /// </summary>
+        public Task PreloadConsoleCachesAsync()
+        {
+            return Task.Run(() =>
+            {
+                var consoles = _allGames.Select(g => g.Console).Distinct().ToList();
+                foreach (string console in consoles)
+                {
+                    if (_consoleCache.ContainsKey(console)) continue;
+                    var sorted = _allGames.Where(g => g.Console == console)
+                                          .OrderBy(g => g.Title).ToList();
+                    _consoleCache[console] = new ObservableCollection<Game>(sorted);
+                }
+                // Also preload "All Games"
+                if (!_consoleCache.ContainsKey("All Games"))
+                {
+                    var all = _allGames.OrderBy(g => g.Console).ThenBy(g => g.Title).ToList();
+                    _consoleCache["All Games"] = new ObservableCollection<Game>(all);
+                    _filterDirty = false;
+                }
+            });
+        }
+
         private void InvalidateCache()
         {
-            _filterDirty    = true;
-            _cachedAllGames = null;
+            _filterDirty = true;
+            _consoleCache.Clear();
         }
 
         private void UpdateCount()

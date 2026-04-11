@@ -106,6 +106,9 @@ namespace Emutastic
 
             UpdateBoxArtToggleVisibility();
 
+            // Pre-build per-console caches in the background so switching feels instant.
+            _ = _vm.PreloadConsoleCachesAsync();
+
             _ = RetryMissingArtworkAsync();
         }
 
