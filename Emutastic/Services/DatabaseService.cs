@@ -150,6 +150,11 @@ namespace Emutastic.Services
             TryAddColumn(connection, "Games", "BoxArt3DPath", "TEXT DEFAULT ''");
             TryAddColumn(connection, "Games", "ScreenScraperArtPath", "TEXT DEFAULT ''");
 
+            TryAddColumn(connection, "Games", "Developer", "TEXT DEFAULT ''");
+            TryAddColumn(connection, "Games", "Publisher", "TEXT DEFAULT ''");
+            TryAddColumn(connection, "Games", "Genre", "TEXT DEFAULT ''");
+            TryAddColumn(connection, "Games", "Description", "TEXT DEFAULT ''");
+
             TryAddColumn(connection, "SaveStates", "Name",        "TEXT NOT NULL DEFAULT ''");
             TryAddColumn(connection, "SaveStates", "GameTitle",   "TEXT NOT NULL DEFAULT ''");
             TryAddColumn(connection, "SaveStates", "ConsoleName", "TEXT NOT NULL DEFAULT ''");
@@ -625,11 +630,13 @@ namespace Emutastic.Services
                 INSERT OR IGNORE INTO Games
                     (Title, Console, Manufacturer, Year, RomPath, RomHash,
                      CoverArtPath, BoxArt3DPath, ScreenScraperArtPath,
-                     BackgroundColor, AccentColor, Rating, Collection, DateAdded)
+                     BackgroundColor, AccentColor, Rating, Collection, DateAdded,
+                     Developer, Publisher, Genre, Description)
                 VALUES
                     ($title, $console, $manufacturer, $year, $romPath, $romHash,
                      $coverArt, $boxArt3D, $ssArt,
-                     $bgColor, $accentColor, 0, '', $dateAdded);";
+                     $bgColor, $accentColor, 0, '', $dateAdded,
+                     $developer, $publisher, $genre, $description);";
 
             cmd.Parameters.AddWithValue("$title", game.Title);
             cmd.Parameters.AddWithValue("$console", game.Console);
@@ -643,6 +650,10 @@ namespace Emutastic.Services
             cmd.Parameters.AddWithValue("$bgColor", game.BackgroundColor);
             cmd.Parameters.AddWithValue("$accentColor", game.AccentColor);
             cmd.Parameters.AddWithValue("$dateAdded", DateTime.Now.ToString("o"));
+            cmd.Parameters.AddWithValue("$developer", game.Developer ?? "");
+            cmd.Parameters.AddWithValue("$publisher", game.Publisher ?? "");
+            cmd.Parameters.AddWithValue("$genre", game.Genre ?? "");
+            cmd.Parameters.AddWithValue("$description", game.Description ?? "");
             cmd.ExecuteNonQuery();
 
             var idCmd = connection.CreateCommand();
@@ -795,6 +806,59 @@ namespace Emutastic.Services
             cmd.Parameters.AddWithValue("$title", title);
             cmd.Parameters.AddWithValue("$id", gameId);
             cmd.ExecuteNonQuery();
+        }
+
+        public void UpdateMetadata(int gameId, string developer, string publisher, string genre, string description)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = @"UPDATE Games
+                SET Developer = $dev, Publisher = $pub, Genre = $genre, Description = $desc
+                WHERE Id = $id;";
+            cmd.Parameters.AddWithValue("$dev", developer);
+            cmd.Parameters.AddWithValue("$pub", publisher);
+            cmd.Parameters.AddWithValue("$genre", genre);
+            cmd.Parameters.AddWithValue("$desc", description);
+            cmd.Parameters.AddWithValue("$id", gameId);
+            cmd.ExecuteNonQuery();
+        }
+
+        public void UpdateYear(int gameId, int year)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "UPDATE Games SET Year = $year WHERE Id = $id;";
+            cmd.Parameters.AddWithValue("$year", year);
+            cmd.Parameters.AddWithValue("$id", gameId);
+            cmd.ExecuteNonQuery();
+        }
+
+        public List<Game> GetGamesWithoutMetadata()
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = @"SELECT Id, Title, Console, RomHash, RomPath
+                FROM Games
+                WHERE (Developer IS NULL OR Developer = '')
+                AND   (RomHash IS NOT NULL AND RomHash != '')
+                ORDER BY Console, Title;";
+            using var reader = cmd.ExecuteReader();
+            var games = new List<Game>();
+            while (reader.Read())
+            {
+                games.Add(new Game
+                {
+                    Id = reader.GetInt32(0),
+                    Title = reader.GetString(1),
+                    Console = reader.GetString(2),
+                    RomHash = reader.IsDBNull(3) ? "" : reader.GetString(3),
+                    RomPath = reader.IsDBNull(4) ? "" : reader.GetString(4),
+                });
+            }
+            return games;
         }
 
         // ── Collection methods (join table) ────────────────────────────────
@@ -1177,7 +1241,8 @@ namespace Emutastic.Services
             public readonly int Id, Title, Console, Manufacturer, Year, RomPath, RomHash,
                 CoverArtPath, BackgroundColor, AccentColor, PlayCount, SaveCount,
                 IsFavorite, Rating, Collection, LastPlayed, BoxArt3DPath,
-                ScreenScraperArtPath, ArtworkAttempts;
+                ScreenScraperArtPath, ArtworkAttempts,
+                Developer, Publisher, Genre, Description;
 
             public OrdinalMap(SqliteDataReader reader)
             {
@@ -1200,6 +1265,10 @@ namespace Emutastic.Services
                 BoxArt3DPath = TryOrd(reader, "BoxArt3DPath");
                 ScreenScraperArtPath = TryOrd(reader, "ScreenScraperArtPath");
                 ArtworkAttempts = TryOrd(reader, "ArtworkAttempts");
+                Developer   = TryOrd(reader, "Developer");
+                Publisher   = TryOrd(reader, "Publisher");
+                Genre       = TryOrd(reader, "Genre");
+                Description = TryOrd(reader, "Description");
             }
 
             private static int TryOrd(SqliteDataReader r, string col)
@@ -1229,6 +1298,10 @@ namespace Emutastic.Services
                 BoxArt3DPath    = GetStr(reader, o.BoxArt3DPath),
                 ScreenScraperArtPath = GetStr(reader, o.ScreenScraperArtPath),
                 ArtworkAttempts = GetInt(reader, o.ArtworkAttempts),
+                Developer   = GetStr(reader, o.Developer),
+                Publisher   = GetStr(reader, o.Publisher),
+                Genre       = GetStr(reader, o.Genre),
+                Description = GetStr(reader, o.Description),
             };
         }
 

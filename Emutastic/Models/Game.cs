@@ -43,6 +43,11 @@ namespace Emutastic.Models
         /// <summary>When true, prefer ScreenScraper 2D art over libretro for display.</summary>
         public static bool PreferScreenScraper2D { get; set; }
 
+        public string Developer { get; set; } = "";
+        public string Publisher { get; set; } = "";
+        public string Genre { get; set; } = "";
+        public string Description { get; set; } = "";
+
         public string BackgroundColor { get; set; } = "#1F1F21";
         public string AccentColor { get; set; } = "#E03535";
         public int PlayCount { get; set; }
