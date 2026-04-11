@@ -420,12 +420,18 @@ namespace Emutastic.Services
                     return;
                 }
 
-                var (artworkPath, metadata) = await _artwork.FetchArtworkAsync(hash, romPath, console);
+                var (artworkPath, ssArtPath, metadata) = await _artwork.FetchArtworkAsync(hash, romPath, console);
 
                 if (artworkPath != null)
                 {
                     _db.UpdateCoverArt(game.Id, artworkPath);
                     game.CoverArtPath = artworkPath;
+
+                    if (ssArtPath != null)
+                    {
+                        _db.UpdateScreenScraperArt(game.Id, ssArtPath);
+                        game.ScreenScraperArtPath = ssArtPath;
+                    }
 
                     if (metadata != null && !string.IsNullOrWhiteSpace(metadata.Title))
                         game.Title = metadata.Title;

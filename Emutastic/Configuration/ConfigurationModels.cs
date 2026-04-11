@@ -122,6 +122,9 @@ namespace Emutastic.Configuration
         public bool   ScreenScraperEnabled  { get; set; } = false;
         public int    ScreenScraperMaxThreads { get; set; } = 1;
 
+        /// <summary>When true, use ScreenScraper 2D box art instead of libretro thumbnails.</summary>
+        public bool PreferScreenScraper2D { get; set; } = false;
+
         // Per-console 3D box art preference — list of console tags that prefer 3D
         public List<string> Use3DBoxArtConsoles { get; set; } = new();
 

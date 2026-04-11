@@ -709,7 +709,7 @@ namespace Emutastic.Services
             return null;
         }
 
-        public async Task<(string? artworkPath, ArtworkResult? metadata)> FetchArtworkAsync(
+        public async Task<(string? artworkPath, string? screenScraperArtPath, ArtworkResult? metadata)> FetchArtworkAsync(
             string md5Hash, string? romPath = null, string? console = null)
         {
             // Step 1 — OpenVGDB hash lookup
@@ -726,7 +726,7 @@ namespace Emutastic.Services
                     Title = RomService.CleanTitle(Path.GetFileName(romPath))
                 };
 
-            if (result == null) return (null, null);
+            if (result == null) return (null, null, null);
 
             // Step 4 — try libretro thumbnail variants
             string? artworkPath = null;
@@ -825,8 +825,9 @@ namespace Emutastic.Services
                 }
             }
 
-            // Step 5 — ScreenScraper 2D box art fallback (if enabled and libretro missed)
-            if (artworkPath == null && !string.IsNullOrWhiteSpace(console))
+            // Step 5 — ScreenScraper 2D box art (always fetched when enabled, stored separately)
+            string? screenScraperArtPath = null;
+            if (!string.IsNullOrWhiteSpace(console))
             {
                 try
                 {
@@ -835,17 +836,21 @@ namespace Emutastic.Services
                         && !string.IsNullOrWhiteSpace(snapConfig.ScreenScraperUser))
                     {
                         var ss = new ScreenScraperService();
-                        artworkPath = await ss.FetchBoxArt2DAsync(
+                        screenScraperArtPath = await ss.FetchBoxArt2DAsync(
                             snapConfig.ScreenScraperUser, snapConfig.ScreenScraperPassword,
                             console, md5Hash, romPath ?? "");
-                        if (artworkPath != null)
-                            System.Diagnostics.Debug.WriteLine($"Artwork found (ScreenScraper 2D): {artworkPath}");
+                        if (screenScraperArtPath != null)
+                            System.Diagnostics.Debug.WriteLine($"Artwork found (ScreenScraper 2D): {screenScraperArtPath}");
                     }
                 }
                 catch { /* non-fatal — SS unavailable shouldn't block artwork flow */ }
             }
 
-            return (artworkPath, result);
+            // If libretro missed but ScreenScraper hit, use SS as the cover art fallback
+            if (artworkPath == null && screenScraperArtPath != null)
+                artworkPath = screenScraperArtPath;
+
+            return (artworkPath, screenScraperArtPath, result);
         }
     }
 }

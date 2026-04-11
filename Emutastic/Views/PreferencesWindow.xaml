@@ -1092,6 +1092,35 @@
                             </StackPanel>
 
                             <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,20,0,20"/>
+
+                            <!-- ScreenScraper 2D art preference -->
+                            <TextBlock Text="2D ARTWORK SOURCE" Style="{StaticResource PrefLabel}"/>
+                            <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,0,0,16"/>
+
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                                    <TextBlock Text="Prefer ScreenScraper 2D art"
+                                               FontSize="13" FontWeight="SemiBold"
+                                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                                    <TextBlock TextWrapping="Wrap" FontSize="11"
+                                               Foreground="{StaticResource TextSecondaryBrush}"
+                                               Margin="0,4,0,0">
+                                        Use higher-quality ScreenScraper box art instead of libretro thumbnails. Both sets are kept on disk so you can switch back any time.
+                                        Free ScreenScraper accounts have very low API limits — this is best suited for paid tiers.
+                                    </TextBlock>
+                                </StackPanel>
+                                <ToggleButton x:Name="SSPrefer2DToggle"
+                                             Grid.Column="1"
+                                             Style="{StaticResource ToggleSwitch}"
+                                             VerticalAlignment="Center"
+                                             IsEnabled="False"/>
+                            </Grid>
+
+                            <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,12,0,20"/>
                             <Button x:Name="SnapsSaveBtn"
                                     Content="Save"
                                     Style="{StaticResource ActionBtn}"

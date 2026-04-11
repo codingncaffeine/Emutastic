@@ -148,6 +148,7 @@ namespace Emutastic.Services
             TryAddColumn(connection, "Games", "Collection", "TEXT DEFAULT ''");
 
             TryAddColumn(connection, "Games", "BoxArt3DPath", "TEXT DEFAULT ''");
+            TryAddColumn(connection, "Games", "ScreenScraperArtPath", "TEXT DEFAULT ''");
 
             TryAddColumn(connection, "SaveStates", "Name",        "TEXT NOT NULL DEFAULT ''");
             TryAddColumn(connection, "SaveStates", "GameTitle",   "TEXT NOT NULL DEFAULT ''");
@@ -671,6 +672,17 @@ namespace Emutastic.Services
             cmd.ExecuteNonQuery();
         }
 
+        public void UpdateScreenScraperArt(int gameId, string path)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "UPDATE Games SET ScreenScraperArtPath = $path WHERE Id = $id;";
+            cmd.Parameters.AddWithValue("$path", path);
+            cmd.Parameters.AddWithValue("$id", gameId);
+            cmd.ExecuteNonQuery();
+        }
+
         public List<Game> GetGamesWithout3DBoxArtForConsole(string console)
         {
             using var connection = new SqliteConnection(_connectionString);
@@ -681,6 +693,21 @@ namespace Emutastic.Services
                                 AND   (BoxArt3DPath IS NULL OR BoxArt3DPath = '')
                                 ORDER BY Title;";
             cmd.Parameters.AddWithValue("$console", console);
+            using var reader = cmd.ExecuteReader();
+            var games = new List<Game>();
+            while (reader.Read()) games.Add(ReadGame(reader));
+            return games;
+        }
+
+        public List<Game> GetGamesWithoutScreenScraperArt()
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = @"SELECT * FROM Games
+                                WHERE (ScreenScraperArtPath IS NULL OR ScreenScraperArtPath = '')
+                                AND   RomHash != ''
+                                ORDER BY Console, Title;";
             using var reader = cmd.ExecuteReader();
             var games = new List<Game>();
             while (reader.Read()) games.Add(ReadGame(reader));
@@ -889,7 +916,7 @@ namespace Emutastic.Services
         {
             using var connection = OpenConnection();
             // Clean up artwork files before deleting the DB record
-            CleanupArtworkFiles(connection, "SELECT CoverArtPath, BoxArt3DPath FROM Games WHERE Id = $id;",
+            CleanupArtworkFiles(connection, "SELECT CoverArtPath, BoxArt3DPath, ScreenScraperArtPath FROM Games WHERE Id = $id;",
                 new[] { ("$id", (object)gameId) });
             // Disable FK enforcement so save states are preserved when a game is removed from the library.
             using (var fk = connection.CreateCommand()) { fk.CommandText = "PRAGMA foreign_keys = OFF;"; fk.ExecuteNonQuery(); }
@@ -908,7 +935,7 @@ namespace Emutastic.Services
             using var connection = OpenConnection();
             // Clean up artwork files before deleting DB records
             foreach (int id in ids)
-                CleanupArtworkFiles(connection, "SELECT CoverArtPath, BoxArt3DPath FROM Games WHERE Id = $id;",
+                CleanupArtworkFiles(connection, "SELECT CoverArtPath, BoxArt3DPath, ScreenScraperArtPath FROM Games WHERE Id = $id;",
                     new[] { ("$id", (object)id) });
             using (var fk = connection.CreateCommand()) { fk.CommandText = "PRAGMA foreign_keys = OFF;"; fk.ExecuteNonQuery(); }
             using var tx = connection.BeginTransaction();
@@ -1122,6 +1149,7 @@ namespace Emutastic.Services
                 Collection      = GetStringByName(reader, "Collection"),
                 LastPlayed      = GetDateByName(reader, "LastPlayed"),
                 BoxArt3DPath    = GetStringByName(reader, "BoxArt3DPath"),
+                ScreenScraperArtPath = GetStringByName(reader, "ScreenScraperArtPath"),
             };
         }
 
