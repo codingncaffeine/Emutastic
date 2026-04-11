@@ -1,8 +1,11 @@
 using Emutastic.Models;
 using Emutastic.ViewModels;
+using Microsoft.Data.Sqlite;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -35,6 +38,27 @@ namespace Emutastic.Services
 
         /// <summary>Posts an action to the UI thread (non-blocking).</summary>
         private void OnUI(Action action) => _uiContext.Post(_ => action(), null);
+
+        /// <summary>Persists OpenVGDB metadata from an ArtworkResult onto a Game + DB.</summary>
+        private void ApplyMetadata(Game game, ArtworkResult? metadata)
+        {
+            if (metadata == null) return;
+            if (!string.IsNullOrWhiteSpace(metadata.Title))
+            {
+                game.Title = metadata.Title;
+                _db.UpdateTitle(game.Id, metadata.Title);
+            }
+            if (!string.IsNullOrWhiteSpace(metadata.Developer)
+                || !string.IsNullOrWhiteSpace(metadata.Genre))
+            {
+                game.Developer = metadata.Developer;
+                game.Publisher = metadata.Publisher;
+                game.Genre = metadata.Genre;
+                game.Description = metadata.Description;
+                _db.UpdateMetadata(game.Id, metadata.Developer, metadata.Publisher,
+                    metadata.Genre, metadata.Description);
+            }
+        }
 
         /// <summary>
         /// Retries all games missing cover art on startup. Games whose artwork file
@@ -265,17 +289,16 @@ namespace Emutastic.Services
                         _db.UpdateCoverArt(game.Id, artworkPath);
                         game.CoverArtPath = artworkPath;
                         Interlocked.Increment(ref fetched);
-
-                        if (metadata != null && !string.IsNullOrWhiteSpace(metadata.Title))
-                        {
-                            game.Title = metadata.Title;
-                            _db.UpdateTitle(game.Id, metadata.Title);
-                        }
+                        ApplyMetadata(game, metadata);
                     }
                     else if (ssArtPath == null)
                     {
                         _db.IncrementArtworkAttempts(game.Id);
                     }
+
+                    // Even if no artwork found, persist metadata if we got it
+                    if (artworkPath == null && metadata != null)
+                        ApplyMetadata(game, metadata);
 
                     if (artworkPath != null || ssArtPath != null)
                         OnUI(() => _vm.RefreshGame(game));
@@ -314,17 +337,15 @@ namespace Emutastic.Services
                     {
                         _db.UpdateCoverArt(game.Id, artworkPath);
                         game.CoverArtPath = artworkPath;
-
-                        if (metadata != null && !string.IsNullOrWhiteSpace(metadata.Title))
-                        {
-                            game.Title = metadata.Title;
-                            _db.UpdateTitle(game.Id, metadata.Title);
-                        }
+                        ApplyMetadata(game, metadata);
                     }
                     else if (ssArtPath == null)
                     {
                         _db.IncrementArtworkAttempts(game.Id);
                     }
+
+                    if (artworkPath == null && metadata != null)
+                        ApplyMetadata(game, metadata);
 
                     if (artworkPath != null || ssArtPath != null)
                         OnUI(() => _vm.RefreshGame(game));
@@ -352,16 +373,12 @@ namespace Emutastic.Services
                 game.ScreenScraperArtPath = ssArtPath;
             }
 
+            ApplyMetadata(game, metadata);
+
             if (artworkPath != null)
             {
                 _db.UpdateCoverArt(game.Id, artworkPath);
                 game.CoverArtPath = artworkPath;
-
-                if (metadata != null && !string.IsNullOrWhiteSpace(metadata.Title))
-                {
-                    game.Title = metadata.Title;
-                    _db.UpdateTitle(game.Id, metadata.Title);
-                }
 
                 OnUI(() => _vm.RefreshGame(game));
                 _vm.SetStatus("Artwork updated", autoClear: true);
@@ -377,6 +394,112 @@ namespace Emutastic.Services
             }
 
             return (artworkPath, ssArtPath);
+        }
+
+        /// <summary>
+        /// Backfills metadata (developer, publisher, genre) for all games missing it.
+        /// Preloads all OpenVGDB data into memory for fast matching — no per-game queries.
+        /// </summary>
+        public async Task BackfillMetadataAsync()
+        {
+            var missing = await Task.Run(() => _db.GetGamesWithoutMetadata());
+            if (missing.Count == 0) return;
+
+            string vgdbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "openvgdb.sqlite");
+            if (!File.Exists(vgdbPath)) return;
+
+            var updates = new List<(int id, string dev, string pub, string genre, string desc, int year)>();
+
+            await Task.Run(() =>
+            {
+                // Preload OpenVGDB into memory for fast matching
+                var hashToRomId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                var filenameToRomId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                var releases = new Dictionary<int, (string dev, string pub, string genre, string desc, string date)>();
+
+                using (var vgdb = new SqliteConnection($"Data Source={vgdbPath};Mode=ReadOnly"))
+                {
+                    vgdb.Open();
+
+                    var romCmd = vgdb.CreateCommand();
+                    romCmd.CommandText = "SELECT romID, romHashMD5, romExtensionlessFileName FROM ROMs;";
+                    using (var r = romCmd.ExecuteReader())
+                        while (r.Read())
+                        {
+                            int romId = r.GetInt32(0);
+                            if (!r.IsDBNull(1)) { string md5 = r.GetString(1); if (md5.Length > 0) hashToRomId.TryAdd(md5, romId); }
+                            if (!r.IsDBNull(2)) { string fn = r.GetString(2); if (fn.Length > 0) filenameToRomId.TryAdd(fn, romId); }
+                        }
+
+                    var relCmd = vgdb.CreateCommand();
+                    relCmd.CommandText = "SELECT romID, releaseDeveloper, releasePublisher, releaseGenre, releaseDescription, releaseDate FROM RELEASES;";
+                    using (var r = relCmd.ExecuteReader())
+                        while (r.Read())
+                        {
+                            int romId = r.GetInt32(0);
+                            if (releases.ContainsKey(romId)) continue;
+                            releases[romId] = (
+                                r.IsDBNull(1) ? "" : r.GetString(1),
+                                r.IsDBNull(2) ? "" : r.GetString(2),
+                                r.IsDBNull(3) ? "" : r.GetString(3),
+                                r.IsDBNull(4) ? "" : r.GetString(4),
+                                r.IsDBNull(5) ? "" : r.GetString(5));
+                        }
+                }
+
+                foreach (var game in missing)
+                {
+                    int romId = -1;
+
+                    if (!string.IsNullOrEmpty(game.RomHash))
+                        hashToRomId.TryGetValue(game.RomHash, out romId);
+
+                    if (romId <= 0 && !string.IsNullOrEmpty(game.RomPath))
+                    {
+                        string fname = Path.GetFileNameWithoutExtension(game.RomPath);
+                        if (!filenameToRomId.TryGetValue(fname, out romId) || romId <= 0)
+                        {
+                            string cleaned = Regex.Replace(fname, @"\(.*?\)|\[.*?\]", "").Trim();
+                            foreach (var (key, val) in filenameToRomId)
+                            {
+                                if (key.StartsWith(cleaned, StringComparison.OrdinalIgnoreCase))
+                                { romId = val; break; }
+                            }
+                        }
+                    }
+
+                    if (romId <= 0) continue;
+                    if (!releases.TryGetValue(romId, out var rel)) continue;
+                    if (string.IsNullOrWhiteSpace(rel.dev) && string.IsNullOrWhiteSpace(rel.genre)) continue;
+
+                    // Parse year from releaseDate (formats: "1995", "Apr 20, 1995", "December 1995")
+                    int year = 0;
+                    if (!string.IsNullOrEmpty(rel.date))
+                    {
+                        var m = Regex.Match(rel.date, @"\b(19|20)\d{2}\b");
+                        if (m.Success) year = int.Parse(m.Value);
+                    }
+
+                    _db.UpdateMetadata(game.Id, rel.dev, rel.pub, rel.genre, rel.desc);
+                    if (year > 0 && game.Year == 0)
+                        _db.UpdateYear(game.Id, year);
+                    updates.Add((game.Id, rel.dev, rel.pub, rel.genre, rel.desc, year));
+                }
+            });
+
+            if (updates.Count > 0)
+            {
+                OnUI(() =>
+                {
+                    foreach (var (id, dev, pub, genre, desc, year) in updates)
+                    {
+                        _vm.UpdateGameMetadata(id, dev, pub, genre, desc);
+                        if (year > 0)
+                            _vm.UpdateGameYear(id, year);
+                    }
+                    _vm.SetStatus($"Metadata updated for {updates.Count} games", autoClear: true);
+                });
+            }
         }
     }
 }

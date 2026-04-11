@@ -182,6 +182,10 @@ namespace Emutastic.ViewModels
                     PathToImageConverter.Evict(target.ScreenScraperArtPath);
                     target.ScreenScraperArtPath = updated.ScreenScraperArtPath;
                 }
+                if (!string.IsNullOrEmpty(updated.Developer))  target.Developer = updated.Developer;
+                if (!string.IsNullOrEmpty(updated.Publisher))  target.Publisher = updated.Publisher;
+                if (!string.IsNullOrEmpty(updated.Genre))      target.Genre = updated.Genre;
+                if (!string.IsNullOrEmpty(updated.Description)) target.Description = updated.Description;
                 if (!string.IsNullOrEmpty(updated.RomHash))   target.RomHash = updated.RomHash;
                 if (!string.IsNullOrEmpty(updated.RomPath))   target.RomPath = updated.RomPath;
                 if (updated.BackgroundColor != "#1F1F21")     target.BackgroundColor = updated.BackgroundColor;
@@ -218,6 +222,27 @@ namespace Emutastic.ViewModels
         {
             // Reassign to a new collection so the property-change fires and all bindings refresh.
             Games = new ObservableCollection<Game>(Games);
+        }
+
+        /// <summary>
+        /// Updates metadata fields on the in-memory Game object without re-seating
+        /// in the collection (metadata isn't shown in the grid, only in the detail card).
+        /// </summary>
+        public void UpdateGameMetadata(int gameId, string developer, string publisher, string genre, string description)
+        {
+            var game = _allGames.FirstOrDefault(g => g.Id == gameId);
+            if (game == null) return;
+            game.Developer = developer;
+            game.Publisher = publisher;
+            game.Genre = genre;
+            game.Description = description;
+        }
+
+        public void UpdateGameYear(int gameId, int year)
+        {
+            var game = _allGames.FirstOrDefault(g => g.Id == gameId);
+            if (game != null && game.Year == 0)
+                game.Year = year;
         }
 
         public void RemoveGame(Game game)

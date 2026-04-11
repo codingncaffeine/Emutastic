@@ -146,11 +146,48 @@
                                Foreground="{StaticResource TextPrimaryBrush}"
                                TextWrapping="Wrap"/>
 
-                    <TextBlock x:Name="GameYear"
+                    <!-- Metadata pills row -->
+                    <WrapPanel x:Name="MetadataPanel" Margin="0,10,0,0"
+                               Visibility="Collapsed">
+                        <!-- Year pill -->
+                        <Border x:Name="YearPill"
+                                Background="{StaticResource BgTertiaryBrush}"
+                                CornerRadius="4" Padding="8,3" Margin="0,0,6,6"
+                                Visibility="Collapsed">
+                            <TextBlock x:Name="GameYear"
+                                       FontFamily="{StaticResource PrimaryFont}"
+                                       FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                        </Border>
+                        <!-- Developer pill -->
+                        <Border x:Name="DeveloperPill"
+                                Background="{StaticResource BgTertiaryBrush}"
+                                CornerRadius="4" Padding="8,3" Margin="0,0,6,6"
+                                Visibility="Collapsed">
+                            <TextBlock x:Name="GameDeveloper"
+                                       FontFamily="{StaticResource PrimaryFont}"
+                                       FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                        </Border>
+                        <!-- Genre pill -->
+                        <Border x:Name="GenrePill"
+                                Background="{StaticResource BgTertiaryBrush}"
+                                CornerRadius="4" Padding="8,3" Margin="0,0,6,6"
+                                Visibility="Collapsed">
+                            <TextBlock x:Name="GameGenre"
+                                       FontFamily="{StaticResource PrimaryFont}"
+                                       FontSize="11" Foreground="{StaticResource TextMutedBrush}"/>
+                        </Border>
+                    </WrapPanel>
+
+                    <!-- Description -->
+                    <TextBlock x:Name="GameDescription"
                                FontFamily="{StaticResource PrimaryFont}"
-                               FontSize="13"
-                               Foreground="{StaticResource TextMutedBrush}"
-                               Margin="0,4,0,0"/>
+                               FontSize="12"
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               TextWrapping="Wrap"
+                               MaxHeight="54"
+                               Margin="0,4,0,0"
+                               LineHeight="18"
+                               Visibility="Collapsed"/>
 
                     <!-- Stats row -->
                     <Grid Margin="0,18,0,0">

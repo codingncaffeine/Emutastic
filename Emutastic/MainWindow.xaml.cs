@@ -116,6 +116,7 @@ namespace Emutastic
             _ = _vm.PreloadConsoleCachesAsync();
 
             _ = _artworkFetch.RetryMissingArtworkAsync();
+            _ = _artworkFetch.BackfillMetadataAsync();
         }
 
         private void InitializeControllerManager()

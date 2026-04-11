@@ -39,9 +39,50 @@ namespace Emutastic.Views
         private void PopulateData()
         {
             GameTitle.Text = _game.Title;
-            GameYear.Text = _game.Year > 0 ? _game.Year.ToString() : "";
             ConsoleTag.Text = _game.Console;
             ArtPlaceholderText.Text = _game.Title;
+
+            // Metadata pills
+            bool hasYear = _game.Year > 0;
+            bool hasDev = !string.IsNullOrEmpty(_game.Developer);
+            bool hasGenre = !string.IsNullOrEmpty(_game.Genre);
+            bool hasDesc = !string.IsNullOrEmpty(_game.Description);
+
+            if (hasYear || hasDev || hasGenre)
+            {
+                MetadataPanel.Visibility = Visibility.Visible;
+
+                if (hasYear)
+                {
+                    YearPill.Visibility = Visibility.Visible;
+                    GameYear.Text = _game.Year.ToString();
+                }
+
+                if (hasDev)
+                {
+                    DeveloperPill.Visibility = Visibility.Visible;
+                    GameDeveloper.Text = !string.IsNullOrEmpty(_game.Publisher)
+                        && _game.Publisher != _game.Developer
+                        ? $"{_game.Developer}  ·  {_game.Publisher}"
+                        : _game.Developer;
+                }
+
+                if (hasGenre)
+                {
+                    GenrePill.Visibility = Visibility.Visible;
+                    // Show first genre only (e.g. "Action" from "Action,Platformer,2D")
+                    string genre = _game.Genre;
+                    int comma = genre.IndexOf(',');
+                    GameGenre.Text = comma > 0 ? genre.Substring(0, comma) : genre;
+                }
+            }
+
+            if (hasDesc)
+            {
+                GameDescription.Visibility = Visibility.Visible;
+                GameDescription.Text = _game.Description;
+            }
+
             StatPlayed.Text = _game.PlayCount.ToString();
             StatSaves.Text = _game.SaveCount.ToString();
             StatLastPlayed.Text = _game.LastPlayedDisplay;
