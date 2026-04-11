@@ -2158,6 +2158,10 @@ namespace Emutastic.Views
             SSEnabledToggle.IsChecked = snap.ScreenScraperEnabled;
             SSUsernameBox.Text        = snap.ScreenScraperUser;
             SSPasswordBox.Password    = snap.ScreenScraperPassword;
+            SSPrefer2DToggle.IsChecked = snap.PreferScreenScraper2D;
+            // Only enable the 2D preference toggle when SS credentials are configured
+            SSPrefer2DToggle.IsEnabled = snap.ScreenScraperEnabled
+                && !string.IsNullOrWhiteSpace(snap.ScreenScraperUser);
         }
 
         private void SnapProvider_Checked(object sender, RoutedEventArgs e)
@@ -2170,7 +2174,14 @@ namespace Emutastic.Views
 
         private void SSEnabled_Changed(object sender, RoutedEventArgs e)
         {
-            // Toggling enabled state is saved on Save — nothing live needed here.
+            // Enable/disable the 2D preference toggle based on SS enabled state + credentials
+            if (SSPrefer2DToggle != null)
+            {
+                bool ssOn = SSEnabledToggle.IsChecked == true
+                    && !string.IsNullOrWhiteSpace(SSUsernameBox.Text);
+                SSPrefer2DToggle.IsEnabled = ssOn;
+                if (!ssOn) SSPrefer2DToggle.IsChecked = false;
+            }
         }
 
         private async void SSTestBtn_Click(object sender, RoutedEventArgs e)
@@ -2215,8 +2226,11 @@ namespace Emutastic.Views
             snap.ScreenScraperEnabled  = SSEnabledToggle.IsChecked == true;
             snap.ScreenScraperUser     = SSUsernameBox.Text.Trim();
             snap.ScreenScraperPassword = SSPasswordBox.Password;
+            snap.PreferScreenScraper2D = SSPrefer2DToggle.IsChecked == true;
             _configService.SetSnapConfiguration(snap);
             _ = _configService.SaveAsync();
+            // Apply the 2D art preference immediately
+            Models.Game.PreferScreenScraper2D = snap.PreferScreenScraper2D;
         }
 
         // ── Achievements tab ─────────────────────────────────────────────────

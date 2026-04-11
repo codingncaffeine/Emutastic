@@ -98,6 +98,7 @@ namespace Emutastic.ViewModels
                 if (!string.IsNullOrEmpty(updated.Title))     target.Title = updated.Title;
                 if (!string.IsNullOrEmpty(updated.CoverArtPath)) target.CoverArtPath = updated.CoverArtPath;
                 if (!string.IsNullOrEmpty(updated.BoxArt3DPath)) target.BoxArt3DPath = updated.BoxArt3DPath;
+                if (!string.IsNullOrEmpty(updated.ScreenScraperArtPath)) target.ScreenScraperArtPath = updated.ScreenScraperArtPath;
                 if (!string.IsNullOrEmpty(updated.RomHash))   target.RomHash = updated.RomHash;
                 if (!string.IsNullOrEmpty(updated.RomPath))   target.RomPath = updated.RomPath;
                 if (updated.BackgroundColor != "#1F1F21")     target.BackgroundColor = updated.BackgroundColor;
@@ -233,7 +234,7 @@ namespace Emutastic.ViewModels
             });
         }
 
-        private void InvalidateCache()
+        public void InvalidateCache()
         {
             _filterDirty = true;
             _consoleCache.Clear();

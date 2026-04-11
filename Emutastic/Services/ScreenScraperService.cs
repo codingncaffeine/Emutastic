@@ -389,10 +389,14 @@ namespace Emutastic.Services
                     System.Text.Encoding.UTF8.GetBytes(romPath)))
                 : romHash;
 
-            // Cache hit — check console subfolder first, then flat
-            string consoleFolder2D = AppPaths.GetFolder("BoxArt3D", console);
-            string cached = Path.Combine(consoleFolder2D, $"{cacheKey}_2d.png");
+            // Cache hit — check ss2d console subfolder first, then legacy BoxArt3D location
+            string consoleFolder2D = AppPaths.GetFolder("ss2d", console);
+            string cached = Path.Combine(consoleFolder2D, $"{cacheKey}.png");
             if (File.Exists(cached)) return cached;
+            // Legacy location (before ss2d folder existed)
+            string legacyFolder = AppPaths.GetFolder("BoxArt3D", console);
+            string legacyCached = Path.Combine(legacyFolder, $"{cacheKey}_2d.png");
+            if (File.Exists(legacyCached)) return legacyCached;
             string flatCached2D = Path.Combine(_boxArt3DCacheFolder, $"{cacheKey}_2d.png");
             if (File.Exists(flatCached2D)) return flatCached2D;
 

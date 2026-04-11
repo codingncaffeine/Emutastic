@@ -98,6 +98,7 @@ namespace Emutastic
                 Game.Consoles3D = new System.Collections.Generic.HashSet<string>(snapCfg.Use3DBoxArtConsoles);
             if (snapCfg?.ScreenScraperMaxThreads > 0)
                 ScreenScraperService.SetMaxThreads(snapCfg.ScreenScraperMaxThreads);
+            Game.PreferScreenScraper2D = snapCfg?.PreferScreenScraper2D == true;
 
             // ── Phase 2: load data off UI thread, then filter on UI thread ──
             await Task.Run(() => _vm.Reload());  // GetAllGames() — stays off UI thread
@@ -152,6 +153,58 @@ namespace Emutastic
 
             if (stillMissing.Count == 0) return;
             await FetchArtworkForGamesAsync(stillMissing, "Artwork", silentThreshold: 1);
+        }
+
+        private async Task FetchScreenScraperArtForConsoleAsync(string console, string displayName)
+        {
+            var snapCfg = App.Configuration?.GetSnapConfiguration();
+            if (snapCfg == null || !snapCfg.ScreenScraperEnabled
+                || string.IsNullOrWhiteSpace(snapCfg.ScreenScraperUser))
+                return;
+
+            var allForConsole = await Task.Run(() => _db.GetGamesWithoutScreenScraperArt()
+                .Where(g => g.Console == console).ToList());
+            if (allForConsole.Count == 0)
+            {
+                SetStatus($"{displayName} — all ScreenScraper 2D art already downloaded", autoClear: true);
+                return;
+            }
+
+            SetStatus($"{displayName} — fetching ScreenScraper 2D art (0 of {allForConsole.Count})…");
+            int done = 0;
+            int fetched = 0;
+            var ss = new ScreenScraperService();
+            var sem = new System.Threading.SemaphoreSlim(1, 1);
+
+            var tasks = allForConsole.Select(async game =>
+            {
+                await sem.WaitAsync();
+                try
+                {
+                    string? path = await ss.FetchBoxArt2DAsync(
+                        snapCfg.ScreenScraperUser, snapCfg.ScreenScraperPassword,
+                        game.Console, game.RomHash, game.RomPath);
+
+                    if (path != null)
+                    {
+                        _db.UpdateScreenScraperArt(game.Id, path);
+                        game.ScreenScraperArtPath = path;
+                        System.Threading.Interlocked.Increment(ref fetched);
+                        Dispatcher.Invoke(() => _vm.RefreshGame(game));
+                    }
+
+                    int completed = System.Threading.Interlocked.Increment(ref done);
+                    if (completed % 10 == 0 || completed == allForConsole.Count)
+                        Dispatcher.Invoke(() =>
+                            SetStatus($"{displayName} — ScreenScraper 2D art ({completed} of {allForConsole.Count})"));
+                }
+                finally { sem.Release(); }
+            });
+
+            await Task.WhenAll(tasks);
+            SetStatus(fetched > 0
+                ? $"{displayName} — {fetched} ScreenScraper image{(fetched == 1 ? "" : "s")} downloaded"
+                : $"{displayName} — no ScreenScraper artwork found", autoClear: true);
         }
 
         private async Task FetchMissingArtworkForConsoleAsync(string console, string displayName)
@@ -281,7 +334,7 @@ namespace Emutastic
                 await sem.WaitAsync();
                 try
                 {
-                    var (artworkPath, metadata) = await _artwork.FetchArtworkAsync(
+                    var (artworkPath, ssArtPath, metadata) = await _artwork.FetchArtworkAsync(
                         game.RomHash, game.RomPath, game.Console);
 
                     if (artworkPath != null)
@@ -294,6 +347,12 @@ namespace Emutastic
                         {
                             game.Title = metadata.Title;
                             _db.UpdateTitle(game.Id, metadata.Title);
+                        }
+
+                        if (ssArtPath != null)
+                        {
+                            _db.UpdateScreenScraperArt(game.Id, ssArtPath);
+                            game.ScreenScraperArtPath = ssArtPath;
                         }
 
                         Dispatcher.Invoke(() => _vm.RefreshGame(game));
@@ -326,7 +385,7 @@ namespace Emutastic
                 await sem.WaitAsync();
                 try
                 {
-                    var (artworkPath, metadata) = await _artwork.FetchArtworkAsync(
+                    var (artworkPath, ssArtPath, metadata) = await _artwork.FetchArtworkAsync(
                         game.RomHash, game.RomPath, game.Console);
 
                     if (artworkPath != null)
@@ -338,6 +397,12 @@ namespace Emutastic
                         {
                             game.Title = metadata.Title;
                             _db.UpdateTitle(game.Id, metadata.Title);
+                        }
+
+                        if (ssArtPath != null)
+                        {
+                            _db.UpdateScreenScraperArt(game.Id, ssArtPath);
+                            game.ScreenScraperArtPath = ssArtPath;
                         }
 
                         Dispatcher.Invoke(() => _vm.RefreshGame(game));
@@ -822,6 +887,10 @@ namespace Emutastic
                         var art3DItem = new MenuItem { Header = "⬇  Download 3D Box Art" };
                         art3DItem.Click += async (_, _) => await Fetch3DBoxArtForConsoleAsync(console, displayName);
                         menu.Items.Add(art3DItem);
+
+                        var ss2DItem = new MenuItem { Header = "⬇  Download ScreenScraper 2D Art" };
+                        ss2DItem.Click += async (_, _) => await FetchScreenScraperArtForConsoleAsync(console, displayName);
+                        menu.Items.Add(ss2DItem);
                     }
                     var editControlsItem = new MenuItem { Header = "🎮  Edit Controls…" };
                     editControlsItem.Click += (_, _) =>
@@ -885,7 +954,14 @@ namespace Emutastic
         { 
             InitializeControllerManager();
             var prefs = new PreferencesWindow(_db, _controllerManager!, App.Configuration!) { Owner = this };
+            bool ss2dBefore = Game.PreferScreenScraper2D;
             prefs.ShowDialog();
+            // If the ScreenScraper 2D preference changed, refresh the grid so cards show updated art
+            if (Game.PreferScreenScraper2D != ss2dBefore)
+            {
+                _vm.InvalidateCache();
+                _vm.RefreshAllGames();
+            }
         }
 
         private async void NavImport_Click(object sender, RoutedEventArgs e)
@@ -1181,13 +1257,18 @@ namespace Emutastic
             menu.Items.Add(MakeMenuItem("⬇  Download Cover Art", async () =>
             {
                 SetStatus($"Fetching artwork for {game.Title}…");
-                var (artworkPath, metadata) = await _artwork.FetchArtworkAsync(
+                var (artworkPath, ssArtPath, metadata) = await _artwork.FetchArtworkAsync(
                     game.RomHash, game.RomPath, game.Console);
 
                 if (artworkPath != null)
                 {
                     _db.UpdateCoverArt(game.Id, artworkPath);
                     game.CoverArtPath = artworkPath;
+                    if (ssArtPath != null)
+                    {
+                        _db.UpdateScreenScraperArt(game.Id, ssArtPath);
+                        game.ScreenScraperArtPath = ssArtPath;
+                    }
                     _vm.RefreshGame(game);
                     SetStatus("Artwork updated", autoClear: true);
                 }
