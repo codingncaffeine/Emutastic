@@ -13,7 +13,7 @@
 
         <!-- Header -->
         <Border Grid.Row="0" 
-                Background="#2D2D2D" 
+                Background="{StaticResource PillBgBrush}" 
                 Padding="20,15"
                 CornerRadius="8,8,0,0">
             <StackPanel>
@@ -23,7 +23,7 @@
                           Foreground="White"/>
                 <TextBlock Text="Select your preferred core for each console. The default core will be used if your preferred core is not available." 
                           FontSize="12" 
-                          Foreground="#AAAAAA"
+                          Foreground="{StaticResource TextSecondaryBrush}"
                           Margin="0,5,0,0"
                           TextWrapping="Wrap"/>
             </StackPanel>
@@ -32,11 +32,11 @@
         <!-- Console List -->
         <ScrollViewer Grid.Row="1" 
                       VerticalScrollBarVisibility="Auto"
-                      Background="#1E1E1E">
+                      Background="{StaticResource PillGroupBgBrush}">
             <ItemsControl x:Name="ConsoleList" Margin="10">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Border Background="#2D2D2D" 
+                        <Border Background="{StaticResource PillBgBrush}" 
                                 CornerRadius="6" 
                                 Margin="0,5"
                                 Padding="15,12">
@@ -51,7 +51,7 @@
                                           Text="{Binding ConsoleName}"
                                           FontSize="14"
                                           FontWeight="SemiBold"
-                                          Foreground="White"
+                                          Foreground="{StaticResource TextPrimaryBrush}"
                                           VerticalAlignment="Center"/>
 
                                 <!-- Core Selection -->
@@ -60,15 +60,15 @@
                                          ItemsSource="{Binding AvailableCores}"
                                          SelectedItem="{Binding SelectedCore, Mode=TwoWay}"
                                          DisplayMemberPath="DisplayName"
-                                         Background="#3D3D3D"
-                                         Foreground="White"
-                                         BorderBrush="#555555"
+                                         Background="{StaticResource BgQuaternaryBrush}"
+                                         Foreground="{StaticResource TextPrimaryBrush}"
+                                         BorderBrush="{StaticResource BorderNormalBrush}"
                                          Padding="8,5"
                                          VerticalAlignment="Center">
                                     <ComboBox.Resources>
                                         <Style TargetType="ComboBoxItem">
-                                            <Setter Property="Background" Value="#3D3D3D"/>
-                                            <Setter Property="Foreground" Value="White"/>
+                                            <Setter Property="Background" Value="{StaticResource BgQuaternaryBrush}"/>
+                                            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
                                         </Style>
                                     </ComboBox.Resources>
                                 </ComboBox>

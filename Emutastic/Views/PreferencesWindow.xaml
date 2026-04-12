@@ -150,7 +150,7 @@
 
             <!-- Charcoal Save button -->
             <Style x:Key="ActionBtn" TargetType="Button">
-                <Setter Property="Background"      Value="#3A3A3C"/>
+                <Setter Property="Background"      Value="{StaticResource PlayBtnBorderBrush}"/>
                 <Setter Property="Foreground"      Value="{StaticResource TextPrimaryBrush}"/>
                 <Setter Property="BorderThickness" Value="0"/>
                 <Setter Property="Padding"         Value="18,8"/>
@@ -169,7 +169,7 @@
                 </Setter>
                 <Style.Triggers>
                     <Trigger Property="IsMouseOver" Value="True">
-                        <Setter Property="Background" Value="#4A4A4E"/>
+                        <Setter Property="Background" Value="{StaticResource PillHoverBgBrush}"/>
                     </Trigger>
                 </Style.Triggers>
             </Style>
@@ -205,7 +205,7 @@
 
             <!-- Accent (red) button -->
             <Style x:Key="AccentButton" TargetType="Button">
-                <Setter Property="Background"      Value="#E03535"/>
+                <Setter Property="Background"      Value="{StaticResource AccentBrush}"/>
                 <Setter Property="Foreground"      Value="White"/>
                 <Setter Property="BorderThickness" Value="0"/>
                 <Setter Property="Padding"         Value="18,8"/>
@@ -224,10 +224,10 @@
                 </Setter>
                 <Style.Triggers>
                     <Trigger Property="IsMouseOver" Value="True">
-                        <Setter Property="Background" Value="#C02020"/>
+                        <Setter Property="Background" Value="{StaticResource AccentPressedBrush}"/>
                     </Trigger>
                     <Trigger Property="IsEnabled" Value="False">
-                        <Setter Property="Background" Value="#6B2020"/>
+                        <Setter Property="Background" Value="{StaticResource AccentDisabledBrush}"/>
                         <Setter Property="Foreground" Value="#88FFFFFF"/>
                     </Trigger>
                 </Style.Triggers>
@@ -275,7 +275,7 @@
                         <ControlTemplate TargetType="ToggleButton">
                             <Grid>
                                 <Border x:Name="track"
-                                        Background="#3A3A3E"
+                                        Background="{StaticResource SurfaceBrush}"
                                         CornerRadius="12"/>
                                 <Border x:Name="thumb"
                                         Width="18" Height="18"
@@ -343,11 +343,11 @@
                             </Grid>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="bd" Property="Background" Value="#2E2E32"/>
+                                    <Setter TargetName="bd" Property="Background" Value="{StaticResource SurfaceHoverBrush}"/>
                                 </Trigger>
                                 <Trigger Property="IsChecked" Value="True">
                                     <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-                                    <Setter TargetName="bd" Property="Background" Value="#3A3A3E"/>
+                                    <Setter TargetName="bd" Property="Background" Value="{StaticResource SurfaceBrush}"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -373,11 +373,11 @@
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="bd" Property="Background" Value="#3A3A3E"/>
+                                    <Setter TargetName="bd" Property="Background" Value="{StaticResource SurfaceBrush}"/>
                                 </Trigger>
                                 <Trigger Property="IsChecked" Value="True">
                                     <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-                                    <Setter TargetName="bd" Property="Background" Value="#4A4A4F"/>
+                                    <Setter TargetName="bd" Property="Background" Value="{StaticResource SurfaceActiveBrush}"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -454,7 +454,7 @@
             BorderBrush="{StaticResource BorderNormalBrush}"
             BorderThickness="1">
         <Border.Effect>
-            <DropShadowEffect BlurRadius="30" ShadowDepth="0" Opacity="0.6" Color="#000000"/>
+            <DropShadowEffect BlurRadius="30" ShadowDepth="0" Opacity="0.6" Color="{StaticResource ShadowColor}"/>
         </Border.Effect>
 
         <Grid x:Name="RootGrid">
@@ -489,13 +489,13 @@
                             Orientation="Horizontal"
                             VerticalAlignment="Center"
                             Margin="0,0,12,0">
-                    <Button Background="#FEBC2E" Style="{StaticResource WinBtn}"
+                    <Button Background="{StaticResource TrafficYellowBrush}" Style="{StaticResource WinBtn}"
                             Margin="0,0,6,0" ToolTip="Minimize"
                             Click="MinimizeButton_Click"/>
-                    <Button Background="#28C840" Style="{StaticResource WinBtn}"
+                    <Button Background="{StaticResource GreenBrush}" Style="{StaticResource WinBtn}"
                             Margin="0,0,6,0" ToolTip="Maximize"
                             Click="MaximizeButton_Click"/>
-                    <Button Background="#FF5F57" Style="{StaticResource WinBtn}"
+                    <Button Background="{StaticResource TrafficRedBrush}" Style="{StaticResource WinBtn}"
                             ToolTip="Close"
                             Click="CloseButton_Click"/>
                 </StackPanel>
@@ -503,7 +503,7 @@
 
             <!-- ═══ NAV BAR ════════════════════════════════════════════════ -->
             <Border Grid.Row="1"
-                    Background="#1A1A1C"
+                    Background="{StaticResource BorderSubtleBrush}"
                     BorderBrush="{StaticResource BorderNormalBrush}"
                     BorderThickness="0,0,0,1">
                 <StackPanel Orientation="Horizontal"
@@ -565,7 +565,7 @@
 
                     <!-- LEFT: Controller image -->
                     <Border Grid.Column="0"
-                            Background="#0C0C0E"
+                            Background="{StaticResource ContentBgBrush}"
                             BorderBrush="{StaticResource BorderNormalBrush}"
                             BorderThickness="0,0,1,0">
                         <Image x:Name="ControllerImage"
@@ -846,6 +846,52 @@
                     <ScrollViewer Margin="32,24,32,24" VerticalScrollBarVisibility="Auto">
                         <StackPanel MaxWidth="560" HorizontalAlignment="Left">
 
+                            <!-- Theme selector -->
+                            <TextBlock Text="THEME" Style="{StaticResource PrefLabel}"/>
+                            <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,0,0,16"/>
+
+                            <Grid Margin="0,0,0,20">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Color theme"
+                                               FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                    <TextBlock Text="Choose a color theme for the entire app. Changes take effect after saving."
+                                               FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                                               Margin="0,2,0,8" TextWrapping="Wrap"/>
+                                    <ComboBox x:Name="ThemeCombo"
+                                              Width="220" HorizontalAlignment="Left"
+                                              Background="{StaticResource BgQuaternaryBrush}"
+                                              Foreground="{StaticResource TextPrimaryBrush}"
+                                              BorderBrush="{StaticResource BorderNormalBrush}"
+                                              FontSize="13"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- Console-specific colors toggle -->
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                                    <TextBlock Text="Console-specific colors"
+                                               FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                    <TextBlock Text="Automatically changes accent and background colors when you browse different console libraries."
+                                               FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                                               Margin="0,4,0,0" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleButton x:Name="ConsoleThemingToggle"
+                                              Grid.Column="1"
+                                              Style="{StaticResource ToggleSwitch}"
+                                              VerticalAlignment="Top"
+                                              Margin="0,2,0,0"/>
+                            </Grid>
+
+                            <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,20,0,20"/>
+
                             <!-- Layout section -->
                             <TextBlock Text="LAYOUT" Style="{StaticResource PrefLabel}"/>
                             <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,0,0,16"/>
@@ -967,7 +1013,7 @@
                                     </TextBlock>
                                     <TextBlock x:Name="ChromeRestartNote"
                                                Text="&#x26A0;&#xFE0F;  Takes effect after restarting Emutastic."
-                                               FontSize="11" Foreground="#FFB347"
+                                               FontSize="11" Foreground="{StaticResource WarningBrush}"
                                                Margin="0,6,0,0"
                                                Visibility="Collapsed"/>
                                 </StackPanel>

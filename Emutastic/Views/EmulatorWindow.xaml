@@ -16,7 +16,7 @@
                           BlurRadius="30"
                           ShadowDepth="0"
                           Opacity="0.8"
-                          Color="#000000"/>
+                          Color="{StaticResource ShadowColor}"/>
 
         <!-- Overlay pill button (Power / Pause / Restart / Save / Cog) -->
         <Style x:Key="OverlayPillBtnStyle" TargetType="Button">
@@ -47,23 +47,23 @@
 
         <!-- Dark ComboBox for the Core Options overlay panel -->
         <ControlTemplate x:Key="OverlayComboToggle" TargetType="ToggleButton">
-            <Border x:Name="bd" Background="#27272A" BorderBrush="#44444A" BorderThickness="1" CornerRadius="4">
+            <Border x:Name="bd" Background="{StaticResource BgQuaternaryBrush}" BorderBrush="{StaticResource BorderNormalBrush}" BorderThickness="1" CornerRadius="4">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="20"/>
                     </Grid.ColumnDefinitions>
                     <ContentPresenter Grid.Column="0" Margin="8,0,0,0" VerticalAlignment="Center" HorizontalAlignment="Left"/>
-                    <Path Grid.Column="1" Data="M0,0 L4,5 L8,0" Stroke="#888" StrokeThickness="1.5"
+                    <Path Grid.Column="1" Data="M0,0 L4,5 L8,0" Stroke="{StaticResource TextSecondaryBrush}" StrokeThickness="1.5"
                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Grid>
             </Border>
             <ControlTemplate.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter TargetName="bd" Property="Background" Value="#33333A"/>
+                    <Setter TargetName="bd" Property="Background" Value="{StaticResource BgQuaternaryBrush}"/>
                 </Trigger>
                 <Trigger Property="IsChecked" Value="True">
-                    <Setter TargetName="bd" Property="BorderBrush" Value="#E03535"/>
+                    <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
                 </Trigger>
             </ControlTemplate.Triggers>
         </ControlTemplate>
@@ -82,7 +82,7 @@
                        IsOpen="{TemplateBinding IsDropDownOpen}"
                        AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
                     <Grid MinWidth="{TemplateBinding ActualWidth}" MaxHeight="180">
-                        <Border Background="#1E1E21" BorderBrush="#44444A" BorderThickness="1" CornerRadius="4">
+                        <Border Background="{StaticResource BgTertiaryBrush}" BorderBrush="{StaticResource BorderNormalBrush}" BorderThickness="1" CornerRadius="4">
                             <ScrollViewer><ItemsPresenter/></ScrollViewer>
                         </Border>
                     </Grid>
@@ -92,20 +92,20 @@
 
         <Style x:Key="OverlayComboBox" TargetType="ComboBox">
             <Setter Property="Template"   Value="{StaticResource OverlayComboTemplate}"/>
-            <Setter Property="Foreground" Value="#F0F0F0"/>
-            <Setter Property="Background" Value="#27272A"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="Background" Value="{StaticResource BgQuaternaryBrush}"/>
             <Setter Property="FontSize"   Value="11"/>
             <Setter Property="Height"     Value="30"/>
             <Setter Property="ItemContainerStyle">
                 <Setter.Value>
                     <Style TargetType="ComboBoxItem">
-                        <Setter Property="Foreground" Value="#F0F0F0"/>
+                        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
                         <Setter Property="Background" Value="Transparent"/>
                         <Setter Property="Padding"    Value="8,5"/>
                         <Setter Property="FontSize"   Value="11"/>
                         <Style.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="#33333A"/>
+                                <Setter Property="Background" Value="{StaticResource BgQuaternaryBrush}"/>
                             </Trigger>
                             <Trigger Property="IsSelected" Value="True">
                                 <Setter Property="Background" Value="#33E03535"/>
@@ -190,7 +190,7 @@
                             Click="MinBtn_Click">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
-                                <Ellipse Fill="#FEBC2E"/>
+                                <Ellipse Fill="{StaticResource TrafficYellowBrush}"/>
                             </ControlTemplate>
                         </Button.Template>
                     </Button>
@@ -200,7 +200,7 @@
                             Click="MaxBtn_Click">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
-                                <Ellipse Fill="#28C840"/>
+                                <Ellipse Fill="{StaticResource GreenBrush}"/>
                             </ControlTemplate>
                         </Button.Template>
                     </Button>
@@ -209,7 +209,7 @@
                             Click="CloseBtn_Click">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
-                                <Ellipse Fill="#FF5F57"/>
+                                <Ellipse Fill="{StaticResource TrafficRedBrush}"/>
                             </ControlTemplate>
                         </Button.Template>
                     </Button>
@@ -280,7 +280,7 @@
                                            FontFamily="{StaticResource PrimaryFont}"
                                            FontSize="12"
                                            FontWeight="SemiBold"
-                                           Foreground="White"
+                                           Foreground="{StaticResource TextPrimaryBrush}"
                                            VerticalAlignment="Center"/>
                                 <Button x:Name="CoreOptionsDoneBtn"
                                         Content="Done"
@@ -439,7 +439,7 @@
                             HorizontalAlignment="Center"
                             Margin="0,20,0,0"
                             Background="#DD1A1A2E"
-                            BorderBrush="#FFFFD700"
+                            BorderBrush="{StaticResource AchievementGoldBrush}"
                             BorderThickness="1.5"
                             CornerRadius="10"
                             Padding="18,12"
@@ -448,7 +448,7 @@
                         <StackPanel>
                             <TextBlock x:Name="AchievementTitle"
                                        FontSize="14" FontWeight="Bold"
-                                       Foreground="#FFFFD700"
+                                       Foreground="{StaticResource AchievementGoldBrush}"
                                        TextWrapping="Wrap"/>
                             <TextBlock x:Name="AchievementDesc"
                                        FontSize="11.5"

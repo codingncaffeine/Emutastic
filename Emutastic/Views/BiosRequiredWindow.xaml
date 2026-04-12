@@ -18,7 +18,7 @@
             <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
                 <TextBlock Text="⚠"
                            FontSize="16"
-                           Foreground="#E8A020"
+                           Foreground="{StaticResource WarningBrush}"
                            VerticalAlignment="Center"
                            Margin="0,0,8,0"/>
                 <TextBlock Text="BIOS Required"

@@ -14,7 +14,7 @@
                           BlurRadius="40"
                           ShadowDepth="0"
                           Opacity="0.8"
-                          Color="#000000"/>
+                          Color="{StaticResource ShadowColor}"/>
     </Window.Resources>
 
     <!-- Dark overlay background -->
@@ -48,7 +48,7 @@
                         <!-- Background color from game -->
                         <Border x:Name="ArtBackground">
                             <Border.Background>
-                                <SolidColorBrush x:Name="ArtBgBrush" Color="#1F1F21"/>
+                                <SolidColorBrush x:Name="ArtBgBrush" Color="{StaticResource BgTertiaryColor}"/>
                             </Border.Background>
                         </Border>
 
@@ -114,7 +114,7 @@
                                 Visibility="Collapsed">
                             <TextBlock Text="♥"
                                        FontSize="11"
-                                       Foreground="#FFFF6B6B"
+                                       Foreground="{StaticResource FavoriteHeartBrush}"
                                        HorizontalAlignment="Center"
                                        VerticalAlignment="Center"/>
                         </Border>

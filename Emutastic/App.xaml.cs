@@ -133,6 +133,13 @@ namespace Emutastic
                 AppPaths.SetCustomRoot(Configuration.GetUserPreferences().CustomDataDirectory);
                 CoreOptions = new CoreOptionsService();
                 ApplyThemeResources();
+
+                // Apply saved theme colors via ThemeService
+                var themeConfig = Configuration.GetThemeConfiguration();
+                var themeSvc = Services.ThemeService.Instance;
+                themeSvc.EnableConsoleTheming = themeConfig.EnableConsoleTheming;
+                themeSvc.LoadAndApplyTheme(themeConfig.ActiveThemeId);
+
                 Logger?.LogInformation("Configuration system initialized successfully");
             }
             catch (Exception ex)

@@ -17,51 +17,51 @@
         <Style x:Key="HeaderTextStyle" TargetType="TextBlock">
             <Setter Property="FontSize" Value="18"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
         </Style>
 
         <Style x:Key="SubHeaderTextStyle" TargetType="TextBlock">
             <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Foreground" Value="#AAAAAA"/>
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
             <Setter Property="TextWrapping" Value="Wrap"/>
         </Style>
 
         <Style x:Key="ConsoleNameStyle" TargetType="TextBlock">
             <Setter Property="FontSize" Value="14"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
         </Style>
 
         <Style x:Key="CoreComboStyle" TargetType="ComboBox">
-            <Setter Property="Background" Value="#2A2A2D"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="BorderBrush" Value="#555555"/>
+            <Setter Property="Background" Value="{StaticResource BgQuaternaryBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderNormalBrush}"/>
             <Setter Property="Padding" Value="8,5"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
         </Style>
 
         <Style x:Key="InstalledCoreStyle" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#4CAF50"/>
+            <Setter Property="Foreground" Value="{StaticResource GreenBrush}"/>
             <Setter Property="FontSize" Value="11"/>
         </Style>
 
         <Style x:Key="MissingCoreStyle" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#FF9800"/>
+            <Setter Property="Foreground" Value="{StaticResource WarningBrush}"/>
             <Setter Property="FontSize" Value="11"/>
         </Style>
 
         <Style x:Key="CoreComboBoxItemStyle" TargetType="ComboBoxItem">
-            <Setter Property="Background" Value="#1A1A1A"/>
-            <Setter Property="Foreground" Value="#CCCCCC"/>
+            <Setter Property="Background" Value="{StaticResource BgSecondaryBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
             <Setter Property="Padding" Value="8,5"/>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#0A84FF"/>
+                    <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
                     <Setter Property="Foreground" Value="White"/>
                 </Trigger>
                 <Trigger Property="IsSelected" Value="True">
-                    <Setter Property="Background" Value="#0A84FF"/>
+                    <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
                     <Setter Property="Foreground" Value="White"/>
                 </Trigger>
             </Style.Triggers>
@@ -72,7 +72,7 @@
         </ResourceDictionary>
     </Window.Resources>
 
-    <Grid Background="#1E1E1E">
+    <Grid Background="{StaticResource PillGroupBgBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
@@ -80,10 +80,10 @@
         </Grid.RowDefinitions>
 
         <!-- Header -->
-        <Border Grid.Row="0" 
-                Background="#2D2D2D" 
+        <Border Grid.Row="0"
+                Background="{StaticResource PillBgBrush}"
                 Padding="20,15"
-                BorderBrush="#3D3D3D"
+                BorderBrush="{StaticResource BorderNormalBrush}"
                 BorderThickness="0,0,0,1">
             <StackPanel>
                 <TextBlock Text="Core Preferences" 
@@ -97,12 +97,12 @@
         <!-- Console List -->
         <ScrollViewer Grid.Row="1" 
                       VerticalScrollBarVisibility="Auto"
-                      Background="#1E1E1E"
+                      Background="{StaticResource PillGroupBgBrush}"
                       Padding="15">
             <ItemsControl x:Name="ConsoleList">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Border Background="#2D2D2D"
+                        <Border Background="{StaticResource PillBgBrush}"
                                 CornerRadius="6"
                                 Margin="0,4"
                                 Padding="15,12">
@@ -151,7 +151,7 @@
                                                 </Grid.ColumnDefinitions>
                                                 <TextBlock Grid.Column="0"
                                                           Text="{Binding DisplayName}"
-                                                          Foreground="#AAAAAA"
+                                                          Foreground="{StaticResource TextSecondaryBrush}"
                                                           FontSize="12"
                                                           VerticalAlignment="Center"/>
                                                 <ComboBox Grid.Column="1"
@@ -162,7 +162,7 @@
                                                          Margin="0,0,10,0"/>
                                                 <TextBlock Grid.Column="2"
                                                           Text="{Binding Description}"
-                                                          Foreground="#777777"
+                                                          Foreground="{StaticResource TextMutedBrush}"
                                                           FontSize="11"
                                                           VerticalAlignment="Center"/>
                                             </Grid>
@@ -177,27 +177,27 @@
         </ScrollViewer>
 
         <!-- Footer -->
-        <Border Grid.Row="2" 
-                Background="#2D2D2D" 
+        <Border Grid.Row="2"
+                Background="{StaticResource PillBgBrush}"
                 Padding="20,15"
-                BorderBrush="#3D3D3D"
+                BorderBrush="{StaticResource BorderNormalBrush}"
                 BorderThickness="0,1,0,0">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                 <Button Content="Reset to Defaults"
                         x:Name="ResetButton"
                         Click="ResetButton_Click"
-                        Background="#3D3D3D"
-                        Foreground="White"
-                        BorderBrush="#555555"
+                        Background="{StaticResource SurfaceBrush}"
+                        Foreground="{StaticResource TextPrimaryBrush}"
+                        BorderBrush="{StaticResource BorderNormalBrush}"
                         Padding="15,8"
                         Margin="0,0,10,0"/>
                 <Button Content="Close"
                         IsDefault="True"
                         IsCancel="True"
                         Click="CloseButton_Click"
-                        Background="#0A84FF"
+                        Background="{StaticResource AccentBrush}"
                         Foreground="White"
-                        BorderBrush="#0066CC"
+                        BorderBrush="{StaticResource AccentPressedBrush}"
                         Padding="20,8"/>
             </StackPanel>
         </Border>
