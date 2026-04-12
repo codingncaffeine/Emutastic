@@ -1,6 +1,3 @@
-using System.Collections.Generic;
-using System.Text.Json.Serialization;
-
 namespace Emutastic.Models
 {
     /// <summary>
@@ -80,12 +77,14 @@ namespace Emutastic.Models
         public double? BackgroundImageOpacity { get; set; }
         /// <summary>Background image stretch mode: UniformToFill, Uniform, Fill, None.</summary>
         public string? BackgroundImageStretch { get; set; }
+        /// <summary>Background image zoom level (1.0 = 100%).</summary>
+        public double? BackgroundImageZoom { get; set; }
+        /// <summary>Background image horizontal offset in pixels.</summary>
+        public double? BackgroundImageOffsetX { get; set; }
+        /// <summary>Background image vertical offset in pixels.</summary>
+        public double? BackgroundImageOffsetY { get; set; }
+        /// <summary>Whether the background image tiles/repeats.</summary>
+        public bool? BackgroundImageRepeat { get; set; }
 
-        /// <summary>
-        /// Console-specific color overrides. Key = console display name (e.g. "Game Boy").
-        /// Only Accent, AccentHover, BgPrimary, BgSecondary are typically overridden.
-        /// </summary>
-        [JsonPropertyName("consoleOverrides")]
-        public Dictionary<string, ThemeColors>? ConsoleOverrides { get; set; }
     }
 }

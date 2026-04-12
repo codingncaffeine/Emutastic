@@ -877,28 +877,6 @@
                                 </StackPanel>
                             </Grid>
 
-                            <!-- Console-specific colors toggle -->
-                            <Grid Margin="0,0,0,8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Margin="0,0,16,0">
-                                    <TextBlock Text="Console-specific colors"
-                                               FontSize="13" Foreground="{DynamicResource TextPrimaryBrush}"/>
-                                    <TextBlock Text="Automatically changes accent and background colors when you browse different console libraries."
-                                               FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
-                                               Margin="0,4,0,0" TextWrapping="Wrap"/>
-                                </StackPanel>
-                                <ToggleButton x:Name="ConsoleThemingToggle"
-                                              Grid.Column="1"
-                                              Style="{StaticResource ToggleSwitch}"
-                                              VerticalAlignment="Top"
-                                              Margin="0,2,0,0"/>
-                            </Grid>
-
-                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,20,0,20"/>
-
                             <!-- Installed themes -->
                             <TextBlock Text="INSTALLED THEMES" Style="{StaticResource PrefLabel}"/>
                             <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,0,0,12"/>
@@ -988,7 +966,7 @@
                             </Grid>
 
                             <!-- Background image stretch -->
-                            <Grid Margin="0,0,0,8">
+                            <Grid Margin="0,0,0,12">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
@@ -1002,6 +980,100 @@
                                     <ComboBox x:Name="BgStretchCombo" Width="180"
                                               Style="{StaticResource PrefComboBox}"
                                               HorizontalAlignment="Left"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- Background image repeat -->
+                            <Grid Margin="0,0,0,12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Repeat / tile"
+                                               FontSize="13" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                    <TextBlock Text="Tile the image across the grid area instead of stretching it."
+                                               FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                               Margin="0,2,0,0" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleButton x:Name="BgRepeatToggle"
+                                              Grid.Column="1"
+                                              Style="{StaticResource ToggleSwitch}"
+                                              VerticalAlignment="Top"
+                                              Margin="0,2,0,0"/>
+                            </Grid>
+
+                            <!-- Background image zoom -->
+                            <Grid Margin="0,0,0,12">
+                                <StackPanel>
+                                    <TextBlock Text="Zoom"
+                                               FontSize="13" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                    <Grid Margin="0,8,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="44"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Slider x:Name="BgZoomSlider"
+                                                Grid.Column="0"
+                                                Minimum="50" Maximum="500" TickFrequency="10"
+                                                IsSnapToTickEnabled="True"
+                                                VerticalAlignment="Center"
+                                                ValueChanged="BgZoomSlider_ValueChanged"/>
+                                        <TextBlock x:Name="BgZoomValueLabel"
+                                                   Grid.Column="1" Text="100%"
+                                                   FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"
+                                                   VerticalAlignment="Center" HorizontalAlignment="Right"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- Background image position -->
+                            <Grid Margin="0,0,0,8">
+                                <StackPanel>
+                                    <TextBlock Text="Position"
+                                               FontSize="13" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,8"/>
+                                    <Grid Margin="0,0,0,6">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="80"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="44"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="Horizontal"
+                                                   Grid.Column="0" FontSize="12"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                                   VerticalAlignment="Center"/>
+                                        <Slider x:Name="BgOffsetXSlider"
+                                                Grid.Column="1"
+                                                Minimum="-500" Maximum="500" TickFrequency="5"
+                                                IsSnapToTickEnabled="True"
+                                                VerticalAlignment="Center"
+                                                ValueChanged="BgOffsetXSlider_ValueChanged"/>
+                                        <TextBlock x:Name="BgOffsetXValueLabel"
+                                                   Grid.Column="2" Text="0"
+                                                   FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"
+                                                   VerticalAlignment="Center" HorizontalAlignment="Right"/>
+                                    </Grid>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="80"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="44"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="Vertical"
+                                                   Grid.Column="0" FontSize="12"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                                   VerticalAlignment="Center"/>
+                                        <Slider x:Name="BgOffsetYSlider"
+                                                Grid.Column="1"
+                                                Minimum="-500" Maximum="500" TickFrequency="5"
+                                                IsSnapToTickEnabled="True"
+                                                VerticalAlignment="Center"
+                                                ValueChanged="BgOffsetYSlider_ValueChanged"/>
+                                        <TextBlock x:Name="BgOffsetYValueLabel"
+                                                   Grid.Column="2" Text="0"
+                                                   FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"
+                                                   VerticalAlignment="Center" HorizontalAlignment="Right"/>
+                                    </Grid>
                                 </StackPanel>
                             </Grid>
 

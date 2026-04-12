@@ -210,9 +210,6 @@ Set a custom background image behind your game library grid in **Preferences →
 ### Sharing Themes
 Export your theme as a `.emutheme` file (a ZIP containing colors, manifest, and optional assets) and share it with others. Import community themes by dragging a `.emutheme` file onto the app window or using the import button in Preferences.
 
-### Console-Specific Colors
-Enable **Console-specific colors** in Preferences to have accent and background colors automatically change as you browse different console libraries — green for Game Boy, blue for PlayStation, etc. Theme creators can define per-console overrides in their color sets.
-
 ---
 
 ## Known Limitations

@@ -843,6 +843,7 @@ namespace Emutastic.Services
             cmd.CommandText = @"SELECT Id, Title, Console, RomHash, RomPath
                 FROM Games
                 WHERE (Developer IS NULL OR Developer = '')
+                AND   (Genre IS NULL OR Genre = '')
                 AND   (RomHash IS NOT NULL AND RomHash != '')
                 ORDER BY Console, Title;";
             using var reader = cmd.ExecuteReader();

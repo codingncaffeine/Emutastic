@@ -771,7 +771,7 @@
                     </Border>
 
                     <!-- Game grid (Library view) -->
-                    <Grid x:Name="GameContentGrid" Grid.Row="1">
+                    <Grid x:Name="GameContentGrid" Grid.Row="1" ClipToBounds="True">
 
                     <!-- Background image (behind game cards, user-configurable) -->
                     <Image x:Name="GridBackgroundImage"
@@ -779,7 +779,19 @@
                            IsHitTestVisible="False"
                            Visibility="Collapsed"
                            VerticalAlignment="Stretch"
-                           HorizontalAlignment="Stretch"/>
+                           HorizontalAlignment="Stretch"
+                           RenderTransformOrigin="0.5,0.5">
+                        <Image.RenderTransform>
+                            <TransformGroup>
+                                <ScaleTransform x:Name="BgImageScale" ScaleX="1" ScaleY="1"/>
+                                <TranslateTransform x:Name="BgImageTranslate" X="0" Y="0"/>
+                            </TransformGroup>
+                        </Image.RenderTransform>
+                    </Image>
+                    <!-- Tiled background (used when repeat mode is enabled) -->
+                    <Rectangle x:Name="GridBackgroundTiled"
+                               IsHitTestVisible="False"
+                               Visibility="Collapsed"/>
 
                     <!-- ── Flat grid: virtualized ListBox + VirtualizingWrapPanel ─────────────── -->
                     <!-- Only ~60 card visuals exist at any time regardless of library size.       -->
@@ -789,9 +801,9 @@
                              SelectionMode="Extended"
                              VirtualizingPanel.IsVirtualizing="True"
                              VirtualizingPanel.VirtualizationMode="Recycling"
-                             VirtualizingPanel.ScrollUnit="Item"
+                             VirtualizingPanel.ScrollUnit="Pixel"
                              VirtualizingPanel.CacheLengthUnit="Page"
-                             VirtualizingPanel.CacheLength="0.5,0.5"
+                             VirtualizingPanel.CacheLength="1,1"
                              ScrollViewer.CanContentScroll="True"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                              Background="Transparent"

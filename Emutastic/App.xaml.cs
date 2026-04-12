@@ -138,7 +138,6 @@ namespace Emutastic
                 var themeConfig = Configuration.GetThemeConfiguration();
                 var themeSvc = Services.ThemeService.Instance;
                 themeSvc.ScanInstalledThemes();
-                themeSvc.EnableConsoleTheming = themeConfig.EnableConsoleTheming;
                 themeSvc.LoadAndApplyTheme(themeConfig.ActiveThemeId);
 
                 Logger?.LogInformation("Configuration system initialized successfully");
