@@ -263,8 +263,8 @@
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- Left: transparent strip aligned with sidebar -->
-                <Border Grid.Column="0" Background="#B3181819">
+                <!-- Left: strip aligned with sidebar -->
+                <Border Grid.Column="0" Background="{DynamicResource BgSecondaryBrush}">
                     <StackPanel Orientation="Horizontal"
                                 VerticalAlignment="Center"
                                 Margin="14,0,0,0">
@@ -370,7 +370,7 @@
 
                 <!-- ── SIDEBAR ── -->
                 <Border Grid.Column="0"
-                        Background="#B3181819"
+                        Background="{DynamicResource BgSecondaryBrush}"
                         BorderBrush="{DynamicResource BorderSubtleBrush}"
                         BorderThickness="0,1,1,0">
                     <ScrollViewer Style="{StaticResource MinimalScrollViewer}"
