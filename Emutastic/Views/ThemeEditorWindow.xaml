@@ -10,9 +10,7 @@
 
     <Window.Resources>
         <ResourceDictionary>
-            <ResourceDictionary.MergedDictionaries>
-                <ResourceDictionary Source="pack://application:,,,/Themes/DarkTheme.xaml"/>
-            </ResourceDictionary.MergedDictionaries>
+            <!-- Theme resources resolve from Application.Current.Resources (ThemeService). -->
 
             <Style x:Key="SectionHeader" TargetType="TextBlock">
                 <Setter Property="FontSize" Value="11"/>
