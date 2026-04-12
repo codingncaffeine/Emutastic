@@ -861,12 +861,22 @@
                                     <TextBlock Text="Choose a color theme for the entire app. Changes take effect after saving."
                                                FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
                                                Margin="0,2,0,8" TextWrapping="Wrap"/>
-                                    <ComboBox x:Name="ThemeCombo"
-                                              Width="220" HorizontalAlignment="Left"
-                                              Background="{StaticResource BgQuaternaryBrush}"
-                                              Foreground="{StaticResource TextPrimaryBrush}"
-                                              BorderBrush="{StaticResource BorderNormalBrush}"
-                                              FontSize="13"/>
+                                    <StackPanel Orientation="Horizontal">
+                                        <ComboBox x:Name="ThemeCombo"
+                                                  Width="220"
+                                                  Background="{StaticResource BgQuaternaryBrush}"
+                                                  Foreground="{StaticResource TextPrimaryBrush}"
+                                                  BorderBrush="{StaticResource BorderNormalBrush}"
+                                                  FontSize="13"/>
+                                        <Button x:Name="CustomizeThemeBtn"
+                                                Content="Customize..."
+                                                Padding="10,4" FontSize="12" Margin="8,0,0,0"
+                                                Background="{StaticResource SurfaceBrush}"
+                                                Foreground="{StaticResource TextPrimaryBrush}"
+                                                BorderBrush="{StaticResource BorderNormalBrush}"
+                                                BorderThickness="1" Cursor="Hand"
+                                                Click="CustomizeThemeBtn_Click"/>
+                                    </StackPanel>
                                 </StackPanel>
                             </Grid>
 
