@@ -14,7 +14,7 @@
                           BlurRadius="40"
                           ShadowDepth="0"
                           Opacity="0.8"
-                          Color="{StaticResource ShadowColor}"/>
+                          Color="{DynamicResource ShadowColor}"/>
     </Window.Resources>
 
     <!-- Dark overlay background -->
@@ -24,8 +24,8 @@
 
         <!-- Modal card -->
         <Border x:Name="ModalCard"
-                Background="{StaticResource BgSecondaryBrush}"
-                BorderBrush="{StaticResource BorderNormalBrush}"
+                Background="{DynamicResource BgSecondaryBrush}"
+                BorderBrush="{DynamicResource BorderNormalBrush}"
                 BorderThickness="1"
                 CornerRadius="14"
                 Width="460"
@@ -48,7 +48,7 @@
                         <!-- Background color from game -->
                         <Border x:Name="ArtBackground">
                             <Border.Background>
-                                <SolidColorBrush x:Name="ArtBgBrush" Color="{StaticResource BgTertiaryColor}"/>
+                                <SolidColorBrush x:Name="ArtBgBrush" Color="{DynamicResource BgTertiaryColor}"/>
                             </Border.Background>
                         </Border>
 
@@ -114,7 +114,7 @@
                                 Visibility="Collapsed">
                             <TextBlock Text="♥"
                                        FontSize="11"
-                                       Foreground="{StaticResource FavoriteHeartBrush}"
+                                       Foreground="{DynamicResource FavoriteHeartBrush}"
                                        HorizontalAlignment="Center"
                                        VerticalAlignment="Center"/>
                         </Border>
@@ -143,7 +143,7 @@
                                FontFamily="{StaticResource PrimaryFont}"
                                FontSize="20"
                                FontWeight="Bold"
-                               Foreground="{StaticResource TextPrimaryBrush}"
+                               Foreground="{DynamicResource TextPrimaryBrush}"
                                TextWrapping="Wrap"/>
 
                     <!-- Metadata pills row -->
@@ -151,30 +151,30 @@
                                Visibility="Collapsed">
                         <!-- Year pill -->
                         <Border x:Name="YearPill"
-                                Background="{StaticResource BgTertiaryBrush}"
+                                Background="{DynamicResource BgTertiaryBrush}"
                                 CornerRadius="4" Padding="8,3" Margin="0,0,6,6"
                                 Visibility="Collapsed">
                             <TextBlock x:Name="GameYear"
                                        FontFamily="{StaticResource PrimaryFont}"
-                                       FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                       FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
                         </Border>
                         <!-- Developer pill -->
                         <Border x:Name="DeveloperPill"
-                                Background="{StaticResource BgTertiaryBrush}"
+                                Background="{DynamicResource BgTertiaryBrush}"
                                 CornerRadius="4" Padding="8,3" Margin="0,0,6,6"
                                 Visibility="Collapsed">
                             <TextBlock x:Name="GameDeveloper"
                                        FontFamily="{StaticResource PrimaryFont}"
-                                       FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                       FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
                         </Border>
                         <!-- Genre pill -->
                         <Border x:Name="GenrePill"
-                                Background="{StaticResource BgTertiaryBrush}"
+                                Background="{DynamicResource BgTertiaryBrush}"
                                 CornerRadius="4" Padding="8,3" Margin="0,0,6,6"
                                 Visibility="Collapsed">
                             <TextBlock x:Name="GameGenre"
                                        FontFamily="{StaticResource PrimaryFont}"
-                                       FontSize="11" Foreground="{StaticResource TextMutedBrush}"/>
+                                       FontSize="11" Foreground="{DynamicResource TextMutedBrush}"/>
                         </Border>
                     </WrapPanel>
 
@@ -182,7 +182,7 @@
                     <TextBlock x:Name="GameDescription"
                                FontFamily="{StaticResource PrimaryFont}"
                                FontSize="12"
-                               Foreground="{StaticResource TextSecondaryBrush}"
+                               Foreground="{DynamicResource TextSecondaryBrush}"
                                TextWrapping="Wrap"
                                MaxHeight="54"
                                Margin="0,4,0,0"
@@ -198,7 +198,7 @@
                         </Grid.ColumnDefinitions>
 
                         <Border Grid.Column="0"
-                                Background="{StaticResource BgTertiaryBrush}"
+                                Background="{DynamicResource BgTertiaryBrush}"
                                 CornerRadius="8"
                                 Padding="0,12"
                                 Margin="0,0,6,0">
@@ -207,19 +207,19 @@
                                            FontFamily="{StaticResource PrimaryFont}"
                                            FontSize="15"
                                            FontWeight="SemiBold"
-                                           Foreground="{StaticResource TextPrimaryBrush}"
+                                           Foreground="{DynamicResource TextPrimaryBrush}"
                                            HorizontalAlignment="Center"/>
                                 <TextBlock Text="Times Played"
                                            FontFamily="{StaticResource PrimaryFont}"
                                            FontSize="10"
-                                           Foreground="{StaticResource TextMutedBrush}"
+                                           Foreground="{DynamicResource TextMutedBrush}"
                                            HorizontalAlignment="Center"
                                            Margin="0,3,0,0"/>
                             </StackPanel>
                         </Border>
 
                         <Border Grid.Column="1"
-                                Background="{StaticResource BgTertiaryBrush}"
+                                Background="{DynamicResource BgTertiaryBrush}"
                                 CornerRadius="8"
                                 Padding="0,12"
                                 Margin="0,0,6,0">
@@ -228,19 +228,19 @@
                                            FontFamily="{StaticResource PrimaryFont}"
                                            FontSize="15"
                                            FontWeight="SemiBold"
-                                           Foreground="{StaticResource TextPrimaryBrush}"
+                                           Foreground="{DynamicResource TextPrimaryBrush}"
                                            HorizontalAlignment="Center"/>
                                 <TextBlock Text="Save States"
                                            FontFamily="{StaticResource PrimaryFont}"
                                            FontSize="10"
-                                           Foreground="{StaticResource TextMutedBrush}"
+                                           Foreground="{DynamicResource TextMutedBrush}"
                                            HorizontalAlignment="Center"
                                            Margin="0,3,0,0"/>
                             </StackPanel>
                         </Border>
 
                         <Border Grid.Column="2"
-                                Background="{StaticResource BgTertiaryBrush}"
+                                Background="{DynamicResource BgTertiaryBrush}"
                                 CornerRadius="8"
                                 Padding="0,12">
                             <StackPanel HorizontalAlignment="Center">
@@ -248,12 +248,12 @@
                                            FontFamily="{StaticResource PrimaryFont}"
                                            FontSize="12"
                                            FontWeight="SemiBold"
-                                           Foreground="{StaticResource TextPrimaryBrush}"
+                                           Foreground="{DynamicResource TextPrimaryBrush}"
                                            HorizontalAlignment="Center"/>
                                 <TextBlock Text="Last Played"
                                            FontFamily="{StaticResource PrimaryFont}"
                                            FontSize="10"
-                                           Foreground="{StaticResource TextMutedBrush}"
+                                           Foreground="{DynamicResource TextMutedBrush}"
                                            HorizontalAlignment="Center"
                                            Margin="0,3,0,0"/>
                             </StackPanel>

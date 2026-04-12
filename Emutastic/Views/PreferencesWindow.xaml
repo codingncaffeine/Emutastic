@@ -18,8 +18,8 @@
             <!-- ── ComboBox full dark template ── -->
             <ControlTemplate x:Key="DarkComboToggle" TargetType="ToggleButton">
                 <Border x:Name="bd"
-                        Background="{StaticResource BgTertiaryBrush}"
-                        BorderBrush="{StaticResource BorderNormalBrush}"
+                        Background="{DynamicResource BgTertiaryBrush}"
+                        BorderBrush="{DynamicResource BorderNormalBrush}"
                         BorderThickness="1"
                         CornerRadius="6">
                     <Grid>
@@ -34,7 +34,7 @@
                         <Path Grid.Column="1"
                               x:Name="arrow"
                               Data="M0,0 L4,5 L8,0"
-                              Stroke="{StaticResource TextSecondaryBrush}"
+                              Stroke="{DynamicResource TextSecondaryBrush}"
                               StrokeThickness="1.5"
                               HorizontalAlignment="Center"
                               VerticalAlignment="Center"/>
@@ -42,11 +42,11 @@
                 </Border>
                 <ControlTemplate.Triggers>
                     <Trigger Property="IsMouseOver" Value="True">
-                        <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource BorderNormalBrush}"/>
-                        <Setter TargetName="bd" Property="Background" Value="{StaticResource BgQuaternaryBrush}"/>
+                        <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource BorderNormalBrush}"/>
+                        <Setter TargetName="bd" Property="Background" Value="{DynamicResource BgQuaternaryBrush}"/>
                     </Trigger>
                     <Trigger Property="IsChecked" Value="True">
-                        <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                        <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
                     </Trigger>
                 </ControlTemplate.Triggers>
             </ControlTemplate>
@@ -78,8 +78,8 @@
                               MinWidth="{TemplateBinding ActualWidth}"
                               MaxHeight="{TemplateBinding MaxDropDownHeight}">
                             <Border x:Name="DropDownBorder"
-                                    Background="{StaticResource BgTertiaryBrush}"
-                                    BorderBrush="{StaticResource BorderNormalBrush}"
+                                    Background="{DynamicResource BgTertiaryBrush}"
+                                    BorderBrush="{DynamicResource BorderNormalBrush}"
                                     BorderThickness="1"
                                     CornerRadius="6"
                                     Margin="0,2,0,0">
@@ -95,7 +95,7 @@
             </ControlTemplate>
 
             <Style x:Key="DarkComboBoxItem" TargetType="ComboBoxItem">
-                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
                 <Setter Property="Background" Value="Transparent"/>
                 <Setter Property="Padding"    Value="8,5"/>
                 <Setter Property="FontSize"   Value="13"/>
@@ -110,10 +110,10 @@
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="bd" Property="Background" Value="{StaticResource BgQuaternaryBrush}"/>
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource BgQuaternaryBrush}"/>
                                 </Trigger>
                                 <Trigger Property="IsSelected" Value="True">
-                                    <Setter TargetName="bd" Property="Background" Value="{StaticResource AccentBrush}"/>
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource AccentBrush}"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -122,9 +122,9 @@
             </Style>
 
             <Style x:Key="PrefComboBox" TargetType="ComboBox">
-                <Setter Property="Foreground"           Value="{StaticResource TextPrimaryBrush}"/>
-                <Setter Property="Background"           Value="{StaticResource BgTertiaryBrush}"/>
-                <Setter Property="BorderBrush"          Value="{StaticResource BorderNormalBrush}"/>
+                <Setter Property="Foreground"           Value="{DynamicResource TextPrimaryBrush}"/>
+                <Setter Property="Background"           Value="{DynamicResource BgTertiaryBrush}"/>
+                <Setter Property="BorderBrush"          Value="{DynamicResource BorderNormalBrush}"/>
                 <Setter Property="BorderThickness"      Value="1"/>
                 <Setter Property="FontSize"             Value="13"/>
                 <Setter Property="Height"               Value="32"/>
@@ -134,7 +134,7 @@
 
             <!-- Section label above combos -->
             <Style x:Key="PrefLabel" TargetType="TextBlock">
-                <Setter Property="Foreground"  Value="{StaticResource TextSecondaryBrush}"/>
+                <Setter Property="Foreground"  Value="{DynamicResource TextSecondaryBrush}"/>
                 <Setter Property="FontSize"    Value="11"/>
                 <Setter Property="FontWeight"  Value="SemiBold"/>
                 <Setter Property="Margin"      Value="0,10,0,4"/>
@@ -142,7 +142,7 @@
 
             <!-- Group header inside scrollable list -->
             <Style x:Key="GroupHeader" TargetType="TextBlock">
-                <Setter Property="Foreground"  Value="{StaticResource TextSecondaryBrush}"/>
+                <Setter Property="Foreground"  Value="{DynamicResource TextSecondaryBrush}"/>
                 <Setter Property="FontSize"    Value="10"/>
                 <Setter Property="FontWeight"  Value="SemiBold"/>
                 <Setter Property="Margin"      Value="0,12,0,4"/>
@@ -150,8 +150,8 @@
 
             <!-- Charcoal Save button -->
             <Style x:Key="ActionBtn" TargetType="Button">
-                <Setter Property="Background"      Value="{StaticResource PlayBtnBorderBrush}"/>
-                <Setter Property="Foreground"      Value="{StaticResource TextPrimaryBrush}"/>
+                <Setter Property="Background"      Value="{DynamicResource PlayBtnBorderBrush}"/>
+                <Setter Property="Foreground"      Value="{DynamicResource TextPrimaryBrush}"/>
                 <Setter Property="BorderThickness" Value="0"/>
                 <Setter Property="Padding"         Value="18,8"/>
                 <Setter Property="FontSize"        Value="13"/>
@@ -169,16 +169,16 @@
                 </Setter>
                 <Style.Triggers>
                     <Trigger Property="IsMouseOver" Value="True">
-                        <Setter Property="Background" Value="{StaticResource PillHoverBgBrush}"/>
+                        <Setter Property="Background" Value="{DynamicResource PillHoverBgBrush}"/>
                     </Trigger>
                 </Style.Triggers>
             </Style>
 
             <!-- Secondary button -->
             <Style x:Key="SecondaryBtn" TargetType="Button">
-                <Setter Property="Background"      Value="{StaticResource BgQuaternaryBrush}"/>
-                <Setter Property="Foreground"      Value="{StaticResource TextPrimaryBrush}"/>
-                <Setter Property="BorderBrush"     Value="{StaticResource BorderNormalBrush}"/>
+                <Setter Property="Background"      Value="{DynamicResource BgQuaternaryBrush}"/>
+                <Setter Property="Foreground"      Value="{DynamicResource TextPrimaryBrush}"/>
+                <Setter Property="BorderBrush"     Value="{DynamicResource BorderNormalBrush}"/>
                 <Setter Property="BorderThickness" Value="1"/>
                 <Setter Property="Padding"         Value="14,8"/>
                 <Setter Property="FontSize"        Value="13"/>
@@ -198,14 +198,14 @@
                 </Setter>
                 <Style.Triggers>
                     <Trigger Property="IsMouseOver" Value="True">
-                        <Setter Property="Background" Value="{StaticResource BgTertiaryBrush}"/>
+                        <Setter Property="Background" Value="{DynamicResource BgTertiaryBrush}"/>
                     </Trigger>
                 </Style.Triggers>
             </Style>
 
             <!-- Accent (red) button -->
             <Style x:Key="AccentButton" TargetType="Button">
-                <Setter Property="Background"      Value="{StaticResource AccentBrush}"/>
+                <Setter Property="Background"      Value="{DynamicResource AccentBrush}"/>
                 <Setter Property="Foreground"      Value="White"/>
                 <Setter Property="BorderThickness" Value="0"/>
                 <Setter Property="Padding"         Value="18,8"/>
@@ -224,10 +224,10 @@
                 </Setter>
                 <Style.Triggers>
                     <Trigger Property="IsMouseOver" Value="True">
-                        <Setter Property="Background" Value="{StaticResource AccentPressedBrush}"/>
+                        <Setter Property="Background" Value="{DynamicResource AccentPressedBrush}"/>
                     </Trigger>
                     <Trigger Property="IsEnabled" Value="False">
-                        <Setter Property="Background" Value="{StaticResource AccentDisabledBrush}"/>
+                        <Setter Property="Background" Value="{DynamicResource AccentDisabledBrush}"/>
                         <Setter Property="Foreground" Value="#88FFFFFF"/>
                     </Trigger>
                 </Style.Triggers>
@@ -236,8 +236,8 @@
             <!-- Small outline button (for per-row download) -->
             <Style x:Key="SmallOutlineButton" TargetType="Button">
                 <Setter Property="Background"      Value="Transparent"/>
-                <Setter Property="Foreground"      Value="{StaticResource TextPrimaryBrush}"/>
-                <Setter Property="BorderBrush"     Value="{StaticResource BorderNormalBrush}"/>
+                <Setter Property="Foreground"      Value="{DynamicResource TextPrimaryBrush}"/>
+                <Setter Property="BorderBrush"     Value="{DynamicResource BorderNormalBrush}"/>
                 <Setter Property="BorderThickness" Value="1"/>
                 <Setter Property="Padding"         Value="10,4"/>
                 <Setter Property="FontSize"        Value="11"/>
@@ -257,10 +257,10 @@
                 </Setter>
                 <Style.Triggers>
                     <Trigger Property="IsMouseOver" Value="True">
-                        <Setter Property="Background" Value="{StaticResource BgTertiaryBrush}"/>
+                        <Setter Property="Background" Value="{DynamicResource BgTertiaryBrush}"/>
                     </Trigger>
                     <Trigger Property="IsEnabled" Value="False">
-                        <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+                        <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}"/>
                     </Trigger>
                 </Style.Triggers>
             </Style>
@@ -275,7 +275,7 @@
                         <ControlTemplate TargetType="ToggleButton">
                             <Grid>
                                 <Border x:Name="track"
-                                        Background="{StaticResource SurfaceBrush}"
+                                        Background="{DynamicResource SurfaceBrush}"
                                         CornerRadius="12"/>
                                 <Border x:Name="thumb"
                                         Width="18" Height="18"
@@ -287,7 +287,7 @@
                             </Grid>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsChecked" Value="True">
-                                    <Setter TargetName="track" Property="Background" Value="{StaticResource AccentBrush}"/>
+                                    <Setter TargetName="track" Property="Background" Value="{DynamicResource AccentBrush}"/>
                                     <Setter TargetName="thumb" Property="HorizontalAlignment" Value="Right"/>
                                     <Setter TargetName="thumb" Property="Margin" Value="0,0,3,0"/>
                                 </Trigger>
@@ -321,7 +321,7 @@
 
             <!-- Nav tab RadioButton style -->
             <Style x:Key="NavBtn" TargetType="RadioButton">
-                <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
                 <Setter Property="Background" Value="Transparent"/>
                 <Setter Property="BorderThickness" Value="0"/>
                 <Setter Property="Padding" Value="16,0"/>
@@ -343,11 +343,11 @@
                             </Grid>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="bd" Property="Background" Value="{StaticResource SurfaceHoverBrush}"/>
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource SurfaceHoverBrush}"/>
                                 </Trigger>
                                 <Trigger Property="IsChecked" Value="True">
-                                    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-                                    <Setter TargetName="bd" Property="Background" Value="{StaticResource SurfaceBrush}"/>
+                                    <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource SurfaceBrush}"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -357,7 +357,7 @@
 
             <!-- Provider pill toggle (ScreenScraper / EmuMovies selector) -->
             <Style x:Key="ProviderPill" TargetType="RadioButton">
-                <Setter Property="Foreground"   Value="{StaticResource TextSecondaryBrush}"/>
+                <Setter Property="Foreground"   Value="{DynamicResource TextSecondaryBrush}"/>
                 <Setter Property="Background"   Value="Transparent"/>
                 <Setter Property="BorderThickness" Value="0"/>
                 <Setter Property="Padding"      Value="16,6"/>
@@ -373,11 +373,11 @@
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="bd" Property="Background" Value="{StaticResource SurfaceBrush}"/>
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource SurfaceBrush}"/>
                                 </Trigger>
                                 <Trigger Property="IsChecked" Value="True">
-                                    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-                                    <Setter TargetName="bd" Property="Background" Value="{StaticResource SurfaceActiveBrush}"/>
+                                    <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource SurfaceActiveBrush}"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -387,13 +387,13 @@
 
             <!-- Dark-themed TextBox -->
             <Style x:Key="DarkTextBox" TargetType="TextBox">
-                <Setter Property="Background"   Value="{StaticResource BgTertiaryBrush}"/>
-                <Setter Property="Foreground"   Value="{StaticResource TextPrimaryBrush}"/>
-                <Setter Property="BorderBrush"  Value="{StaticResource BorderNormalBrush}"/>
+                <Setter Property="Background"   Value="{DynamicResource BgTertiaryBrush}"/>
+                <Setter Property="Foreground"   Value="{DynamicResource TextPrimaryBrush}"/>
+                <Setter Property="BorderBrush"  Value="{DynamicResource BorderNormalBrush}"/>
                 <Setter Property="BorderThickness" Value="1"/>
                 <Setter Property="Padding"      Value="10,8"/>
                 <Setter Property="FontSize"     Value="13"/>
-                <Setter Property="CaretBrush"   Value="{StaticResource TextPrimaryBrush}"/>
+                <Setter Property="CaretBrush"   Value="{DynamicResource TextPrimaryBrush}"/>
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="TextBox">
@@ -406,7 +406,7 @@
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsFocused" Value="True">
-                                    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -416,13 +416,13 @@
 
             <!-- Dark-themed PasswordBox -->
             <Style x:Key="DarkPasswordBox" TargetType="PasswordBox">
-                <Setter Property="Background"   Value="{StaticResource BgTertiaryBrush}"/>
-                <Setter Property="Foreground"   Value="{StaticResource TextPrimaryBrush}"/>
-                <Setter Property="BorderBrush"  Value="{StaticResource BorderNormalBrush}"/>
+                <Setter Property="Background"   Value="{DynamicResource BgTertiaryBrush}"/>
+                <Setter Property="Foreground"   Value="{DynamicResource TextPrimaryBrush}"/>
+                <Setter Property="BorderBrush"  Value="{DynamicResource BorderNormalBrush}"/>
                 <Setter Property="BorderThickness" Value="1"/>
                 <Setter Property="Padding"      Value="10,8"/>
                 <Setter Property="FontSize"     Value="13"/>
-                <Setter Property="CaretBrush"   Value="{StaticResource TextPrimaryBrush}"/>
+                <Setter Property="CaretBrush"   Value="{DynamicResource TextPrimaryBrush}"/>
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="PasswordBox">
@@ -435,7 +435,7 @@
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsFocused" Value="True">
-                                    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -450,11 +450,11 @@
     <Border x:Name="OuterBorder"
             Margin="10"
             CornerRadius="10"
-            Background="{StaticResource BgPrimaryBrush}"
-            BorderBrush="{StaticResource BorderNormalBrush}"
+            Background="{DynamicResource BgPrimaryBrush}"
+            BorderBrush="{DynamicResource BorderNormalBrush}"
             BorderThickness="1">
         <Border.Effect>
-            <DropShadowEffect BlurRadius="30" ShadowDepth="0" Opacity="0.6" Color="{StaticResource ShadowColor}"/>
+            <DropShadowEffect BlurRadius="30" ShadowDepth="0" Opacity="0.6" Color="{DynamicResource ShadowColor}"/>
         </Border.Effect>
 
         <Grid x:Name="RootGrid">
@@ -467,7 +467,7 @@
             <!-- ═══ TITLE BAR ══════════════════════════════════════════════ -->
             <Grid x:Name="CustomTitleBar"
                   Grid.Row="0"
-                  Background="{StaticResource BgSecondaryBrush}"
+                  Background="{DynamicResource BgSecondaryBrush}"
                   MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
@@ -479,7 +479,7 @@
                            Text="Preferences"
                            FontSize="13"
                            FontWeight="SemiBold"
-                           Foreground="{StaticResource TextPrimaryBrush}"
+                           Foreground="{DynamicResource TextPrimaryBrush}"
                            VerticalAlignment="Center"
                            Margin="14,0,0,0"/>
 
@@ -489,13 +489,13 @@
                             Orientation="Horizontal"
                             VerticalAlignment="Center"
                             Margin="0,0,12,0">
-                    <Button Background="{StaticResource TrafficYellowBrush}" Style="{StaticResource WinBtn}"
+                    <Button Background="{DynamicResource TrafficYellowBrush}" Style="{StaticResource WinBtn}"
                             Margin="0,0,6,0" ToolTip="Minimize"
                             Click="MinimizeButton_Click"/>
-                    <Button Background="{StaticResource GreenBrush}" Style="{StaticResource WinBtn}"
+                    <Button Background="{DynamicResource GreenBrush}" Style="{StaticResource WinBtn}"
                             Margin="0,0,6,0" ToolTip="Maximize"
                             Click="MaximizeButton_Click"/>
-                    <Button Background="{StaticResource TrafficRedBrush}" Style="{StaticResource WinBtn}"
+                    <Button Background="{DynamicResource TrafficRedBrush}" Style="{StaticResource WinBtn}"
                             ToolTip="Close"
                             Click="CloseButton_Click"/>
                 </StackPanel>
@@ -503,8 +503,8 @@
 
             <!-- ═══ NAV BAR ════════════════════════════════════════════════ -->
             <Border Grid.Row="1"
-                    Background="{StaticResource BorderSubtleBrush}"
-                    BorderBrush="{StaticResource BorderNormalBrush}"
+                    Background="{DynamicResource BorderSubtleBrush}"
+                    BorderBrush="{DynamicResource BorderNormalBrush}"
                     BorderThickness="0,0,0,1">
                 <StackPanel Orientation="Horizontal"
                             VerticalAlignment="Center"
@@ -565,8 +565,8 @@
 
                     <!-- LEFT: Controller image -->
                     <Border Grid.Column="0"
-                            Background="{StaticResource ContentBgBrush}"
-                            BorderBrush="{StaticResource BorderNormalBrush}"
+                            Background="{DynamicResource ContentBgBrush}"
+                            BorderBrush="{DynamicResource BorderNormalBrush}"
                             BorderThickness="0,0,1,0">
                         <Image x:Name="ControllerImage"
                                Stretch="Uniform"
@@ -577,7 +577,7 @@
                     </Border>
 
                     <!-- RIGHT: Controls panel -->
-                    <Grid Grid.Column="1" Background="{StaticResource BgSecondaryBrush}">
+                    <Grid Grid.Column="1" Background="{DynamicResource BgSecondaryBrush}">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="*"/>
@@ -607,7 +607,7 @@
                                        Style="{StaticResource PrefLabel}"
                                        Margin="0,16,0,6"/>
                             <Rectangle Height="1"
-                                       Fill="{StaticResource BorderNormalBrush}"
+                                       Fill="{DynamicResource BorderNormalBrush}"
                                        Margin="0,0,0,2"/>
                         </StackPanel>
 
@@ -621,8 +621,8 @@
 
                         <!-- Bottom: Input device + actions -->
                         <Border Grid.Row="2"
-                                Background="{StaticResource BgPrimaryBrush}"
-                                BorderBrush="{StaticResource BorderNormalBrush}"
+                                Background="{DynamicResource BgPrimaryBrush}"
+                                BorderBrush="{DynamicResource BorderNormalBrush}"
                                 BorderThickness="0,1,0,0"
                                 Padding="16,12">
                             <Grid>
@@ -692,7 +692,7 @@
                         <!-- Data directory -->
                         <TextBlock Text="DATA DIRECTORY" Style="{StaticResource PrefLabel}"/>
                         <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,0,0,8"
-                                   Foreground="{StaticResource TextSecondaryBrush}">
+                                   Foreground="{DynamicResource TextSecondaryBrush}">
                             <Run>All app data (database, saves, artwork, video snaps, screenshots) is stored here. </Run>
                             <Run FontStyle="Italic">Video snaps from ScreenScraper can add up quickly — consider pointing this to a drive with plenty of space.</Run>
                         </TextBlock>
@@ -702,11 +702,11 @@
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Background="{StaticResource BgTertiaryBrush}"
-                                    BorderBrush="{StaticResource BorderNormalBrush}" BorderThickness="1"
+                            <Border Grid.Column="0" Background="{DynamicResource BgTertiaryBrush}"
+                                    BorderBrush="{DynamicResource BorderNormalBrush}" BorderThickness="1"
                                     CornerRadius="6" Padding="10,8">
                                 <TextBlock x:Name="DataDirPathText"
-                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"
                                            FontSize="12" VerticalAlignment="Center"
                                            TextTrimming="CharacterEllipsis"/>
                             </Border>
@@ -720,12 +720,12 @@
                                     Click="ResetDataDirBtn_Click"/>
                         </Grid>
 
-                        <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,24,0,16"/>
+                        <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,24,0,16"/>
 
                         <!-- Folder picker header -->
                         <TextBlock Text="GAME LIBRARY FOLDER" Style="{StaticResource PrefLabel}"/>
                         <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,0,0,8"
-                                   Foreground="{StaticResource TextSecondaryBrush}">
+                                   Foreground="{DynamicResource TextSecondaryBrush}">
                             <Run>Set a folder where OpenEmu can copy imported games. </Run>
                             <Run FontStyle="Italic">If no folder is set, or if you choose "Keep in original location" below, your ROMs will never be moved — OpenEmu will simply reference them where they already are.</Run>
                         </TextBlock>
@@ -734,11 +734,11 @@
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Background="{StaticResource BgTertiaryBrush}"
-                                    BorderBrush="{StaticResource BorderNormalBrush}" BorderThickness="1"
+                            <Border Grid.Column="0" Background="{DynamicResource BgTertiaryBrush}"
+                                    BorderBrush="{DynamicResource BorderNormalBrush}" BorderThickness="1"
                                     CornerRadius="6" Padding="10,8">
                                 <TextBlock x:Name="LibraryPathText" Text="Not set — games will stay in their original location"
-                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"
                                            FontSize="12" VerticalAlignment="Center"
                                            TextTrimming="CharacterEllipsis"/>
                             </Border>
@@ -748,54 +748,54 @@
                                     Click="BrowseLibraryBtn_Click"/>
                         </Grid>
 
-                        <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,24,0,16"/>
+                        <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,24,0,16"/>
 
                         <!-- Import behaviour -->
                         <TextBlock Text="IMPORT BEHAVIOUR" Style="{StaticResource PrefLabel}" Margin="0,0,0,4"/>
                         <TextBlock Text="Choose what happens when you add games to your library."
-                                   Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12"
                                    TextWrapping="Wrap" Margin="0,0,0,12"/>
 
                         <RadioButton x:Name="LibraryKeepInPlace" GroupName="LibImport"
                                      IsChecked="True"
-                                     Foreground="{StaticResource TextPrimaryBrush}" FontSize="13"
+                                     Foreground="{DynamicResource TextPrimaryBrush}" FontSize="13"
                                      Margin="0,0,0,4" Cursor="Hand">
                             <StackPanel>
                                 <TextBlock Text="Keep games in their original location" FontSize="13"
-                                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                                           Foreground="{DynamicResource TextPrimaryBrush}"/>
                                 <TextBlock Text="OpenEmu tracks where your files are — nothing is copied or moved."
-                                           FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                                           FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
                                            Margin="0,2,0,0" TextWrapping="Wrap"/>
                             </StackPanel>
                         </RadioButton>
 
                         <RadioButton x:Name="LibraryCopyFiles" GroupName="LibImport"
-                                     Foreground="{StaticResource TextPrimaryBrush}" FontSize="13"
+                                     Foreground="{DynamicResource TextPrimaryBrush}" FontSize="13"
                                      Margin="0,10,0,16" Cursor="Hand">
                             <StackPanel>
                                 <TextBlock Text="Copy games to the library folder" FontSize="13"
-                                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                                           Foreground="{DynamicResource TextPrimaryBrush}"/>
                                 <TextBlock Text="A copy of each ROM is placed in your library folder. Requires a folder to be set above."
-                                           FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                                           FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
                                            Margin="0,2,0,0" TextWrapping="Wrap"/>
                             </StackPanel>
                         </RadioButton>
 
                         <CheckBox x:Name="LibraryOrganizeByConsole"
                                   Content="Organize copied games into sub-folders by console"
-                                  Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"
+                                  Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12"
                                   Margin="22,0,0,0"/>
 
                         <Button Content="Save" Style="{StaticResource ActionBtn}"
                                 HorizontalAlignment="Left" Margin="0,24,0,0"
                                 Click="LibrarySaveBtn_Click"/>
 
-                        <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,24,0,16"/>
+                        <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,24,0,16"/>
 
                         <!-- Backup Folder -->
                         <TextBlock Text="BACKUP FOLDER" Style="{StaticResource PrefLabel}"/>
                         <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,0,0,8"
-                                   Foreground="{StaticResource TextSecondaryBrush}">
+                                   Foreground="{DynamicResource TextSecondaryBrush}">
                             <Run>Set a folder to back up your battery saves, save states, and library database. </Run>
                             <Run FontStyle="Italic">Only save data is backed up — artwork and video snaps are excluded to keep backups small.</Run>
                         </TextBlock>
@@ -805,12 +805,12 @@
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Background="{StaticResource BgTertiaryBrush}"
-                                    BorderBrush="{StaticResource BorderNormalBrush}" BorderThickness="1"
+                            <Border Grid.Column="0" Background="{DynamicResource BgTertiaryBrush}"
+                                    BorderBrush="{DynamicResource BorderNormalBrush}" BorderThickness="1"
                                     CornerRadius="6" Padding="10,8">
                                 <TextBlock x:Name="BackupFolderPathText"
                                            Text="Not set"
-                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"
                                            FontSize="12" VerticalAlignment="Center"
                                            TextTrimming="CharacterEllipsis"/>
                             </Border>
@@ -833,7 +833,7 @@
                                     Margin="8,0,0,0" Padding="14,8"
                                     Click="RestoreBackup_Click"/>
                             <TextBlock x:Name="BackupFolderStatusText"
-                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
                                        FontSize="12" VerticalAlignment="Center"
                                        Margin="12,0,0,0"/>
                         </StackPanel>
@@ -848,7 +848,7 @@
 
                             <!-- Theme selector -->
                             <TextBlock Text="THEME" Style="{StaticResource PrefLabel}"/>
-                            <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,0,0,16"/>
+                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,0,0,16"/>
 
                             <Grid Margin="0,0,0,20">
                                 <Grid.ColumnDefinitions>
@@ -857,9 +857,9 @@
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0">
                                     <TextBlock Text="Color theme"
-                                               FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                               FontSize="13" Foreground="{DynamicResource TextPrimaryBrush}"/>
                                     <TextBlock Text="Choose a color theme for the entire app. Changes take effect after saving."
-                                               FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                                               FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
                                                Margin="0,2,0,8" TextWrapping="Wrap"/>
                                     <StackPanel Orientation="Horizontal">
                                         <ComboBox x:Name="ThemeCombo"
@@ -868,9 +868,9 @@
                                         <Button x:Name="CustomizeThemeBtn"
                                                 Content="Customize..."
                                                 Padding="10,4" FontSize="12" Margin="8,0,0,0"
-                                                Background="{StaticResource SurfaceBrush}"
-                                                Foreground="{StaticResource TextPrimaryBrush}"
-                                                BorderBrush="{StaticResource BorderNormalBrush}"
+                                                Background="{DynamicResource SurfaceBrush}"
+                                                Foreground="{DynamicResource TextPrimaryBrush}"
+                                                BorderBrush="{DynamicResource BorderNormalBrush}"
                                                 BorderThickness="1" Cursor="Hand"
                                                 Click="CustomizeThemeBtn_Click"/>
                                     </StackPanel>
@@ -885,9 +885,9 @@
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0" Margin="0,0,16,0">
                                     <TextBlock Text="Console-specific colors"
-                                               FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                               FontSize="13" Foreground="{DynamicResource TextPrimaryBrush}"/>
                                     <TextBlock Text="Automatically changes accent and background colors when you browse different console libraries."
-                                               FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                                               FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
                                                Margin="0,4,0,0" TextWrapping="Wrap"/>
                                 </StackPanel>
                                 <ToggleButton x:Name="ConsoleThemingToggle"
@@ -897,28 +897,28 @@
                                               Margin="0,2,0,0"/>
                             </Grid>
 
-                            <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,20,0,20"/>
+                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,20,0,20"/>
 
                             <!-- Installed themes -->
                             <TextBlock Text="INSTALLED THEMES" Style="{StaticResource PrefLabel}"/>
-                            <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,0,0,12"/>
+                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,0,0,12"/>
                             <WrapPanel x:Name="InstalledThemesPanel" Margin="0,0,0,8"/>
                             <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                                 <Button x:Name="ImportThemeBtn"
                                         Content="Import Theme..."
                                         Padding="10,4" FontSize="12" Margin="0,0,8,0"
-                                        Background="{StaticResource SurfaceBrush}"
-                                        Foreground="{StaticResource TextPrimaryBrush}"
-                                        BorderBrush="{StaticResource BorderNormalBrush}"
+                                        Background="{DynamicResource SurfaceBrush}"
+                                        Foreground="{DynamicResource TextPrimaryBrush}"
+                                        BorderBrush="{DynamicResource BorderNormalBrush}"
                                         BorderThickness="1" Cursor="Hand"
                                         Click="ImportThemeBtn_Click"/>
                             </StackPanel>
 
-                            <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,20,0,20"/>
+                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,20,0,20"/>
 
                             <!-- Layout section -->
                             <TextBlock Text="LAYOUT" Style="{StaticResource PrefLabel}"/>
-                            <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,0,0,16"/>
+                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,0,0,16"/>
 
                             <!-- Grid Padding -->
                             <Grid Margin="0,0,0,20">
@@ -928,9 +928,9 @@
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0">
                                     <TextBlock Text="Grid edge padding"
-                                               FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                               FontSize="13" Foreground="{DynamicResource TextPrimaryBrush}"/>
                                     <TextBlock Text="Space between the grid and the window edge."
-                                               FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                                               FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
                                                Margin="0,2,0,8" TextWrapping="Wrap"/>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
@@ -945,7 +945,7 @@
                                                 ValueChanged="PaddingSlider_ValueChanged"/>
                                         <TextBlock x:Name="PaddingValueLabel"
                                                    Grid.Column="1"
-                                                   FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                                                   FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"
                                                    VerticalAlignment="Center"
                                                    HorizontalAlignment="Right"/>
                                     </Grid>
@@ -960,9 +960,9 @@
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0">
                                     <TextBlock Text="Card size"
-                                               FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                               FontSize="13" Foreground="{DynamicResource TextPrimaryBrush}"/>
                                     <TextBlock Text="Width of each game card. Height adjusts automatically to match the console's box art ratio."
-                                               FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                                               FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
                                                Margin="0,2,0,8" TextWrapping="Wrap"/>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
@@ -977,7 +977,7 @@
                                                 ValueChanged="CardSizeSlider_ValueChanged"/>
                                         <TextBlock x:Name="CardSizeValueLabel"
                                                    Grid.Column="1"
-                                                   FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                                                   FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"
                                                    VerticalAlignment="Center"
                                                    HorizontalAlignment="Right"/>
                                     </Grid>
@@ -992,9 +992,9 @@
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0">
                                     <TextBlock Text="Card spacing"
-                                               FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                               FontSize="13" Foreground="{DynamicResource TextPrimaryBrush}"/>
                                     <TextBlock Text="Gap between individual game cards."
-                                               FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                                               FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
                                                Margin="0,2,0,8" TextWrapping="Wrap"/>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
@@ -1009,18 +1009,18 @@
                                                 ValueChanged="SpacingSlider_ValueChanged"/>
                                         <TextBlock x:Name="SpacingValueLabel"
                                                    Grid.Column="1"
-                                                   FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                                                   FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"
                                                    VerticalAlignment="Center"
                                                    HorizontalAlignment="Right"/>
                                     </Grid>
                                 </StackPanel>
                             </Grid>
 
-                            <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,4,0,20"/>
+                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,4,0,20"/>
 
                             <!-- Window style section -->
                             <TextBlock Text="WINDOW STYLE" Style="{StaticResource PrefLabel}"/>
-                            <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,0,0,16"/>
+                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,0,0,16"/>
 
                             <!-- Windows Chrome toggle -->
                             <Grid Margin="0,0,0,8">
@@ -1030,14 +1030,14 @@
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0" Margin="0,0,16,0">
                                     <TextBlock Text="Use Windows chrome"
-                                               FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
-                                    <TextBlock FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                                               FontSize="13" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                    <TextBlock FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
                                                Margin="0,4,0,0" TextWrapping="Wrap">
                                         <Run>Replaces the custom macOS-style title bar and window buttons with the standard Windows chrome — including snap layouts and the native minimize, maximize and close buttons.</Run>
                                     </TextBlock>
                                     <TextBlock x:Name="ChromeRestartNote"
                                                Text="&#x26A0;&#xFE0F;  Takes effect after restarting Emutastic."
-                                               FontSize="11" Foreground="{StaticResource WarningBrush}"
+                                               FontSize="11" Foreground="{DynamicResource WarningBrush}"
                                                Margin="0,6,0,0"
                                                Visibility="Collapsed"/>
                                 </StackPanel>
@@ -1050,7 +1050,7 @@
                                               Unchecked="WindowsChromeToggle_Changed"/>
                             </Grid>
 
-                            <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,20,0,20"/>
+                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,20,0,20"/>
 
                             <Button x:Name="ThemeSaveBtn"
                                     Content="Save"
@@ -1068,14 +1068,14 @@
                         <StackPanel MaxWidth="560" HorizontalAlignment="Left">
 
                             <TextBlock Text="VIDEO SNAPS" Style="{StaticResource PrefLabel}"/>
-                            <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,0,0,16"/>
+                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,0,0,16"/>
 
                             <TextBlock Text="When a game card is opened, Emutastic can play a video preview instead of showing a static screenshot. Choose a provider below."
-                                       FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                                       FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"
                                        TextWrapping="Wrap" Margin="0,0,0,24"/>
 
                             <!-- Provider pill selector -->
-                            <Border Background="{StaticResource BgTertiaryBrush}"
+                            <Border Background="{DynamicResource BgTertiaryBrush}"
                                     CornerRadius="8" Padding="4" Margin="0,0,0,28"
                                     HorizontalAlignment="Left">
                                 <StackPanel Orientation="Horizontal">
@@ -1103,9 +1103,9 @@
                                     <StackPanel Grid.Column="0">
                                         <TextBlock Text="ScreenScraper"
                                                    FontSize="15" FontWeight="SemiBold"
-                                                   Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                   Foreground="{DynamicResource TextPrimaryBrush}"/>
                                         <TextBlock Text="Free accounts available at screenscraper.fr — no developer registration required."
-                                                   FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                                                   FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
                                                    TextWrapping="Wrap" Margin="0,4,0,0"/>
                                     </StackPanel>
                                     <ToggleButton x:Name="SSEnabledToggle"
@@ -1117,13 +1117,13 @@
                                 </Grid>
 
                                 <TextBlock Text="Username" FontSize="12"
-                                           Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,6"/>
+                                           Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,6"/>
                                 <TextBox x:Name="SSUsernameBox"
                                          Style="{StaticResource DarkTextBox}"
                                          Margin="0,0,0,14"/>
 
                                 <TextBlock Text="Password" FontSize="12"
-                                           Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,6"/>
+                                           Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,6"/>
                                 <PasswordBox x:Name="SSPasswordBox"
                                              Style="{StaticResource DarkPasswordBox}"
                                              Margin="0,0,0,20"/>
@@ -1136,7 +1136,7 @@
                                             Margin="0,0,12,0"/>
                                     <TextBlock x:Name="SSStatusLabel"
                                                FontSize="12"
-                                               Foreground="{StaticResource TextSecondaryBrush}"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"
                                                VerticalAlignment="Center"/>
                                 </StackPanel>
                             </StackPanel>
@@ -1151,30 +1151,30 @@
                                     <StackPanel Grid.Column="0">
                                         <TextBlock Text="EmuMovies"
                                                    FontSize="15" FontWeight="SemiBold"
-                                                   Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                   Foreground="{DynamicResource TextPrimaryBrush}"/>
                                         <TextBlock Text="EmuMovies developer API access is required. Support is coming once their v3 API ships."
-                                                   FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                                                   FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
                                                    TextWrapping="Wrap" Margin="0,4,0,0"/>
                                     </StackPanel>
                                     <Border Grid.Column="1"
-                                            Background="{StaticResource BgTertiaryBrush}"
-                                            BorderBrush="{StaticResource BorderNormalBrush}"
+                                            Background="{DynamicResource BgTertiaryBrush}"
+                                            BorderBrush="{DynamicResource BorderNormalBrush}"
                                             BorderThickness="1"
                                             CornerRadius="6" Padding="10,4"
                                             VerticalAlignment="Center">
                                         <TextBlock Text="Coming Soon"
                                                    FontSize="11" FontWeight="SemiBold"
-                                                   Foreground="{StaticResource TextMutedBrush}"/>
+                                                   Foreground="{DynamicResource TextMutedBrush}"/>
                                     </Border>
                                 </Grid>
 
                                 <TextBlock Text="Username" FontSize="12"
-                                           Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6"/>
+                                           Foreground="{DynamicResource TextMutedBrush}" Margin="0,0,0,6"/>
                                 <TextBox Style="{StaticResource DarkTextBox}" IsEnabled="False"
                                          Margin="0,0,0,14"/>
 
                                 <TextBlock Text="Password" FontSize="12"
-                                           Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6"/>
+                                           Foreground="{DynamicResource TextMutedBrush}" Margin="0,0,0,6"/>
                                 <PasswordBox Style="{StaticResource DarkPasswordBox}" IsEnabled="False"
                                              Margin="0,0,0,20"/>
 
@@ -1183,11 +1183,11 @@
                                         IsEnabled="False"/>
                             </StackPanel>
 
-                            <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,20,0,20"/>
+                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,20,0,20"/>
 
                             <!-- ScreenScraper 2D art preference -->
                             <TextBlock Text="2D ARTWORK SOURCE" Style="{StaticResource PrefLabel}"/>
-                            <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,0,0,16"/>
+                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,0,0,16"/>
 
                             <Grid Margin="0,0,0,8">
                                 <Grid.ColumnDefinitions>
@@ -1197,9 +1197,9 @@
                                 <StackPanel Grid.Column="0" Margin="0,0,16,0">
                                     <TextBlock Text="Prefer ScreenScraper 2D art"
                                                FontSize="13" FontWeight="SemiBold"
-                                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                                               Foreground="{DynamicResource TextPrimaryBrush}"/>
                                     <TextBlock TextWrapping="Wrap" FontSize="11"
-                                               Foreground="{StaticResource TextSecondaryBrush}"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"
                                                Margin="0,4,0,0">
                                         Use higher-quality ScreenScraper box art instead of libretro thumbnails. Both sets are kept on disk so you can switch back any time.
                                         Free ScreenScraper accounts have very low API limits — this is best suited for paid tiers.
@@ -1212,7 +1212,7 @@
                                              IsEnabled="False"/>
                             </Grid>
 
-                            <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,12,0,20"/>
+                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,12,0,20"/>
                             <Button x:Name="SnapsSaveBtn"
                                     Content="Save"
                                     Style="{StaticResource ActionBtn}"
@@ -1232,15 +1232,15 @@
 
                     <!-- Left: core list -->
                     <Border Grid.Column="0"
-                            Background="{StaticResource BgSecondaryBrush}"
-                            BorderBrush="{StaticResource BorderNormalBrush}"
+                            Background="{DynamicResource BgSecondaryBrush}"
+                            BorderBrush="{DynamicResource BorderNormalBrush}"
                             BorderThickness="0,0,1,0">
                         <DockPanel>
                             <TextBlock DockPanel.Dock="Top"
                                        Text="CORES"
                                        FontSize="10"
                                        FontWeight="SemiBold"
-                                       Foreground="{StaticResource TextMutedBrush}"
+                                       Foreground="{DynamicResource TextMutedBrush}"
                                        Margin="14,14,14,8"/>
                             <ScrollViewer VerticalScrollBarVisibility="Auto">
                                 <StackPanel x:Name="CoreOptionsCoreList" Margin="6,0,6,8"/>
@@ -1262,8 +1262,8 @@
                         </ScrollViewer>
 
                         <Border Grid.Row="1"
-                                Background="{StaticResource BgSecondaryBrush}"
-                                BorderBrush="{StaticResource BorderNormalBrush}"
+                                Background="{DynamicResource BgSecondaryBrush}"
+                                BorderBrush="{DynamicResource BorderNormalBrush}"
                                 BorderThickness="0,1,0,0"
                                 Padding="24,10">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
@@ -1289,10 +1289,10 @@
                         <StackPanel MaxWidth="560" HorizontalAlignment="Left">
 
                             <TextBlock Text="RETROACHIEVEMENTS" Style="{StaticResource PrefLabel}"/>
-                            <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,0,0,16"/>
+                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,0,0,16"/>
 
                             <TextBlock Text="Earn achievements while you play! Connect your RetroAchievements.org account to track progress across supported games."
-                                       FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                                       FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"
                                        TextWrapping="Wrap" Margin="0,0,0,24"/>
 
                             <!-- Enable toggle -->
@@ -1304,9 +1304,9 @@
                                 <StackPanel Grid.Column="0">
                                     <TextBlock Text="RetroAchievements"
                                                FontSize="15" FontWeight="SemiBold"
-                                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                                               Foreground="{DynamicResource TextPrimaryBrush}"/>
                                     <TextBlock Text="Create a free account at retroachievements.org. Your password is used to obtain a login token — it is not stored."
-                                               FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                                               FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
                                                TextWrapping="Wrap" Margin="0,4,0,0"/>
                                 </StackPanel>
                                 <ToggleButton x:Name="RAEnabledToggle"
@@ -1317,14 +1317,14 @@
 
                             <!-- Username -->
                             <TextBlock Text="Username" FontSize="12"
-                                       Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,6"/>
+                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,6"/>
                             <TextBox x:Name="RAUsernameBox"
                                      Style="{StaticResource DarkTextBox}"
                                      Margin="0,0,0,14"/>
 
                             <!-- Password -->
                             <TextBlock Text="Password" FontSize="12"
-                                       Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,6"/>
+                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,6"/>
                             <PasswordBox x:Name="RAPasswordBox"
                                          Style="{StaticResource DarkPasswordBox}"
                                          Margin="0,0,0,14"/>
@@ -1332,7 +1332,7 @@
                             <!-- Token status -->
                             <TextBlock x:Name="RATokenStatus"
                                        FontSize="11"
-                                       Foreground="{StaticResource TextMutedBrush}"
+                                       Foreground="{DynamicResource TextMutedBrush}"
                                        Margin="0,0,0,20"/>
 
                             <!-- Test connection -->
@@ -1344,11 +1344,11 @@
                                         Margin="0,0,12,0"/>
                                 <TextBlock x:Name="RAStatusLabel"
                                            FontSize="12"
-                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"
                                            VerticalAlignment="Center"/>
                             </StackPanel>
 
-                            <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,0,0,20"/>
+                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,0,0,20"/>
 
                             <!-- Hardcore mode toggle -->
                             <Grid Margin="0,0,0,20">
@@ -1359,9 +1359,9 @@
                                 <StackPanel Grid.Column="0">
                                     <TextBlock Text="Hardcore Mode"
                                                FontSize="14" FontWeight="SemiBold"
-                                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                                               Foreground="{DynamicResource TextPrimaryBrush}"/>
                                     <TextBlock Text="Disables save state loading, rewind, and slow-motion during gameplay. Required for hardcore achievement unlocks."
-                                               FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                                               FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
                                                TextWrapping="Wrap" Margin="0,4,0,0"/>
                                 </StackPanel>
                                 <ToggleButton x:Name="RAHardcoreToggle"
@@ -1370,7 +1370,7 @@
                                              VerticalAlignment="Center"/>
                             </Grid>
 
-                            <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,0,0,20"/>
+                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,0,0,20"/>
                             <Button x:Name="RASaveBtn"
                                     Content="Save"
                                     Style="{StaticResource ActionBtn}"

@@ -10,8 +10,8 @@
         SizeToContent="Height"
         WindowStartupLocation="CenterOwner">
 
-    <Border Background="{StaticResource BgSecondaryBrush}"
-            BorderBrush="{StaticResource BorderNormalBrush}"
+    <Border Background="{DynamicResource BgSecondaryBrush}"
+            BorderBrush="{DynamicResource BorderNormalBrush}"
             BorderThickness="1"
             CornerRadius="10">
         <StackPanel Margin="24">
@@ -25,14 +25,14 @@
                            FontFamily="{StaticResource PrimaryFont}"
                            FontSize="15"
                            FontWeight="SemiBold"
-                           Foreground="{StaticResource TextPrimaryBrush}"
+                           Foreground="{DynamicResource TextPrimaryBrush}"
                            VerticalAlignment="Center"/>
             </StackPanel>
 
             <TextBlock x:Name="FileNameText"
                        FontFamily="{StaticResource PrimaryFont}"
                        FontSize="12"
-                       Foreground="{StaticResource TextSecondaryBrush}"
+                       Foreground="{DynamicResource TextSecondaryBrush}"
                        TextWrapping="Wrap"
                        Margin="0,0,0,16"/>
 

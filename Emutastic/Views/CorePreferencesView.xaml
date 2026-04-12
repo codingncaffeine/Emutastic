@@ -13,7 +13,7 @@
 
         <!-- Header -->
         <Border Grid.Row="0" 
-                Background="{StaticResource PillBgBrush}" 
+                Background="{DynamicResource PillBgBrush}" 
                 Padding="20,15"
                 CornerRadius="8,8,0,0">
             <StackPanel>
@@ -23,7 +23,7 @@
                           Foreground="White"/>
                 <TextBlock Text="Select your preferred core for each console. The default core will be used if your preferred core is not available." 
                           FontSize="12" 
-                          Foreground="{StaticResource TextSecondaryBrush}"
+                          Foreground="{DynamicResource TextSecondaryBrush}"
                           Margin="0,5,0,0"
                           TextWrapping="Wrap"/>
             </StackPanel>
@@ -32,11 +32,11 @@
         <!-- Console List -->
         <ScrollViewer Grid.Row="1" 
                       VerticalScrollBarVisibility="Auto"
-                      Background="{StaticResource PillGroupBgBrush}">
+                      Background="{DynamicResource PillGroupBgBrush}">
             <ItemsControl x:Name="ConsoleList" Margin="10">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Border Background="{StaticResource PillBgBrush}" 
+                        <Border Background="{DynamicResource PillBgBrush}" 
                                 CornerRadius="6" 
                                 Margin="0,5"
                                 Padding="15,12">
@@ -51,7 +51,7 @@
                                           Text="{Binding ConsoleName}"
                                           FontSize="14"
                                           FontWeight="SemiBold"
-                                          Foreground="{StaticResource TextPrimaryBrush}"
+                                          Foreground="{DynamicResource TextPrimaryBrush}"
                                           VerticalAlignment="Center"/>
 
                                 <!-- Core Selection -->
@@ -60,15 +60,15 @@
                                          ItemsSource="{Binding AvailableCores}"
                                          SelectedItem="{Binding SelectedCore, Mode=TwoWay}"
                                          DisplayMemberPath="DisplayName"
-                                         Background="{StaticResource BgQuaternaryBrush}"
-                                         Foreground="{StaticResource TextPrimaryBrush}"
-                                         BorderBrush="{StaticResource BorderNormalBrush}"
+                                         Background="{DynamicResource BgQuaternaryBrush}"
+                                         Foreground="{DynamicResource TextPrimaryBrush}"
+                                         BorderBrush="{DynamicResource BorderNormalBrush}"
                                          Padding="8,5"
                                          VerticalAlignment="Center">
                                     <ComboBox.Resources>
                                         <Style TargetType="ComboBoxItem">
-                                            <Setter Property="Background" Value="{StaticResource BgQuaternaryBrush}"/>
-                                            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                                            <Setter Property="Background" Value="{DynamicResource BgQuaternaryBrush}"/>
+                                            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
                                         </Style>
                                     </ComboBox.Resources>
                                 </ComboBox>

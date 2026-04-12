@@ -17,13 +17,13 @@
             <Style x:Key="SectionHeader" TargetType="TextBlock">
                 <Setter Property="FontSize" Value="11"/>
                 <Setter Property="FontWeight" Value="SemiBold"/>
-                <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}"/>
                 <Setter Property="Margin" Value="0,16,0,8"/>
             </Style>
 
             <Style x:Key="ColorLabel" TargetType="TextBlock">
                 <Setter Property="FontSize" Value="12"/>
-                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
                 <Setter Property="VerticalAlignment" Value="Center"/>
             </Style>
 
@@ -32,13 +32,13 @@
                 <Setter Property="Height" Value="26"/>
                 <Setter Property="FontSize" Value="11"/>
                 <Setter Property="FontFamily" Value="Consolas"/>
-                <Setter Property="Background" Value="{StaticResource BgTertiaryBrush}"/>
-                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-                <Setter Property="BorderBrush" Value="{StaticResource BorderNormalBrush}"/>
+                <Setter Property="Background" Value="{DynamicResource BgTertiaryBrush}"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource BorderNormalBrush}"/>
                 <Setter Property="BorderThickness" Value="1"/>
                 <Setter Property="Padding" Value="4,2"/>
                 <Setter Property="VerticalContentAlignment" Value="Center"/>
-                <Setter Property="CaretBrush" Value="{StaticResource TextPrimaryBrush}"/>
+                <Setter Property="CaretBrush" Value="{DynamicResource TextPrimaryBrush}"/>
             </Style>
         </ResourceDictionary>
     </Window.Resources>
@@ -51,19 +51,19 @@
         </Grid.RowDefinitions>
 
         <!-- Title bar -->
-        <Border Grid.Row="0" Background="{StaticResource BgSecondaryBrush}"
-                BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="0,0,0,1"
+        <Border Grid.Row="0" Background="{DynamicResource BgSecondaryBrush}"
+                BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,0,0,1"
                 Padding="20,14">
             <Grid>
                 <TextBlock Text="Theme Editor" FontSize="16" FontWeight="SemiBold"
-                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                           Foreground="{DynamicResource TextPrimaryBrush}"/>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                    <TextBlock Text="Base:" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                    <TextBlock Text="Base:" FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"
                                VerticalAlignment="Center" Margin="0,0,8,0"/>
                     <ComboBox x:Name="BaseThemeCombo" Width="160"
-                              Background="{StaticResource BgQuaternaryBrush}"
-                              Foreground="{StaticResource TextPrimaryBrush}"
-                              BorderBrush="{StaticResource BorderNormalBrush}"
+                              Background="{DynamicResource BgQuaternaryBrush}"
+                              Foreground="{DynamicResource TextPrimaryBrush}"
+                              BorderBrush="{DynamicResource BorderNormalBrush}"
                               FontSize="12"
                               SelectionChanged="BaseThemeCombo_SelectionChanged"/>
                 </StackPanel>
@@ -86,12 +86,12 @@
 
             <!-- Splitter -->
             <GridSplitter Grid.Column="1" Width="1"
-                          Background="{StaticResource BorderSubtleBrush}"
+                          Background="{DynamicResource BorderSubtleBrush}"
                           HorizontalAlignment="Center" VerticalAlignment="Stretch"/>
 
             <!-- Live preview panel -->
             <Border Grid.Column="2" Margin="20" CornerRadius="8"
-                    BorderBrush="{StaticResource BorderNormalBrush}" BorderThickness="1"
+                    BorderBrush="{DynamicResource BorderNormalBrush}" BorderThickness="1"
                     ClipToBounds="True">
                 <Grid x:Name="PreviewPanel">
                     <!-- Sidebar preview -->
@@ -167,37 +167,37 @@
         </Grid>
 
         <!-- Bottom bar -->
-        <Border Grid.Row="2" Background="{StaticResource BgSecondaryBrush}"
-                BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="0,1,0,0"
+        <Border Grid.Row="2" Background="{DynamicResource BgSecondaryBrush}"
+                BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,1,0,0"
                 Padding="20,12">
             <Grid>
                 <StackPanel Orientation="Horizontal">
                     <Button x:Name="ExportBtn" Content="Export .emutheme"
                             Padding="14,6" FontSize="12" Margin="0,0,8,0"
-                            Background="{StaticResource SurfaceBrush}"
-                            Foreground="{StaticResource TextPrimaryBrush}"
-                            BorderBrush="{StaticResource BorderNormalBrush}"
+                            Background="{DynamicResource SurfaceBrush}"
+                            Foreground="{DynamicResource TextPrimaryBrush}"
+                            BorderBrush="{DynamicResource BorderNormalBrush}"
                             BorderThickness="1" Cursor="Hand"
                             Click="ExportBtn_Click"/>
                     <Button x:Name="ImportBtn" Content="Import .emutheme"
                             Padding="14,6" FontSize="12" Margin="0,0,8,0"
-                            Background="{StaticResource SurfaceBrush}"
-                            Foreground="{StaticResource TextPrimaryBrush}"
-                            BorderBrush="{StaticResource BorderNormalBrush}"
+                            Background="{DynamicResource SurfaceBrush}"
+                            Foreground="{DynamicResource TextPrimaryBrush}"
+                            BorderBrush="{DynamicResource BorderNormalBrush}"
                             BorderThickness="1" Cursor="Hand"
                             Click="ImportBtn_Click"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                     <Button x:Name="ResetBtn" Content="Reset to Default"
                             Padding="14,6" FontSize="12" Margin="0,0,8,0"
-                            Background="{StaticResource SurfaceBrush}"
-                            Foreground="{StaticResource TextPrimaryBrush}"
-                            BorderBrush="{StaticResource BorderNormalBrush}"
+                            Background="{DynamicResource SurfaceBrush}"
+                            Foreground="{DynamicResource TextPrimaryBrush}"
+                            BorderBrush="{DynamicResource BorderNormalBrush}"
                             BorderThickness="1" Cursor="Hand"
                             Click="ResetBtn_Click"/>
                     <Button x:Name="ApplyBtn" Content="Apply"
                             Padding="14,6" FontSize="12"
-                            Background="{StaticResource AccentBrush}"
+                            Background="{DynamicResource AccentBrush}"
                             Foreground="White"
                             BorderThickness="0" Cursor="Hand"
                             Click="ApplyBtn_Click"/>

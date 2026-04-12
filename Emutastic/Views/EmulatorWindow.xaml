@@ -16,7 +16,7 @@
                           BlurRadius="30"
                           ShadowDepth="0"
                           Opacity="0.8"
-                          Color="{StaticResource ShadowColor}"/>
+                          Color="{DynamicResource ShadowColor}"/>
 
         <!-- Overlay pill button (Power / Pause / Restart / Save / Cog) -->
         <Style x:Key="OverlayPillBtnStyle" TargetType="Button">
@@ -47,23 +47,23 @@
 
         <!-- Dark ComboBox for the Core Options overlay panel -->
         <ControlTemplate x:Key="OverlayComboToggle" TargetType="ToggleButton">
-            <Border x:Name="bd" Background="{StaticResource BgQuaternaryBrush}" BorderBrush="{StaticResource BorderNormalBrush}" BorderThickness="1" CornerRadius="4">
+            <Border x:Name="bd" Background="{DynamicResource BgQuaternaryBrush}" BorderBrush="{DynamicResource BorderNormalBrush}" BorderThickness="1" CornerRadius="4">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="20"/>
                     </Grid.ColumnDefinitions>
                     <ContentPresenter Grid.Column="0" Margin="8,0,0,0" VerticalAlignment="Center" HorizontalAlignment="Left"/>
-                    <Path Grid.Column="1" Data="M0,0 L4,5 L8,0" Stroke="{StaticResource TextSecondaryBrush}" StrokeThickness="1.5"
+                    <Path Grid.Column="1" Data="M0,0 L4,5 L8,0" Stroke="{DynamicResource TextSecondaryBrush}" StrokeThickness="1.5"
                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Grid>
             </Border>
             <ControlTemplate.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter TargetName="bd" Property="Background" Value="{StaticResource BgQuaternaryBrush}"/>
+                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource BgQuaternaryBrush}"/>
                 </Trigger>
                 <Trigger Property="IsChecked" Value="True">
-                    <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                    <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
                 </Trigger>
             </ControlTemplate.Triggers>
         </ControlTemplate>
@@ -82,7 +82,7 @@
                        IsOpen="{TemplateBinding IsDropDownOpen}"
                        AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
                     <Grid MinWidth="{TemplateBinding ActualWidth}" MaxHeight="180">
-                        <Border Background="{StaticResource BgTertiaryBrush}" BorderBrush="{StaticResource BorderNormalBrush}" BorderThickness="1" CornerRadius="4">
+                        <Border Background="{DynamicResource BgTertiaryBrush}" BorderBrush="{DynamicResource BorderNormalBrush}" BorderThickness="1" CornerRadius="4">
                             <ScrollViewer><ItemsPresenter/></ScrollViewer>
                         </Border>
                     </Grid>
@@ -92,20 +92,20 @@
 
         <Style x:Key="OverlayComboBox" TargetType="ComboBox">
             <Setter Property="Template"   Value="{StaticResource OverlayComboTemplate}"/>
-            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-            <Setter Property="Background" Value="{StaticResource BgQuaternaryBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource BgQuaternaryBrush}"/>
             <Setter Property="FontSize"   Value="11"/>
             <Setter Property="Height"     Value="30"/>
             <Setter Property="ItemContainerStyle">
                 <Setter.Value>
                     <Style TargetType="ComboBoxItem">
-                        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
                         <Setter Property="Background" Value="Transparent"/>
                         <Setter Property="Padding"    Value="8,5"/>
                         <Setter Property="FontSize"   Value="11"/>
                         <Style.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="{StaticResource BgQuaternaryBrush}"/>
+                                <Setter Property="Background" Value="{DynamicResource BgQuaternaryBrush}"/>
                             </Trigger>
                             <Trigger Property="IsSelected" Value="True">
                                 <Setter Property="Background" Value="#33E03535"/>
@@ -149,7 +149,7 @@
     </Window.Resources>
 
     <Border x:Name="RootBorder" Background="Black"
-            BorderBrush="{StaticResource BorderSubtleBrush}"
+            BorderBrush="{DynamicResource BorderSubtleBrush}"
             BorderThickness="1"
             CornerRadius="8"
             Effect="{StaticResource WindowShadow}"
@@ -164,7 +164,7 @@
 
             <!-- Title bar -->
             <Grid Grid.Row="0"
-                  Background="{StaticResource BgSecondaryBrush}"
+                  Background="{DynamicResource BgSecondaryBrush}"
                   MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -176,7 +176,7 @@
                            FontFamily="{StaticResource PrimaryFont}"
                            FontSize="12"
                            FontWeight="SemiBold"
-                           Foreground="{StaticResource TextSecondaryBrush}"
+                           Foreground="{DynamicResource TextSecondaryBrush}"
                            VerticalAlignment="Center"
                            Margin="12,0,0,0"/>
 
@@ -190,7 +190,7 @@
                             Click="MinBtn_Click">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
-                                <Ellipse Fill="{StaticResource TrafficYellowBrush}"/>
+                                <Ellipse Fill="{DynamicResource TrafficYellowBrush}"/>
                             </ControlTemplate>
                         </Button.Template>
                     </Button>
@@ -200,7 +200,7 @@
                             Click="MaxBtn_Click">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
-                                <Ellipse Fill="{StaticResource GreenBrush}"/>
+                                <Ellipse Fill="{DynamicResource GreenBrush}"/>
                             </ControlTemplate>
                         </Button.Template>
                     </Button>
@@ -209,7 +209,7 @@
                             Click="CloseBtn_Click">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
-                                <Ellipse Fill="{StaticResource TrafficRedBrush}"/>
+                                <Ellipse Fill="{DynamicResource TrafficRedBrush}"/>
                             </ControlTemplate>
                         </Button.Template>
                     </Button>
@@ -239,7 +239,7 @@
                             HorizontalAlignment="Right"
                             Margin="0,0,8,8"
                             Background="#E6121214"
-                            BorderBrush="{StaticResource BorderSubtleBrush}"
+                            BorderBrush="{DynamicResource BorderSubtleBrush}"
                             BorderThickness="1"
                             CornerRadius="6"
                             MinWidth="260"
@@ -249,14 +249,14 @@
                                        FontFamily="{StaticResource PrimaryFont}"
                                        FontSize="11"
                                        FontWeight="SemiBold"
-                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
                                        Margin="0,0,0,6"/>
                             <StackPanel x:Name="LoadPickerItems"/>
                             <TextBlock x:Name="LoadPickerEmpty"
                                        Text="No save states yet"
                                        FontFamily="{StaticResource PrimaryFont}"
                                        FontSize="11"
-                                       Foreground="{StaticResource TextMutedBrush}"
+                                       Foreground="{DynamicResource TextMutedBrush}"
                                        Visibility="Collapsed"
                                        Margin="0,4,0,0"/>
                         </StackPanel>
@@ -280,7 +280,7 @@
                                            FontFamily="{StaticResource PrimaryFont}"
                                            FontSize="12"
                                            FontWeight="SemiBold"
-                                           Foreground="{StaticResource TextPrimaryBrush}"
+                                           Foreground="{DynamicResource TextPrimaryBrush}"
                                            VerticalAlignment="Center"/>
                                 <Button x:Name="CoreOptionsDoneBtn"
                                         Content="Done"
@@ -439,7 +439,7 @@
                             HorizontalAlignment="Center"
                             Margin="0,20,0,0"
                             Background="#DD1A1A2E"
-                            BorderBrush="{StaticResource AchievementGoldBrush}"
+                            BorderBrush="{DynamicResource AchievementGoldBrush}"
                             BorderThickness="1.5"
                             CornerRadius="10"
                             Padding="18,12"
@@ -448,7 +448,7 @@
                         <StackPanel>
                             <TextBlock x:Name="AchievementTitle"
                                        FontSize="14" FontWeight="Bold"
-                                       Foreground="{StaticResource AchievementGoldBrush}"
+                                       Foreground="{DynamicResource AchievementGoldBrush}"
                                        TextWrapping="Wrap"/>
                             <TextBlock x:Name="AchievementDesc"
                                        FontSize="11.5"
@@ -466,8 +466,8 @@
 
             <!-- Status bar -->
             <Border Grid.Row="2"
-                    Background="{StaticResource BgSecondaryBrush}"
-                    BorderBrush="{StaticResource BorderSubtleBrush}"
+                    Background="{DynamicResource BgSecondaryBrush}"
+                    BorderBrush="{DynamicResource BorderSubtleBrush}"
                     BorderThickness="0,1,0,0"
                     Padding="12,4">
                 <Grid>
@@ -481,7 +481,7 @@
                                Text="Running"
                                FontFamily="{StaticResource PrimaryFont}"
                                FontSize="11"
-                               Foreground="{StaticResource TextMutedBrush}"
+                               Foreground="{DynamicResource TextMutedBrush}"
                                VerticalAlignment="Center"/>
 
                     <StackPanel Grid.Column="1"
