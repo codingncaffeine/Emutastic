@@ -424,6 +424,7 @@ namespace Emutastic.Services
             PillGroupBg = "#1E1E1E",
             AchievementGold = "#FFD700",
             FavoriteHeart = "#FF6B6B",
+            ConsoleOverrides = GetConsoleOverrides(),
         };
 
         // ── Light theme ──────────────────────────────────────────────────
@@ -474,6 +475,7 @@ namespace Emutastic.Services
             PillGroupBg = "#D5D5DB",
             AchievementGold = "#C89800",
             FavoriteHeart = "#E05555",
+            ConsoleOverrides = GetConsoleOverrides(),
         };
 
         // ── OLED Black theme ─────────────────────────────────────────────
@@ -524,6 +526,7 @@ namespace Emutastic.Services
             PillGroupBg = "#0F0F0F",
             AchievementGold = "#FFD700",
             FavoriteHeart = "#FF6B6B",
+            ConsoleOverrides = GetConsoleOverrides(),
         };
 
         // ── Midnight Blue theme ──────────────────────────────────────────
@@ -574,6 +577,48 @@ namespace Emutastic.Services
             PillGroupBg = "#0F172A",
             AchievementGold = "#FFD700",
             FavoriteHeart = "#FF6B6B",
+            ConsoleOverrides = GetConsoleOverrides(),
+        };
+
+        /// <summary>
+        /// Shared console-specific color overrides used by all built-in themes.
+        /// Keys match the console tags used in sidebar navigation (NES, SNES, GB, etc.).
+        /// Only Accent and AccentHover are overridden — backgrounds stay with the base theme.
+        /// </summary>
+        private static Dictionary<string, ThemeColors> GetConsoleOverrides() => new()
+        {
+            ["NES"] = new() { Accent = "#C8102E", AccentHover = "#E0302E" },
+            ["FDS"] = new() { Accent = "#C8102E", AccentHover = "#E0302E" },
+            ["SNES"] = new() { Accent = "#7B2FBE", AccentHover = "#9B4FDE" },
+            ["N64"] = new() { Accent = "#007934", AccentHover = "#209944" },
+            ["GameCube"] = new() { Accent = "#6A0DAD", AccentHover = "#8A2DCD" },
+            ["GB"] = new() { Accent = "#9BBC0F", AccentHover = "#ABCC2F" },
+            ["GBC"] = new() { Accent = "#6A5ACD", AccentHover = "#8A7AED" },
+            ["GBA"] = new() { Accent = "#4A00A0", AccentHover = "#6A20C0" },
+            ["NDS"] = new() { Accent = "#B0B0B0", AccentHover = "#D0D0D0" },
+            ["Genesis"] = new() { Accent = "#2196F3", AccentHover = "#42B6FF" },
+            ["SegaCD"] = new() { Accent = "#00BCD4", AccentHover = "#26D6E8" },
+            ["Sega32X"] = new() { Accent = "#1565C0", AccentHover = "#3585E0" },
+            ["Saturn"] = new() { Accent = "#FF9800", AccentHover = "#FFB840" },
+            ["SMS"] = new() { Accent = "#3F51B5", AccentHover = "#5F71D5" },
+            ["GameGear"] = new() { Accent = "#E91E63", AccentHover = "#FF3E83" },
+            ["SG1000"] = new() { Accent = "#3F51B5", AccentHover = "#5F71D5" },
+            ["PS1"] = new() { Accent = "#006FCD", AccentHover = "#0090ED" },
+            ["PSP"] = new() { Accent = "#00BCD4", AccentHover = "#26D6E8" },
+            ["TG16"] = new() { Accent = "#FF6600", AccentHover = "#FF8830" },
+            ["TGCD"] = new() { Accent = "#FF6600", AccentHover = "#FF8830" },
+            ["Dreamcast"] = new() { Accent = "#FF6600", AccentHover = "#FF8830" },
+            ["Atari2600"] = new() { Accent = "#FF5722", AccentHover = "#FF7742" },
+            ["Atari7800"] = new() { Accent = "#FF5722", AccentHover = "#FF7742" },
+            ["Jaguar"] = new() { Accent = "#CC0000", AccentHover = "#EC2020" },
+            ["NeoGeo"] = new() { Accent = "#FFD700", AccentHover = "#FFE740" },
+            ["NGP"] = new() { Accent = "#2196F3", AccentHover = "#42B6FF" },
+            ["Arcade"] = new() { Accent = "#FF1744", AccentHover = "#FF4060" },
+            ["Vectrex"] = new() { Accent = "#00E5FF", AccentHover = "#40F5FF" },
+            ["3DO"] = new() { Accent = "#FF9800", AccentHover = "#FFB840" },
+            ["CDi"] = new() { Accent = "#00897B", AccentHover = "#20A99B" },
+            ["VirtualBoy"] = new() { Accent = "#FF0000", AccentHover = "#FF3030" },
+            ["ColecoVision"] = new() { Accent = "#1976D2", AccentHover = "#3996F2" },
         };
     }
 }
