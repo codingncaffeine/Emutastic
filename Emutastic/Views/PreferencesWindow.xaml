@@ -454,7 +454,7 @@
             BorderBrush="{DynamicResource BorderNormalBrush}"
             BorderThickness="1">
         <Border.Effect>
-            <DropShadowEffect BlurRadius="30" ShadowDepth="0" Opacity="0.6" Color="{DynamicResource ShadowColor}"/>
+            <DropShadowEffect BlurRadius="30" ShadowDepth="0" Opacity="0.6" Color="{StaticResource ShadowColor}"/>
         </Border.Effect>
 
         <Grid x:Name="RootGrid">

@@ -14,7 +14,7 @@
                           BlurRadius="40"
                           ShadowDepth="0"
                           Opacity="0.8"
-                          Color="{DynamicResource ShadowColor}"/>
+                          Color="{StaticResource ShadowColor}"/>
     </Window.Resources>
 
     <!-- Dark overlay background -->
@@ -48,7 +48,7 @@
                         <!-- Background color from game -->
                         <Border x:Name="ArtBackground">
                             <Border.Background>
-                                <SolidColorBrush x:Name="ArtBgBrush" Color="{DynamicResource BgTertiaryColor}"/>
+                                <SolidColorBrush x:Name="ArtBgBrush" Color="{StaticResource BgTertiaryColor}"/>
                             </Border.Background>
                         </Border>
 
