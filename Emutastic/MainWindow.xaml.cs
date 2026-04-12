@@ -403,10 +403,28 @@ namespace Emutastic
             if (e.Data.GetDataPresent(DataFormats.FileDrop))
             {
                 string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
-                await _importer.ImportFilesAsync(files);
-                await Task.Run(() => _vm.Reload());
-                await _vm.FilterGamesAsync();
-                _vm.ToolbarTitle = _vm.SelectedConsole;
+
+                // Check for .emutheme files — install them as themes
+                var themeFiles = files.Where(f => f.EndsWith(".emutheme", StringComparison.OrdinalIgnoreCase)).ToArray();
+                var romFiles = files.Where(f => !f.EndsWith(".emutheme", StringComparison.OrdinalIgnoreCase)).ToArray();
+
+                foreach (var tf in themeFiles)
+                {
+                    var id = Services.ThemeService.Instance.InstallTheme(tf);
+                    if (id != null)
+                    {
+                        MessageBox.Show($"Theme installed! Select it in Preferences > Theme.",
+                            "Theme Installed", MessageBoxButton.OK, MessageBoxImage.Information);
+                    }
+                }
+
+                if (romFiles.Length > 0)
+                {
+                    await _importer.ImportFilesAsync(romFiles);
+                    await Task.Run(() => _vm.Reload());
+                    await _vm.FilterGamesAsync();
+                    _vm.ToolbarTitle = _vm.SelectedConsole;
+                }
             }
             base.OnDrop(e);
         }

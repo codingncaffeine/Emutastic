@@ -137,6 +137,7 @@ namespace Emutastic
                 // Apply saved theme colors via ThemeService
                 var themeConfig = Configuration.GetThemeConfiguration();
                 var themeSvc = Services.ThemeService.Instance;
+                themeSvc.ScanInstalledThemes();
                 themeSvc.EnableConsoleTheming = themeConfig.EnableConsoleTheming;
                 themeSvc.LoadAndApplyTheme(themeConfig.ActiveThemeId);
 

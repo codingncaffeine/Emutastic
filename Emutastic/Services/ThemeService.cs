@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
 using System.Text.Json;
@@ -209,6 +211,101 @@ namespace Emutastic.Services
             if (_preOverrideColors == null) return;
             ApplyColors(_preOverrideColors);
             _preOverrideColors = null;
+        }
+
+        // ── Theme installation & scanning ───────────────────────────────
+
+        /// <summary>Themes directory under DataRoot.</summary>
+        private static string ThemesFolder => AppPaths.GetFolder("Themes");
+
+        /// <summary>
+        /// Installs a .emutheme file by extracting it into the Themes directory.
+        /// Returns the installed theme ID, or null on failure.
+        /// </summary>
+        public string? InstallTheme(string emuthemePath)
+        {
+            try
+            {
+                using var zip = ZipFile.OpenRead(emuthemePath);
+
+                // Read manifest
+                var manifestEntry = zip.GetEntry("theme.json");
+                if (manifestEntry == null) return null;
+
+                ThemeManifest? manifest;
+                using (var reader = new StreamReader(manifestEntry.Open()))
+                {
+                    manifest = JsonSerializer.Deserialize<ThemeManifest>(reader.ReadToEnd());
+                }
+                if (manifest == null || string.IsNullOrEmpty(manifest.Id)) return null;
+
+                // Extract to Themes/{id}/
+                var destDir = Path.Combine(ThemesFolder, manifest.Id);
+                if (Directory.Exists(destDir))
+                    Directory.Delete(destDir, true);
+                Directory.CreateDirectory(destDir);
+
+                zip.ExtractToDirectory(destDir, overwriteFiles: true);
+                ScanInstalledThemes();
+                return manifest.Id;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>Scans the Themes folder for installed community themes and adds them to available list.</summary>
+        public void ScanInstalledThemes()
+        {
+            // Remove previously scanned community themes (keep builtins)
+            var toRemove = _builtinThemes.Keys.Where(k => !k.StartsWith("builtin.")).ToList();
+            foreach (var key in toRemove)
+                _builtinThemes.Remove(key);
+
+            if (!Directory.Exists(ThemesFolder)) return;
+
+            foreach (var dir in Directory.GetDirectories(ThemesFolder))
+            {
+                try
+                {
+                    var manifestPath = Path.Combine(dir, "theme.json");
+                    var colorsPath = Path.Combine(dir, "colors.json");
+                    if (!File.Exists(manifestPath)) continue;
+
+                    var manifest = JsonSerializer.Deserialize<ThemeManifest>(File.ReadAllText(manifestPath));
+                    if (manifest == null || string.IsNullOrEmpty(manifest.Id)) continue;
+
+                    ThemeColors colors;
+                    if (File.Exists(colorsPath))
+                    {
+                        colors = JsonSerializer.Deserialize<ThemeColors>(File.ReadAllText(colorsPath))
+                                 ?? GetDefaultColors();
+                    }
+                    else
+                    {
+                        colors = GetDefaultColors();
+                    }
+
+                    _builtinThemes[manifest.Id] = new BuiltinTheme(manifest.Id, manifest.Name, colors);
+                }
+                catch { /* skip malformed themes */ }
+            }
+        }
+
+        /// <summary>Removes an installed community theme.</summary>
+        public bool UninstallTheme(string themeId)
+        {
+            if (themeId.StartsWith("builtin.")) return false;
+            var dir = Path.Combine(ThemesFolder, themeId);
+            if (!Directory.Exists(dir)) return false;
+            try
+            {
+                Directory.Delete(dir, true);
+                _builtinThemes.Remove(themeId);
+                return true;
+            }
+            catch { return false; }
         }
 
         // ── Helpers ──────────────────────────────────────────────────────
