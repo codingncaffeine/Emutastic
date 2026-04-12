@@ -194,6 +194,27 @@ See the [RetroAchievements wiki page](https://github.com/codingncaffeine/Emutast
 
 ---
 
+## Themes
+
+Emutastic includes a full theme system with a built-in visual editor — no external tools required.
+
+### Built-in Themes
+Four themes ship out of the box: **Dark** (default), **Light**, **OLED Black**, and **Midnight Blue**. Switch between them in **Preferences → Theme**.
+
+### Theme Editor
+Open the editor from **Preferences → Theme → Customize...** to tweak any of the 44 color tokens with a live preview panel that updates in real time. Adjust backgrounds, text, accents, scrollbars, buttons, and more — then apply or export your creation.
+
+### Background Images
+Set a custom background image behind your game library grid in **Preferences → Theme**. Control opacity and scaling to get the look you want. Background images are included when exporting themes.
+
+### Sharing Themes
+Export your theme as a `.emutheme` file (a ZIP containing colors, manifest, and optional assets) and share it with others. Import community themes by dragging a `.emutheme` file onto the app window or using the import button in Preferences.
+
+### Console-Specific Colors
+Enable **Console-specific colors** in Preferences to have accent and background colors automatically change as you browse different console libraries — green for Game Boy, blue for PlayStation, etc. Theme creators can define per-console overrides in their color sets.
+
+---
+
 ## Known Limitations
 
 ### Philips CD-i — Analog Cursor Sensitivity
