@@ -83,14 +83,20 @@ namespace Emutastic.Configuration
         public bool UseWindowsChrome { get; set; } = false;
         /// <summary>Active theme ID (e.g. "builtin.dark", "builtin.light").</summary>
         public string ActiveThemeId { get; set; } = "builtin.dark";
-        /// <summary>When true, accent/bg colors change per-console as you navigate the library.</summary>
-        public bool EnableConsoleTheming { get; set; } = false;
         /// <summary>Optional path to a background image displayed behind the game grid.</summary>
         public string BackgroundImagePath { get; set; } = "";
         /// <summary>Opacity of the background image (0.0–1.0). Default 1.0 — the image is the hero background.</summary>
         public double BackgroundImageOpacity { get; set; } = 1.0;
         /// <summary>How the background image is stretched. UniformToFill (default), Uniform, Fill, None.</summary>
         public string BackgroundImageStretch { get; set; } = "UniformToFill";
+        /// <summary>Zoom level for the background image (1.0 = 100%, 2.0 = 200%).</summary>
+        public double BackgroundImageZoom { get; set; } = 1.0;
+        /// <summary>Horizontal offset for the background image (-100 to 100, percentage of image width).</summary>
+        public double BackgroundImageOffsetX { get; set; } = 0.0;
+        /// <summary>Vertical offset for the background image (-100 to 100, percentage of image height).</summary>
+        public double BackgroundImageOffsetY { get; set; } = 0.0;
+        /// <summary>Whether the background image tiles/repeats instead of stretching.</summary>
+        public bool BackgroundImageRepeat { get; set; } = false;
     }
 
     // Library configuration

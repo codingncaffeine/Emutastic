@@ -2677,7 +2677,6 @@ namespace Emutastic.Views
             }
             ThemeCombo.SelectedIndex = selectedIdx;
 
-            ConsoleThemingToggle.IsChecked = theme.EnableConsoleTheming;
             PopulateInstalledThemes();
 
             // Background image
@@ -2697,6 +2696,14 @@ namespace Emutastic.Views
                 _ => 0
             };
             BgStretchCombo.SelectedIndex = stretchIdx;
+
+            BgRepeatToggle.IsChecked = theme.BackgroundImageRepeat;
+            BgZoomSlider.Value = Math.Clamp(theme.BackgroundImageZoom * 100, 50, 500);
+            BgZoomValueLabel.Text = $"{(int)BgZoomSlider.Value}%";
+            BgOffsetXSlider.Value = Math.Clamp(theme.BackgroundImageOffsetX, -500, 500);
+            BgOffsetXValueLabel.Text = $"{(int)BgOffsetXSlider.Value}";
+            BgOffsetYSlider.Value = Math.Clamp(theme.BackgroundImageOffsetY, -500, 500);
+            BgOffsetYValueLabel.Text = $"{(int)BgOffsetYSlider.Value}";
 
             // Clamp to valid range in case config was edited manually.
             PaddingSlider.Value  = Math.Clamp(theme.GridPadding, 8, 64);
@@ -2757,6 +2764,24 @@ namespace Emutastic.Views
         {
             if (BgOpacityValueLabel != null)
                 BgOpacityValueLabel.Text = $"{(int)BgOpacitySlider.Value}%";
+        }
+
+        private void BgZoomSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (BgZoomValueLabel != null)
+                BgZoomValueLabel.Text = $"{(int)BgZoomSlider.Value}%";
+        }
+
+        private void BgOffsetXSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (BgOffsetXValueLabel != null)
+                BgOffsetXValueLabel.Text = $"{(int)BgOffsetXSlider.Value}";
+        }
+
+        private void BgOffsetYSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (BgOffsetYValueLabel != null)
+                BgOffsetYValueLabel.Text = $"{(int)BgOffsetYSlider.Value}";
         }
 
         private void PopulateInstalledThemes()
@@ -2933,7 +2958,6 @@ namespace Emutastic.Views
             if (ThemeCombo.SelectedItem is System.Windows.Controls.ComboBoxItem item && item.Tag is string id)
                 selectedThemeId = id;
             theme.ActiveThemeId = selectedThemeId;
-            theme.EnableConsoleTheming = ConsoleThemingToggle.IsChecked == true;
 
             // Background image settings
             var bgPath = BgImagePathLabel.Text;
@@ -2942,6 +2966,10 @@ namespace Emutastic.Views
             if (BgStretchCombo.SelectedItem is System.Windows.Controls.ComboBoxItem stretchItem
                 && stretchItem.Tag is string stretchVal)
                 theme.BackgroundImageStretch = stretchVal;
+            theme.BackgroundImageRepeat = BgRepeatToggle.IsChecked == true;
+            theme.BackgroundImageZoom = Math.Clamp(BgZoomSlider.Value / 100.0, 0.5, 5.0);
+            theme.BackgroundImageOffsetX = Math.Clamp(BgOffsetXSlider.Value, -500, 500);
+            theme.BackgroundImageOffsetY = Math.Clamp(BgOffsetYSlider.Value, -500, 500);
 
             _configService.SetThemeConfiguration(theme);
             _ = _configService.SaveAsync();
@@ -2949,7 +2977,6 @@ namespace Emutastic.Views
 
             // Apply the selected theme colors
             var themeSvc = Services.ThemeService.Instance;
-            themeSvc.EnableConsoleTheming = theme.EnableConsoleTheming;
             themeSvc.LoadAndApplyTheme(selectedThemeId);
 
             // Apply background image to MainWindow

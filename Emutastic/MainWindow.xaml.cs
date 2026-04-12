@@ -287,6 +287,8 @@ namespace Emutastic
             {
                 GridBackgroundImage.Visibility = Visibility.Collapsed;
                 GridBackgroundImage.Source = null;
+                GridBackgroundTiled.Visibility = Visibility.Collapsed;
+                GridBackgroundTiled.Fill = null;
                 return;
             }
 
@@ -299,16 +301,57 @@ namespace Emutastic
                 bmp.EndInit();
                 bmp.Freeze();
 
-                GridBackgroundImage.Source = bmp;
-                GridBackgroundImage.Opacity = Math.Clamp(theme.BackgroundImageOpacity, 0.0, 1.0);
-                GridBackgroundImage.Stretch = theme.BackgroundImageStretch switch
+                double opacity = Math.Clamp(theme.BackgroundImageOpacity, 0.0, 1.0);
+
+                if (theme.BackgroundImageRepeat)
                 {
-                    "Uniform" => System.Windows.Media.Stretch.Uniform,
-                    "Fill" => System.Windows.Media.Stretch.Fill,
-                    "None" => System.Windows.Media.Stretch.None,
-                    _ => System.Windows.Media.Stretch.UniformToFill
-                };
-                GridBackgroundImage.Visibility = Visibility.Visible;
+                    // Tiled mode — use ImageBrush on a Rectangle
+                    GridBackgroundImage.Visibility = Visibility.Collapsed;
+                    GridBackgroundImage.Source = null;
+
+                    double zoom = Math.Clamp(theme.BackgroundImageZoom, 0.5, 5.0);
+                    var brush = new System.Windows.Media.ImageBrush(bmp)
+                    {
+                        TileMode = System.Windows.Media.TileMode.Tile,
+                        Stretch = System.Windows.Media.Stretch.None,
+                        AlignmentX = System.Windows.Media.AlignmentX.Left,
+                        AlignmentY = System.Windows.Media.AlignmentY.Top,
+                        ViewportUnits = System.Windows.Media.BrushMappingMode.Absolute,
+                        Viewport = new Rect(
+                            theme.BackgroundImageOffsetX,
+                            theme.BackgroundImageOffsetY,
+                            bmp.PixelWidth * zoom,
+                            bmp.PixelHeight * zoom),
+                        Opacity = opacity,
+                    };
+                    brush.Freeze();
+
+                    GridBackgroundTiled.Fill = brush;
+                    GridBackgroundTiled.Visibility = Visibility.Visible;
+                }
+                else
+                {
+                    // Single image mode
+                    GridBackgroundTiled.Visibility = Visibility.Collapsed;
+                    GridBackgroundTiled.Fill = null;
+
+                    GridBackgroundImage.Source = bmp;
+                    GridBackgroundImage.Opacity = opacity;
+                    GridBackgroundImage.Stretch = theme.BackgroundImageStretch switch
+                    {
+                        "Uniform" => System.Windows.Media.Stretch.Uniform,
+                        "Fill" => System.Windows.Media.Stretch.Fill,
+                        "None" => System.Windows.Media.Stretch.None,
+                        _ => System.Windows.Media.Stretch.UniformToFill
+                    };
+                    double zoom = Math.Clamp(theme.BackgroundImageZoom, 0.5, 5.0);
+                    BgImageScale.ScaleX = zoom;
+                    BgImageScale.ScaleY = zoom;
+                    BgImageTranslate.X = theme.BackgroundImageOffsetX;
+                    BgImageTranslate.Y = theme.BackgroundImageOffsetY;
+
+                    GridBackgroundImage.Visibility = Visibility.Visible;
+                }
 
                 // Override BgPrimaryBrush in the content area so the image is the
                 // sole background — no theme color sitting on top of or behind it.
@@ -320,6 +363,8 @@ namespace Emutastic
             {
                 GridBackgroundImage.Visibility = Visibility.Collapsed;
                 GridBackgroundImage.Source = null;
+                GridBackgroundTiled.Visibility = Visibility.Collapsed;
+                GridBackgroundTiled.Fill = null;
             }
         }
 
@@ -550,6 +595,10 @@ namespace Emutastic
         /// </summary>
         private void OnNavigated(string tag)
         {
+            bool isConsoleView = !string.IsNullOrEmpty(tag)
+                && tag != "All Games" && tag != "Recent" && tag != "Favorites"
+                && tag != "RecentlyAdded" && !tag.StartsWith("Collection:");
+
             // Find the sidebar button that matches this navigation target
             Button? navBtn = FindSidebarButton(tag);
             if (navBtn != null)
@@ -591,15 +640,6 @@ namespace Emutastic
             }
 
             UpdateBoxArtToggleVisibility();
-
-            // Console-specific theme overrides
-            bool isConsoleView = !string.IsNullOrEmpty(tag)
-                && tag != "All Games" && tag != "Recent" && tag != "Favorites"
-                && tag != "RecentlyAdded" && !tag.StartsWith("Collection:");
-            if (isConsoleView)
-                Services.ThemeService.Instance.ApplyConsoleOverride(tag);
-            else
-                Services.ThemeService.Instance.ResetConsoleOverride();
 
             // Show per-console game count badge
             if (navBtn != null && isConsoleView)

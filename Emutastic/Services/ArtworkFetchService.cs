@@ -475,7 +475,10 @@ namespace Emutastic.Services
 
                     if (romId <= 0) continue;
                     if (!releases.TryGetValue(romId, out var rel)) continue;
-                    if (string.IsNullOrWhiteSpace(rel.dev) && string.IsNullOrWhiteSpace(rel.genre)) continue;
+                    // Skip if OpenVGDB has no useful metadata — writing empty strings
+                    // would leave Developer = '' which still matches "missing" on next launch
+                    if (string.IsNullOrWhiteSpace(rel.dev) && string.IsNullOrWhiteSpace(rel.pub)
+                        && string.IsNullOrWhiteSpace(rel.genre) && string.IsNullOrWhiteSpace(rel.desc)) continue;
 
                     // Parse year from releaseDate (formats: "1995", "Apr 20, 1995", "December 1995")
                     int year = 0;

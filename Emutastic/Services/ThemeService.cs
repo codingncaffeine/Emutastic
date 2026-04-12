@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
-using System.Reflection;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Media;
@@ -23,14 +22,8 @@ namespace Emutastic.Services
         /// <summary>Currently active theme ID (e.g. "builtin.dark").</summary>
         public string ActiveThemeId { get; private set; } = "builtin.dark";
 
-        /// <summary>Whether console-specific color overrides are enabled.</summary>
-        public bool EnableConsoleTheming { get; set; }
-
         /// <summary>The resolved color set for the active theme (all tokens filled).</summary>
         private ThemeColors _activeColors = null!;
-
-        /// <summary>Backup of base colors before a console override was applied.</summary>
-        private ThemeColors? _preOverrideColors;
 
         /// <summary>Built-in theme definitions keyed by ID.</summary>
         private readonly Dictionary<string, BuiltinTheme> _builtinThemes = new();
@@ -88,7 +81,6 @@ namespace Emutastic.Services
             }
 
             ActiveThemeId = themeId;
-            _preOverrideColors = null;
             ApplyColors(_activeColors);
 
             // Apply background image from theme if present
@@ -135,7 +127,6 @@ namespace Emutastic.Services
         {
             ActiveThemeId = "custom";
             _activeColors = colors;
-            _preOverrideColors = null;
             ApplyColors(colors);
         }
 
@@ -224,35 +215,6 @@ namespace Emutastic.Services
             Set("PillGroupBg", colors.PillGroupBg, defaults.PillGroupBg);
             Set("AchievementGold", colors.AchievementGold, defaults.AchievementGold);
             Set("FavoriteHeart", colors.FavoriteHeart, defaults.FavoriteHeart);
-        }
-
-        // ── Console-specific overrides ───────────────────────────────────
-
-        /// <summary>
-        /// Temporarily applies console-specific color overrides (accent, bg) when
-        /// the user navigates to a console library. Only active if EnableConsoleTheming is true.
-        /// </summary>
-        public void ApplyConsoleOverride(string consoleName)
-        {
-            if (!EnableConsoleTheming) return;
-            if (_activeColors.ConsoleOverrides == null) return;
-            if (!_activeColors.ConsoleOverrides.TryGetValue(consoleName, out var overrides)) return;
-
-            // Save current state so we can restore later
-            _preOverrideColors ??= CloneColors(_activeColors);
-
-            // Merge only the non-null override values
-            var merged = CloneColors(_activeColors);
-            MergeOverrides(merged, overrides);
-            ApplyColors(merged);
-        }
-
-        /// <summary>Restores the base theme colors after a console override.</summary>
-        public void ResetConsoleOverride()
-        {
-            if (_preOverrideColors == null) return;
-            ApplyColors(_preOverrideColors);
-            _preOverrideColors = null;
         }
 
         // ── Theme installation & scanning ───────────────────────────────
@@ -357,23 +319,6 @@ namespace Emutastic.Services
 
         // ── Helpers ──────────────────────────────────────────────────────
 
-        private static ThemeColors CloneColors(ThemeColors src)
-        {
-            var json = JsonSerializer.Serialize(src);
-            return JsonSerializer.Deserialize<ThemeColors>(json) ?? new ThemeColors();
-        }
-
-        private static void MergeOverrides(ThemeColors target, ThemeColors overrides)
-        {
-            // Use reflection to copy non-null string properties
-            foreach (var prop in typeof(ThemeColors).GetProperties(BindingFlags.Public | BindingFlags.Instance))
-            {
-                if (prop.PropertyType != typeof(string)) continue;
-                var val = prop.GetValue(overrides) as string;
-                if (val != null)
-                    prop.SetValue(target, val);
-            }
-        }
 
         // ── Default (Dark) theme colors ──────────────────────────────────
         // These MUST match DarkTheme.xaml exactly — pixel-identical.
@@ -424,7 +369,6 @@ namespace Emutastic.Services
             PillGroupBg = "#1E1E1E",
             AchievementGold = "#FFD700",
             FavoriteHeart = "#FF6B6B",
-            ConsoleOverrides = GetConsoleOverrides(),
         };
 
         // ── Light theme ──────────────────────────────────────────────────
@@ -475,7 +419,6 @@ namespace Emutastic.Services
             PillGroupBg = "#D5D5DB",
             AchievementGold = "#C89800",
             FavoriteHeart = "#E05555",
-            ConsoleOverrides = GetConsoleOverrides(),
         };
 
         // ── OLED Black theme ─────────────────────────────────────────────
@@ -526,7 +469,6 @@ namespace Emutastic.Services
             PillGroupBg = "#0F0F0F",
             AchievementGold = "#FFD700",
             FavoriteHeart = "#FF6B6B",
-            ConsoleOverrides = GetConsoleOverrides(),
         };
 
         // ── Midnight Blue theme ──────────────────────────────────────────
@@ -577,48 +519,7 @@ namespace Emutastic.Services
             PillGroupBg = "#0F172A",
             AchievementGold = "#FFD700",
             FavoriteHeart = "#FF6B6B",
-            ConsoleOverrides = GetConsoleOverrides(),
         };
 
-        /// <summary>
-        /// Shared console-specific color overrides used by all built-in themes.
-        /// Keys match the console tags used in sidebar navigation (NES, SNES, GB, etc.).
-        /// Only Accent and AccentHover are overridden — backgrounds stay with the base theme.
-        /// </summary>
-        private static Dictionary<string, ThemeColors> GetConsoleOverrides() => new()
-        {
-            ["NES"] = new() { Accent = "#C8102E", AccentHover = "#E0302E" },
-            ["FDS"] = new() { Accent = "#C8102E", AccentHover = "#E0302E" },
-            ["SNES"] = new() { Accent = "#7B2FBE", AccentHover = "#9B4FDE" },
-            ["N64"] = new() { Accent = "#007934", AccentHover = "#209944" },
-            ["GameCube"] = new() { Accent = "#6A0DAD", AccentHover = "#8A2DCD" },
-            ["GB"] = new() { Accent = "#9BBC0F", AccentHover = "#ABCC2F" },
-            ["GBC"] = new() { Accent = "#6A5ACD", AccentHover = "#8A7AED" },
-            ["GBA"] = new() { Accent = "#4A00A0", AccentHover = "#6A20C0" },
-            ["NDS"] = new() { Accent = "#B0B0B0", AccentHover = "#D0D0D0" },
-            ["Genesis"] = new() { Accent = "#2196F3", AccentHover = "#42B6FF" },
-            ["SegaCD"] = new() { Accent = "#00BCD4", AccentHover = "#26D6E8" },
-            ["Sega32X"] = new() { Accent = "#1565C0", AccentHover = "#3585E0" },
-            ["Saturn"] = new() { Accent = "#FF9800", AccentHover = "#FFB840" },
-            ["SMS"] = new() { Accent = "#3F51B5", AccentHover = "#5F71D5" },
-            ["GameGear"] = new() { Accent = "#E91E63", AccentHover = "#FF3E83" },
-            ["SG1000"] = new() { Accent = "#3F51B5", AccentHover = "#5F71D5" },
-            ["PS1"] = new() { Accent = "#006FCD", AccentHover = "#0090ED" },
-            ["PSP"] = new() { Accent = "#00BCD4", AccentHover = "#26D6E8" },
-            ["TG16"] = new() { Accent = "#FF6600", AccentHover = "#FF8830" },
-            ["TGCD"] = new() { Accent = "#FF6600", AccentHover = "#FF8830" },
-            ["Dreamcast"] = new() { Accent = "#FF6600", AccentHover = "#FF8830" },
-            ["Atari2600"] = new() { Accent = "#FF5722", AccentHover = "#FF7742" },
-            ["Atari7800"] = new() { Accent = "#FF5722", AccentHover = "#FF7742" },
-            ["Jaguar"] = new() { Accent = "#CC0000", AccentHover = "#EC2020" },
-            ["NeoGeo"] = new() { Accent = "#FFD700", AccentHover = "#FFE740" },
-            ["NGP"] = new() { Accent = "#2196F3", AccentHover = "#42B6FF" },
-            ["Arcade"] = new() { Accent = "#FF1744", AccentHover = "#FF4060" },
-            ["Vectrex"] = new() { Accent = "#00E5FF", AccentHover = "#40F5FF" },
-            ["3DO"] = new() { Accent = "#FF9800", AccentHover = "#FFB840" },
-            ["CDi"] = new() { Accent = "#00897B", AccentHover = "#20A99B" },
-            ["VirtualBoy"] = new() { Accent = "#FF0000", AccentHover = "#FF3030" },
-            ["ColecoVision"] = new() { Accent = "#1976D2", AccentHover = "#3996F2" },
-        };
     }
 }
