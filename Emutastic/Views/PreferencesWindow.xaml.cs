@@ -2678,6 +2678,7 @@ namespace Emutastic.Views
             ThemeCombo.SelectedIndex = selectedIdx;
 
             ConsoleThemingToggle.IsChecked = theme.EnableConsoleTheming;
+            PopulateInstalledThemes();
 
             // Clamp to valid range in case config was edited manually.
             PaddingSlider.Value  = Math.Clamp(theme.GridPadding, 8, 64);
@@ -2714,6 +2715,181 @@ namespace Emutastic.Views
         {
             var editor = new ThemeEditorWindow { Owner = this };
             editor.ShowDialog();
+        }
+
+        private void PopulateInstalledThemes()
+        {
+            InstalledThemesPanel.Children.Clear();
+            var themes = Services.ThemeService.Instance.GetAvailableThemes();
+            var activeId = Services.ThemeService.Instance.ActiveThemeId;
+
+            foreach (var (id, name) in themes)
+            {
+                // Get first 3 colors for a mini-swatch
+                var colors = GetThemePreviewColors(id);
+
+                var card = new Border
+                {
+                    Width = 120,
+                    Margin = new Thickness(0, 0, 8, 8),
+                    CornerRadius = new CornerRadius(6),
+                    BorderThickness = new Thickness(id == activeId ? 2 : 1),
+                    BorderBrush = id == activeId
+                        ? (Brush)FindResource("AccentBrush")
+                        : (Brush)FindResource("BorderNormalBrush"),
+                    Background = (Brush)FindResource("BgTertiaryBrush"),
+                    Cursor = System.Windows.Input.Cursors.Hand,
+                    Padding = new Thickness(8),
+                    Tag = id,
+                };
+
+                var stack = new StackPanel();
+
+                // Color preview strip
+                var colorStrip = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
+                foreach (var hex in colors)
+                {
+                    try
+                    {
+                        var swatch = new System.Windows.Shapes.Rectangle
+                        {
+                            Width = 16, Height = 16,
+                            RadiusX = 3, RadiusY = 3,
+                            Margin = new Thickness(0, 0, 3, 0),
+                            Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex)),
+                        };
+                        colorStrip.Children.Add(swatch);
+                    }
+                    catch { }
+                }
+                stack.Children.Add(colorStrip);
+
+                // Theme name
+                stack.Children.Add(new TextBlock
+                {
+                    Text = name,
+                    FontSize = 11,
+                    FontWeight = FontWeights.Medium,
+                    Foreground = (Brush)FindResource("TextPrimaryBrush"),
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                });
+
+                // Built-in label or delete
+                if (id.StartsWith("builtin."))
+                {
+                    stack.Children.Add(new TextBlock
+                    {
+                        Text = "Built-in",
+                        FontSize = 9,
+                        Foreground = (Brush)FindResource("TextMutedBrush"),
+                    });
+                }
+                else
+                {
+                    var delBtn = new Button
+                    {
+                        Content = "Remove",
+                        FontSize = 9,
+                        Padding = new Thickness(4, 1, 4, 1),
+                        Margin = new Thickness(0, 2, 0, 0),
+                        Background = Brushes.Transparent,
+                        Foreground = (Brush)FindResource("TrafficRedBrush"),
+                        BorderThickness = new Thickness(0),
+                        Cursor = System.Windows.Input.Cursors.Hand,
+                        Tag = id,
+                    };
+                    delBtn.Click += RemoveTheme_Click;
+                    stack.Children.Add(delBtn);
+                }
+
+                card.Child = stack;
+                card.MouseLeftButtonDown += ThemeCard_Click;
+                InstalledThemesPanel.Children.Add(card);
+            }
+        }
+
+        private void ThemeCard_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            if (sender is not Border card || card.Tag is not string id) return;
+
+            // Update the combo to match
+            for (int i = 0; i < ThemeCombo.Items.Count; i++)
+            {
+                if (ThemeCombo.Items[i] is ComboBoxItem item && item.Tag is string itemId && itemId == id)
+                {
+                    ThemeCombo.SelectedIndex = i;
+                    break;
+                }
+            }
+        }
+
+        private void RemoveTheme_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not Button btn || btn.Tag is not string id) return;
+            var result = MessageBox.Show($"Remove this theme?", "Remove Theme",
+                MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (result != MessageBoxResult.Yes) return;
+
+            Services.ThemeService.Instance.UninstallTheme(id);
+            LoadThemeSettings(); // Refresh dropdown + cards
+            PopulateInstalledThemes();
+        }
+
+        private static string[] GetThemePreviewColors(string themeId)
+        {
+            // Try to get the actual theme colors for preview swatches
+            var themes = new Dictionary<string, Func<ThemeColors>>
+            {
+                ["builtin.dark"] = Services.ThemeService.GetDefaultColors,
+            };
+
+            ThemeColors? colors = null;
+            var available = Services.ThemeService.Instance.GetAvailableThemes();
+            // For any theme, load and apply temporarily just to read colors
+            // Actually, just get them from the service
+            try
+            {
+                var method = typeof(Services.ThemeService).GetMethod(themeId switch
+                {
+                    "builtin.dark" => "GetDefaultColors",
+                    "builtin.light" => "GetLightColors",
+                    "builtin.oled" => "GetOledColors",
+                    "builtin.midnight" => "GetMidnightColors",
+                    _ => ""
+                }, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public);
+
+                if (method != null)
+                    colors = method.Invoke(null, null) as ThemeColors;
+            }
+            catch { }
+
+            colors ??= Services.ThemeService.GetDefaultColors();
+            return new[] { colors.BgPrimary ?? "#0F0F10", colors.Accent ?? "#E03535", colors.TextPrimary ?? "#F0F0F0",
+                           colors.BgSecondary ?? "#181819", colors.Green ?? "#28C840" };
+        }
+
+        private void ImportThemeBtn_Click(object sender, RoutedEventArgs e)
+        {
+            var dlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Filter = "Emutastic Theme (*.emutheme)|*.emutheme",
+                Title = "Import Theme",
+            };
+
+            if (dlg.ShowDialog() != true) return;
+
+            var id = Services.ThemeService.Instance.InstallTheme(dlg.FileName);
+            if (id != null)
+            {
+                LoadThemeSettings();
+                PopulateInstalledThemes();
+                MessageBox.Show("Theme installed!", "Import Theme", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            else
+            {
+                MessageBox.Show("Could not install theme. Check the file format.",
+                    "Import Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
         }
 
         private void ThemeSaveBtn_Click(object sender, RoutedEventArgs e)
