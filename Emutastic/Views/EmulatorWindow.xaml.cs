@@ -1391,7 +1391,8 @@ namespace Emutastic.Views
                     //   co_switch; context_destroy fires while that thread is still calling GL.
                     bool _skipContextDestroy = _teardownCoreName.Contains("ppsspp")
                                            || _teardownCoreName.Contains("mupen64")
-                                           || _teardownCoreName.Contains("parallel_n64");
+                                           || _teardownCoreName.Contains("parallel_n64")
+                                           || _teardownCoreName.Contains("azahar");
                     if (_hwContextDestroy != null && !_skipContextDestroy)
                     {
                         try { _hwContextDestroy.Invoke(); }
@@ -1408,7 +1409,7 @@ namespace Emutastic.Views
                     // thread, that thread has no GL context and wglMakeCurrent fails on thread-
                     // pool threads → AV in OPENGL32.dll's null dispatch table.
                     if (_teardownCoreName.Contains("mupen64") || _teardownCoreName.Contains("parallel_n64")
-                        || _teardownCoreName.Contains("ppsspp"))
+                        || _teardownCoreName.Contains("ppsspp") || _teardownCoreName.Contains("azahar"))
                     {
                         System.Diagnostics.Trace.WriteLine("Calling retro_deinit on emu thread (GL context active)...");
                         try { _core?.Deinit(); }
@@ -3446,6 +3447,18 @@ namespace Emutastic.Views
                         "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
                         "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
                         _ => uint.MaxValue
+                    };
+
+                // ── Nintendo 3DS ──────────────────────────────────────────────
+                case "3DS":
+                    return n switch {
+                        "a" => JOYPAD_A, "b" => JOYPAD_B, "x" => JOYPAD_X, "y" => JOYPAD_Y,
+                        "l" => JOYPAD_L, "r" => JOYPAD_R,
+                        "zl" => 12, "zr" => 13, "home" => 14,
+                        "select" => JOYPAD_SELECT, "start" => JOYPAD_START,
+                        "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
+                        "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
+                        _ => uint.MaxValue  // analog directions handled via RETRO_DEVICE_ANALOG path
                     };
 
                 // ── Sega 8-bit: numbered buttons ──────────────────────────────

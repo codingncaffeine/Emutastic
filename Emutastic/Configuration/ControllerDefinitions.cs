@@ -194,6 +194,37 @@ namespace Emutastic.Configuration
                     new("Start",  "Start",  285, 190, ButtonType.Button, 45, 20, GSystem),
                 }
             },
+            ["3DS"] = new ControllerDefinition
+            {
+                Name = "Nintendo 3DS",
+                ControllerImage = "/Assets/images/3DS/3ds.jpg",
+                Buttons = new List<ButtonDefinition>
+                {
+                    new("Up",     "Up",     120, 200, ButtonType.DPad,   60, 60, GDPad),
+                    new("Down",   "Down",   120, 280, ButtonType.DPad,   60, 60, GDPad),
+                    new("Left",   "Left",    80, 240, ButtonType.DPad,   60, 60, GDPad),
+                    new("Right",  "Right",  160, 240, ButtonType.DPad,   60, 60, GDPad),
+                    new("Circle Pad Up",    "AnalogUp",    170, 140, ButtonType.AnalogDirection, 30, 30, GAnalog),
+                    new("Circle Pad Down",  "AnalogDown",  170, 180, ButtonType.AnalogDirection, 30, 30, GAnalog),
+                    new("Circle Pad Left",  "AnalogLeft",  150, 160, ButtonType.AnalogDirection, 30, 30, GAnalog),
+                    new("Circle Pad Right", "AnalogRight", 190, 160, ButtonType.AnalogDirection, 30, 30, GAnalog),
+                    new("C-Stick Up",    "CStickUp",    430, 130, ButtonType.AnalogDirection, 25, 25, GCStick),
+                    new("C-Stick Down",  "CStickDown",  430, 165, ButtonType.AnalogDirection, 25, 25, GCStick),
+                    new("C-Stick Left",  "CStickLeft",  412, 148, ButtonType.AnalogDirection, 25, 25, GCStick),
+                    new("C-Stick Right", "CStickRight", 448, 148, ButtonType.AnalogDirection, 25, 25, GCStick),
+                    new("B",      "B",      420, 210, ButtonType.Button, 30, 30, GFace),
+                    new("A",      "A",      450, 180, ButtonType.Button, 30, 30, GFace),
+                    new("Y",      "Y",      390, 180, ButtonType.Button, 30, 30, GFace),
+                    new("X",      "X",      420, 150, ButtonType.Button, 30, 30, GFace),
+                    new("L",      "L",       60,  30, ButtonType.Button, 70, 25, GShoulder),
+                    new("R",      "R",      430,  30, ButtonType.Button, 70, 25, GShoulder),
+                    new("ZL",     "ZL",      60,  10, ButtonType.Button, 70, 20, GShoulder),
+                    new("ZR",     "ZR",     430,  10, ButtonType.Button, 70, 20, GShoulder),
+                    new("Start",  "Start",  380, 250, ButtonType.Button, 50, 20, GSystem),
+                    new("Select", "Select", 380, 275, ButtonType.Button, 50, 20, GSystem),
+                    new("Home",   "Home",   380, 300, ButtonType.Button, 50, 20, GSystem),
+                }
+            },
             ["VirtualBoy"] = new ControllerDefinition
             {
                 Name = "Virtual Boy",

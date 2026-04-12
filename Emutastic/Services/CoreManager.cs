@@ -30,6 +30,7 @@ namespace Emutastic.Services
             { "GBA",         new[] { "mgba_libretro.dll"               }},
             { "NDS",         new[] { "desmume_libretro.dll",
                                      "melonds_libretro.dll"             }},
+            { "3DS",         new[] { "azahar_libretro.dll"              }},
             { "VirtualBoy",  new[] { "mednafen_vb_libretro.dll"         }},
             { "Genesis",     new[] { "genesis_plus_gx_libretro.dll",
                                      "picodrive_libretro.dll"           }},

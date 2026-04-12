@@ -53,6 +53,7 @@ namespace Emutastic.Services
             { "GBC",          10 },
             { "GBA",          12 },
             { "NDS",          15 },
+            { "3DS",          17 },
             { "VirtualBoy",   11 },
             { "Genesis",      1  },
             { "SegaCD",       20 },

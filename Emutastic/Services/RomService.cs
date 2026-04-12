@@ -38,6 +38,12 @@ namespace Emutastic.Services
             { ".gbc",  "GBC"         },
             { ".gba",  "GBA"         },
             { ".nds",  "NDS"         },
+            { ".3ds",  "3DS"         },
+            { ".cci",  "3DS"         },
+            { ".cia",  "3DS"         },
+            { ".cxi",  "3DS"         },
+            { ".3dsx", "3DS"         },
+            { ".app",  "3DS"         },
             { ".vb",   "VirtualBoy"  },
             { ".md",   "Genesis"     },
             { ".gen",  "Genesis"     },
@@ -73,7 +79,8 @@ namespace Emutastic.Services
             { "SNES",         "Nintendo"   }, { "N64",       "Nintendo"   },
             { "GameCube",     "Nintendo"   }, { "GB",        "Nintendo"   },
             { "GBC",          "Nintendo"   }, { "GBA",       "Nintendo"   },
-            { "NDS",          "Nintendo"   }, { "VirtualBoy","Nintendo"   },
+            { "NDS",          "Nintendo"   }, { "3DS",       "Nintendo"   },
+            { "VirtualBoy","Nintendo"   },
 
             { "Genesis",      "Sega"       }, { "SegaCD",    "Sega"       },
             { "Sega32X",      "Sega"       }, { "Saturn",    "Sega"       },
@@ -105,6 +112,7 @@ namespace Emutastic.Services
             { "GBC",         ("#1A2E1A", "#FF6B6B") },
             { "GBA",         ("#1A1A2E", "#9C27B0") },
             { "NDS",         ("#0A2E1A", "#4CAF50") },
+            { "3DS",         ("#0A0A2E", "#E4002B") },
             { "Genesis",     ("#1A1A0A", "#2196F3") },
             { "Saturn",      ("#2E1A0A", "#FF9800") },
             { "SegaCD",      ("#0A2E2E", "#00BCD4") },
@@ -175,6 +183,8 @@ namespace Emutastic.Services
             ("nintendo 64",   "N64"),
             ("n64",           "N64"),
             ("nintendo ds",   "NDS"),
+            ("nintendo 3ds",  "3DS"),
+            ("3ds",           "3DS"),
             // CD variants must come before plain TG16/PC Engine to avoid false matches
             ("turbografx-cd", "TGCD"),
             ("turbografx cd", "TGCD"),
@@ -298,6 +308,7 @@ namespace Emutastic.Services
             { "GBC",          0.82 },  // same physical box as GB
             { "GBA",          0.98 },  // GBA clamshell (near-square)
             { "NDS",          0.95 },  // DS keepcase
+            { "3DS",          0.72 },  // 3DS keepcase
             { "VirtualBoy",   0.90 },  // Virtual Boy box
             { "Genesis",      0.66 },  // Genesis clamshell
             { "SegaCD",       0.66 },  // same Genesis clamshell

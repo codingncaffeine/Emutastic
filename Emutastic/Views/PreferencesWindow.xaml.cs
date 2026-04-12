@@ -1173,7 +1173,7 @@ namespace Emutastic.Views
         // Console-to-category mapping for accordion grouping
         private static readonly (string Category, string[] Consoles)[] ConsoleCategories =
         {
-            ("Nintendo",  new[] { "NES", "FDS", "SNES", "N64", "GameCube", "GB", "GBC", "GBA", "NDS", "VirtualBoy" }),
+            ("Nintendo",  new[] { "NES", "FDS", "SNES", "N64", "GameCube", "GB", "GBC", "GBA", "NDS", "3DS", "VirtualBoy" }),
             ("Sega",      new[] { "Genesis", "SegaCD", "Sega32X", "Saturn", "SMS", "GameGear", "SG1000", "Dreamcast" }),
             ("Sony",      new[] { "PS1", "PSP" }),
             ("NEC",       new[] { "TG16", "TGCD" }),
@@ -2141,6 +2141,7 @@ namespace Emutastic.Views
                 "sameboy"           => "SameBoy",
                 "desmume"           => "DeSmuME",
                 "melonds"           => "melonDS",
+                "azahar"            => "Azahar (3DS)",
                 "mednafen_vb"       => "Mednafen Virtual Boy",
                 "genesis_plus_gx"   => "Genesis Plus GX",
                 "picodrive"         => "PicoDrive",

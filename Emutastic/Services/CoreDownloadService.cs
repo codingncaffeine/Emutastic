@@ -36,6 +36,7 @@ namespace Emutastic.Services
             new() { FileName = "sameboy_libretro.dll",          DisplayName = "SameBoy",               Systems = ["GB", "GBC"],                         Recommended = false },
             new() { FileName = "desmume_libretro.dll",          DisplayName = "DeSmuME",               Systems = ["NDS"],                               Recommended = true  },
             new() { FileName = "melonds_libretro.dll",          DisplayName = "melonDS",               Systems = ["NDS"],                               Recommended = false },
+            new() { FileName = "azahar_libretro.dll",          DisplayName = "Azahar (3DS)",          Systems = ["3DS"],                               Recommended = true  },
             new() { FileName = "mednafen_vb_libretro.dll",      DisplayName = "Mednafen Virtual Boy",  Systems = ["VirtualBoy"],                        Recommended = true  },
             new() { FileName = "genesis_plus_gx_libretro.dll",  DisplayName = "Genesis Plus GX",       Systems = ["Genesis", "SegaCD", "SMS", "GameGear", "SG1000"], Recommended = true  },
             new() { FileName = "picodrive_libretro.dll",        DisplayName = "PicoDrive",             Systems = ["Genesis", "Sega32X", "SMS"],         Recommended = false },
