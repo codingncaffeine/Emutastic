@@ -9,8 +9,8 @@
         Width="440" SizeToContent="Height"
         WindowStartupLocation="CenterOwner">
 
-    <Border Background="{StaticResource BgSecondaryBrush}"
-            BorderBrush="{StaticResource BorderNormalBrush}"
+    <Border Background="{DynamicResource BgSecondaryBrush}"
+            BorderBrush="{DynamicResource BorderNormalBrush}"
             BorderThickness="1"
             CornerRadius="10">
         <StackPanel Margin="24">
@@ -18,26 +18,26 @@
             <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
                 <TextBlock Text="⚠"
                            FontSize="16"
-                           Foreground="{StaticResource WarningBrush}"
+                           Foreground="{DynamicResource WarningBrush}"
                            VerticalAlignment="Center"
                            Margin="0,0,8,0"/>
                 <TextBlock Text="BIOS Required"
                            FontFamily="{StaticResource PrimaryFont}"
                            FontSize="15"
                            FontWeight="SemiBold"
-                           Foreground="{StaticResource TextPrimaryBrush}"
+                           Foreground="{DynamicResource TextPrimaryBrush}"
                            VerticalAlignment="Center"/>
             </StackPanel>
 
             <TextBlock x:Name="MessageText"
                        FontFamily="{StaticResource PrimaryFont}"
                        FontSize="12"
-                       Foreground="{StaticResource TextSecondaryBrush}"
+                       Foreground="{DynamicResource TextSecondaryBrush}"
                        TextWrapping="Wrap"
                        Margin="0,0,0,10"/>
 
-            <Border Background="{StaticResource BgTertiaryBrush}"
-                    BorderBrush="{StaticResource BorderSubtleBrush}"
+            <Border Background="{DynamicResource BgTertiaryBrush}"
+                    BorderBrush="{DynamicResource BorderSubtleBrush}"
                     BorderThickness="1"
                     CornerRadius="6"
                     Padding="10,8"
@@ -45,14 +45,14 @@
                 <TextBlock x:Name="BiosFilesText"
                            FontFamily="Consolas, Courier New"
                            FontSize="12"
-                           Foreground="{StaticResource AccentBrush}"
+                           Foreground="{DynamicResource AccentBrush}"
                            TextWrapping="Wrap"/>
             </Border>
 
             <TextBlock x:Name="SystemDirText"
                        FontFamily="{StaticResource PrimaryFont}"
                        FontSize="11"
-                       Foreground="{StaticResource TextMutedBrush}"
+                       Foreground="{DynamicResource TextMutedBrush}"
                        TextWrapping="Wrap"
                        Margin="0,0,0,16"/>
 

@@ -70,58 +70,58 @@
     <Color x:Key="FavoriteHeartColor">#FFFF6B6B</Color>
 
     <!-- ── BRUSHES ── -->
-    <SolidColorBrush x:Key="BgPrimaryBrush"     Color="{StaticResource BgPrimaryColor}"/>
-    <SolidColorBrush x:Key="BgSecondaryBrush"   Color="{StaticResource BgSecondaryColor}"/>
-    <SolidColorBrush x:Key="BgTertiaryBrush"    Color="{StaticResource BgTertiaryColor}"/>
-    <SolidColorBrush x:Key="BgQuaternaryBrush"  Color="{StaticResource BgQuaternaryColor}"/>
-    <SolidColorBrush x:Key="BorderSubtleBrush"  Color="{StaticResource BorderSubtleColor}"/>
-    <SolidColorBrush x:Key="BorderNormalBrush"   Color="{StaticResource BorderNormalColor}"/>
-    <SolidColorBrush x:Key="TextPrimaryBrush"   Color="{StaticResource TextPrimaryColor}"/>
-    <SolidColorBrush x:Key="TextSecondaryBrush" Color="{StaticResource TextSecondaryColor}"/>
-    <SolidColorBrush x:Key="TextMutedBrush"     Color="{StaticResource TextMutedColor}"/>
-    <SolidColorBrush x:Key="AccentBrush"        Color="{StaticResource AccentColor}"/>
-    <SolidColorBrush x:Key="AccentHoverBrush"   Color="{StaticResource AccentHoverColor}"/>
-    <SolidColorBrush x:Key="GreenBrush"         Color="{StaticResource GreenColor}"/>
+    <SolidColorBrush x:Key="BgPrimaryBrush"     Color="{DynamicResource BgPrimaryColor}"/>
+    <SolidColorBrush x:Key="BgSecondaryBrush"   Color="{DynamicResource BgSecondaryColor}"/>
+    <SolidColorBrush x:Key="BgTertiaryBrush"    Color="{DynamicResource BgTertiaryColor}"/>
+    <SolidColorBrush x:Key="BgQuaternaryBrush"  Color="{DynamicResource BgQuaternaryColor}"/>
+    <SolidColorBrush x:Key="BorderSubtleBrush"  Color="{DynamicResource BorderSubtleColor}"/>
+    <SolidColorBrush x:Key="BorderNormalBrush"   Color="{DynamicResource BorderNormalColor}"/>
+    <SolidColorBrush x:Key="TextPrimaryBrush"   Color="{DynamicResource TextPrimaryColor}"/>
+    <SolidColorBrush x:Key="TextSecondaryBrush" Color="{DynamicResource TextSecondaryColor}"/>
+    <SolidColorBrush x:Key="TextMutedBrush"     Color="{DynamicResource TextMutedColor}"/>
+    <SolidColorBrush x:Key="AccentBrush"        Color="{DynamicResource AccentColor}"/>
+    <SolidColorBrush x:Key="AccentHoverBrush"   Color="{DynamicResource AccentHoverColor}"/>
+    <SolidColorBrush x:Key="GreenBrush"         Color="{DynamicResource GreenColor}"/>
 
-    <SolidColorBrush x:Key="ShadowBrush"           Color="{StaticResource ShadowColor}"/>
-    <SolidColorBrush x:Key="OverlayBgBrush"       Color="{StaticResource OverlayBgColor}"/>
-    <SolidColorBrush x:Key="AccentPressedBrush"   Color="{StaticResource AccentPressedColor}"/>
-    <SolidColorBrush x:Key="AccentDisabledBrush"   Color="{StaticResource AccentDisabledColor}"/>
+    <SolidColorBrush x:Key="ShadowBrush"           Color="{DynamicResource ShadowColor}"/>
+    <SolidColorBrush x:Key="OverlayBgBrush"       Color="{DynamicResource OverlayBgColor}"/>
+    <SolidColorBrush x:Key="AccentPressedBrush"   Color="{DynamicResource AccentPressedColor}"/>
+    <SolidColorBrush x:Key="AccentDisabledBrush"   Color="{DynamicResource AccentDisabledColor}"/>
 
-    <SolidColorBrush x:Key="ScrollThumbBrush"      Color="{StaticResource ScrollThumbColor}"/>
-    <SolidColorBrush x:Key="ScrollThumbHoverBrush"  Color="{StaticResource ScrollThumbHoverColor}"/>
-    <SolidColorBrush x:Key="ScrollThumbDragBrush"   Color="{StaticResource ScrollThumbDragColor}"/>
-    <SolidColorBrush x:Key="ScrollTrackBrush"       Color="{StaticResource ScrollTrackColor}"/>
+    <SolidColorBrush x:Key="ScrollThumbBrush"      Color="{DynamicResource ScrollThumbColor}"/>
+    <SolidColorBrush x:Key="ScrollThumbHoverBrush"  Color="{DynamicResource ScrollThumbHoverColor}"/>
+    <SolidColorBrush x:Key="ScrollThumbDragBrush"   Color="{DynamicResource ScrollThumbDragColor}"/>
+    <SolidColorBrush x:Key="ScrollTrackBrush"       Color="{DynamicResource ScrollTrackColor}"/>
 
-    <SolidColorBrush x:Key="PlayBtnBgBrush"           Color="{StaticResource PlayBtnBgColor}"/>
-    <SolidColorBrush x:Key="PlayBtnBorderBrush"       Color="{StaticResource PlayBtnBorderColor}"/>
-    <SolidColorBrush x:Key="PlayBtnHoverBgBrush"      Color="{StaticResource PlayBtnHoverBgColor}"/>
-    <SolidColorBrush x:Key="PlayBtnHoverBorderBrush"  Color="{StaticResource PlayBtnHoverBorderColor}"/>
-    <SolidColorBrush x:Key="PlayBtnPressedBgBrush"    Color="{StaticResource PlayBtnPressedBgColor}"/>
+    <SolidColorBrush x:Key="PlayBtnBgBrush"           Color="{DynamicResource PlayBtnBgColor}"/>
+    <SolidColorBrush x:Key="PlayBtnBorderBrush"       Color="{DynamicResource PlayBtnBorderColor}"/>
+    <SolidColorBrush x:Key="PlayBtnHoverBgBrush"      Color="{DynamicResource PlayBtnHoverBgColor}"/>
+    <SolidColorBrush x:Key="PlayBtnHoverBorderBrush"  Color="{DynamicResource PlayBtnHoverBorderColor}"/>
+    <SolidColorBrush x:Key="PlayBtnPressedBgBrush"    Color="{DynamicResource PlayBtnPressedBgColor}"/>
 
-    <SolidColorBrush x:Key="TrafficYellowBrush"       Color="{StaticResource TrafficYellowColor}"/>
-    <SolidColorBrush x:Key="TrafficYellowHoverBrush"   Color="{StaticResource TrafficYellowHoverColor}"/>
-    <SolidColorBrush x:Key="TrafficGreenHoverBrush"    Color="{StaticResource TrafficGreenHoverColor}"/>
-    <SolidColorBrush x:Key="TrafficRedBrush"           Color="{StaticResource TrafficRedColor}"/>
-    <SolidColorBrush x:Key="TrafficRedHoverBrush"      Color="{StaticResource TrafficRedHoverColor}"/>
+    <SolidColorBrush x:Key="TrafficYellowBrush"       Color="{DynamicResource TrafficYellowColor}"/>
+    <SolidColorBrush x:Key="TrafficYellowHoverBrush"   Color="{DynamicResource TrafficYellowHoverColor}"/>
+    <SolidColorBrush x:Key="TrafficGreenHoverBrush"    Color="{DynamicResource TrafficGreenHoverColor}"/>
+    <SolidColorBrush x:Key="TrafficRedBrush"           Color="{DynamicResource TrafficRedColor}"/>
+    <SolidColorBrush x:Key="TrafficRedHoverBrush"      Color="{DynamicResource TrafficRedHoverColor}"/>
 
-    <SolidColorBrush x:Key="PillBgBrush"         Color="{StaticResource PillBgColor}"/>
-    <SolidColorBrush x:Key="PillBorderBrush"     Color="{StaticResource PillBorderColor}"/>
-    <SolidColorBrush x:Key="PillHoverBgBrush"    Color="{StaticResource PillHoverBgColor}"/>
-    <SolidColorBrush x:Key="PillPressedBgBrush"  Color="{StaticResource PillPressedBgColor}"/>
-    <SolidColorBrush x:Key="PillFgBrush"         Color="{StaticResource PillFgColor}"/>
-    <SolidColorBrush x:Key="PillMutedFgBrush"    Color="{StaticResource PillMutedFgColor}"/>
+    <SolidColorBrush x:Key="PillBgBrush"         Color="{DynamicResource PillBgColor}"/>
+    <SolidColorBrush x:Key="PillBorderBrush"     Color="{DynamicResource PillBorderColor}"/>
+    <SolidColorBrush x:Key="PillHoverBgBrush"    Color="{DynamicResource PillHoverBgColor}"/>
+    <SolidColorBrush x:Key="PillPressedBgBrush"  Color="{DynamicResource PillPressedBgColor}"/>
+    <SolidColorBrush x:Key="PillFgBrush"         Color="{DynamicResource PillFgColor}"/>
+    <SolidColorBrush x:Key="PillMutedFgBrush"    Color="{DynamicResource PillMutedFgColor}"/>
 
-    <SolidColorBrush x:Key="SurfaceBrush"        Color="{StaticResource SurfaceColor}"/>
-    <SolidColorBrush x:Key="SurfaceHoverBrush"   Color="{StaticResource SurfaceHoverColor}"/>
-    <SolidColorBrush x:Key="SurfaceActiveBrush"  Color="{StaticResource SurfaceActiveColor}"/>
-    <SolidColorBrush x:Key="ContentBgBrush"      Color="{StaticResource ContentBgColor}"/>
-    <SolidColorBrush x:Key="WarningBrush"        Color="{StaticResource WarningColor}"/>
+    <SolidColorBrush x:Key="SurfaceBrush"        Color="{DynamicResource SurfaceColor}"/>
+    <SolidColorBrush x:Key="SurfaceHoverBrush"   Color="{DynamicResource SurfaceHoverColor}"/>
+    <SolidColorBrush x:Key="SurfaceActiveBrush"  Color="{DynamicResource SurfaceActiveColor}"/>
+    <SolidColorBrush x:Key="ContentBgBrush"      Color="{DynamicResource ContentBgColor}"/>
+    <SolidColorBrush x:Key="WarningBrush"        Color="{DynamicResource WarningColor}"/>
 
-    <SolidColorBrush x:Key="AchievementGoldBrush" Color="{StaticResource AchievementGoldColor}"/>
+    <SolidColorBrush x:Key="AchievementGoldBrush" Color="{DynamicResource AchievementGoldColor}"/>
 
-    <SolidColorBrush x:Key="PillGroupBgBrush"    Color="{StaticResource PillGroupBgColor}"/>
-    <SolidColorBrush x:Key="FavoriteHeartBrush"  Color="{StaticResource FavoriteHeartColor}"/>
+    <SolidColorBrush x:Key="PillGroupBgBrush"    Color="{DynamicResource PillGroupBgColor}"/>
+    <SolidColorBrush x:Key="FavoriteHeartBrush"  Color="{DynamicResource FavoriteHeartColor}"/>
 
     <!-- ── TYPOGRAPHY ── -->
     <FontFamily x:Key="PrimaryFont">Segoe UI Variable, Segoe UI, sans-serif</FontFamily>
@@ -130,7 +130,7 @@
 
     <!-- Thumb: rounded pill, visible but not intrusive -->
     <Style x:Key="ScrollBarThumb" TargetType="{x:Type Thumb}">
-        <Setter Property="Background" Value="{StaticResource ScrollThumbBrush}"/>
+        <Setter Property="Background" Value="{DynamicResource ScrollThumbBrush}"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="{x:Type Thumb}">
@@ -143,10 +143,10 @@
         </Setter>
         <Style.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
-                <Setter Property="Background" Value="{StaticResource ScrollThumbHoverBrush}"/>
+                <Setter Property="Background" Value="{DynamicResource ScrollThumbHoverBrush}"/>
             </Trigger>
             <Trigger Property="IsDragging" Value="True">
-                <Setter Property="Background" Value="{StaticResource ScrollThumbDragBrush}"/>
+                <Setter Property="Background" Value="{DynamicResource ScrollThumbDragBrush}"/>
             </Trigger>
         </Style.Triggers>
     </Style>
@@ -162,7 +162,7 @@
                 <ControlTemplate TargetType="{x:Type ScrollBar}">
                     <Grid Background="Transparent">
                         <!-- Subtle track rail so the scrollbar is always visible -->
-                        <Border Background="{StaticResource ScrollTrackBrush}" CornerRadius="4" Margin="3,2,3,2"/>
+                        <Border Background="{DynamicResource ScrollTrackBrush}" CornerRadius="4" Margin="3,2,3,2"/>
                         <Track x:Name="PART_Track" IsDirectionReversed="True">
                             <Track.DecreaseRepeatButton>
                                 <RepeatButton Command="ScrollBar.PageUpCommand"
@@ -257,7 +257,7 @@
     <!-- ── SIDEBAR ITEM BUTTON ── -->
     <Style x:Key="SidebarItemStyle" TargetType="{x:Type Button}">
         <Setter Property="Background" Value="Transparent"/>
-        <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
         <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="Padding" Value="10,7"/>
         <Setter Property="Cursor" Value="Hand"/>
@@ -278,13 +278,13 @@
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="border" Property="Background"
-                                    Value="{StaticResource BgTertiaryBrush}"/>
+                                    Value="{DynamicResource BgTertiaryBrush}"/>
                             <Setter Property="Foreground"
-                                    Value="{StaticResource TextPrimaryBrush}"/>
+                                    Value="{DynamicResource TextPrimaryBrush}"/>
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
                             <Setter TargetName="border" Property="Background"
-                                    Value="{StaticResource BgQuaternaryBrush}"/>
+                                    Value="{DynamicResource BgQuaternaryBrush}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -294,7 +294,7 @@
 
     <!-- ── PRIMARY BUTTON ── -->
     <Style x:Key="PrimaryButtonStyle" TargetType="{x:Type Button}">
-        <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+        <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
         <Setter Property="Foreground" Value="White"/>
         <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="Padding" Value="20,10"/>
@@ -315,11 +315,11 @@
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="border" Property="Background"
-                                    Value="{StaticResource AccentHoverBrush}"/>
+                                    Value="{DynamicResource AccentHoverBrush}"/>
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
                             <Setter TargetName="border" Property="Background"
-                                    Value="{StaticResource AccentBrush}"/>
+                                    Value="{DynamicResource AccentBrush}"/>
                             <Setter TargetName="border" Property="Opacity" Value="0.85"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
@@ -330,10 +330,10 @@
 
     <!-- ── PLAY BUTTON ── -->
     <Style x:Key="PlayButtonStyle" TargetType="{x:Type Button}">
-        <Setter Property="Background" Value="{StaticResource PlayBtnBgBrush}"/>
-        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+        <Setter Property="Background" Value="{DynamicResource PlayBtnBgBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
         <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="BorderBrush" Value="{StaticResource PlayBtnBorderBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource PlayBtnBorderBrush}"/>
         <Setter Property="Padding" Value="20,10"/>
         <Setter Property="FontSize" Value="13"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
@@ -353,11 +353,11 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="border" Property="Background" Value="{StaticResource PlayBtnHoverBgBrush}"/>
-                            <Setter TargetName="border" Property="BorderBrush" Value="{StaticResource PlayBtnHoverBorderBrush}"/>
+                            <Setter TargetName="border" Property="Background" Value="{DynamicResource PlayBtnHoverBgBrush}"/>
+                            <Setter TargetName="border" Property="BorderBrush" Value="{DynamicResource PlayBtnHoverBorderBrush}"/>
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="border" Property="Background" Value="{StaticResource PlayBtnPressedBgBrush}"/>
+                            <Setter TargetName="border" Property="Background" Value="{DynamicResource PlayBtnPressedBgBrush}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -367,10 +367,10 @@
 
     <!-- ── SECONDARY BUTTON ── -->
     <Style x:Key="SecondaryButtonStyle" TargetType="{x:Type Button}">
-        <Setter Property="Background" Value="{StaticResource BgTertiaryBrush}"/>
-        <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+        <Setter Property="Background" Value="{DynamicResource BgTertiaryBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
         <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="BorderBrush" Value="{StaticResource BorderSubtleBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtleBrush}"/>
         <Setter Property="Padding" Value="16,10"/>
         <Setter Property="FontSize" Value="13"/>
         <Setter Property="FontFamily" Value="{StaticResource PrimaryFont}"/>
@@ -390,9 +390,9 @@
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="border" Property="Background"
-                                    Value="{StaticResource BgQuaternaryBrush}"/>
+                                    Value="{DynamicResource BgQuaternaryBrush}"/>
                             <Setter Property="Foreground"
-                                    Value="{StaticResource TextPrimaryBrush}"/>
+                                    Value="{DynamicResource TextPrimaryBrush}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -402,8 +402,8 @@
 
     <!-- ── CONTEXT MENU ── -->
     <Style TargetType="ContextMenu">
-        <Setter Property="Background"       Value="{StaticResource BgTertiaryBrush}"/>
-        <Setter Property="BorderBrush"      Value="{StaticResource BorderNormalBrush}"/>
+        <Setter Property="Background"       Value="{DynamicResource BgTertiaryBrush}"/>
+        <Setter Property="BorderBrush"      Value="{DynamicResource BorderNormalBrush}"/>
         <Setter Property="BorderThickness"  Value="1"/>
         <Setter Property="Padding"          Value="4,6"/>
         <Setter Property="FontFamily"       Value="{StaticResource PrimaryFont}"/>
@@ -422,7 +422,7 @@
                                 SnapsToDevicePixels="True">
                             <Border.Effect>
                                 <DropShadowEffect BlurRadius="28" ShadowDepth="4" Direction="270"
-                                                  Opacity="0.55" Color="{StaticResource ShadowColor}"/>
+                                                  Opacity="0.55" Color="{DynamicResource ShadowColor}"/>
                             </Border.Effect>
                             <StackPanel IsItemsHost="True"
                                         KeyboardNavigation.DirectionalNavigation="Cycle"/>
@@ -435,7 +435,7 @@
 
     <!-- ── MENU ITEM ── -->
     <Style TargetType="MenuItem">
-        <Setter Property="Foreground"  Value="{StaticResource TextPrimaryBrush}"/>
+        <Setter Property="Foreground"  Value="{DynamicResource TextPrimaryBrush}"/>
         <Setter Property="Background"  Value="Transparent"/>
         <Setter Property="FontFamily"  Value="{StaticResource PrimaryFont}"/>
         <Setter Property="FontSize"    Value="13"/>
@@ -458,7 +458,7 @@
                             <!-- Check indicator (only visible when IsChecked) -->
                             <TextBlock x:Name="CheckMark" Grid.Column="0"
                                        Text="✓" FontSize="12"
-                                       Foreground="{StaticResource AccentBrush}"
+                                       Foreground="{DynamicResource AccentBrush}"
                                        VerticalAlignment="Center"
                                        HorizontalAlignment="Center"
                                        Visibility="Collapsed"/>
@@ -473,7 +473,7 @@
                             <!-- Submenu arrow (only for SubmenuHeader role) -->
                             <Path x:Name="Arrow" Grid.Column="2"
                                   Data="M0,0 L4,4 L0,8"
-                                  Stroke="{StaticResource TextSecondaryBrush}"
+                                  Stroke="{DynamicResource TextSecondaryBrush}"
                                   StrokeThickness="1.5"
                                   VerticalAlignment="Center"
                                   Margin="0,0,10,0"
@@ -487,13 +487,13 @@
                                AllowsTransparency="True"
                                Focusable="False"
                                PopupAnimation="Fade">
-                            <Border Background="{StaticResource BgTertiaryBrush}"
-                                    BorderBrush="{StaticResource BorderNormalBrush}"
+                            <Border Background="{DynamicResource BgTertiaryBrush}"
+                                    BorderBrush="{DynamicResource BorderNormalBrush}"
                                     BorderThickness="1"
                                     CornerRadius="10"
                                     Padding="4,6">
                                 <Border.Effect>
-                                    <DropShadowEffect BlurRadius="24" ShadowDepth="0" Opacity="0.65" Color="{StaticResource ShadowColor}"/>
+                                    <DropShadowEffect BlurRadius="24" ShadowDepth="0" Opacity="0.65" Color="{DynamicResource ShadowColor}"/>
                                 </Border.Effect>
                                 <StackPanel IsItemsHost="True"
                                             KeyboardNavigation.DirectionalNavigation="Cycle"/>
@@ -504,14 +504,14 @@
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsHighlighted" Value="True">
                             <Setter TargetName="bg" Property="Background"
-                                    Value="{StaticResource BgQuaternaryBrush}"/>
+                                    Value="{DynamicResource BgQuaternaryBrush}"/>
                         </Trigger>
                         <Trigger Property="IsChecked" Value="True">
                             <Setter TargetName="CheckMark" Property="Visibility" Value="Visible"/>
                             <Setter TargetName="CheckCol" Property="Width" Value="22"/>
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
-                            <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}"/>
                         </Trigger>
                         <Trigger Property="Role" Value="SubmenuHeader">
                             <Setter TargetName="Arrow" Property="Visibility" Value="Visible"/>
@@ -528,7 +528,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="Separator">
                     <Rectangle Height="1"
-                               Fill="{StaticResource BorderNormalBrush}"
+                               Fill="{DynamicResource BorderNormalBrush}"
                                Margin="10,4"/>
                 </ControlTemplate>
             </Setter.Value>
@@ -540,18 +540,18 @@
         <Setter Property="FontFamily" Value="{StaticResource PrimaryFont}"/>
         <Setter Property="FontSize" Value="10"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
-        <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}"/>
     </Style>
 
     <Style x:Key="TextPrimary" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="{StaticResource PrimaryFont}"/>
-        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
         <Setter Property="FontSize" Value="13"/>
     </Style>
 
     <Style x:Key="TextSecondary" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="{StaticResource PrimaryFont}"/>
-        <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
         <Setter Property="FontSize" Value="12"/>
     </Style>
 

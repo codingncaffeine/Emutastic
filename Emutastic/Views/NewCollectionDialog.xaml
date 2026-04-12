@@ -9,29 +9,29 @@
         Width="400" Height="180"
         WindowStartupLocation="CenterOwner">
 
-    <Border Background="{StaticResource BgSecondaryBrush}"
-            BorderBrush="{StaticResource BorderNormalBrush}"
+    <Border Background="{DynamicResource BgSecondaryBrush}"
+            BorderBrush="{DynamicResource BorderNormalBrush}"
             BorderThickness="1"
             CornerRadius="10">
         <Border.Effect>
-            <DropShadowEffect BlurRadius="24" ShadowDepth="0" Opacity="0.65" Color="{StaticResource ShadowColor}"/>
+            <DropShadowEffect BlurRadius="24" ShadowDepth="0" Opacity="0.65" Color="{DynamicResource ShadowColor}"/>
         </Border.Effect>
         <StackPanel Margin="24">
             <TextBlock Text="New Collection"
                        FontFamily="{StaticResource PrimaryFont}"
                        FontSize="15"
                        FontWeight="SemiBold"
-                       Foreground="{StaticResource TextPrimaryBrush}"
+                       Foreground="{DynamicResource TextPrimaryBrush}"
                        Margin="0,0,0,14"/>
-            <Border Background="{StaticResource BgTertiaryBrush}"
-                    BorderBrush="{StaticResource BorderSubtleBrush}"
+            <Border Background="{DynamicResource BgTertiaryBrush}"
+                    BorderBrush="{DynamicResource BorderSubtleBrush}"
                     BorderThickness="1"
                     CornerRadius="6">
                 <TextBox x:Name="NameBox"
                          Background="Transparent"
                          BorderThickness="0"
-                         Foreground="{StaticResource TextPrimaryBrush}"
-                         CaretBrush="{StaticResource AccentBrush}"
+                         Foreground="{DynamicResource TextPrimaryBrush}"
+                         CaretBrush="{DynamicResource AccentBrush}"
                          FontFamily="{StaticResource PrimaryFont}"
                          FontSize="13"
                          Padding="10,8"
