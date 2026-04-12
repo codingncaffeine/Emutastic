@@ -16,7 +16,7 @@
                           BlurRadius="30"
                           ShadowDepth="0"
                           Opacity="0.8"
-                          Color="{DynamicResource ShadowColor}"/>
+                          Color="{StaticResource ShadowColor}"/>
 
         <!-- Overlay pill button (Power / Pause / Restart / Save / Cog) -->
         <Style x:Key="OverlayPillBtnStyle" TargetType="Button">

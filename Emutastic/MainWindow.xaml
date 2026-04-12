@@ -24,7 +24,7 @@
                           BlurRadius="30"
                           ShadowDepth="0"
                           Opacity="0.6"
-                          Color="{DynamicResource ShadowColor}"/>
+                          Color="{StaticResource ShadowColor}"/>
 
         <!-- Shared trigger logic extracted via a base style is not possible with ControlTemplate,
              so Left and Right caps are defined as two complete styles. -->
@@ -851,7 +851,7 @@
                                                             <DropShadowEffect BlurRadius="16"
                                                                               ShadowDepth="4"
                                                                               Opacity="0.5"
-                                                                              Color="{DynamicResource ShadowColor}"/>
+                                                                              Color="{StaticResource ShadowColor}"/>
                                                         </Setter.Value>
                                                     </Setter>
                                                 </Trigger>
@@ -958,7 +958,7 @@
                                                                         <Trigger Property="IsMouseOver" Value="True">
                                                                             <Setter Property="Effect">
                                                                                 <Setter.Value>
-                                                                                    <DropShadowEffect BlurRadius="16" ShadowDepth="4" Opacity="0.5" Color="{DynamicResource ShadowColor}"/>
+                                                                                    <DropShadowEffect BlurRadius="16" ShadowDepth="4" Opacity="0.5" Color="{StaticResource ShadowColor}"/>
                                                                                 </Setter.Value>
                                                                             </Setter>
                                                                         </Trigger>
