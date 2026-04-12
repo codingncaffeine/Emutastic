@@ -686,6 +686,7 @@
 
                 <!-- ── PANEL: Library ───────────────────────────────────── -->
                 <Grid x:Name="PanelLibrary" Visibility="Collapsed">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Style="{StaticResource MinimalScrollViewer}">
                     <StackPanel Margin="32,24,32,24" MaxWidth="600" HorizontalAlignment="Left">
 
                         <!-- Data directory -->
@@ -791,32 +792,53 @@
 
                         <Rectangle Height="1" Fill="{StaticResource BorderNormalBrush}" Margin="0,24,0,16"/>
 
-                        <!-- Database Maintenance -->
-                        <TextBlock Text="DATABASE MAINTENANCE" Style="{StaticResource PrefLabel}" Margin="0,0,0,4"/>
-                        <TextBlock Text="Reclaim disk space by compacting the library database. Safe to run at any time."
-                                   Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"
-                                   TextWrapping="Wrap" Margin="0,0,0,12"/>
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                            <Button x:Name="VacuumBtn" Content="Optimize Database"
-                                    Style="{StaticResource SecondaryBtn}"
+                        <!-- Backup Folder -->
+                        <TextBlock Text="BACKUP FOLDER" Style="{StaticResource PrefLabel}"/>
+                        <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,0,0,8"
+                                   Foreground="{StaticResource TextSecondaryBrush}">
+                            <Run>Set a folder to back up your battery saves, save states, and library database. </Run>
+                            <Run FontStyle="Italic">Only save data is backed up — artwork and video snaps are excluded to keep backups small.</Run>
+                        </TextBlock>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Background="{StaticResource BgTertiaryBrush}"
+                                    BorderBrush="{StaticResource BorderNormalBrush}" BorderThickness="1"
+                                    CornerRadius="6" Padding="10,8">
+                                <TextBlock x:Name="BackupFolderPathText"
+                                           Text="Not set"
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           FontSize="12" VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis"/>
+                            </Border>
+                            <Button x:Name="BrowseBackupFolderBtn" Grid.Column="1"
+                                    Content="Browse&#x2026;" Style="{StaticResource SecondaryBtn}"
+                                    Margin="8,0,0,0" Padding="14,8"
+                                    Click="BrowseBackupFolder_Click"/>
+                            <Button x:Name="ClearBackupFolderBtn" Grid.Column="2"
+                                    Content="Clear" Style="{StaticResource SecondaryBtn}"
+                                    Margin="4,0,0,0" Padding="14,8"
+                                    Click="ClearBackupFolder_Click"/>
+                        </Grid>
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                            <Button x:Name="BackupNowBtn" Content="Back Up Now"
+                                    Style="{StaticResource ActionBtn}"
                                     Padding="14,8"
-                                    Click="VacuumBtn_Click"/>
-                            <TextBlock x:Name="VacuumStatusText"
-                                       Foreground="{StaticResource TextSecondaryBrush}"
-                                       FontSize="12" VerticalAlignment="Center"
-                                       Margin="12,0,0,0"/>
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal">
-                            <Button x:Name="BackupBtn" Content="Backup Database…"
+                                    Click="BackupNow_Click"/>
+                            <Button x:Name="RestoreBackupBtn" Content="Restore from Backup…"
                                     Style="{StaticResource SecondaryBtn}"
-                                    Padding="14,8"
-                                    Click="BackupBtn_Click"/>
-                            <TextBlock x:Name="BackupStatusText"
+                                    Margin="8,0,0,0" Padding="14,8"
+                                    Click="RestoreBackup_Click"/>
+                            <TextBlock x:Name="BackupFolderStatusText"
                                        Foreground="{StaticResource TextSecondaryBrush}"
                                        FontSize="12" VerticalAlignment="Center"
                                        Margin="12,0,0,0"/>
                         </StackPanel>
                     </StackPanel>
+                    </ScrollViewer>
                 </Grid>
 
                 <!-- ── PANEL: Theme ─────────────────────────────────────────── -->

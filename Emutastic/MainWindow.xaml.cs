@@ -1197,6 +1197,29 @@ namespace Emutastic
         // ── Keyboard shortcuts ──
         private void Window_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
         {
+            // Enter — open detail card for focused game
+            if (e.Key == Key.Enter &&
+                GameGridView.Visibility == Visibility.Visible &&
+                GameGridView.SelectedItem is Game focusedGame)
+            {
+                e.Handled = true;
+                GameGridView.SelectedItems.Clear();
+                _selectionAnchor = focusedGame;
+                _openDetailWindow?.Close();
+                _openDetailWindow = new GameDetailWindow(focusedGame) { Owner = this };
+                _openDetailWindow.Closed += async (_, _) =>
+                {
+                    _openDetailWindow = null;
+                    if (!_db.GameExists(focusedGame.Id))
+                    {
+                        _vm.RemoveGame(focusedGame);
+                        await _vm.FilterGamesAsync();
+                    }
+                };
+                _openDetailWindow.Show();
+                return;
+            }
+
             // Ctrl+A — select all
             if (e.Key == Key.A &&
                 Keyboard.Modifiers.HasFlag(ModifierKeys.Control) &&

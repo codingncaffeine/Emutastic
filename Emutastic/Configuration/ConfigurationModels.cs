@@ -63,6 +63,7 @@ namespace Emutastic.Configuration
         public bool EnableDebugLogging { get; set; } = false;
         public int RecentGamesLimit { get; set; } = 20;
         public List<string> FavoriteConsoles { get; set; } = new();
+        public string BackupFolder { get; set; } = "";
     }
 
     // Theme configuration
