@@ -2821,6 +2821,19 @@ namespace Emutastic.Views
                     break;
                 }
             }
+
+            // Apply immediately
+            var themeSvc = Services.ThemeService.Instance;
+            themeSvc.LoadAndApplyTheme(id);
+
+            // Save to config
+            var theme = _configService.GetThemeConfiguration();
+            theme.ActiveThemeId = id;
+            _configService.SetThemeConfiguration(theme);
+            _ = _configService.SaveAsync();
+
+            // Refresh card highlights
+            PopulateInstalledThemes();
         }
 
         private void RemoveTheme_Click(object sender, RoutedEventArgs e)
