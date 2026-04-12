@@ -764,7 +764,7 @@ namespace Emutastic.Views
                                 .SelectMany(tag => romDirsByConsole.TryGetValue(tag, out var dirs) ? dirs : Array.Empty<string>())
                                 .Where(d => d != null)
                                 .Distinct(StringComparer.OrdinalIgnoreCase);
-                            if (romDirs.Any(dir => System.IO.File.Exists(
+                            if (romDirs.Any(dir => dir != null && System.IO.File.Exists(
                                 System.IO.Path.Combine(dir, System.IO.Path.GetFileName(entry.Filename)))))
                                 catFound++;
                         }
@@ -877,7 +877,7 @@ namespace Emutastic.Views
                     foreach (var entry in entries)
                     {
                         string path = System.IO.Path.Combine(sysDir, entry.Filename);
-                        if (System.IO.File.Exists(path) || romDirs2.Any(dir =>
+                        if (System.IO.File.Exists(path) || romDirs2.Any(dir => dir != null &&
                             System.IO.File.Exists(System.IO.Path.Combine(dir, System.IO.Path.GetFileName(entry.Filename)))))
                             consoleFound++;
                     }
