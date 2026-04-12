@@ -864,10 +864,7 @@
                                     <StackPanel Orientation="Horizontal">
                                         <ComboBox x:Name="ThemeCombo"
                                                   Width="220"
-                                                  Background="{StaticResource BgQuaternaryBrush}"
-                                                  Foreground="{StaticResource TextPrimaryBrush}"
-                                                  BorderBrush="{StaticResource BorderNormalBrush}"
-                                                  FontSize="13"/>
+                                                  Style="{StaticResource PrefComboBox}"/>
                                         <Button x:Name="CustomizeThemeBtn"
                                                 Content="Customize..."
                                                 Padding="10,4" FontSize="12" Margin="8,0,0,0"
