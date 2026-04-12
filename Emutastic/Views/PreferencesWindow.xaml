@@ -11,9 +11,9 @@
 
     <Window.Resources>
         <ResourceDictionary>
-            <ResourceDictionary.MergedDictionaries>
-                <ResourceDictionary Source="pack://application:,,,/Themes/DarkTheme.xaml"/>
-            </ResourceDictionary.MergedDictionaries>
+            <!-- Theme resources come from Application.Current.Resources (set by ThemeService).
+                 Do NOT merge DarkTheme.xaml here — that would freeze the dark palette
+                 and ignore runtime theme switching. -->
 
             <!-- ── ComboBox full dark template ── -->
             <ControlTemplate x:Key="DarkComboToggle" TargetType="ToggleButton">
