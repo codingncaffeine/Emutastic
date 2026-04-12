@@ -2831,39 +2831,12 @@ namespace Emutastic.Views
             if (result != MessageBoxResult.Yes) return;
 
             Services.ThemeService.Instance.UninstallTheme(id);
-            LoadThemeSettings(); // Refresh dropdown + cards
-            PopulateInstalledThemes();
+            LoadThemeSettings(); // Refresh dropdown + cards (includes PopulateInstalledThemes)
         }
 
         private static string[] GetThemePreviewColors(string themeId)
         {
-            // Try to get the actual theme colors for preview swatches
-            var themes = new Dictionary<string, Func<ThemeColors>>
-            {
-                ["builtin.dark"] = Services.ThemeService.GetDefaultColors,
-            };
-
-            ThemeColors? colors = null;
-            var available = Services.ThemeService.Instance.GetAvailableThemes();
-            // For any theme, load and apply temporarily just to read colors
-            // Actually, just get them from the service
-            try
-            {
-                var method = typeof(Services.ThemeService).GetMethod(themeId switch
-                {
-                    "builtin.dark" => "GetDefaultColors",
-                    "builtin.light" => "GetLightColors",
-                    "builtin.oled" => "GetOledColors",
-                    "builtin.midnight" => "GetMidnightColors",
-                    _ => ""
-                }, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public);
-
-                if (method != null)
-                    colors = method.Invoke(null, null) as ThemeColors;
-            }
-            catch { }
-
-            colors ??= Services.ThemeService.GetDefaultColors();
+            var colors = Services.ThemeService.Instance.GetColorsForTheme(themeId);
             return new[] { colors.BgPrimary ?? "#0F0F10", colors.Accent ?? "#E03535", colors.TextPrimary ?? "#F0F0F0",
                            colors.BgSecondary ?? "#181819", colors.Green ?? "#28C840" };
         }

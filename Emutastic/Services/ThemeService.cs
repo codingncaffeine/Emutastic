@@ -53,6 +53,12 @@ namespace Emutastic.Services
             _builtinThemes["builtin.midnight"] = new("builtin.midnight", "Midnight Blue", GetMidnightColors());
         }
 
+        /// <summary>Returns the color set for a given theme ID, or defaults if not found.</summary>
+        public ThemeColors GetColorsForTheme(string themeId)
+        {
+            return _builtinThemes.TryGetValue(themeId, out var theme) ? theme.Colors : GetDefaultColors();
+        }
+
         /// <summary>Returns the list of available themes for the UI.</summary>
         public List<(string Id, string Name)> GetAvailableThemes()
         {
@@ -92,6 +98,7 @@ namespace Emutastic.Services
         /// </summary>
         public void ApplyEditedColors(ThemeColors colors)
         {
+            ActiveThemeId = "custom";
             _activeColors = colors;
             _preOverrideColors = null;
             ApplyColors(colors);
@@ -239,6 +246,11 @@ namespace Emutastic.Services
                 }
                 if (manifest == null || string.IsNullOrEmpty(manifest.Id)) return null;
 
+                // Sanitize ID — reject path traversal attempts
+                if (manifest.Id.Contains("..") || manifest.Id.Contains('/') || manifest.Id.Contains('\\'))
+                    return null;
+                manifest.Id = string.Join("_", manifest.Id.Split(Path.GetInvalidFileNameChars()));
+
                 // Extract to Themes/{id}/
                 var destDir = Path.Combine(ThemesFolder, manifest.Id);
                 if (Directory.Exists(destDir))
@@ -376,7 +388,7 @@ namespace Emutastic.Services
             Warning = "#FFB347",
             PillGroupBg = "#1E1E1E",
             AchievementGold = "#FFD700",
-            FavoriteHeart = "#FFFF6B6B",
+            FavoriteHeart = "#FF6B6B",
         };
 
         // ── Light theme ──────────────────────────────────────────────────
@@ -476,7 +488,7 @@ namespace Emutastic.Services
             Warning = "#FFB347",
             PillGroupBg = "#0F0F0F",
             AchievementGold = "#FFD700",
-            FavoriteHeart = "#FFFF6B6B",
+            FavoriteHeart = "#FF6B6B",
         };
 
         // ── Midnight Blue theme ──────────────────────────────────────────
@@ -526,7 +538,7 @@ namespace Emutastic.Services
             Warning = "#F59E0B",
             PillGroupBg = "#0F172A",
             AchievementGold = "#FFD700",
-            FavoriteHeart = "#FFFF6B6B",
+            FavoriteHeart = "#FF6B6B",
         };
     }
 }
