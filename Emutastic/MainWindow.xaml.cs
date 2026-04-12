@@ -119,6 +119,8 @@ namespace Emutastic
 
             _ = _artworkFetch.RetryMissingArtworkAsync();
             _ = _artworkFetch.BackfillMetadataAsync();
+
+            ApplyBackgroundImage();
         }
 
         private void InitializeControllerManager()
@@ -269,6 +271,55 @@ namespace Emutastic
                 // DWMWA_USE_IMMERSIVE_DARK_MODE = 20 (Windows 10 18985+ / Windows 11)
                 int value = 1;
                 DwmSetWindowAttribute(hwnd, 20, ref value, sizeof(int));
+            }
+        }
+
+        // ── Background image ──────────────────────────────────────────────────
+        /// <summary>
+        /// Applies the user's background image behind the game grid.
+        /// Call on startup and whenever theme settings change.
+        /// </summary>
+        public void ApplyBackgroundImage()
+        {
+            var theme = App.Configuration?.GetThemeConfiguration();
+            if (theme == null || string.IsNullOrWhiteSpace(theme.BackgroundImagePath)
+                || !System.IO.File.Exists(theme.BackgroundImagePath))
+            {
+                GridBackgroundImage.Visibility = Visibility.Collapsed;
+                GridBackgroundImage.Source = null;
+                return;
+            }
+
+            try
+            {
+                var bmp = new System.Windows.Media.Imaging.BitmapImage();
+                bmp.BeginInit();
+                bmp.UriSource = new Uri(theme.BackgroundImagePath, UriKind.Absolute);
+                bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                bmp.EndInit();
+                bmp.Freeze();
+
+                GridBackgroundImage.Source = bmp;
+                GridBackgroundImage.Opacity = Math.Clamp(theme.BackgroundImageOpacity, 0.0, 1.0);
+                GridBackgroundImage.Stretch = theme.BackgroundImageStretch switch
+                {
+                    "Uniform" => System.Windows.Media.Stretch.Uniform,
+                    "Fill" => System.Windows.Media.Stretch.Fill,
+                    "None" => System.Windows.Media.Stretch.None,
+                    _ => System.Windows.Media.Stretch.UniformToFill
+                };
+                GridBackgroundImage.Visibility = Visibility.Visible;
+
+                // Override BgPrimaryBrush in the content area so the image is the
+                // sole background — no theme color sitting on top of or behind it.
+                GameContentGrid.Background = Brushes.Transparent;
+                if (GameContentGrid.Parent is Grid contentGrid)
+                    contentGrid.Background = Brushes.Transparent;
+            }
+            catch
+            {
+                GridBackgroundImage.Visibility = Visibility.Collapsed;
+                GridBackgroundImage.Source = null;
             }
         }
 

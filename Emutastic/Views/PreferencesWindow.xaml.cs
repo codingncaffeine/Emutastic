@@ -2680,6 +2680,24 @@ namespace Emutastic.Views
             ConsoleThemingToggle.IsChecked = theme.EnableConsoleTheming;
             PopulateInstalledThemes();
 
+            // Background image
+            BgImagePathLabel.Text = string.IsNullOrWhiteSpace(theme.BackgroundImagePath)
+                ? "No image selected" : theme.BackgroundImagePath;
+            BgOpacitySlider.Value = Math.Clamp(theme.BackgroundImageOpacity * 100, 0, 100);
+            BgOpacityValueLabel.Text = $"{(int)BgOpacitySlider.Value}%";
+
+            BgStretchCombo.Items.Clear();
+            foreach (var s in new[] { "UniformToFill", "Uniform", "Fill", "None" })
+                BgStretchCombo.Items.Add(new System.Windows.Controls.ComboBoxItem { Content = s, Tag = s });
+            var stretchIdx = theme.BackgroundImageStretch switch
+            {
+                "Uniform" => 1,
+                "Fill" => 2,
+                "None" => 3,
+                _ => 0
+            };
+            BgStretchCombo.SelectedIndex = stretchIdx;
+
             // Clamp to valid range in case config was edited manually.
             PaddingSlider.Value  = Math.Clamp(theme.GridPadding, 8, 64);
             SpacingSlider.Value  = Math.Clamp(theme.CardSpacing, 4, 48);
@@ -2715,6 +2733,30 @@ namespace Emutastic.Views
         {
             var editor = new ThemeEditorWindow { Owner = this };
             editor.ShowDialog();
+        }
+
+        private void BgImagePickBtn_Click(object sender, RoutedEventArgs e)
+        {
+            var dlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = "Choose Background Image",
+                Filter = "Image files (*.png;*.jpg;*.jpeg;*.bmp;*.webp)|*.png;*.jpg;*.jpeg;*.bmp;*.webp|All files (*.*)|*.*"
+            };
+            if (dlg.ShowDialog(this) == true)
+            {
+                BgImagePathLabel.Text = dlg.FileName;
+            }
+        }
+
+        private void BgImageClearBtn_Click(object sender, RoutedEventArgs e)
+        {
+            BgImagePathLabel.Text = "No image selected";
+        }
+
+        private void BgOpacitySlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (BgOpacityValueLabel != null)
+                BgOpacityValueLabel.Text = $"{(int)BgOpacitySlider.Value}%";
         }
 
         private void PopulateInstalledThemes()
@@ -2893,6 +2935,14 @@ namespace Emutastic.Views
             theme.ActiveThemeId = selectedThemeId;
             theme.EnableConsoleTheming = ConsoleThemingToggle.IsChecked == true;
 
+            // Background image settings
+            var bgPath = BgImagePathLabel.Text;
+            theme.BackgroundImagePath = (bgPath == "No image selected") ? "" : bgPath;
+            theme.BackgroundImageOpacity = Math.Clamp(BgOpacitySlider.Value / 100.0, 0.0, 1.0);
+            if (BgStretchCombo.SelectedItem is System.Windows.Controls.ComboBoxItem stretchItem
+                && stretchItem.Tag is string stretchVal)
+                theme.BackgroundImageStretch = stretchVal;
+
             _configService.SetThemeConfiguration(theme);
             _ = _configService.SaveAsync();
             App.ApplyThemeResources();
@@ -2901,6 +2951,10 @@ namespace Emutastic.Views
             var themeSvc = Services.ThemeService.Instance;
             themeSvc.EnableConsoleTheming = theme.EnableConsoleTheming;
             themeSvc.LoadAndApplyTheme(selectedThemeId);
+
+            // Apply background image to MainWindow
+            if (Application.Current.MainWindow is MainWindow mw)
+                mw.ApplyBackgroundImage();
         }
 
         // ── Snaps panel ───────────────────────────────────────────────────────

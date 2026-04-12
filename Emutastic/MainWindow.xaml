@@ -773,6 +773,14 @@
                     <!-- Game grid (Library view) -->
                     <Grid x:Name="GameContentGrid" Grid.Row="1">
 
+                    <!-- Background image (behind game cards, user-configurable) -->
+                    <Image x:Name="GridBackgroundImage"
+                           Stretch="UniformToFill"
+                           IsHitTestVisible="False"
+                           Visibility="Collapsed"
+                           VerticalAlignment="Stretch"
+                           HorizontalAlignment="Stretch"/>
+
                     <!-- ── Flat grid: virtualized ListBox + VirtualizingWrapPanel ─────────────── -->
                     <!-- Only ~60 card visuals exist at any time regardless of library size.       -->
                     <ListBox x:Name="GameGridView"

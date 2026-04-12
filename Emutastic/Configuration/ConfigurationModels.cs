@@ -85,6 +85,12 @@ namespace Emutastic.Configuration
         public string ActiveThemeId { get; set; } = "builtin.dark";
         /// <summary>When true, accent/bg colors change per-console as you navigate the library.</summary>
         public bool EnableConsoleTheming { get; set; } = false;
+        /// <summary>Optional path to a background image displayed behind the game grid.</summary>
+        public string BackgroundImagePath { get; set; } = "";
+        /// <summary>Opacity of the background image (0.0–1.0). Default 1.0 — the image is the hero background.</summary>
+        public double BackgroundImageOpacity { get; set; } = 1.0;
+        /// <summary>How the background image is stretched. UniformToFill (default), Uniform, Fill, None.</summary>
+        public string BackgroundImageStretch { get; set; } = "UniformToFill";
     }
 
     // Library configuration
