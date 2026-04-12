@@ -2210,6 +2210,23 @@ namespace Emutastic.Views
             LibraryOrganizeByConsole.IsEnabled = lib.CopyToLibrary;
             LibraryCopyFiles.Checked += (_, _) => LibraryOrganizeByConsole.IsEnabled = true;
             LibraryKeepInPlace.Checked += (_, _) => LibraryOrganizeByConsole.IsEnabled = false;
+
+            // Backup folder
+            string backupDir = prefs.BackupFolder;
+            if (string.IsNullOrEmpty(backupDir))
+            {
+                BackupFolderPathText.Text = "Not set";
+                BackupFolderPathText.Foreground = _brushTextMuted;
+                BackupNowBtn.IsEnabled = false;
+                RestoreBackupBtn.IsEnabled = false;
+            }
+            else
+            {
+                BackupFolderPathText.Text = backupDir;
+                BackupFolderPathText.Foreground = _brushText;
+                BackupNowBtn.IsEnabled = true;
+                RestoreBackupBtn.IsEnabled = true;
+            }
         }
 
         private async void BrowseDataDirBtn_Click(object sender, RoutedEventArgs e)
@@ -2488,47 +2505,155 @@ namespace Emutastic.Views
             _ = _configService.SaveAsync();
         }
 
-        private void BackupBtn_Click(object sender, RoutedEventArgs e)
+        private void BrowseBackupFolder_Click(object sender, RoutedEventArgs e)
         {
-            string dbPath = System.IO.Path.Combine(AppPaths.DataRoot, "library.db");
+            var dialog = new Microsoft.Win32.OpenFolderDialog { Title = "Select backup folder" };
+            var prefs = _configService.GetUserPreferences();
+            if (!string.IsNullOrEmpty(prefs.BackupFolder) && System.IO.Directory.Exists(prefs.BackupFolder))
+                dialog.InitialDirectory = prefs.BackupFolder;
 
-            var dlg = new Microsoft.Win32.SaveFileDialog
-            {
-                Title = "Backup Library Database",
-                FileName = $"library-backup-{DateTime.Now:yyyyMMdd_HHmmss}.db",
-                DefaultExt = ".db",
-                Filter = "SQLite Database|*.db|All Files|*.*"
-            };
+            if (dialog.ShowDialog(this) != true) return;
 
-            if (dlg.ShowDialog(this) != true) return;
+            prefs.BackupFolder = dialog.FolderName;
+            _ = _configService.SaveAsync();
 
-            try
-            {
-                System.IO.File.Copy(dbPath, dlg.FileName, overwrite: true);
-                BackupStatusText.Text = "Backup saved.";
-            }
-            catch (Exception ex)
-            {
-                BackupStatusText.Text = $"Error: {ex.Message}";
-            }
+            BackupFolderPathText.Text = dialog.FolderName;
+            BackupFolderPathText.Foreground = _brushText;
+            BackupNowBtn.IsEnabled = true;
+            RestoreBackupBtn.IsEnabled = true;
+            BackupFolderStatusText.Text = "";
         }
 
-        private async void VacuumBtn_Click(object sender, RoutedEventArgs e)
+        private void ClearBackupFolder_Click(object sender, RoutedEventArgs e)
         {
-            VacuumBtn.IsEnabled = false;
-            VacuumStatusText.Text = "Optimizing\u2026";
+            var prefs = _configService.GetUserPreferences();
+            prefs.BackupFolder = "";
+            _ = _configService.SaveAsync();
+
+            BackupFolderPathText.Text = "Not set";
+            BackupFolderPathText.Foreground = _brushTextMuted;
+            BackupNowBtn.IsEnabled = false;
+            RestoreBackupBtn.IsEnabled = false;
+            BackupFolderStatusText.Text = "";
+        }
+
+        private async void BackupNow_Click(object sender, RoutedEventArgs e)
+        {
+            var prefs = _configService.GetUserPreferences();
+            if (string.IsNullOrEmpty(prefs.BackupFolder)) return;
+
+            BackupNowBtn.IsEnabled = false;
+            BackupFolderStatusText.Text = "Backing up\u2026";
+
             try
             {
-                await Task.Run(() => _db.VacuumDatabase());
-                VacuumStatusText.Text = "Done \u2014 database optimized.";
+                string dest = prefs.BackupFolder;
+                await Task.Run(() =>
+                {
+                    // Battery saves
+                    string batterySrc = System.IO.Path.Combine(AppPaths.DataRoot, "BatterySaves");
+                    if (System.IO.Directory.Exists(batterySrc))
+                        CopyDirectoryRecursive(batterySrc, System.IO.Path.Combine(dest, "BatterySaves"));
+
+                    // Save states
+                    string statesSrc = System.IO.Path.Combine(AppPaths.DataRoot, "Save States");
+                    if (System.IO.Directory.Exists(statesSrc))
+                        CopyDirectoryRecursive(statesSrc, System.IO.Path.Combine(dest, "Save States"));
+
+                    // Library database
+                    string dbSrc = System.IO.Path.Combine(AppPaths.DataRoot, "library.db");
+                    if (System.IO.File.Exists(dbSrc))
+                        System.IO.File.Copy(dbSrc, System.IO.Path.Combine(dest, "library.db"), overwrite: true);
+                });
+
+                BackupFolderStatusText.Text = $"Backup complete \u2014 {DateTime.Now:g}";
             }
             catch (Exception ex)
             {
-                VacuumStatusText.Text = $"Error: {ex.Message}";
+                BackupFolderStatusText.Text = $"Error: {ex.Message}";
             }
             finally
             {
-                VacuumBtn.IsEnabled = true;
+                BackupNowBtn.IsEnabled = true;
+            }
+        }
+
+        private async void RestoreBackup_Click(object sender, RoutedEventArgs e)
+        {
+            var prefs = _configService.GetUserPreferences();
+            if (string.IsNullOrEmpty(prefs.BackupFolder)) return;
+
+            string src = prefs.BackupFolder;
+
+            // Check that backup folder actually has data
+            bool hasDb = System.IO.File.Exists(System.IO.Path.Combine(src, "library.db"));
+            bool hasSaves = System.IO.Directory.Exists(System.IO.Path.Combine(src, "BatterySaves"));
+            bool hasStates = System.IO.Directory.Exists(System.IO.Path.Combine(src, "Save States"));
+
+            if (!hasDb && !hasSaves && !hasStates)
+            {
+                BackupFolderStatusText.Text = "No backup data found in that folder.";
+                return;
+            }
+
+            var parts = new System.Collections.Generic.List<string>();
+            if (hasDb) parts.Add("library database");
+            if (hasSaves) parts.Add("battery saves");
+            if (hasStates) parts.Add("save states");
+
+            var result = MessageBox.Show(
+                $"This will overwrite your current {string.Join(", ", parts)} with the backup copy.\n\nContinue?",
+                "Restore from Backup",
+                MessageBoxButton.YesNo, MessageBoxImage.Warning);
+
+            if (result != MessageBoxResult.Yes) return;
+
+            RestoreBackupBtn.IsEnabled = false;
+            BackupFolderStatusText.Text = "Restoring\u2026";
+
+            try
+            {
+                await Task.Run(() =>
+                {
+                    if (hasSaves)
+                        CopyDirectoryRecursive(System.IO.Path.Combine(src, "BatterySaves"),
+                            System.IO.Path.Combine(AppPaths.DataRoot, "BatterySaves"));
+
+                    if (hasStates)
+                        CopyDirectoryRecursive(System.IO.Path.Combine(src, "Save States"),
+                            System.IO.Path.Combine(AppPaths.DataRoot, "Save States"));
+
+                    if (hasDb)
+                        System.IO.File.Copy(System.IO.Path.Combine(src, "library.db"),
+                            System.IO.Path.Combine(AppPaths.DataRoot, "library.db"), overwrite: true);
+                });
+
+                BackupFolderStatusText.Text = $"Restore complete \u2014 restart recommended";
+            }
+            catch (Exception ex)
+            {
+                BackupFolderStatusText.Text = $"Error: {ex.Message}";
+            }
+            finally
+            {
+                RestoreBackupBtn.IsEnabled = true;
+            }
+        }
+
+        private static void CopyDirectoryRecursive(string sourceDir, string destDir)
+        {
+            System.IO.Directory.CreateDirectory(destDir);
+
+            foreach (string file in System.IO.Directory.GetFiles(sourceDir))
+            {
+                string destFile = System.IO.Path.Combine(destDir, System.IO.Path.GetFileName(file));
+                System.IO.File.Copy(file, destFile, overwrite: true);
+            }
+
+            foreach (string dir in System.IO.Directory.GetDirectories(sourceDir))
+            {
+                string destSubDir = System.IO.Path.Combine(destDir, System.IO.Path.GetFileName(dir));
+                CopyDirectoryRecursive(dir, destSubDir);
             }
         }
 
