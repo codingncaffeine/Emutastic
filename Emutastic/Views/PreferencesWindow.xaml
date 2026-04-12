@@ -916,6 +916,97 @@
 
                             <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,20,0,20"/>
 
+                            <!-- Background image -->
+                            <TextBlock Text="BACKGROUND IMAGE" Style="{StaticResource PrefLabel}"/>
+                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,0,0,16"/>
+
+                            <Grid Margin="0,0,0,12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Grid background image"
+                                               FontSize="13" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                    <TextBlock Text="Display a background image behind your game library grid."
+                                               FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                               Margin="0,2,0,8" TextWrapping="Wrap"/>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Button x:Name="BgImagePickBtn"
+                                                Content="Choose Image..."
+                                                Padding="10,4" FontSize="12"
+                                                Background="{DynamicResource SurfaceBrush}"
+                                                Foreground="{DynamicResource TextPrimaryBrush}"
+                                                BorderBrush="{DynamicResource BorderNormalBrush}"
+                                                BorderThickness="1" Cursor="Hand"
+                                                Click="BgImagePickBtn_Click"/>
+                                        <Button x:Name="BgImageClearBtn"
+                                                Content="Clear"
+                                                Padding="10,4" FontSize="12" Margin="8,0,0,0"
+                                                Background="{DynamicResource SurfaceBrush}"
+                                                Foreground="{DynamicResource TextPrimaryBrush}"
+                                                BorderBrush="{DynamicResource BorderNormalBrush}"
+                                                BorderThickness="1" Cursor="Hand"
+                                                Click="BgImageClearBtn_Click"/>
+                                    </StackPanel>
+                                    <TextBlock x:Name="BgImagePathLabel"
+                                               FontSize="11" Foreground="{DynamicResource TextMutedBrush}"
+                                               Margin="0,6,0,0" TextTrimming="CharacterEllipsis"
+                                               MaxWidth="400" HorizontalAlignment="Left"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- Background image opacity -->
+                            <Grid Margin="0,0,0,12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Background image opacity"
+                                               FontSize="13" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                    <TextBlock Text="How visible the background image is. Lower values are more subtle."
+                                               FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                               Margin="0,2,0,8" TextWrapping="Wrap"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="40"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Slider x:Name="BgOpacitySlider"
+                                                Grid.Column="0"
+                                                Minimum="0" Maximum="100" TickFrequency="5"
+                                                IsSnapToTickEnabled="True"
+                                                VerticalAlignment="Center"
+                                                ValueChanged="BgOpacitySlider_ValueChanged"/>
+                                        <TextBlock x:Name="BgOpacityValueLabel"
+                                                   Grid.Column="1" Text="100%"
+                                                   FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"
+                                                   VerticalAlignment="Center" HorizontalAlignment="Right"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- Background image stretch -->
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Image fit"
+                                               FontSize="13" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                    <TextBlock Text="How the image is scaled to fit the grid area."
+                                               FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                               Margin="0,2,0,8" TextWrapping="Wrap"/>
+                                    <ComboBox x:Name="BgStretchCombo" Width="180"
+                                              Style="{StaticResource PrefComboBox}"
+                                              HorizontalAlignment="Left"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,20,0,20"/>
+
                             <!-- Layout section -->
                             <TextBlock Text="LAYOUT" Style="{StaticResource PrefLabel}"/>
                             <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,0,0,16"/>
