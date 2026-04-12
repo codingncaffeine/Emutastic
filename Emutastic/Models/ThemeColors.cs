@@ -73,6 +73,14 @@ namespace Emutastic.Models
         public string? AchievementGold { get; set; }
         public string? FavoriteHeart { get; set; }
 
+        // ── Background image ──
+        /// <summary>Relative path to background image inside .emutheme (e.g. "assets/background.png"), or absolute path for local config.</summary>
+        public string? BackgroundImage { get; set; }
+        /// <summary>Background image opacity (0.0–1.0). Default 1.0.</summary>
+        public double? BackgroundImageOpacity { get; set; }
+        /// <summary>Background image stretch mode: UniformToFill, Uniform, Fill, None.</summary>
+        public string? BackgroundImageStretch { get; set; }
+
         /// <summary>
         /// Console-specific color overrides. Key = console display name (e.g. "Game Boy").
         /// Only Accent, AccentHover, BgPrimary, BgSecondary are typically overridden.
