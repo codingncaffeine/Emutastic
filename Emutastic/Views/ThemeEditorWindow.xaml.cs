@@ -505,11 +505,27 @@ namespace Emutastic.Views
                     writer.Write(JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }));
                 }
 
+                // Include background image if configured
+                var themeCfg = App.Configuration?.GetThemeConfiguration();
+                var exportColors = JsonSerializer.Deserialize<ThemeColors>(
+                    JsonSerializer.Serialize(_editColors)) ?? _editColors; // clone
+
+                if (themeCfg != null && !string.IsNullOrWhiteSpace(themeCfg.BackgroundImagePath)
+                    && File.Exists(themeCfg.BackgroundImagePath))
+                {
+                    var imgFileName = IoPath.GetFileName(themeCfg.BackgroundImagePath);
+                    var assetPath = $"assets/{imgFileName}";
+                    zip.CreateEntryFromFile(themeCfg.BackgroundImagePath, assetPath);
+                    exportColors.BackgroundImage = assetPath;
+                    exportColors.BackgroundImageOpacity = themeCfg.BackgroundImageOpacity;
+                    exportColors.BackgroundImageStretch = themeCfg.BackgroundImageStretch;
+                }
+
                 // Write colors.json
                 var colorsEntry = zip.CreateEntry("colors.json");
                 using (var writer = new StreamWriter(colorsEntry.Open()))
                 {
-                    writer.Write(JsonSerializer.Serialize(_editColors, new JsonSerializerOptions { WriteIndented = true }));
+                    writer.Write(JsonSerializer.Serialize(exportColors, new JsonSerializerOptions { WriteIndented = true }));
                 }
 
                 MessageBox.Show($"Theme exported to:\n{dlg.FileName}",

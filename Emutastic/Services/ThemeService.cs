@@ -90,6 +90,41 @@ namespace Emutastic.Services
             ActiveThemeId = themeId;
             _preOverrideColors = null;
             ApplyColors(_activeColors);
+
+            // Apply background image from theme if present
+            ApplyThemeBackgroundImage(themeId, _activeColors);
+        }
+
+        /// <summary>
+        /// If the loaded theme specifies a background image, resolves its path
+        /// and updates ThemeConfiguration so MainWindow can display it.
+        /// </summary>
+        private void ApplyThemeBackgroundImage(string themeId, ThemeColors colors)
+        {
+            if (string.IsNullOrWhiteSpace(colors.BackgroundImage)) return;
+
+            var cfg = App.Configuration?.GetThemeConfiguration();
+            if (cfg == null) return;
+
+            // Resolve relative path for community themes (assets/bg.png → Themes/{id}/assets/bg.png)
+            string imgPath = colors.BackgroundImage;
+            if (!Path.IsPathRooted(imgPath))
+            {
+                var themeDir = Path.Combine(ThemesFolder, themeId);
+                imgPath = Path.Combine(themeDir, imgPath);
+            }
+
+            if (File.Exists(imgPath))
+            {
+                cfg.BackgroundImagePath = imgPath;
+                cfg.BackgroundImageOpacity = colors.BackgroundImageOpacity ?? 1.0;
+                cfg.BackgroundImageStretch = colors.BackgroundImageStretch ?? "UniformToFill";
+                App.Configuration?.SetThemeConfiguration(cfg);
+
+                // Apply to MainWindow if it's loaded
+                if (Application.Current.MainWindow is MainWindow mw)
+                    mw.Dispatcher.Invoke(() => mw.ApplyBackgroundImage());
+            }
         }
 
         /// <summary>
