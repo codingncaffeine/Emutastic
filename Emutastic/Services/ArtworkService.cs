@@ -59,6 +59,7 @@ namespace Emutastic.Services
             { "GBC",          "Nintendo - Game Boy Color"                      },
             { "GBA",          "Nintendo - Game Boy Advance"                    },
             { "NDS",          "Nintendo - Nintendo DS"                         },
+            { "3DS",          "Nintendo - Nintendo 3DS"                        },
             { "VirtualBoy",   "Nintendo - Virtual Boy"                         },
             { "Genesis",      "Sega - Mega Drive - Genesis"                    },
             { "SegaCD",       "Sega - Mega-CD - Sega CD"                       },

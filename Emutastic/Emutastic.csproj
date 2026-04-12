@@ -61,6 +61,7 @@
   </ItemGroup>
   <ItemGroup>
     <Resource Include="Assets\images\**\*.png" />
+    <Resource Include="Assets\images\**\*.jpg" />
     <Resource Include="Assets\buttons\**\*.png" />
     <Resource Include="Assets\banners and icons\*.png" />
     <Resource Include="Assets\banners and icons\*.ico" />

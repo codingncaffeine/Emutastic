@@ -563,6 +563,21 @@ namespace Emutastic.Services
                         _ => uint.MaxValue
                     };
 
+                // ── Nintendo 3DS ──────────────────────────────────────────────
+                case "3DS":
+                    return n switch {
+                        "a" => 8, "b" => 0, "x" => 9, "y" => 1,
+                        "l" => 10, "r" => 11,
+                        "zl" => 12, "zr" => 13, "home" => 14,
+                        "select" => 2, "start" => 3,
+                        "up" => 4, "down" => 5, "left" => 6, "right" => 7,
+                        "circle pad up"    => ANALOG_LEFT_UP,    "circle pad down"  => ANALOG_LEFT_DOWN,
+                        "circle pad left"  => ANALOG_LEFT_LEFT,  "circle pad right" => ANALOG_LEFT_RIGHT,
+                        "c-stick up"       => ANALOG_RIGHT_UP,   "c-stick down"     => ANALOG_RIGHT_DOWN,
+                        "c-stick left"     => ANALOG_RIGHT_LEFT, "c-stick right"    => ANALOG_RIGHT_RIGHT,
+                        _ => uint.MaxValue
+                    };
+
                 // ── Sega 8-bit ────────────────────────────────────────────────
                 case "SMS": case "GameGear": case "SG1000":
                     return n switch {
