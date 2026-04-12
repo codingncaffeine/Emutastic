@@ -68,6 +68,7 @@ namespace Emutastic.Services
         public const uint RC_CONSOLE_ATARI_JAGUAR = 17;
         public const uint RC_CONSOLE_PC_ENGINE_CD = 76;
         public const uint RC_CONSOLE_FAMICOM_DISK_SYSTEM = 81;
+        public const uint RC_CONSOLE_NINTENDO_3DS = 101;
 
         // ── Structs ──────────────────────────────────────────────────────────
 

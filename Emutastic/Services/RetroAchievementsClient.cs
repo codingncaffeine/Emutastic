@@ -492,6 +492,7 @@ namespace Emutastic.Services
                 "Vectrex"      => RC_CONSOLE_VECTREX,
                 "3DO"          => RC_CONSOLE_3DO,
                 "CDi"          => RC_CONSOLE_CDI,
+                "3DS"          => RC_CONSOLE_NINTENDO_3DS,
                 "Arcade"       => RC_CONSOLE_ARCADE,
                 _ => 0
             };
