@@ -750,7 +750,7 @@
                                                                 <VisualBrush Stretch="None" AlignmentX="Left">
                                                                     <VisualBrush.Visual>
                                                                         <TextBlock Text="Search games…"
-                                                                                   Foreground="{DynamicResource TextMutedBrush}"
+                                                                                   Foreground="{StaticResource TextMutedBrush}"
                                                                                    FontFamily="{StaticResource PrimaryFont}"
                                                                                    FontSize="12"/>
                                                                     </VisualBrush.Visual>
@@ -870,7 +870,7 @@
                                             <Grid>
                                                 <Border Visibility="{Binding DisplayArtPath, Converter={StaticResource NullToVisibility}}">
                                                     <Border.Background>
-                                                        <SolidColorBrush Color="{Binding BackgroundColor, Converter={DynamicResource StringToColor}}"/>
+                                                        <SolidColorBrush Color="{Binding BackgroundColor, Converter={StaticResource StringToColor}}"/>
                                                     </Border.Background>
                                                 </Border>
                                                 <Border Visibility="{Binding DisplayArtPath, Converter={StaticResource NullToVisibility}}">
@@ -977,7 +977,7 @@
                                                                     <Grid>
                                                                         <Border Visibility="{Binding DisplayArtPath, Converter={StaticResource NullToVisibility}}">
                                                                             <Border.Background>
-                                                                                <SolidColorBrush Color="{Binding BackgroundColor, Converter={DynamicResource StringToColor}}"/>
+                                                                                <SolidColorBrush Color="{Binding BackgroundColor, Converter={StaticResource StringToColor}}"/>
                                                                             </Border.Background>
                                                                         </Border>
                                                                         <Border Visibility="{Binding DisplayArtPath, Converter={StaticResource NullToVisibility}}">
@@ -1073,7 +1073,7 @@
                                             <Grid>
                                                 <Border Visibility="{Binding DisplayArtPath, Converter={StaticResource NullToVisibility}}">
                                                     <Border.Background>
-                                                        <SolidColorBrush Color="{Binding BackgroundColor, Converter={DynamicResource StringToColor}}"/>
+                                                        <SolidColorBrush Color="{Binding BackgroundColor, Converter={StaticResource StringToColor}}"/>
                                                     </Border.Background>
                                                 </Border>
                                                 <Image Source="{Binding DisplayArtPath, Converter={StaticResource PathToImage}}"
