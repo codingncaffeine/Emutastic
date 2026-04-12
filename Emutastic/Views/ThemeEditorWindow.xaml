@@ -1,0 +1,208 @@
+<Window x:Class="Emutastic.Views.ThemeEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Theme Editor"
+        Height="720" Width="960"
+        MinHeight="500" MinWidth="750"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize"
+        Background="{DynamicResource BgPrimaryBrush}">
+
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/Themes/DarkTheme.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+
+            <Style x:Key="SectionHeader" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="11"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+                <Setter Property="Margin" Value="0,16,0,8"/>
+            </Style>
+
+            <Style x:Key="ColorLabel" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="12"/>
+                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                <Setter Property="VerticalAlignment" Value="Center"/>
+            </Style>
+
+            <Style x:Key="HexBox" TargetType="TextBox">
+                <Setter Property="Width" Value="80"/>
+                <Setter Property="Height" Value="26"/>
+                <Setter Property="FontSize" Value="11"/>
+                <Setter Property="FontFamily" Value="Consolas"/>
+                <Setter Property="Background" Value="{StaticResource BgTertiaryBrush}"/>
+                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                <Setter Property="BorderBrush" Value="{StaticResource BorderNormalBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="Padding" Value="4,2"/>
+                <Setter Property="VerticalContentAlignment" Value="Center"/>
+                <Setter Property="CaretBrush" Value="{StaticResource TextPrimaryBrush}"/>
+            </Style>
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Title bar -->
+        <Border Grid.Row="0" Background="{StaticResource BgSecondaryBrush}"
+                BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="0,0,0,1"
+                Padding="20,14">
+            <Grid>
+                <TextBlock Text="Theme Editor" FontSize="16" FontWeight="SemiBold"
+                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <TextBlock Text="Base:" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                               VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <ComboBox x:Name="BaseThemeCombo" Width="160"
+                              Background="{StaticResource BgQuaternaryBrush}"
+                              Foreground="{StaticResource TextPrimaryBrush}"
+                              BorderBrush="{StaticResource BorderNormalBrush}"
+                              FontSize="12"
+                              SelectionChanged="BaseThemeCombo_SelectionChanged"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Main content: colors left, preview right -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="380" MinWidth="300"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*" MinWidth="300"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Color editor panel -->
+            <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto"
+                          Padding="20,8,20,20">
+                <StackPanel x:Name="ColorEditorPanel"/>
+            </ScrollViewer>
+
+            <!-- Splitter -->
+            <GridSplitter Grid.Column="1" Width="1"
+                          Background="{StaticResource BorderSubtleBrush}"
+                          HorizontalAlignment="Center" VerticalAlignment="Stretch"/>
+
+            <!-- Live preview panel -->
+            <Border Grid.Column="2" Margin="20" CornerRadius="8"
+                    BorderBrush="{StaticResource BorderNormalBrush}" BorderThickness="1"
+                    ClipToBounds="True">
+                <Grid x:Name="PreviewPanel">
+                    <!-- Sidebar preview -->
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="140"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Sidebar mock -->
+                    <Border Grid.Column="0" x:Name="PreviewSidebar" CornerRadius="8,0,0,8">
+                        <StackPanel Margin="12,16">
+                            <TextBlock x:Name="PreviewAppTitle" Text="Emutastic" FontSize="13" FontWeight="Bold" Margin="0,0,0,16"/>
+                            <Border x:Name="PreviewNavActive" CornerRadius="4" Padding="8,6" Margin="0,2">
+                                <TextBlock Text="All Games" FontSize="11"/>
+                            </Border>
+                            <Border x:Name="PreviewNavItem1" CornerRadius="4" Padding="8,6" Margin="0,2" Background="Transparent">
+                                <TextBlock x:Name="PreviewNavText1" Text="SNES" FontSize="11"/>
+                            </Border>
+                            <Border x:Name="PreviewNavItem2" CornerRadius="4" Padding="8,6" Margin="0,2" Background="Transparent">
+                                <TextBlock x:Name="PreviewNavText2" Text="Nintendo 64" FontSize="11"/>
+                            </Border>
+                            <Border x:Name="PreviewNavItem3" CornerRadius="4" Padding="8,6" Margin="0,2" Background="Transparent">
+                                <TextBlock x:Name="PreviewNavText3" Text="PlayStation" FontSize="11"/>
+                            </Border>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Content area mock -->
+                    <Border Grid.Column="1" x:Name="PreviewContent" CornerRadius="0,8,8,0">
+                        <StackPanel Margin="16,16">
+                            <!-- Toolbar mock -->
+                            <Grid Margin="0,0,0,12">
+                                <TextBlock x:Name="PreviewToolbarTitle" Text="All Games" FontSize="14" FontWeight="SemiBold"/>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                    <Border x:Name="PreviewPill1" CornerRadius="4" Padding="10,4" Margin="0,0,4,0">
+                                        <TextBlock x:Name="PreviewPillText1" Text="Grid" FontSize="10"/>
+                                    </Border>
+                                    <Border x:Name="PreviewPill2" CornerRadius="4" Padding="10,4">
+                                        <TextBlock x:Name="PreviewPillText2" Text="List" FontSize="10"/>
+                                    </Border>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- Game cards mock -->
+                            <WrapPanel>
+                                <Border x:Name="PreviewCard1" CornerRadius="6" Width="70" Height="90" Margin="0,0,8,8"/>
+                                <Border x:Name="PreviewCard2" CornerRadius="6" Width="70" Height="90" Margin="0,0,8,8"/>
+                                <Border x:Name="PreviewCard3" CornerRadius="6" Width="70" Height="90" Margin="0,0,8,8"/>
+                                <Border x:Name="PreviewCard4" CornerRadius="6" Width="70" Height="90" Margin="0,0,8,8"/>
+                            </WrapPanel>
+
+                            <!-- Accent button mock -->
+                            <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                <Border x:Name="PreviewAccentBtn" CornerRadius="4" Padding="16,6" Margin="0,0,8,0">
+                                    <TextBlock x:Name="PreviewAccentBtnText" Text="Play" FontSize="11" FontWeight="SemiBold"/>
+                                </Border>
+                                <Border x:Name="PreviewSecondaryBtn" CornerRadius="4" Padding="16,6"
+                                        BorderThickness="1">
+                                    <TextBlock x:Name="PreviewSecondaryBtnText" Text="Details" FontSize="11"/>
+                                </Border>
+                            </StackPanel>
+
+                            <!-- Text samples -->
+                            <StackPanel Margin="0,16,0,0">
+                                <TextBlock x:Name="PreviewTextPrimary" Text="Primary text sample" FontSize="12"/>
+                                <TextBlock x:Name="PreviewTextSecondary" Text="Secondary text for descriptions" FontSize="11" Margin="0,4,0,0"/>
+                                <TextBlock x:Name="PreviewTextMuted" Text="Muted helper text" FontSize="10" Margin="0,4,0,0"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- Bottom bar -->
+        <Border Grid.Row="2" Background="{StaticResource BgSecondaryBrush}"
+                BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="0,1,0,0"
+                Padding="20,12">
+            <Grid>
+                <StackPanel Orientation="Horizontal">
+                    <Button x:Name="ExportBtn" Content="Export .emutheme"
+                            Padding="14,6" FontSize="12" Margin="0,0,8,0"
+                            Background="{StaticResource SurfaceBrush}"
+                            Foreground="{StaticResource TextPrimaryBrush}"
+                            BorderBrush="{StaticResource BorderNormalBrush}"
+                            BorderThickness="1" Cursor="Hand"
+                            Click="ExportBtn_Click"/>
+                    <Button x:Name="ImportBtn" Content="Import .emutheme"
+                            Padding="14,6" FontSize="12" Margin="0,0,8,0"
+                            Background="{StaticResource SurfaceBrush}"
+                            Foreground="{StaticResource TextPrimaryBrush}"
+                            BorderBrush="{StaticResource BorderNormalBrush}"
+                            BorderThickness="1" Cursor="Hand"
+                            Click="ImportBtn_Click"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button x:Name="ResetBtn" Content="Reset to Default"
+                            Padding="14,6" FontSize="12" Margin="0,0,8,0"
+                            Background="{StaticResource SurfaceBrush}"
+                            Foreground="{StaticResource TextPrimaryBrush}"
+                            BorderBrush="{StaticResource BorderNormalBrush}"
+                            BorderThickness="1" Cursor="Hand"
+                            Click="ResetBtn_Click"/>
+                    <Button x:Name="ApplyBtn" Content="Apply"
+                            Padding="14,6" FontSize="12"
+                            Background="{StaticResource AccentBrush}"
+                            Foreground="White"
+                            BorderThickness="0" Cursor="Hand"
+                            Click="ApplyBtn_Click"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

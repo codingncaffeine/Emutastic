@@ -85,6 +85,17 @@ namespace Emutastic.Services
         }
 
         /// <summary>
+        /// Applies a custom-edited color set (from the Theme Editor).
+        /// Sets ActiveThemeId to "custom" so it won't match any built-in.
+        /// </summary>
+        public void ApplyEditedColors(ThemeColors colors)
+        {
+            _activeColors = colors;
+            _preOverrideColors = null;
+            ApplyColors(colors);
+        }
+
+        /// <summary>
         /// Pushes all color tokens from a ThemeColors instance into
         /// Application.Current.Resources, creating SolidColorBrush for each.
         /// </summary>

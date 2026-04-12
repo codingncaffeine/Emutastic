@@ -2710,6 +2710,12 @@ namespace Emutastic.Views
             ChromeRestartNote.Visibility = Visibility.Visible;
         }
 
+        private void CustomizeThemeBtn_Click(object sender, RoutedEventArgs e)
+        {
+            var editor = new ThemeEditorWindow { Owner = this };
+            editor.ShowDialog();
+        }
+
         private void ThemeSaveBtn_Click(object sender, RoutedEventArgs e)
         {
             var theme = _configService.GetThemeConfiguration();
