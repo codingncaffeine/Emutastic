@@ -70,58 +70,58 @@
     <Color x:Key="FavoriteHeartColor">#FFFF6B6B</Color>
 
     <!-- ── BRUSHES ── -->
-    <SolidColorBrush x:Key="BgPrimaryBrush"     Color="{DynamicResource BgPrimaryColor}"/>
-    <SolidColorBrush x:Key="BgSecondaryBrush"   Color="{DynamicResource BgSecondaryColor}"/>
-    <SolidColorBrush x:Key="BgTertiaryBrush"    Color="{DynamicResource BgTertiaryColor}"/>
-    <SolidColorBrush x:Key="BgQuaternaryBrush"  Color="{DynamicResource BgQuaternaryColor}"/>
-    <SolidColorBrush x:Key="BorderSubtleBrush"  Color="{DynamicResource BorderSubtleColor}"/>
-    <SolidColorBrush x:Key="BorderNormalBrush"   Color="{DynamicResource BorderNormalColor}"/>
-    <SolidColorBrush x:Key="TextPrimaryBrush"   Color="{DynamicResource TextPrimaryColor}"/>
-    <SolidColorBrush x:Key="TextSecondaryBrush" Color="{DynamicResource TextSecondaryColor}"/>
-    <SolidColorBrush x:Key="TextMutedBrush"     Color="{DynamicResource TextMutedColor}"/>
-    <SolidColorBrush x:Key="AccentBrush"        Color="{DynamicResource AccentColor}"/>
-    <SolidColorBrush x:Key="AccentHoverBrush"   Color="{DynamicResource AccentHoverColor}"/>
-    <SolidColorBrush x:Key="GreenBrush"         Color="{DynamicResource GreenColor}"/>
+    <SolidColorBrush x:Key="BgPrimaryBrush"     Color="{StaticResource BgPrimaryColor}"/>
+    <SolidColorBrush x:Key="BgSecondaryBrush"   Color="{StaticResource BgSecondaryColor}"/>
+    <SolidColorBrush x:Key="BgTertiaryBrush"    Color="{StaticResource BgTertiaryColor}"/>
+    <SolidColorBrush x:Key="BgQuaternaryBrush"  Color="{StaticResource BgQuaternaryColor}"/>
+    <SolidColorBrush x:Key="BorderSubtleBrush"  Color="{StaticResource BorderSubtleColor}"/>
+    <SolidColorBrush x:Key="BorderNormalBrush"   Color="{StaticResource BorderNormalColor}"/>
+    <SolidColorBrush x:Key="TextPrimaryBrush"   Color="{StaticResource TextPrimaryColor}"/>
+    <SolidColorBrush x:Key="TextSecondaryBrush" Color="{StaticResource TextSecondaryColor}"/>
+    <SolidColorBrush x:Key="TextMutedBrush"     Color="{StaticResource TextMutedColor}"/>
+    <SolidColorBrush x:Key="AccentBrush"        Color="{StaticResource AccentColor}"/>
+    <SolidColorBrush x:Key="AccentHoverBrush"   Color="{StaticResource AccentHoverColor}"/>
+    <SolidColorBrush x:Key="GreenBrush"         Color="{StaticResource GreenColor}"/>
 
-    <SolidColorBrush x:Key="ShadowBrush"           Color="{DynamicResource ShadowColor}"/>
-    <SolidColorBrush x:Key="OverlayBgBrush"       Color="{DynamicResource OverlayBgColor}"/>
-    <SolidColorBrush x:Key="AccentPressedBrush"   Color="{DynamicResource AccentPressedColor}"/>
-    <SolidColorBrush x:Key="AccentDisabledBrush"   Color="{DynamicResource AccentDisabledColor}"/>
+    <SolidColorBrush x:Key="ShadowBrush"           Color="{StaticResource ShadowColor}"/>
+    <SolidColorBrush x:Key="OverlayBgBrush"       Color="{StaticResource OverlayBgColor}"/>
+    <SolidColorBrush x:Key="AccentPressedBrush"   Color="{StaticResource AccentPressedColor}"/>
+    <SolidColorBrush x:Key="AccentDisabledBrush"   Color="{StaticResource AccentDisabledColor}"/>
 
-    <SolidColorBrush x:Key="ScrollThumbBrush"      Color="{DynamicResource ScrollThumbColor}"/>
-    <SolidColorBrush x:Key="ScrollThumbHoverBrush"  Color="{DynamicResource ScrollThumbHoverColor}"/>
-    <SolidColorBrush x:Key="ScrollThumbDragBrush"   Color="{DynamicResource ScrollThumbDragColor}"/>
-    <SolidColorBrush x:Key="ScrollTrackBrush"       Color="{DynamicResource ScrollTrackColor}"/>
+    <SolidColorBrush x:Key="ScrollThumbBrush"      Color="{StaticResource ScrollThumbColor}"/>
+    <SolidColorBrush x:Key="ScrollThumbHoverBrush"  Color="{StaticResource ScrollThumbHoverColor}"/>
+    <SolidColorBrush x:Key="ScrollThumbDragBrush"   Color="{StaticResource ScrollThumbDragColor}"/>
+    <SolidColorBrush x:Key="ScrollTrackBrush"       Color="{StaticResource ScrollTrackColor}"/>
 
-    <SolidColorBrush x:Key="PlayBtnBgBrush"           Color="{DynamicResource PlayBtnBgColor}"/>
-    <SolidColorBrush x:Key="PlayBtnBorderBrush"       Color="{DynamicResource PlayBtnBorderColor}"/>
-    <SolidColorBrush x:Key="PlayBtnHoverBgBrush"      Color="{DynamicResource PlayBtnHoverBgColor}"/>
-    <SolidColorBrush x:Key="PlayBtnHoverBorderBrush"  Color="{DynamicResource PlayBtnHoverBorderColor}"/>
-    <SolidColorBrush x:Key="PlayBtnPressedBgBrush"    Color="{DynamicResource PlayBtnPressedBgColor}"/>
+    <SolidColorBrush x:Key="PlayBtnBgBrush"           Color="{StaticResource PlayBtnBgColor}"/>
+    <SolidColorBrush x:Key="PlayBtnBorderBrush"       Color="{StaticResource PlayBtnBorderColor}"/>
+    <SolidColorBrush x:Key="PlayBtnHoverBgBrush"      Color="{StaticResource PlayBtnHoverBgColor}"/>
+    <SolidColorBrush x:Key="PlayBtnHoverBorderBrush"  Color="{StaticResource PlayBtnHoverBorderColor}"/>
+    <SolidColorBrush x:Key="PlayBtnPressedBgBrush"    Color="{StaticResource PlayBtnPressedBgColor}"/>
 
-    <SolidColorBrush x:Key="TrafficYellowBrush"       Color="{DynamicResource TrafficYellowColor}"/>
-    <SolidColorBrush x:Key="TrafficYellowHoverBrush"   Color="{DynamicResource TrafficYellowHoverColor}"/>
-    <SolidColorBrush x:Key="TrafficGreenHoverBrush"    Color="{DynamicResource TrafficGreenHoverColor}"/>
-    <SolidColorBrush x:Key="TrafficRedBrush"           Color="{DynamicResource TrafficRedColor}"/>
-    <SolidColorBrush x:Key="TrafficRedHoverBrush"      Color="{DynamicResource TrafficRedHoverColor}"/>
+    <SolidColorBrush x:Key="TrafficYellowBrush"       Color="{StaticResource TrafficYellowColor}"/>
+    <SolidColorBrush x:Key="TrafficYellowHoverBrush"   Color="{StaticResource TrafficYellowHoverColor}"/>
+    <SolidColorBrush x:Key="TrafficGreenHoverBrush"    Color="{StaticResource TrafficGreenHoverColor}"/>
+    <SolidColorBrush x:Key="TrafficRedBrush"           Color="{StaticResource TrafficRedColor}"/>
+    <SolidColorBrush x:Key="TrafficRedHoverBrush"      Color="{StaticResource TrafficRedHoverColor}"/>
 
-    <SolidColorBrush x:Key="PillBgBrush"         Color="{DynamicResource PillBgColor}"/>
-    <SolidColorBrush x:Key="PillBorderBrush"     Color="{DynamicResource PillBorderColor}"/>
-    <SolidColorBrush x:Key="PillHoverBgBrush"    Color="{DynamicResource PillHoverBgColor}"/>
-    <SolidColorBrush x:Key="PillPressedBgBrush"  Color="{DynamicResource PillPressedBgColor}"/>
-    <SolidColorBrush x:Key="PillFgBrush"         Color="{DynamicResource PillFgColor}"/>
-    <SolidColorBrush x:Key="PillMutedFgBrush"    Color="{DynamicResource PillMutedFgColor}"/>
+    <SolidColorBrush x:Key="PillBgBrush"         Color="{StaticResource PillBgColor}"/>
+    <SolidColorBrush x:Key="PillBorderBrush"     Color="{StaticResource PillBorderColor}"/>
+    <SolidColorBrush x:Key="PillHoverBgBrush"    Color="{StaticResource PillHoverBgColor}"/>
+    <SolidColorBrush x:Key="PillPressedBgBrush"  Color="{StaticResource PillPressedBgColor}"/>
+    <SolidColorBrush x:Key="PillFgBrush"         Color="{StaticResource PillFgColor}"/>
+    <SolidColorBrush x:Key="PillMutedFgBrush"    Color="{StaticResource PillMutedFgColor}"/>
 
-    <SolidColorBrush x:Key="SurfaceBrush"        Color="{DynamicResource SurfaceColor}"/>
-    <SolidColorBrush x:Key="SurfaceHoverBrush"   Color="{DynamicResource SurfaceHoverColor}"/>
-    <SolidColorBrush x:Key="SurfaceActiveBrush"  Color="{DynamicResource SurfaceActiveColor}"/>
-    <SolidColorBrush x:Key="ContentBgBrush"      Color="{DynamicResource ContentBgColor}"/>
-    <SolidColorBrush x:Key="WarningBrush"        Color="{DynamicResource WarningColor}"/>
+    <SolidColorBrush x:Key="SurfaceBrush"        Color="{StaticResource SurfaceColor}"/>
+    <SolidColorBrush x:Key="SurfaceHoverBrush"   Color="{StaticResource SurfaceHoverColor}"/>
+    <SolidColorBrush x:Key="SurfaceActiveBrush"  Color="{StaticResource SurfaceActiveColor}"/>
+    <SolidColorBrush x:Key="ContentBgBrush"      Color="{StaticResource ContentBgColor}"/>
+    <SolidColorBrush x:Key="WarningBrush"        Color="{StaticResource WarningColor}"/>
 
-    <SolidColorBrush x:Key="AchievementGoldBrush" Color="{DynamicResource AchievementGoldColor}"/>
+    <SolidColorBrush x:Key="AchievementGoldBrush" Color="{StaticResource AchievementGoldColor}"/>
 
-    <SolidColorBrush x:Key="PillGroupBgBrush"    Color="{DynamicResource PillGroupBgColor}"/>
-    <SolidColorBrush x:Key="FavoriteHeartBrush"  Color="{DynamicResource FavoriteHeartColor}"/>
+    <SolidColorBrush x:Key="PillGroupBgBrush"    Color="{StaticResource PillGroupBgColor}"/>
+    <SolidColorBrush x:Key="FavoriteHeartBrush"  Color="{StaticResource FavoriteHeartColor}"/>
 
     <!-- ── TYPOGRAPHY ── -->
     <FontFamily x:Key="PrimaryFont">Segoe UI Variable, Segoe UI, sans-serif</FontFamily>
@@ -422,7 +422,7 @@
                                 SnapsToDevicePixels="True">
                             <Border.Effect>
                                 <DropShadowEffect BlurRadius="28" ShadowDepth="4" Direction="270"
-                                                  Opacity="0.55" Color="{DynamicResource ShadowColor}"/>
+                                                  Opacity="0.55" Color="{StaticResource ShadowColor}"/>
                             </Border.Effect>
                             <StackPanel IsItemsHost="True"
                                         KeyboardNavigation.DirectionalNavigation="Cycle"/>
@@ -493,7 +493,7 @@
                                     CornerRadius="10"
                                     Padding="4,6">
                                 <Border.Effect>
-                                    <DropShadowEffect BlurRadius="24" ShadowDepth="0" Opacity="0.65" Color="{DynamicResource ShadowColor}"/>
+                                    <DropShadowEffect BlurRadius="24" ShadowDepth="0" Opacity="0.65" Color="{StaticResource ShadowColor}"/>
                                 </Border.Effect>
                                 <StackPanel IsItemsHost="True"
                                             KeyboardNavigation.DirectionalNavigation="Cycle"/>
