@@ -2662,6 +2662,23 @@ namespace Emutastic.Views
         {
             var theme = _configService.GetThemeConfiguration();
 
+            // Theme dropdown
+            var themes = Services.ThemeService.Instance.GetAvailableThemes();
+            ThemeCombo.Items.Clear();
+            int selectedIdx = 0;
+            for (int i = 0; i < themes.Count; i++)
+            {
+                ThemeCombo.Items.Add(new System.Windows.Controls.ComboBoxItem
+                {
+                    Content = themes[i].Name,
+                    Tag = themes[i].Id
+                });
+                if (themes[i].Id == theme.ActiveThemeId) selectedIdx = i;
+            }
+            ThemeCombo.SelectedIndex = selectedIdx;
+
+            ConsoleThemingToggle.IsChecked = theme.EnableConsoleTheming;
+
             // Clamp to valid range in case config was edited manually.
             PaddingSlider.Value  = Math.Clamp(theme.GridPadding, 8, 64);
             SpacingSlider.Value  = Math.Clamp(theme.CardSpacing, 4, 48);
@@ -2700,9 +2717,22 @@ namespace Emutastic.Views
             theme.CardSpacing = Math.Clamp((int)SpacingSlider.Value,  4,   48);
             theme.CardWidth   = Math.Clamp((int)CardSizeSlider.Value, 148, 280);
             theme.UseWindowsChrome = WindowsChromeToggle.IsChecked == true;
+
+            // Theme selection
+            var selectedThemeId = "builtin.dark";
+            if (ThemeCombo.SelectedItem is System.Windows.Controls.ComboBoxItem item && item.Tag is string id)
+                selectedThemeId = id;
+            theme.ActiveThemeId = selectedThemeId;
+            theme.EnableConsoleTheming = ConsoleThemingToggle.IsChecked == true;
+
             _configService.SetThemeConfiguration(theme);
             _ = _configService.SaveAsync();
             App.ApplyThemeResources();
+
+            // Apply the selected theme colors
+            var themeSvc = Services.ThemeService.Instance;
+            themeSvc.EnableConsoleTheming = theme.EnableConsoleTheming;
+            themeSvc.LoadAndApplyTheme(selectedThemeId);
         }
 
         // ── Snaps panel ───────────────────────────────────────────────────────

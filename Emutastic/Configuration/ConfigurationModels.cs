@@ -81,6 +81,10 @@ namespace Emutastic.Configuration
         /// Applied on next launch.
         /// </summary>
         public bool UseWindowsChrome { get; set; } = false;
+        /// <summary>Active theme ID (e.g. "builtin.dark", "builtin.light").</summary>
+        public string ActiveThemeId { get; set; } = "builtin.dark";
+        /// <summary>When true, accent/bg colors change per-console as you navigate the library.</summary>
+        public bool EnableConsoleTheming { get; set; } = false;
     }
 
     // Library configuration

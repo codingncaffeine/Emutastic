@@ -24,13 +24,13 @@
                           BlurRadius="30"
                           ShadowDepth="0"
                           Opacity="0.6"
-                          Color="#000000"/>
+                          Color="{StaticResource ShadowColor}"/>
 
         <!-- Shared trigger logic extracted via a base style is not possible with ControlTemplate,
              so Left and Right caps are defined as two complete styles. -->
 
         <Style x:Key="TabToggleLeftStyle" TargetType="ToggleButton">
-            <Setter Property="Foreground" Value="#E0E0E0"/>
+            <Setter Property="Foreground" Value="{StaticResource PillFgBrush}"/>
             <Setter Property="FontFamily" Value="{StaticResource PrimaryFont}"/>
             <Setter Property="FontSize"   Value="12"/>
             <Setter Property="Padding"    Value="12,6"/>
@@ -39,18 +39,18 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="ToggleButton">
                         <Border x:Name="pill"
-                                Background="#2D2D2D"
-                                BorderBrush="#1A1A1A"
+                                Background="{StaticResource PillBgBrush}"
+                                BorderBrush="{StaticResource PillBorderBrush}"
                                 BorderThickness="1,1,1,1"
                                 CornerRadius="10,0,0,10"
                                 Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center"
                                               VerticalAlignment="Center"
-                                              TextElement.Foreground="#E0E0E0"/>
+                                              TextElement.Foreground="{StaticResource PillFgBrush}"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="pill" Property="Background" Value="#555555"/>
+                                <Setter TargetName="pill" Property="Background" Value="{StaticResource PillHoverBgBrush}"/>
                             </Trigger>
                             <MultiTrigger>
                                 <MultiTrigger.Conditions>
@@ -58,7 +58,7 @@
                                     <Condition Property="IsChecked"   Value="False"/>
                                 </MultiTrigger.Conditions>
                                 <MultiTrigger.Setters>
-                                    <Setter TargetName="pill" Property="Background" Value="#3D3D3D"/>
+                                    <Setter TargetName="pill" Property="Background" Value="{StaticResource PillPressedBgBrush}"/>
                                 </MultiTrigger.Setters>
                             </MultiTrigger>
                         </ControlTemplate.Triggers>
@@ -68,7 +68,7 @@
         </Style>
 
         <Style x:Key="TabToggleMiddleStyle" TargetType="ToggleButton">
-            <Setter Property="Foreground" Value="#E0E0E0"/>
+            <Setter Property="Foreground" Value="{StaticResource PillFgBrush}"/>
             <Setter Property="FontFamily" Value="{StaticResource PrimaryFont}"/>
             <Setter Property="FontSize"   Value="12"/>
             <Setter Property="Padding"    Value="12,6"/>
@@ -77,18 +77,18 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="ToggleButton">
                         <Border x:Name="pill"
-                                Background="#2D2D2D"
-                                BorderBrush="#1A1A1A"
+                                Background="{StaticResource PillBgBrush}"
+                                BorderBrush="{StaticResource PillBorderBrush}"
                                 BorderThickness="0,1,0,1"
                                 CornerRadius="0"
                                 Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center"
                                               VerticalAlignment="Center"
-                                              TextElement.Foreground="#E0E0E0"/>
+                                              TextElement.Foreground="{StaticResource PillFgBrush}"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="pill" Property="Background" Value="#555555"/>
+                                <Setter TargetName="pill" Property="Background" Value="{StaticResource PillHoverBgBrush}"/>
                             </Trigger>
                             <MultiTrigger>
                                 <MultiTrigger.Conditions>
@@ -96,7 +96,7 @@
                                     <Condition Property="IsChecked"   Value="False"/>
                                 </MultiTrigger.Conditions>
                                 <MultiTrigger.Setters>
-                                    <Setter TargetName="pill" Property="Background" Value="#3D3D3D"/>
+                                    <Setter TargetName="pill" Property="Background" Value="{StaticResource PillPressedBgBrush}"/>
                                 </MultiTrigger.Setters>
                             </MultiTrigger>
                         </ControlTemplate.Triggers>
@@ -106,7 +106,7 @@
         </Style>
 
         <Style x:Key="TabToggleRightStyle" TargetType="ToggleButton">
-            <Setter Property="Foreground" Value="#E0E0E0"/>
+            <Setter Property="Foreground" Value="{StaticResource PillFgBrush}"/>
             <Setter Property="FontFamily" Value="{StaticResource PrimaryFont}"/>
             <Setter Property="FontSize"   Value="12"/>
             <Setter Property="Padding"    Value="12,6"/>
@@ -115,18 +115,18 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="ToggleButton">
                         <Border x:Name="pill"
-                                Background="#2D2D2D"
-                                BorderBrush="#1A1A1A"
+                                Background="{StaticResource PillBgBrush}"
+                                BorderBrush="{StaticResource PillBorderBrush}"
                                 BorderThickness="0,1,1,1"
                                 CornerRadius="0,10,10,0"
                                 Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center"
                                               VerticalAlignment="Center"
-                                              TextElement.Foreground="#E0E0E0"/>
+                                              TextElement.Foreground="{StaticResource PillFgBrush}"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="pill" Property="Background" Value="#555555"/>
+                                <Setter TargetName="pill" Property="Background" Value="{StaticResource PillHoverBgBrush}"/>
                             </Trigger>
                             <MultiTrigger>
                                 <MultiTrigger.Conditions>
@@ -134,7 +134,7 @@
                                     <Condition Property="IsChecked"   Value="False"/>
                                 </MultiTrigger.Conditions>
                                 <MultiTrigger.Setters>
-                                    <Setter TargetName="pill" Property="Background" Value="#3D3D3D"/>
+                                    <Setter TargetName="pill" Property="Background" Value="{StaticResource PillPressedBgBrush}"/>
                                 </MultiTrigger.Setters>
                             </MultiTrigger>
                         </ControlTemplate.Triggers>
@@ -153,27 +153,27 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="ToggleButton">
                         <Border x:Name="pill"
-                                Background="#2D2D2D"
-                                BorderBrush="#1A1A1A"
+                                Background="{StaticResource PillBgBrush}"
+                                BorderBrush="{StaticResource PillBorderBrush}"
                                 BorderThickness="1,1,1,1"
                                 CornerRadius="10,0,0,10">
                             <Viewbox Width="14" Height="14" Stretch="Uniform"
                                      HorizontalAlignment="Center" VerticalAlignment="Center">
                                 <Canvas Width="14" Height="14">
-                                    <Rectangle x:Name="G1" Canvas.Left="0" Canvas.Top="0" Width="6" Height="6" Fill="#E0E0E0"/>
-                                    <Rectangle x:Name="G2" Canvas.Left="8" Canvas.Top="0" Width="6" Height="6" Fill="#E0E0E0"/>
-                                    <Rectangle x:Name="G3" Canvas.Left="0" Canvas.Top="8" Width="6" Height="6" Fill="#E0E0E0"/>
-                                    <Rectangle x:Name="G4" Canvas.Left="8" Canvas.Top="8" Width="6" Height="6" Fill="#E0E0E0"/>
+                                    <Rectangle x:Name="G1" Canvas.Left="0" Canvas.Top="0" Width="6" Height="6" Fill="{StaticResource PillFgBrush}"/>
+                                    <Rectangle x:Name="G2" Canvas.Left="8" Canvas.Top="0" Width="6" Height="6" Fill="{StaticResource PillFgBrush}"/>
+                                    <Rectangle x:Name="G3" Canvas.Left="0" Canvas.Top="8" Width="6" Height="6" Fill="{StaticResource PillFgBrush}"/>
+                                    <Rectangle x:Name="G4" Canvas.Left="8" Canvas.Top="8" Width="6" Height="6" Fill="{StaticResource PillFgBrush}"/>
                                 </Canvas>
                             </Viewbox>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="pill" Property="Background" Value="#555555"/>
-                                <Setter TargetName="G1"   Property="Fill"       Value="#E0E0E0"/>
-                                <Setter TargetName="G2"   Property="Fill"       Value="#E0E0E0"/>
-                                <Setter TargetName="G3"   Property="Fill"       Value="#E0E0E0"/>
-                                <Setter TargetName="G4"   Property="Fill"       Value="#E0E0E0"/>
+                                <Setter TargetName="pill" Property="Background" Value="{StaticResource PillHoverBgBrush}"/>
+                                <Setter TargetName="G1"   Property="Fill"       Value="{StaticResource PillFgBrush}"/>
+                                <Setter TargetName="G2"   Property="Fill"       Value="{StaticResource PillFgBrush}"/>
+                                <Setter TargetName="G3"   Property="Fill"       Value="{StaticResource PillFgBrush}"/>
+                                <Setter TargetName="G4"   Property="Fill"       Value="{StaticResource PillFgBrush}"/>
                             </Trigger>
                             <MultiTrigger>
                                 <MultiTrigger.Conditions>
@@ -181,7 +181,7 @@
                                     <Condition Property="IsChecked"   Value="False"/>
                                 </MultiTrigger.Conditions>
                                 <MultiTrigger.Setters>
-                                    <Setter TargetName="pill" Property="Background" Value="#3D3D3D"/>
+                                    <Setter TargetName="pill" Property="Background" Value="{StaticResource PillPressedBgBrush}"/>
                                 </MultiTrigger.Setters>
                             </MultiTrigger>
                         </ControlTemplate.Triggers>
@@ -200,25 +200,25 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="ToggleButton">
                         <Border x:Name="pill"
-                                Background="#2D2D2D"
-                                BorderBrush="#1A1A1A"
+                                Background="{StaticResource PillBgBrush}"
+                                BorderBrush="{StaticResource PillBorderBrush}"
                                 BorderThickness="0,1,1,1"
                                 CornerRadius="0,10,10,0">
                             <Viewbox Width="14" Height="14" Stretch="Uniform"
                                      HorizontalAlignment="Center" VerticalAlignment="Center">
                                 <Canvas Width="14" Height="14">
-                                    <Rectangle x:Name="L1" Canvas.Left="0" Canvas.Top="0"   Width="14" Height="3" Fill="#E0E0E0"/>
-                                    <Rectangle x:Name="L2" Canvas.Left="0" Canvas.Top="5.5" Width="14" Height="3" Fill="#E0E0E0"/>
-                                    <Rectangle x:Name="L3" Canvas.Left="0" Canvas.Top="11"  Width="14" Height="3" Fill="#E0E0E0"/>
+                                    <Rectangle x:Name="L1" Canvas.Left="0" Canvas.Top="0"   Width="14" Height="3" Fill="{StaticResource PillFgBrush}"/>
+                                    <Rectangle x:Name="L2" Canvas.Left="0" Canvas.Top="5.5" Width="14" Height="3" Fill="{StaticResource PillFgBrush}"/>
+                                    <Rectangle x:Name="L3" Canvas.Left="0" Canvas.Top="11"  Width="14" Height="3" Fill="{StaticResource PillFgBrush}"/>
                                 </Canvas>
                             </Viewbox>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="pill" Property="Background" Value="#555555"/>
-                                <Setter TargetName="L1"   Property="Fill"       Value="#E0E0E0"/>
-                                <Setter TargetName="L2"   Property="Fill"       Value="#E0E0E0"/>
-                                <Setter TargetName="L3"   Property="Fill"       Value="#E0E0E0"/>
+                                <Setter TargetName="pill" Property="Background" Value="{StaticResource PillHoverBgBrush}"/>
+                                <Setter TargetName="L1"   Property="Fill"       Value="{StaticResource PillFgBrush}"/>
+                                <Setter TargetName="L2"   Property="Fill"       Value="{StaticResource PillFgBrush}"/>
+                                <Setter TargetName="L3"   Property="Fill"       Value="{StaticResource PillFgBrush}"/>
                             </Trigger>
                             <MultiTrigger>
                                 <MultiTrigger.Conditions>
@@ -226,7 +226,7 @@
                                     <Condition Property="IsChecked"   Value="False"/>
                                 </MultiTrigger.Conditions>
                                 <MultiTrigger.Setters>
-                                    <Setter TargetName="pill" Property="Background" Value="#3D3D3D"/>
+                                    <Setter TargetName="pill" Property="Background" Value="{StaticResource PillPressedBgBrush}"/>
                                 </MultiTrigger.Setters>
                             </MultiTrigger>
                         </ControlTemplate.Triggers>
@@ -315,10 +315,10 @@
                                 ToolTip="Minimize">
                             <Button.Template>
                                 <ControlTemplate TargetType="Button">
-                                    <Ellipse x:Name="circle" Fill="#FEBC2E"/>
+                                    <Ellipse x:Name="circle" Fill="{StaticResource TrafficYellowBrush}"/>
                                     <ControlTemplate.Triggers>
                                         <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter TargetName="circle" Property="Fill" Value="#E5A800"/>
+                                            <Setter TargetName="circle" Property="Fill" Value="{StaticResource TrafficYellowHoverBrush}"/>
                                         </Trigger>
                                     </ControlTemplate.Triggers>
                                 </ControlTemplate>
@@ -332,10 +332,10 @@
                                 ToolTip="Maximize">
                             <Button.Template>
                                 <ControlTemplate TargetType="Button">
-                                    <Ellipse x:Name="circle" Fill="#28C840"/>
+                                    <Ellipse x:Name="circle" Fill="{StaticResource GreenBrush}"/>
                                     <ControlTemplate.Triggers>
                                         <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter TargetName="circle" Property="Fill" Value="#1FA832"/>
+                                            <Setter TargetName="circle" Property="Fill" Value="{StaticResource TrafficGreenHoverBrush}"/>
                                         </Trigger>
                                     </ControlTemplate.Triggers>
                                 </ControlTemplate>
@@ -348,10 +348,10 @@
                                 ToolTip="Close">
                             <Button.Template>
                                 <ControlTemplate TargetType="Button">
-                                    <Ellipse x:Name="circle" Fill="#FF5F57"/>
+                                    <Ellipse x:Name="circle" Fill="{StaticResource TrafficRedBrush}"/>
                                     <ControlTemplate.Triggers>
                                         <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter TargetName="circle" Property="Fill" Value="#E5453D"/>
+                                            <Setter TargetName="circle" Property="Fill" Value="{StaticResource TrafficRedHoverBrush}"/>
                                         </Trigger>
                                     </ControlTemplate.Triggers>
                                 </ControlTemplate>
@@ -595,7 +595,7 @@
 
                             <!-- LEFT: grid/list + 2D/3D toggles -->
                             <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                            <Border Background="#1E1E1E"
+                            <Border Background="{StaticResource PillGroupBgBrush}"
                                     CornerRadius="10"
                                     BorderThickness="0"
                                     Margin="12,0,0,0">
@@ -613,7 +613,7 @@
                             </Border>
 
                             <!-- 2D / 3D box art toggle -->
-                            <Border Background="#1E1E1E"
+                            <Border Background="{StaticResource PillGroupBgBrush}"
                                     CornerRadius="10"
                                     BorderThickness="0"
                                     Margin="6,0,0,0"
@@ -628,14 +628,14 @@
                                                   ToolTip="2D Box Art">
                                         <ToggleButton.Template>
                                             <ControlTemplate TargetType="ToggleButton">
-                                                <Border x:Name="pill" Background="#2D2D2D" BorderBrush="#1A1A1A" BorderThickness="1,1,0,1" CornerRadius="10,0,0,10">
+                                                <Border x:Name="pill" Background="{StaticResource PillBgBrush}" BorderBrush="{StaticResource PillBorderBrush}" BorderThickness="1,1,0,1" CornerRadius="10,0,0,10">
                                                     <TextBlock x:Name="lbl" Text="2D" FontSize="9" FontWeight="SemiBold" FontFamily="{StaticResource PrimaryFont}"
-                                                               Foreground="#A0A0A0" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                               Foreground="{StaticResource PillMutedFgBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                                 </Border>
                                                 <ControlTemplate.Triggers>
                                                     <Trigger Property="IsChecked" Value="True">
-                                                        <Setter TargetName="pill" Property="Background" Value="#555555"/>
-                                                        <Setter TargetName="lbl"  Property="Foreground" Value="#E0E0E0"/>
+                                                        <Setter TargetName="pill" Property="Background" Value="{StaticResource PillHoverBgBrush}"/>
+                                                        <Setter TargetName="lbl"  Property="Foreground" Value="{StaticResource PillFgBrush}"/>
                                                     </Trigger>
                                                     <MultiTrigger>
                                                         <MultiTrigger.Conditions>
@@ -643,7 +643,7 @@
                                                             <Condition Property="IsChecked"   Value="False"/>
                                                         </MultiTrigger.Conditions>
                                                         <MultiTrigger.Setters>
-                                                            <Setter TargetName="pill" Property="Background" Value="#3D3D3D"/>
+                                                            <Setter TargetName="pill" Property="Background" Value="{StaticResource PillPressedBgBrush}"/>
                                                         </MultiTrigger.Setters>
                                                     </MultiTrigger>
                                                 </ControlTemplate.Triggers>
@@ -657,14 +657,14 @@
                                                   ToolTip="3D Box Art">
                                         <ToggleButton.Template>
                                             <ControlTemplate TargetType="ToggleButton">
-                                                <Border x:Name="pill" Background="#2D2D2D" BorderBrush="#1A1A1A" BorderThickness="1" CornerRadius="0,10,10,0">
+                                                <Border x:Name="pill" Background="{StaticResource PillBgBrush}" BorderBrush="{StaticResource PillBorderBrush}" BorderThickness="1" CornerRadius="0,10,10,0">
                                                     <TextBlock x:Name="lbl" Text="3D" FontSize="9" FontWeight="SemiBold" FontFamily="{StaticResource PrimaryFont}"
-                                                               Foreground="#A0A0A0" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                               Foreground="{StaticResource PillMutedFgBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                                 </Border>
                                                 <ControlTemplate.Triggers>
                                                     <Trigger Property="IsChecked" Value="True">
-                                                        <Setter TargetName="pill" Property="Background" Value="#555555"/>
-                                                        <Setter TargetName="lbl"  Property="Foreground" Value="#E0E0E0"/>
+                                                        <Setter TargetName="pill" Property="Background" Value="{StaticResource PillHoverBgBrush}"/>
+                                                        <Setter TargetName="lbl"  Property="Foreground" Value="{StaticResource PillFgBrush}"/>
                                                     </Trigger>
                                                     <MultiTrigger>
                                                         <MultiTrigger.Conditions>
@@ -672,7 +672,7 @@
                                                             <Condition Property="IsChecked"   Value="False"/>
                                                         </MultiTrigger.Conditions>
                                                         <MultiTrigger.Setters>
-                                                            <Setter TargetName="pill" Property="Background" Value="#3D3D3D"/>
+                                                            <Setter TargetName="pill" Property="Background" Value="{StaticResource PillPressedBgBrush}"/>
                                                         </MultiTrigger.Setters>
                                                     </MultiTrigger>
                                                 </ControlTemplate.Triggers>
@@ -687,7 +687,7 @@
                             <Border Grid.Column="1"
                                     HorizontalAlignment="Center"
                                     VerticalAlignment="Center"
-                                    Background="#1E1E1E"
+                                    Background="{StaticResource PillGroupBgBrush}"
                                     CornerRadius="10"
                                     BorderThickness="0">
                                 <StackPanel Orientation="Horizontal">
@@ -803,7 +803,7 @@
                                                 <Border x:Name="SelectionRing"
                                                         CornerRadius="8"
                                                         BorderThickness="2"
-                                                        BorderBrush="#E03535"
+                                                        BorderBrush="{StaticResource AccentBrush}"
                                                         Visibility="Collapsed"
                                                         IsHitTestVisible="False"/>
                                                 <!-- Keyboard focus indicator -->
@@ -851,7 +851,7 @@
                                                             <DropShadowEffect BlurRadius="16"
                                                                               ShadowDepth="4"
                                                                               Opacity="0.5"
-                                                                              Color="#000000"/>
+                                                                              Color="{StaticResource ShadowColor}"/>
                                                         </Setter.Value>
                                                     </Setter>
                                                 </Trigger>
@@ -892,7 +892,7 @@
                                                 <Image Source="{Binding DisplayArtPath, Converter={StaticResource PathToImage}}"
                                                        Stretch="Uniform"
                                                        Visibility="{Binding DisplayArtPath, Converter={StaticResource NotNullToVisibility}}"/>
-                                                <TextBlock Text="♥" FontSize="14" Foreground="#FFFF6B6B"
+                                                <TextBlock Text="♥" FontSize="14" Foreground="{StaticResource FavoriteHeartBrush}"
                                                            VerticalAlignment="Top" HorizontalAlignment="Right" Margin="0,8,8,0"
                                                            Visibility="{Binding IsFavorite, Converter={StaticResource BoolToVisibility}}"/>
                                             </Grid>
@@ -922,11 +922,11 @@
                                                 <TextBlock Style="{StaticResource LabelMuted}">
                                                     <Run Text="{Binding ConsoleName}"/>
                                                     <Run Text=" "/>
-                                                    <Run Text="{Binding TotalCount, StringFormat='({0})'}" Foreground="#666"/>
+                                                    <Run Text="{Binding TotalCount, StringFormat='({0})'}" Foreground="{StaticResource TextMutedBrush}"/>
                                                 </TextBlock>
                                                 <TextBlock Margin="12,0,0,0"
                                                            Cursor="Hand"
-                                                           Foreground="#E03535"
+                                                           Foreground="{StaticResource AccentBrush}"
                                                            FontSize="11"
                                                            VerticalAlignment="Center"
                                                            Tag="{Binding ConsoleName}"
@@ -958,7 +958,7 @@
                                                                         <Trigger Property="IsMouseOver" Value="True">
                                                                             <Setter Property="Effect">
                                                                                 <Setter.Value>
-                                                                                    <DropShadowEffect BlurRadius="16" ShadowDepth="4" Opacity="0.5" Color="#000000"/>
+                                                                                    <DropShadowEffect BlurRadius="16" ShadowDepth="4" Opacity="0.5" Color="{StaticResource ShadowColor}"/>
                                                                                 </Setter.Value>
                                                                             </Setter>
                                                                         </Trigger>
@@ -999,7 +999,7 @@
                                                                         <Image Source="{Binding DisplayArtPath, Converter={StaticResource PathToImage}}"
                                                                                Stretch="Uniform"
                                                                                Visibility="{Binding DisplayArtPath, Converter={StaticResource NotNullToVisibility}}"/>
-                                                                        <TextBlock Text="♥" FontSize="14" Foreground="#FFFF6B6B"
+                                                                        <TextBlock Text="♥" FontSize="14" Foreground="{StaticResource FavoriteHeartBrush}"
                                                                                    VerticalAlignment="Top" HorizontalAlignment="Right" Margin="0,8,8,0"
                                                                                    Visibility="{Binding IsFavorite, Converter={StaticResource BoolToVisibility}}"/>
                                                                     </Grid>

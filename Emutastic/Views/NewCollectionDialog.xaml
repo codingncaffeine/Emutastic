@@ -14,7 +14,7 @@
             BorderThickness="1"
             CornerRadius="10">
         <Border.Effect>
-            <DropShadowEffect BlurRadius="24" ShadowDepth="0" Opacity="0.65" Color="#000000"/>
+            <DropShadowEffect BlurRadius="24" ShadowDepth="0" Opacity="0.65" Color="{StaticResource ShadowColor}"/>
         </Border.Effect>
         <StackPanel Margin="24">
             <TextBlock Text="New Collection"

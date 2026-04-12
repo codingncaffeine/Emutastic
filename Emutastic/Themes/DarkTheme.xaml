@@ -15,19 +15,113 @@
     <Color x:Key="AccentHoverColor">#EB5555</Color>
     <Color x:Key="GreenColor">#28C840</Color>
 
+    <!-- Scrollbar -->
+    <Color x:Key="ScrollThumbColor">#484849</Color>
+    <Color x:Key="ScrollThumbHoverColor">#666668</Color>
+    <Color x:Key="ScrollThumbDragColor">#888889</Color>
+    <Color x:Key="ScrollTrackColor">#222224</Color>
+
+    <!-- Play Button -->
+    <Color x:Key="PlayBtnBgColor">#2C2C2E</Color>
+    <Color x:Key="PlayBtnBorderColor">#3A3A3C</Color>
+    <Color x:Key="PlayBtnHoverBgColor">#3A3A3C</Color>
+    <Color x:Key="PlayBtnHoverBorderColor">#48484A</Color>
+    <Color x:Key="PlayBtnPressedBgColor">#1C1C1E</Color>
+
+    <!-- Accent State Variants -->
+    <Color x:Key="AccentPressedColor">#C02020</Color>
+    <Color x:Key="AccentDisabledColor">#6B2020</Color>
+
+    <!-- Traffic Light Window Buttons -->
+    <Color x:Key="TrafficYellowColor">#FEBC2E</Color>
+    <Color x:Key="TrafficYellowHoverColor">#E5A800</Color>
+    <Color x:Key="TrafficGreenHoverColor">#1FA832</Color>
+    <Color x:Key="TrafficRedColor">#FF5F57</Color>
+    <Color x:Key="TrafficRedHoverColor">#E5453D</Color>
+
+    <!-- Overlay (Emulator) -->
+    <Color x:Key="OverlayBgColor">#121214</Color>
+
+    <!-- Shadow -->
+    <Color x:Key="ShadowColor">#000000</Color>
+
+    <!-- Pill Controls (toolbar view-mode buttons, etc.) -->
+    <Color x:Key="PillBgColor">#2D2D2D</Color>
+    <Color x:Key="PillBorderColor">#1A1A1A</Color>
+    <Color x:Key="PillHoverBgColor">#555555</Color>
+    <Color x:Key="PillPressedBgColor">#3D3D3D</Color>
+    <Color x:Key="PillFgColor">#E0E0E0</Color>
+    <Color x:Key="PillMutedFgColor">#A0A0A0</Color>
+
+    <!-- Interactive Surfaces (toggle tracks, nav pills, controls) -->
+    <Color x:Key="SurfaceColor">#3A3A3E</Color>
+    <Color x:Key="SurfaceHoverColor">#2E2E32</Color>
+    <Color x:Key="SurfaceActiveColor">#4A4A4F</Color>
+    <Color x:Key="ContentBgColor">#0C0C0E</Color>
+    <Color x:Key="WarningColor">#FFB347</Color>
+
+    <!-- Pill Group Container -->
+    <Color x:Key="PillGroupBgColor">#1E1E1E</Color>
+
+    <!-- Achievement Toast -->
+    <Color x:Key="AchievementGoldColor">#FFD700</Color>
+
+    <!-- Favorites Heart -->
+    <Color x:Key="FavoriteHeartColor">#FFFF6B6B</Color>
+
     <!-- ── BRUSHES ── -->
     <SolidColorBrush x:Key="BgPrimaryBrush"     Color="{StaticResource BgPrimaryColor}"/>
     <SolidColorBrush x:Key="BgSecondaryBrush"   Color="{StaticResource BgSecondaryColor}"/>
     <SolidColorBrush x:Key="BgTertiaryBrush"    Color="{StaticResource BgTertiaryColor}"/>
     <SolidColorBrush x:Key="BgQuaternaryBrush"  Color="{StaticResource BgQuaternaryColor}"/>
     <SolidColorBrush x:Key="BorderSubtleBrush"  Color="{StaticResource BorderSubtleColor}"/>
-    <SolidColorBrush x:Key="BorderNormalBrush"  Color="{StaticResource BorderNormalColor}"/>
+    <SolidColorBrush x:Key="BorderNormalBrush"   Color="{StaticResource BorderNormalColor}"/>
     <SolidColorBrush x:Key="TextPrimaryBrush"   Color="{StaticResource TextPrimaryColor}"/>
     <SolidColorBrush x:Key="TextSecondaryBrush" Color="{StaticResource TextSecondaryColor}"/>
     <SolidColorBrush x:Key="TextMutedBrush"     Color="{StaticResource TextMutedColor}"/>
     <SolidColorBrush x:Key="AccentBrush"        Color="{StaticResource AccentColor}"/>
     <SolidColorBrush x:Key="AccentHoverBrush"   Color="{StaticResource AccentHoverColor}"/>
     <SolidColorBrush x:Key="GreenBrush"         Color="{StaticResource GreenColor}"/>
+
+    <SolidColorBrush x:Key="ShadowBrush"           Color="{StaticResource ShadowColor}"/>
+    <SolidColorBrush x:Key="OverlayBgBrush"       Color="{StaticResource OverlayBgColor}"/>
+    <SolidColorBrush x:Key="AccentPressedBrush"   Color="{StaticResource AccentPressedColor}"/>
+    <SolidColorBrush x:Key="AccentDisabledBrush"   Color="{StaticResource AccentDisabledColor}"/>
+
+    <SolidColorBrush x:Key="ScrollThumbBrush"      Color="{StaticResource ScrollThumbColor}"/>
+    <SolidColorBrush x:Key="ScrollThumbHoverBrush"  Color="{StaticResource ScrollThumbHoverColor}"/>
+    <SolidColorBrush x:Key="ScrollThumbDragBrush"   Color="{StaticResource ScrollThumbDragColor}"/>
+    <SolidColorBrush x:Key="ScrollTrackBrush"       Color="{StaticResource ScrollTrackColor}"/>
+
+    <SolidColorBrush x:Key="PlayBtnBgBrush"           Color="{StaticResource PlayBtnBgColor}"/>
+    <SolidColorBrush x:Key="PlayBtnBorderBrush"       Color="{StaticResource PlayBtnBorderColor}"/>
+    <SolidColorBrush x:Key="PlayBtnHoverBgBrush"      Color="{StaticResource PlayBtnHoverBgColor}"/>
+    <SolidColorBrush x:Key="PlayBtnHoverBorderBrush"  Color="{StaticResource PlayBtnHoverBorderColor}"/>
+    <SolidColorBrush x:Key="PlayBtnPressedBgBrush"    Color="{StaticResource PlayBtnPressedBgColor}"/>
+
+    <SolidColorBrush x:Key="TrafficYellowBrush"       Color="{StaticResource TrafficYellowColor}"/>
+    <SolidColorBrush x:Key="TrafficYellowHoverBrush"   Color="{StaticResource TrafficYellowHoverColor}"/>
+    <SolidColorBrush x:Key="TrafficGreenHoverBrush"    Color="{StaticResource TrafficGreenHoverColor}"/>
+    <SolidColorBrush x:Key="TrafficRedBrush"           Color="{StaticResource TrafficRedColor}"/>
+    <SolidColorBrush x:Key="TrafficRedHoverBrush"      Color="{StaticResource TrafficRedHoverColor}"/>
+
+    <SolidColorBrush x:Key="PillBgBrush"         Color="{StaticResource PillBgColor}"/>
+    <SolidColorBrush x:Key="PillBorderBrush"     Color="{StaticResource PillBorderColor}"/>
+    <SolidColorBrush x:Key="PillHoverBgBrush"    Color="{StaticResource PillHoverBgColor}"/>
+    <SolidColorBrush x:Key="PillPressedBgBrush"  Color="{StaticResource PillPressedBgColor}"/>
+    <SolidColorBrush x:Key="PillFgBrush"         Color="{StaticResource PillFgColor}"/>
+    <SolidColorBrush x:Key="PillMutedFgBrush"    Color="{StaticResource PillMutedFgColor}"/>
+
+    <SolidColorBrush x:Key="SurfaceBrush"        Color="{StaticResource SurfaceColor}"/>
+    <SolidColorBrush x:Key="SurfaceHoverBrush"   Color="{StaticResource SurfaceHoverColor}"/>
+    <SolidColorBrush x:Key="SurfaceActiveBrush"  Color="{StaticResource SurfaceActiveColor}"/>
+    <SolidColorBrush x:Key="ContentBgBrush"      Color="{StaticResource ContentBgColor}"/>
+    <SolidColorBrush x:Key="WarningBrush"        Color="{StaticResource WarningColor}"/>
+
+    <SolidColorBrush x:Key="AchievementGoldBrush" Color="{StaticResource AchievementGoldColor}"/>
+
+    <SolidColorBrush x:Key="PillGroupBgBrush"    Color="{StaticResource PillGroupBgColor}"/>
+    <SolidColorBrush x:Key="FavoriteHeartBrush"  Color="{StaticResource FavoriteHeartColor}"/>
 
     <!-- ── TYPOGRAPHY ── -->
     <FontFamily x:Key="PrimaryFont">Segoe UI Variable, Segoe UI, sans-serif</FontFamily>
@@ -36,7 +130,7 @@
 
     <!-- Thumb: rounded pill, visible but not intrusive -->
     <Style x:Key="ScrollBarThumb" TargetType="{x:Type Thumb}">
-        <Setter Property="Background" Value="#484849"/>
+        <Setter Property="Background" Value="{StaticResource ScrollThumbBrush}"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="{x:Type Thumb}">
@@ -49,10 +143,10 @@
         </Setter>
         <Style.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
-                <Setter Property="Background" Value="#666668"/>
+                <Setter Property="Background" Value="{StaticResource ScrollThumbHoverBrush}"/>
             </Trigger>
             <Trigger Property="IsDragging" Value="True">
-                <Setter Property="Background" Value="#888889"/>
+                <Setter Property="Background" Value="{StaticResource ScrollThumbDragBrush}"/>
             </Trigger>
         </Style.Triggers>
     </Style>
@@ -68,7 +162,7 @@
                 <ControlTemplate TargetType="{x:Type ScrollBar}">
                     <Grid Background="Transparent">
                         <!-- Subtle track rail so the scrollbar is always visible -->
-                        <Border Background="#222224" CornerRadius="4" Margin="3,2,3,2"/>
+                        <Border Background="{StaticResource ScrollTrackBrush}" CornerRadius="4" Margin="3,2,3,2"/>
                         <Track x:Name="PART_Track" IsDirectionReversed="True">
                             <Track.DecreaseRepeatButton>
                                 <RepeatButton Command="ScrollBar.PageUpCommand"
@@ -236,10 +330,10 @@
 
     <!-- ── PLAY BUTTON ── -->
     <Style x:Key="PlayButtonStyle" TargetType="{x:Type Button}">
-        <Setter Property="Background" Value="#2C2C2E"/>
-        <Setter Property="Foreground" Value="#F0F0F0"/>
+        <Setter Property="Background" Value="{StaticResource PlayBtnBgBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
         <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="BorderBrush" Value="#3A3A3C"/>
+        <Setter Property="BorderBrush" Value="{StaticResource PlayBtnBorderBrush}"/>
         <Setter Property="Padding" Value="20,10"/>
         <Setter Property="FontSize" Value="13"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
@@ -259,11 +353,11 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="border" Property="Background" Value="#3A3A3C"/>
-                            <Setter TargetName="border" Property="BorderBrush" Value="#48484A"/>
+                            <Setter TargetName="border" Property="Background" Value="{StaticResource PlayBtnHoverBgBrush}"/>
+                            <Setter TargetName="border" Property="BorderBrush" Value="{StaticResource PlayBtnHoverBorderBrush}"/>
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="border" Property="Background" Value="#1C1C1E"/>
+                            <Setter TargetName="border" Property="Background" Value="{StaticResource PlayBtnPressedBgBrush}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -328,7 +422,7 @@
                                 SnapsToDevicePixels="True">
                             <Border.Effect>
                                 <DropShadowEffect BlurRadius="28" ShadowDepth="4" Direction="270"
-                                                  Opacity="0.55" Color="#000000"/>
+                                                  Opacity="0.55" Color="{StaticResource ShadowColor}"/>
                             </Border.Effect>
                             <StackPanel IsItemsHost="True"
                                         KeyboardNavigation.DirectionalNavigation="Cycle"/>
@@ -399,7 +493,7 @@
                                     CornerRadius="10"
                                     Padding="4,6">
                                 <Border.Effect>
-                                    <DropShadowEffect BlurRadius="24" ShadowDepth="0" Opacity="0.65" Color="#000000"/>
+                                    <DropShadowEffect BlurRadius="24" ShadowDepth="0" Opacity="0.65" Color="{StaticResource ShadowColor}"/>
                                 </Border.Effect>
                                 <StackPanel IsItemsHost="True"
                                             KeyboardNavigation.DirectionalNavigation="Cycle"/>

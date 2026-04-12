@@ -523,10 +523,17 @@ namespace Emutastic
 
             UpdateBoxArtToggleVisibility();
 
-            // Show per-console game count badge
-            if (navBtn != null && !string.IsNullOrEmpty(tag)
+            // Console-specific theme overrides
+            bool isConsoleView = !string.IsNullOrEmpty(tag)
                 && tag != "All Games" && tag != "Recent" && tag != "Favorites"
-                && tag != "RecentlyAdded" && !tag.StartsWith("Collection:"))
+                && tag != "RecentlyAdded" && !tag.StartsWith("Collection:");
+            if (isConsoleView)
+                Services.ThemeService.Instance.ApplyConsoleOverride(tag);
+            else
+                Services.ThemeService.Instance.ResetConsoleOverride();
+
+            // Show per-console game count badge
+            if (navBtn != null && isConsoleView)
             {
                 ShowNavCount(navBtn, _vm.Games.Count);
 
