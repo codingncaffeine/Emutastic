@@ -80,7 +80,11 @@ namespace Emutastic
                     SetStatus($"Importing… {pct}%  ({current} of {total})");
                 });
             _importer.GameImported += game =>
-                Dispatcher.Invoke(() => _vm.RefreshGame(game));
+                Dispatcher.Invoke(() =>
+                {
+                    _vm.RefreshGame(game);
+                    UpdateBoxArtToggleVisibility();
+                });
             _importer.AmbiguousConsoleResolver = (fileName, candidates) =>
             {
                 var tcs = new System.Threading.Tasks.TaskCompletionSource<string?>();
@@ -119,6 +123,16 @@ namespace Emutastic
 
             _ = _artworkFetch.RetryMissingArtworkAsync();
             _ = _artworkFetch.BackfillMetadataAsync();
+
+            // Discover save states on disk that aren't in the database.
+            // Quick check — only scans if the DB has fewer states than what's on disk.
+            _ = Task.Run(() =>
+            {
+                int found = _db.DiscoverOrphanedSaveStates();
+                if (found > 0)
+                    Dispatcher.BeginInvoke(() =>
+                        SetStatus($"Discovered {found} save state(s)", autoClear: true));
+            });
 
             ApplyBackgroundImage();
         }

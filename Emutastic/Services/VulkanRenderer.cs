@@ -523,6 +523,150 @@ namespace Emutastic.Services
         }
 
         // =====================================================================
+        // Async recording readback — zero-stall, reads frame N-1
+        // =====================================================================
+        private int  _recSlot = -1;       // slot with in-flight copy (-1 = none)
+        private uint _recWidth, _recHeight;
+        private byte[]? _recPixels;       // reusable buffer (avoids GC pressure)
+
+        /// <summary>
+        /// Non-blocking recording readback. Kicks off a GPU copy for this frame,
+        /// returns the PREVIOUS frame's pixels (already completed). Returns null
+        /// on the first call (no previous data yet) and when not recording.
+        /// </summary>
+        public (byte[]? pixels, int width, int height) ReadbackFrameForRecording(uint frameWidth, uint frameHeight)
+        {
+            lock (_imageLock)
+            {
+                if (!_hasImage || _currentVkImage == IntPtr.Zero)
+                    return (null, 0, 0);
+
+                uint w = frameWidth;
+                uint h = frameHeight;
+                if (w < 8 || h < 8 || w > 4096 || h > 4096)
+                    return (null, 0, 0);
+
+                try
+                {
+                    EnsureStagingBuffers(w, h);
+                    if (_stagingBufs[0].Handle == IntPtr.Zero)
+                        return (null, 0, 0);
+
+                    byte[]? result = null;
+                    int resultW = 0, resultH = 0;
+
+                    // Step 1: Read the PREVIOUS frame's data (fence should already be signaled)
+                    if (_recSlot >= 0)
+                    {
+                        var prevFence = _fences[_recSlot];
+                        var wr = vkWaitForFences(_device, 1, ref prevFence, 1, 0); // non-blocking check
+                        if (wr == VkResult.VK_SUCCESS)
+                        {
+                            int needed = (int)(_recWidth * _recHeight * 4);
+                            if (_recPixels == null || _recPixels.Length < needed)
+                                _recPixels = new byte[needed];
+                            Marshal.Copy(_stagingMapped[_recSlot], _recPixels, 0, needed);
+                            result = _recPixels;
+                            resultW = (int)_recWidth;
+                            resultH = (int)_recHeight;
+                        }
+                        // else: previous copy not done yet, skip this frame
+                    }
+
+                    // Step 2: Kick off async copy for THIS frame (non-blocking)
+                    int idx = (int)(_syncIndex % SyncCount);
+                    var fence = _fences[idx];
+
+                    // Wait for this slot to be free (from 2+ frames ago — should be instant)
+                    vkWaitForFences(_device, 1, ref fence, 1, 100_000_000UL);
+                    vkResetFences(_device, 1, ref fence);
+
+                    var cmd = _cmdBufs[idx];
+                    vkResetCommandBuffer(cmd, 0);
+                    var beginInfo = new VkCommandBufferBeginInfo
+                    {
+                        sType = VkStructureType.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+                        flags = 1,
+                    };
+                    if (vkBeginCommandBuffer(cmd, ref beginInfo) != VkResult.VK_SUCCESS)
+                        return (result, resultW, resultH);
+
+                    var image = new VkImage { Handle = _currentVkImage };
+                    var oldLayout = (VkImageLayout)_currentImage.image_layout;
+
+                    var toTransfer = new VkImageMemoryBarrier
+                    {
+                        sType = VkStructureType.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                        srcAccessMask = VkAccessFlags.VK_ACCESS_NONE,
+                        dstAccessMask = VkAccessFlags.VK_ACCESS_TRANSFER_READ_BIT,
+                        oldLayout = oldLayout,
+                        newLayout = VkImageLayout.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                        srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                        dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                        image = image,
+                        subresourceRange = new VkImageSubresourceRange
+                        {
+                            aspectMask = (uint)VkImageAspectFlags.VK_IMAGE_ASPECT_COLOR_BIT,
+                            baseMipLevel = 0, levelCount = 1, baseArrayLayer = 0, layerCount = 1,
+                        },
+                    };
+                    Marshal.StructureToPtr(toTransfer, _barrierPtr, false);
+                    vkCmdPipelineBarrier(cmd, (uint)VkPipelineStageFlags.VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                        (uint)VkPipelineStageFlags.VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, IntPtr.Zero, 0, IntPtr.Zero, 1, _barrierPtr);
+
+                    var region = new VkBufferImageCopy
+                    {
+                        bufferOffset = 0, bufferRowLength = 0, bufferImageHeight = 0,
+                        imageSubresource = new VkImageSubresourceLayers { aspectMask = VkImageAspectFlags.VK_IMAGE_ASPECT_COLOR_BIT, mipLevel = 0, baseArrayLayer = 0, layerCount = 1 },
+                        imageOffset = new VkOffset3D { x = 0, y = 0, z = 0 },
+                        imageExtent = new VkExtent3D { width = w, height = h, depth = 1 },
+                    };
+                    Marshal.StructureToPtr(region, _regionPtr, false);
+                    vkCmdCopyImageToBuffer(cmd, image, (uint)VkImageLayout.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, _stagingBufs[idx], 1, _regionPtr);
+
+                    var toOriginal = toTransfer;
+                    toOriginal.srcAccessMask = VkAccessFlags.VK_ACCESS_TRANSFER_READ_BIT;
+                    toOriginal.dstAccessMask = VkAccessFlags.VK_ACCESS_NONE;
+                    toOriginal.oldLayout = VkImageLayout.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+                    toOriginal.newLayout = oldLayout;
+                    Marshal.StructureToPtr(toOriginal, _barrierPtr, false);
+                    vkCmdPipelineBarrier(cmd, (uint)VkPipelineStageFlags.VK_PIPELINE_STAGE_TRANSFER_BIT,
+                        (uint)VkPipelineStageFlags.VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, IntPtr.Zero, 0, IntPtr.Zero, 1, _barrierPtr);
+
+                    vkEndCommandBuffer(cmd);
+                    Marshal.WriteIntPtr(_cmdSubmitPtr, cmd.Handle);
+                    var submitInfo = new VkSubmitInfo
+                    {
+                        sType = VkStructureType.VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                        commandBufferCount = 1,
+                        pCommandBuffers = _cmdSubmitPtr,
+                    };
+
+                    // Submit but DON'T wait — the fence signals when the copy is done
+                    lock (_queueLock) { vkQueueSubmit(_queue, 1, ref submitInfo, _fences[idx]); }
+
+                    _recSlot = idx;
+                    _recWidth = w;
+                    _recHeight = h;
+                    _syncIndex++;
+
+                    return (result, resultW, resultH);
+                }
+                catch (Exception ex)
+                {
+                    VkLog($"ReadbackFrameForRecording exception: {ex.Message}");
+                    return (null, 0, 0);
+                }
+            }
+        }
+
+        public void StopRecordingReadback()
+        {
+            _recSlot = -1;
+            _recPixels = null;
+        }
+
+        // =====================================================================
         // Callback implementations for retro_hw_render_interface_vulkan
         // =====================================================================
 

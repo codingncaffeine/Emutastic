@@ -1899,6 +1899,94 @@ namespace Emutastic.Views
                 sdl3Badge, sdl3Progress, sdl3StatusText, sdl3Btn,
                 isLast: false));
 
+            // ── ffmpeg.exe row ──
+            string ffmpegPath     = System.IO.Path.Combine(baseDir, "ffmpeg.exe");
+            bool   ffmpegPresent  = System.IO.File.Exists(ffmpegPath);
+
+            var ffmpegStatusText  = new TextBlock { FontSize = 10, Foreground = _brushTextMuted, Visibility = Visibility.Collapsed };
+            var ffmpegProgress    = new ProgressBar { Height = 4, Minimum = 0, Maximum = 100, Value = 0, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 4, 0, 0) };
+            var ffmpegBadge       = MakeBadge(ffmpegPresent);
+            var ffmpegBtn         = new Button
+            {
+                Content = ffmpegPresent ? "Re-download" : "Download",
+                Style   = (Style)FindResource("SmallOutlineButton"),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            ffmpegBtn.Click += async (_, _) =>
+            {
+                ffmpegBtn.IsEnabled          = false;
+                ffmpegProgress.Visibility    = Visibility.Visible;
+                ffmpegStatusText.Visibility  = Visibility.Visible;
+                ffmpegStatusText.Text        = "Fetching latest FFmpeg build…";
+                ffmpegProgress.Value         = 0;
+                try
+                {
+                    using var http = new System.Net.Http.HttpClient();
+                    http.DefaultRequestHeaders.Add("User-Agent", "Emutastic");
+
+                    // BtbN's auto-builds — reliable, always up to date
+                    string url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip";
+
+                    ffmpegStatusText.Text = "Downloading (~80 MB, this may take a minute)…";
+                    ffmpegProgress.Value  = 10;
+
+                    // Stream the download so we can show progress
+                    using var resp = await http.GetAsync(url, System.Net.Http.HttpCompletionOption.ResponseHeadersRead);
+                    resp.EnsureSuccessStatusCode();
+                    long totalBytes = resp.Content.Headers.ContentLength ?? -1;
+
+                    using var ms = new System.IO.MemoryStream();
+                    using var stream = await resp.Content.ReadAsStreamAsync();
+                    byte[] buffer = new byte[81920];
+                    long downloaded = 0;
+                    int read;
+                    while ((read = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                    {
+                        ms.Write(buffer, 0, read);
+                        downloaded += read;
+                        if (totalBytes > 0)
+                        {
+                            int pct = (int)(downloaded * 80 / totalBytes) + 10; // 10-90 range
+                            ffmpegProgress.Value = Math.Min(pct, 90);
+                            ffmpegStatusText.Text = $"Downloading… {downloaded / (1024 * 1024)} / {totalBytes / (1024 * 1024)} MB";
+                        }
+                    }
+
+                    ffmpegStatusText.Text = "Extracting ffmpeg.exe…";
+                    ffmpegProgress.Value  = 92;
+
+                    ms.Position = 0;
+                    using var archive = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Read);
+                    var entry = archive.Entries.FirstOrDefault(e =>
+                        e.Name.Equals("ffmpeg.exe", StringComparison.OrdinalIgnoreCase)
+                        && e.FullName.EndsWith("bin/ffmpeg.exe", StringComparison.OrdinalIgnoreCase));
+                    if (entry == null) throw new Exception("ffmpeg.exe not found inside the archive.");
+
+                    using var dst = System.IO.File.Create(ffmpegPath);
+                    using var src = entry.Open();
+                    await src.CopyToAsync(dst);
+
+                    ffmpegProgress.Value  = 100;
+                    ffmpegStatusText.Text = "Downloaded successfully — recording is ready to use.";
+                    ffmpegBadge.Background = new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58));
+                    ((TextBlock)ffmpegBadge.Child).Text       = "Present";
+                    ((TextBlock)ffmpegBadge.Child).Foreground = new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58));
+                    ffmpegBtn.Content = "Re-download";
+                }
+                catch (Exception ex)
+                {
+                    ffmpegStatusText.Text = $"Failed: {ex.Message}";
+                }
+                finally { ffmpegBtn.IsEnabled = true; }
+            };
+
+            extrasStack.Children.Add(MakeExtrasRow(
+                "ffmpeg.exe",
+                "Required for game recording (F9). Downloads a ~80 MB build from GitHub.",
+                ffmpegBadge, ffmpegProgress, ffmpegStatusText, ffmpegBtn,
+                isLast: false));
+
             // ── DAT files separator ──
             extrasStack.Children.Add(new Rectangle
             {
@@ -2269,7 +2357,7 @@ namespace Emutastic.Views
                 if (!success) return;
             }
 
-            // Safety: verify the database exists at the new location before switching
+            // Safety: verify the database exists at the new location after migration
             string newDb = System.IO.Path.Combine(newDir, "library.db");
             if (hasExistingData && !System.IO.File.Exists(newDb))
             {
@@ -2278,6 +2366,25 @@ namespace Emutastic.Views
                     "Your data directory has not been changed.",
                     "Migration Error", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
+            }
+
+            // Check if the chosen folder already has Emutastic data but no database
+            if (!hasExistingData)
+            {
+                bool destHasData = System.IO.Directory.Exists(System.IO.Path.Combine(newDir, "Artwork"))
+                    || System.IO.Directory.Exists(System.IO.Path.Combine(newDir, "BatterySaves"))
+                    || System.IO.Directory.Exists(System.IO.Path.Combine(newDir, "Save States"))
+                    || System.IO.Directory.Exists(System.IO.Path.Combine(newDir, "Snaps"));
+                bool destHasDb = System.IO.File.Exists(newDb);
+
+                if (destHasData && !destHasDb)
+                {
+                    System.Windows.MessageBox.Show(
+                        "Existing Emutastic data found at this location (artwork, saves, etc.).\n\n" +
+                        "A new library database will be created. Import your games and existing artwork will be discovered automatically.",
+                        "Existing Data Found", MessageBoxButton.OK, MessageBoxImage.Information);
+                    App.FirstRunDiscoveryNeeded = true;
+                }
             }
 
             // Update config and runtime path
