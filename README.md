@@ -25,7 +25,7 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 ## Supported Systems
 
 <details>
-<summary><strong>35 consoles across 8 manufacturers</strong></summary>
+<summary><strong>33 systems across 10 manufacturers</strong></summary>
 
 | System | Tag | Core (priority order) | BIOS |
 |---|---|---|---|
@@ -47,6 +47,7 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 | Master System | SMS | genesis_plus_gx → picodrive | No |
 | Game Gear | GameGear | genesis_plus_gx | No |
 | SG-1000 | SG1000 | genesis_plus_gx | No |
+| Dreamcast | Dreamcast | flycast | No |
 | PlayStation | PS1 | mednafen_psx → pcsx_rearmed | Region BIOS |
 | PSP | PSP | ppsspp | No |
 | TurboGrafx-16 | TG16 | mednafen_pce → mednafen_pce_fast | No |
@@ -91,7 +92,9 @@ Place BIOS files in `%AppData%\Roaming\Emutastic\system\`. The app also checks e
 
 ## ROM Import
 
-Drag and drop ROMs onto the library or use **Import ROMs**. The app detects the console from file extension, cleans the title, and hashes the ROM. For ambiguous formats (`.chd`, `.iso`, `.cue`), a SHA1 lookup against [No-Intro / Redump DAT files](https://www.no-intro.org/) is attempted first — if no match, a console picker is shown.
+Drag and drop ROMs onto the library or use **Import ROMs**. The app detects the console from file extension, cleans the title, and hashes the ROM. For ambiguous formats (`.chd`, `.iso`, `.cue`, `.bin`), a SHA1 lookup against DAT files is attempted first — if no match, a console picker is shown.
+
+**Important:** Download DAT files in **Preferences → Cores / Extras** before importing. Without them, disc images and some cartridge ROMs may be assigned to the wrong system during import.
 
 ---
 

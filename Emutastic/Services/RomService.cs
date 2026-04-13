@@ -89,6 +89,7 @@ namespace Emutastic.Services
             { "PS1",          "Sony"       }, { "PSP",       "Sony"       },
             { "TG16",         "NEC"        }, { "TGCD",      "NEC"        },
             { "NGP",          "SNK"        },
+            { "NGPC",         "SNK"        },
             { "NeoGeo",       "SNK"        },
             { "Atari2600",    "Atari"      },
             { "Atari7800",    "Atari"      },
@@ -124,6 +125,8 @@ namespace Emutastic.Services
             { "TG16",        ("#1A2E2E", "#009688") },
             { "Dreamcast",   ("#1A0A0A", "#FF6600") },
             { "CDi",         ("#1A1A2E", "#00897B") },
+            { "NGP",         ("#1A0A1A", "#C8A951") },
+            { "NGPC",        ("#1A0A1A", "#D4A843") },
             { "NeoGeo",      ("#1A0A1A", "#FFD700") },
             { "Arcade",      ("#0A0A0A", "#E03535") },
         };
@@ -204,7 +207,9 @@ namespace Emutastic.Services
             ("fbneo",         "Arcade"),
             ("fba",           "Arcade"),
             ("mame",          "Arcade"),
-            ("neo geo",       "NeoGeo"),  // must come after "neo geo pocket"
+            ("neo geo pocket color","NGPC"),  // must come before "neo geo pocket"
+            ("neo geo pocket","NGP"),         // must come before "neo geo"
+            ("neo geo",       "NeoGeo"),
             ("neogeo",        "NeoGeo"),
             ("neo-geo",       "NeoGeo"),
             ("lunagarlic",    "NeoGeo"),
@@ -212,7 +217,6 @@ namespace Emutastic.Services
             ("cps2",          "Arcade"),
             ("cps3",          "Arcade"),
             ("capcom",        "Arcade"),
-            ("neo geo pocket","NGP"),
             ("sega saturn",   "Saturn"),
             ("saturn",        "Saturn"),
             ("dreamcast",     "Dreamcast"),
@@ -323,6 +327,7 @@ namespace Emutastic.Services
             { "TG16",         0.90 },  // HuCard box
             { "TGCD",         0.90 },  // same as TG16
             { "NGP",          1.28 },  // Neo Geo Pocket hang-tab card (landscape)
+            { "NGPC",         1.28 },  // Neo Geo Pocket Color hang-tab card (landscape)
             { "Atari2600",    0.83 },  // 2600 box
 
             { "Atari7800",    0.88 },  // 7800 box

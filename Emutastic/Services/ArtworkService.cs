@@ -34,6 +34,7 @@ namespace Emutastic.Services
         public string? FindCachedArtwork(string romHash, string? console = null)
         {
             if (string.IsNullOrWhiteSpace(romHash)) return null;
+            EnsureCacheBuilt();
             // Check console subfolder first for a direct hit
             if (!string.IsNullOrWhiteSpace(console))
             {
@@ -110,14 +111,9 @@ namespace Emutastic.Services
             _vgdbPath = Path.Combine(exeFolder, "Assets", "openvgdb.sqlite");
 
             _cacheFolder = AppPaths.GetFolder("Artwork");
-            // Build a hash→path index once so the repair pass is O(1) per game.
-            // Scan recursively so console subfolders are included.
+            // Cache index is built lazily on first access (off the UI thread)
+            // to avoid blocking startup with a potentially large disk scan.
             _cacheIndex = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (string f in Directory.EnumerateFiles(_cacheFolder, "*.*", SearchOption.AllDirectories))
-            {
-                string key = Path.GetFileNameWithoutExtension(f).ToLowerInvariant();
-                _cacheIndex.TryAdd(key, f);  // first match wins; duplicates across consoles are harmless
-            }
 
             _http = new HttpClient();
             _http.DefaultRequestHeaders.Add("User-Agent", "Emutastic/1.0");
@@ -127,6 +123,27 @@ namespace Emutastic.Services
                 File.Exists(_vgdbPath)
                     ? $"OpenVGDB found at: {_vgdbPath}"
                     : $"OpenVGDB NOT FOUND at: {_vgdbPath}");
+        }
+
+        private volatile bool _cacheBuilt;
+        private readonly object _cacheBuildLock = new();
+
+        /// <summary>
+        /// Builds the hash→path cache index on first call. Thread-safe.
+        /// </summary>
+        private void EnsureCacheBuilt()
+        {
+            if (_cacheBuilt) return;
+            lock (_cacheBuildLock)
+            {
+                if (_cacheBuilt) return;
+                foreach (string f in Directory.EnumerateFiles(_cacheFolder, "*.*", SearchOption.AllDirectories))
+                {
+                    string key = Path.GetFileNameWithoutExtension(f).ToLowerInvariant();
+                    _cacheIndex.TryAdd(key, f);
+                }
+                _cacheBuilt = true;
+            }
         }
 
         public async Task<ArtworkResult?> LookupByHashAsync(string md5Hash)

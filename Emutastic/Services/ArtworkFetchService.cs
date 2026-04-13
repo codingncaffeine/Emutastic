@@ -63,9 +63,13 @@ namespace Emutastic.Services
         /// <summary>
         /// Retries all games missing cover art on startup. Games whose artwork file
         /// is already on disk get a DB-only repair (instant, no HTTP).
+        /// Yields to the UI thread periodically to avoid choking it.
         /// </summary>
         public async Task RetryMissingArtworkAsync()
         {
+            // Small delay so the window finishes rendering before we start work.
+            await Task.Delay(500);
+
             var missing = await Task.Run(() => _db.GetGamesWithoutArtwork());
             if (missing.Count == 0) return;
 
@@ -91,9 +95,13 @@ namespace Emutastic.Services
                 }
             });
 
-            // Batch-refresh repaired games on the UI thread instead of one Post per game
-            if (repaired.Count > 0)
-                OnUI(() => { foreach (var g in repaired) _vm.RefreshGame(g); });
+            // Batch-refresh repaired games in chunks to avoid flooding the UI thread.
+            for (int i = 0; i < repaired.Count; i += 20)
+            {
+                var chunk = repaired.Skip(i).Take(20).ToList();
+                OnUI(() => { foreach (var g in chunk) _vm.RefreshGame(g); });
+                await Task.Delay(50); // yield so UI stays responsive
+            }
 
             if (stillMissing.Count == 0) return;
             await FetchArtworkForGamesAsync(stillMissing, "Artwork", silentThreshold: 1);

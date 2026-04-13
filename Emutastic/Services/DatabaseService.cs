@@ -146,6 +146,7 @@ namespace Emutastic.Services
                 "WHERE Screenshot LIKE '%OpenEmuWindows%';";
             pathFixCmd.ExecuteNonQuery();
 
+
             TryAddColumn(connection, "Games", "Rating", "INTEGER DEFAULT 0");
             TryAddColumn(connection, "Games", "Collection", "TEXT DEFAULT ''");
 

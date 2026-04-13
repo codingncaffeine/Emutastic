@@ -17,6 +17,8 @@ namespace Emutastic.ViewModels
     {
         private readonly DatabaseService _db;
         private ObservableCollection<Game> _allGames = new();
+        // O(1) lookup by Game.Id — rebuilt on Reload(), updated in RefreshGame.
+        private Dictionary<int, Game> _gameIndex = new();
 
         private ObservableCollection<Game> _games = new();
         public ObservableCollection<Game> Games
@@ -147,6 +149,7 @@ namespace Emutastic.ViewModels
         {
             var games = _db.GetAllGames();
             _allGames = new ObservableCollection<Game>(games);
+            _gameIndex = games.ToDictionary(g => g.Id);
             InvalidateCache();
         }
 
@@ -195,52 +198,36 @@ namespace Emutastic.ViewModels
                 if (updated.LastPlayed != null) target.LastPlayed = updated.LastPlayed;
             }
 
-            var existing = _allGames.FirstOrDefault(g => g.Id == updated.Id);
+            // O(1) lookup via index instead of linear scan
+            _gameIndex.TryGetValue(updated.Id, out var existing);
+
             if (existing != null)
             {
                 MergeOnto(existing);
-                int idx = _allGames.IndexOf(existing);
-                _allGames[idx] = existing; // re-seat to trigger collection change
             }
             else
             {
                 _allGames.Add(updated);
+                _gameIndex[updated.Id] = updated;
             }
 
-            // Keep the per-console cache in sync so the user doesn't have to
-            // navigate away and back to see artwork / new games after import.
             var target = existing ?? updated;
             string console = target.Console ?? "";
+
+            // Update caches silently (no re-seat) — these are only used when switching consoles,
+            // so we just need the data to be correct, not trigger WPF layout.
             if (!string.IsNullOrEmpty(console) && _consoleCache.TryGetValue(console, out var cached))
             {
-                var inCache = cached.FirstOrDefault(g => g.Id == target.Id);
-                if (inCache != null)
-                {
-                    if (inCache != target) MergeOnto(inCache);
-                    int ci = cached.IndexOf(inCache);
-                    cached[ci] = inCache; // re-seat
-                }
-                else
-                {
+                if (!cached.Any(g => g.Id == target.Id))
                     cached.Add(target);
-                }
             }
-            // Also update the "All Games" cache
             if (_consoleCache.TryGetValue("All Games", out var allCache))
             {
-                var inAll = allCache.FirstOrDefault(g => g.Id == target.Id);
-                if (inAll != null)
-                {
-                    if (inAll != target) MergeOnto(inAll);
-                    int ai = allCache.IndexOf(inAll);
-                    allCache[ai] = inAll;
-                }
-                else
-                {
+                if (!allCache.Any(g => g.Id == target.Id))
                     allCache.Add(target);
-                }
             }
 
+            // Only re-seat the currently visible Games collection (triggers WPF render).
             var inView = Games.FirstOrDefault(g => g.Id == updated.Id);
             if (inView != null)
             {

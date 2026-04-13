@@ -306,8 +306,19 @@ namespace Emutastic.Services
 
                 if (string.IsNullOrEmpty(innerConsole))
                 {
-                    await ImportRomFileAsync(romPath, "Arcade", fileName);
-                    return;
+                    // Archive contains no recognized ROM extensions.
+                    // Try folder name detection before defaulting to Arcade.
+                    string fromFolder = RomService.DetectConsoleFromFolderName(romPath);
+                    if (!string.IsNullOrEmpty(fromFolder))
+                    {
+                        ImportLog($"[{fileName}] no recognized ext in archive, folder detection → {fromFolder}");
+                        innerConsole = fromFolder;
+                    }
+                    else
+                    {
+                        await ImportRomFileAsync(romPath, "Arcade", fileName);
+                        return;
+                    }
                 }
 
                 // Non-arcade archives: extract the single ROM file and re-import it.
