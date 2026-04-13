@@ -27,8 +27,11 @@ namespace Emutastic
         {
             get
             {
-                if (!string.IsNullOrEmpty(_customRoot) && Directory.Exists(_customRoot))
+                if (!string.IsNullOrEmpty(_customRoot))
+                {
+                    Directory.CreateDirectory(_customRoot);
                     return _customRoot;
+                }
                 return DefaultRoot;
             }
         }

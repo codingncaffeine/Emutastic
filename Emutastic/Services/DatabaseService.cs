@@ -127,10 +127,10 @@ namespace Emutastic.Services
                 idxCmd.ExecuteNonQuery();
             }
 
-            // One-time cleanup: remove Arcade-tagged entries that aren't .zip files.
-            // FBNeo arcade ROMs are always .zip; anything else was misidentified on import.
+            // One-time cleanup: remove Arcade-tagged entries that aren't .zip or .7z files.
+            // FBNeo arcade ROMs are always archives; anything else was misidentified on import.
             var cleanCmd = connection.CreateCommand();
-            cleanCmd.CommandText = "DELETE FROM Games WHERE Console = 'Arcade' AND RomPath NOT LIKE '%.zip';";
+            cleanCmd.CommandText = "DELETE FROM Games WHERE Console = 'Arcade' AND RomPath NOT LIKE '%.zip' AND RomPath NOT LIKE '%.7z';";
             cleanCmd.ExecuteNonQuery();
 
             // One-time path migration: fix paths that still reference the old AppData folder name.
@@ -138,6 +138,8 @@ namespace Emutastic.Services
             pathFixCmd.CommandText =
                 "UPDATE Games SET CoverArtPath = REPLACE(CoverArtPath, '\\OpenEmuWindows\\', '\\Emutastic\\') " +
                 "WHERE CoverArtPath LIKE '%OpenEmuWindows%';" +
+                "UPDATE Games SET RomPath = REPLACE(RomPath, '\\OpenEmuWindows\\', '\\Emutastic\\') " +
+                "WHERE RomPath LIKE '%OpenEmuWindows%';" +
                 "UPDATE SaveStates SET FilePath   = REPLACE(FilePath,   '\\OpenEmuWindows\\', '\\Emutastic\\') " +
                 "WHERE FilePath   LIKE '%OpenEmuWindows%';" +
                 "UPDATE SaveStates SET Screenshot = REPLACE(Screenshot, '\\OpenEmuWindows\\', '\\Emutastic\\') " +
@@ -671,6 +673,22 @@ namespace Emutastic.Services
             return (long)cmd.ExecuteScalar()! > 0;
         }
 
+        public HashSet<string> GetAllRomPaths()
+        {
+            var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT RomPath FROM Games;";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                string path = reader.GetString(0);
+                if (!string.IsNullOrEmpty(path)) set.Add(path);
+            }
+            return set;
+        }
+
         public bool GameExists(int gameId)
         {
             using var connection = new SqliteConnection(_connectionString);
@@ -1025,9 +1043,6 @@ namespace Emutastic.Services
         public void DeleteGame(int gameId)
         {
             using var connection = OpenConnection();
-            // Clean up artwork files before deleting the DB record
-            CleanupArtworkFiles(connection, "SELECT CoverArtPath, BoxArt3DPath, ScreenScraperArtPath FROM Games WHERE Id = $id;",
-                new[] { ("$id", (object)gameId) });
             // Disable FK enforcement so save states are preserved when a game is removed from the library.
             using (var fk = connection.CreateCommand()) { fk.CommandText = "PRAGMA foreign_keys = OFF;"; fk.ExecuteNonQuery(); }
             // Clean up join table manually since FKs are disabled
@@ -1043,10 +1058,6 @@ namespace Emutastic.Services
             var ids = gameIds.ToList();
             if (ids.Count == 0) return;
             using var connection = OpenConnection();
-            // Clean up artwork files before deleting DB records
-            foreach (int id in ids)
-                CleanupArtworkFiles(connection, "SELECT CoverArtPath, BoxArt3DPath, ScreenScraperArtPath FROM Games WHERE Id = $id;",
-                    new[] { ("$id", (object)id) });
             using (var fk = connection.CreateCommand()) { fk.CommandText = "PRAGMA foreign_keys = OFF;"; fk.ExecuteNonQuery(); }
             using var tx = connection.BeginTransaction();
             // Clean up join table manually since FKs are disabled
@@ -1425,6 +1436,96 @@ namespace Emutastic.Services
             using var reader = cmd.ExecuteReader();
             while (reader.Read()) list.Add(ReadSaveState(reader));
             return list;
+        }
+
+        /// <summary>
+        /// Scans Save States/ on disk for .json metadata + .state files that aren't
+        /// already registered in the database, and inserts them. Matches to games by RomHash.
+        /// Called on startup so save states survive a database rebuild.
+        /// </summary>
+        public int DiscoverOrphanedSaveStates()
+        {
+            string root = Path.Combine(AppPaths.DataRoot, "Save States");
+            if (!Directory.Exists(root)) return 0;
+
+            // Build a set of known state file paths so we don't insert duplicates
+            var known = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var s in GetAllSaveStates())
+                if (!string.IsNullOrEmpty(s.StatePath)) known.Add(s.StatePath);
+
+            // Build hash→gameId lookup from current games
+            var hashToGame = new Dictionary<string, (int id, string title)>(StringComparer.OrdinalIgnoreCase);
+            foreach (var g in GetAllGames())
+                if (!string.IsNullOrEmpty(g.RomHash) && !hashToGame.ContainsKey(g.RomHash))
+                    hashToGame[g.RomHash] = (g.Id, g.Title);
+
+            int count = 0;
+            foreach (string consoleDir in Directory.EnumerateDirectories(root))
+            {
+                foreach (string gameDir in Directory.EnumerateDirectories(consoleDir))
+                {
+                    foreach (string jsonFile in Directory.EnumerateFiles(gameDir, "*.json"))
+                    {
+                        try
+                        {
+                            string stem = Path.GetFileNameWithoutExtension(jsonFile);
+                            string statePath = Path.Combine(gameDir, stem + ".state");
+                            if (!File.Exists(statePath)) continue;
+                            if (known.Contains(statePath)) continue;
+
+                            string json = File.ReadAllText(jsonFile);
+                            using var doc = System.Text.Json.JsonDocument.Parse(json);
+                            var el = doc.RootElement;
+
+                            string romHash = el.TryGetProperty("RomHash", out var h) ? h.GetString() ?? "" : "";
+                            string name = el.TryGetProperty("Name", out var n) ? n.GetString() ?? stem : stem;
+                            string consoleName = el.TryGetProperty("ConsoleName", out var c) ? c.GetString() ?? "" : "";
+                            string gameTitle = el.TryGetProperty("GameTitle", out var t) ? t.GetString() ?? "" : "";
+                            string coreName = el.TryGetProperty("CoreName", out var cn) ? cn.GetString() ?? "" : "";
+                            DateTime created = DateTime.Now;
+                            if (el.TryGetProperty("CreatedAt", out var d) && d.GetString() is string ds
+                                && DateTime.TryParse(ds, out var parsed))
+                                created = parsed;
+
+                            string pngPath = Path.Combine(gameDir, stem + ".png");
+
+                            // Try to match to an existing game by hash
+                            int gameId = 0;
+                            if (!string.IsNullOrEmpty(romHash) && hashToGame.TryGetValue(romHash, out var match))
+                            {
+                                gameId = match.id;
+                                gameTitle = match.title; // use current title
+                            }
+
+                            var ss = new SaveState
+                            {
+                                GameId = gameId,
+                                Name = name,
+                                GameTitle = gameTitle,
+                                ConsoleName = consoleName,
+                                CoreName = coreName,
+                                RomHash = romHash,
+                                StatePath = statePath,
+                                ScreenshotPath = File.Exists(pngPath) ? pngPath : "",
+                                CreatedAt = created,
+                            };
+                            InsertSaveState(ss);
+                            known.Add(statePath);
+                            count++;
+                        }
+                        catch { /* skip malformed json */ }
+                    }
+                }
+            }
+
+            // Update save counts for all affected games
+            if (count > 0)
+            {
+                foreach (var g in GetAllGames())
+                    RecalcSaveCount(g.Id);
+            }
+
+            return count;
         }
 
         public SaveState? GetSaveStateByGameAndName(int gameId, string name)

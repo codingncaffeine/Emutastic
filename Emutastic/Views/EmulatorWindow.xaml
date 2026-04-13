@@ -339,6 +339,14 @@
                                         Visibility="Collapsed"
                                         Style="{StaticResource OverlayMenuItemStyle}"
                                         Click="OverlayScreenLayout_Click"/>
+                                <Button x:Name="OverlayRecordMenuBtn"
+                                        Content="Record"
+                                        Style="{StaticResource OverlayMenuItemStyle}"
+                                        Click="OverlayRecord_Click"/>
+                                <Button x:Name="OverlayViewRecordingsBtn"
+                                        Content="View Recordings"
+                                        Style="{StaticResource OverlayMenuItemStyle}"
+                                        Click="OverlayViewRecordings_Click"/>
                                 <Rectangle Height="1" Fill="#33FFFFFF" Margin="6,2,6,2"/>
                                 <TextBlock x:Name="OverlayCoreLabel"
                                            Foreground="#99FFFFFF"
@@ -420,6 +428,12 @@
                                         Click="OverlaySave_Click">
                                     <md:PackIcon Kind="ContentSave" Width="22" Height="22" Foreground="White"/>
                                 </Button>
+                                <Button x:Name="OverlayRecordBtn"
+                                        Style="{StaticResource OverlayPillBtnStyle}"
+                                        ToolTip="Record (F9)"
+                                        Click="OverlayRecord_Click">
+                                    <md:PackIcon x:Name="OverlayRecordIcon" Kind="RecordCircle" Width="22" Height="22" Foreground="White"/>
+                                </Button>
                                 <Rectangle Width="1" Fill="#44FFFFFF" Margin="0,14,0,14"/>
                                 <Button x:Name="OverlayCogBtn"
                                         Style="{StaticResource OverlayPillBtnStyle}"
@@ -487,6 +501,15 @@
                     <StackPanel Grid.Column="1"
                                 Orientation="Horizontal"
                                 VerticalAlignment="Center">
+
+                        <TextBlock x:Name="RecIndicator"
+                                   Text="⏺ REC"
+                                   Foreground="#E03535"
+                                   FontSize="11"
+                                   FontWeight="Bold"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,12,0"
+                                   Visibility="Collapsed"/>
 
                         <Button x:Name="SaveStateBtn"
                                 Content="💾  Save State"

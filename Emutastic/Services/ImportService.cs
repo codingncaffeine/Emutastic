@@ -23,6 +23,9 @@ namespace Emutastic.Services
         // hundreds of simultaneous writers during a large import (e.g. 200 N64 ROMs).
         private readonly System.Threading.SemaphoreSlim _hashSemaphore = new(6, 6);
 
+        // Pre-loaded at import start — avoids per-ROM DB queries for duplicate checking.
+        private HashSet<string> _knownPaths = new(StringComparer.OrdinalIgnoreCase);
+
         public ImportService(DatabaseService db, CoreManager coreManager,
             IConfigurationService? configService = null)
         {
@@ -61,36 +64,50 @@ namespace Emutastic.Services
             // stop reporting progress and don't corrupt the new counters.
             int session = System.Threading.Interlocked.Increment(ref _artworkSession);
 
-            // Pre-count all ROM files so we can report accurate progress.
+            // Reset counters and show immediate feedback while counting runs in background.
             _progressCurrent = 0;
             _progressTotal   = 0;
             _artworkTotal    = 0;
             _artworkDone     = 0;
-            foreach (string path in paths)
+            StatusChanged?.Invoke("Scanning files…");
+
+            // Pre-load known paths so we can skip duplicates without a DB query per ROM.
+            _knownPaths = _db.GetAllRomPaths();
+
+            // Pre-count all ROM files off the calling thread so the UI stays responsive.
+            await Task.Run(() =>
             {
-                if (Directory.Exists(path))
-                    _progressTotal += Directory.EnumerateFiles(path, "*.*", SearchOption.AllDirectories)
-                                               .Count(RomService.IsRomFile);
-                else if (File.Exists(path) && RomService.IsRomFile(path))
-                    _progressTotal++;
-            }
+                foreach (string path in paths)
+                {
+                    if (Directory.Exists(path))
+                        _progressTotal += Directory.EnumerateFiles(path, "*.*", SearchOption.AllDirectories)
+                                                   .Count(RomService.IsRomFile);
+                    else if (File.Exists(path) && RomService.IsRomFile(path))
+                        _progressTotal++;
+                }
+            });
 
             ProgressChanged?.Invoke(0, _progressTotal);
 
-            foreach (string path in paths)
+            // Run the actual import off the UI thread so the window stays responsive.
+            // AmbiguousConsoleResolver already marshals its dialog back to the dispatcher.
+            await Task.Run(async () =>
             {
-                if (Directory.Exists(path))
+                foreach (string path in paths)
                 {
-                    await ImportFolderAsync(path);
-                    continue;
+                    if (Directory.Exists(path))
+                    {
+                        await ImportFolderAsync(path);
+                        continue;
+                    }
+
+                    if (!File.Exists(path)) continue;
+
+                    await ImportSingleRomAsync(path);
+                    _progressCurrent++;
+                    ProgressChanged?.Invoke(_progressCurrent, _progressTotal);
                 }
-
-                if (!File.Exists(path)) continue;
-
-                await ImportSingleRomAsync(path);
-                _progressCurrent++;
-                ProgressChanged?.Invoke(_progressCurrent, _progressTotal);
-            }
+            });
 
             ProgressChanged?.Invoke(_progressTotal, _progressTotal);
         }
@@ -359,7 +376,7 @@ namespace Emutastic.Services
                 }
             }
 
-            if (_db.RomPathExists(romPath)) { ImportLog($"[{fileName}] SKIPPED — path already in DB"); return; }
+            if (_knownPaths.Contains(romPath)) { ImportLog($"[{fileName}] SKIPPED — path already in DB"); return; }
 
             StatusChanged?.Invoke($"Importing {fileName}…");
 
@@ -389,6 +406,7 @@ namespace Emutastic.Services
 
             // Insert immediately so it appears in the library without waiting for hash/artwork
             _db.InsertGame(game);
+            _knownPaths.Add(romPath);
             ImportLog($"[{fileName}] INSERTED as {console} (id={game.Id})");
             GameImported?.Invoke(game);
 
@@ -420,34 +438,83 @@ namespace Emutastic.Services
                     return;
                 }
 
-                var (artworkPath, ssArtPath, metadata) = await _artwork.FetchArtworkAsync(hash, romPath, console);
+                // ── Discover existing artwork on disk before hitting the network ──
+                string? existingCover = _artwork.FindCachedArtwork(hash, console);
+                string? existing3D = null;
+                string? existingSS = null;
 
-                if (ssArtPath != null)
+                // Check for BoxArt3D on disk
+                string boxArt3DFolder = AppPaths.GetFolder("BoxArt3D", console);
+                string boxArt3DPath = Path.Combine(boxArt3DFolder, hash + ".png");
+                if (File.Exists(boxArt3DPath)) existing3D = boxArt3DPath;
+
+                // Check for ScreenScraper 2D on disk
+                string ss2dFolder = AppPaths.GetFolder("ss2d", console);
+                foreach (string ext in new[] { ".png", ".jpg", ".jpeg" })
                 {
-                    _db.UpdateScreenScraperArt(game.Id, ssArtPath);
-                    game.ScreenScraperArtPath = ssArtPath;
+                    string ssPath = Path.Combine(ss2dFolder, hash + ext);
+                    if (File.Exists(ssPath)) { existingSS = ssPath; break; }
                 }
 
-                if (artworkPath != null)
+                // Apply any discovered artwork to DB immediately
+                if (existing3D != null)
                 {
-                    _db.UpdateCoverArt(game.Id, artworkPath);
-                    game.CoverArtPath = artworkPath;
-
-                    if (metadata != null && !string.IsNullOrWhiteSpace(metadata.Title))
-                        game.Title = metadata.Title;
-
-                    GameImported?.Invoke(game);
+                    _db.UpdateBoxArt3D(game.Id, existing3D);
+                    game.BoxArt3DPath = existing3D;
                 }
-                else if (ssArtPath != null)
+                if (existingSS != null)
                 {
-                    if (metadata != null && !string.IsNullOrWhiteSpace(metadata.Title))
-                        game.Title = metadata.Title;
-                    GameImported?.Invoke(game);
+                    _db.UpdateScreenScraperArt(game.Id, existingSS);
+                    game.ScreenScraperArtPath = existingSS;
+                }
+                if (existingCover != null)
+                {
+                    _db.UpdateCoverArt(game.Id, existingCover);
+                    game.CoverArtPath = existingCover;
+                }
+
+                // ── Fetch missing artwork from the network ──
+                // Only fetch 2D art (cover + ScreenScraper). 3D art is on-demand only.
+                if (existingCover == null)
+                {
+                    var (artworkPath, ssArtPath, metadata) = await _artwork.FetchArtworkAsync(hash, romPath, console);
+
+                    // Only apply SS art if we didn't already find it on disk
+                    if (ssArtPath != null && existingSS == null)
+                    {
+                        _db.UpdateScreenScraperArt(game.Id, ssArtPath);
+                        game.ScreenScraperArtPath = ssArtPath;
+                    }
+
+                    if (artworkPath != null)
+                    {
+                        _db.UpdateCoverArt(game.Id, artworkPath);
+                        game.CoverArtPath = artworkPath;
+
+                        if (metadata != null && !string.IsNullOrWhiteSpace(metadata.Title))
+                            game.Title = metadata.Title;
+
+                        GameImported?.Invoke(game);
+                    }
+                    else if (ssArtPath != null || existingSS != null)
+                    {
+                        if (metadata != null && !string.IsNullOrWhiteSpace(metadata.Title))
+                            game.Title = metadata.Title;
+                        GameImported?.Invoke(game);
+                    }
+                    else
+                    {
+                        _db.IncrementArtworkAttempts(game.Id);
+                    }
                 }
                 else
                 {
-                    _db.IncrementArtworkAttempts(game.Id);
+                    // Cover was found on disk — still notify UI to refresh the tile
+                    GameImported?.Invoke(game);
                 }
+
+                // ── Discover existing save states on disk ──
+                DiscoverSaveStates(game);
 
                 // Only report progress if no newer import has started since this task was spawned.
                 if (taskSession == _artworkSession)
@@ -460,6 +527,100 @@ namespace Emutastic.Services
                 }
                 finally { _hashSemaphore.Release(); }
             });
+        }
+
+        /// <summary>
+        /// Scans Save States/{Console}/ for subfolders containing .json metadata
+        /// whose RomHash matches this game, and re-registers them in the database.
+        /// </summary>
+        private void DiscoverSaveStates(Game game)
+        {
+            if (string.IsNullOrEmpty(game.RomHash) || string.IsNullOrEmpty(game.Console)) return;
+            try
+            {
+                string consoleDir = Path.Combine(AppPaths.DataRoot, "Save States",
+                    SanitizeFileName(game.Console));
+                ImportLog($"[{game.Title}] Looking for save states in: {consoleDir} (hash={game.RomHash})");
+                if (!Directory.Exists(consoleDir))
+                {
+                    ImportLog($"[{game.Title}] Save state dir not found");
+                    return;
+                }
+
+                int count = 0;
+                foreach (string folder in Directory.EnumerateDirectories(consoleDir))
+                {
+                    foreach (string jsonFile in Directory.EnumerateFiles(folder, "*.json"))
+                    {
+                        try
+                        {
+                            string json = File.ReadAllText(jsonFile);
+                            using var doc = System.Text.Json.JsonDocument.Parse(json);
+                            var root = doc.RootElement;
+                            if (!root.TryGetProperty("RomHash", out var hashProp)) continue;
+                            string? fileHash = hashProp.GetString();
+                            if (!string.Equals(fileHash, game.RomHash, StringComparison.OrdinalIgnoreCase))
+                                continue;
+
+                            // Found a matching save state — derive file paths from the .json path
+                            string stem = Path.GetFileNameWithoutExtension(jsonFile);
+                            string dir = Path.GetDirectoryName(jsonFile)!;
+                            string statePath = Path.Combine(dir, stem + ".state");
+                            string pngPath = Path.Combine(dir, stem + ".png");
+
+                            if (!File.Exists(statePath)) continue;
+
+                            string name = stem;
+                            if (root.TryGetProperty("Name", out var nameProp))
+                                name = nameProp.GetString() ?? stem;
+
+                            DateTime created = DateTime.Now;
+                            if (root.TryGetProperty("CreatedAt", out var dateProp))
+                            {
+                                string? dateStr = dateProp.GetString();
+                                if (dateStr != null && DateTime.TryParse(dateStr, out var parsed))
+                                    created = parsed;
+                            }
+
+                            string coreName = "";
+                            if (root.TryGetProperty("CoreName", out var coreProp))
+                                coreName = coreProp.GetString() ?? "";
+
+                            var ss = new SaveState
+                            {
+                                GameId = game.Id,
+                                Name = name,
+                                GameTitle = game.Title,
+                                ConsoleName = game.Console,
+                                CoreName = coreName,
+                                RomHash = game.RomHash,
+                                StatePath = statePath,
+                                ScreenshotPath = File.Exists(pngPath) ? pngPath : "",
+                                CreatedAt = created,
+                            };
+                            _db.InsertSaveState(ss);
+                            count++;
+                        }
+                        catch { /* non-fatal — skip malformed json */ }
+                    }
+                }
+                if (count > 0)
+                {
+                    game.SaveCount = count;
+                    _db.RecalcSaveCount(game.Id);
+                    ImportLog($"[{game.Title}] Discovered {count} save state(s) on disk");
+                }
+            }
+            catch (Exception ex)
+            {
+                ImportLog($"[{game.Title}] Save state discovery error: {ex.Message}");
+            }
+        }
+
+        private static string SanitizeFileName(string s)
+        {
+            var invalid = Path.GetInvalidFileNameChars();
+            return new string(s.Select(c => invalid.Contains(c) ? '_' : c).ToArray()).Trim();
         }
 
         private static readonly string _importLogPath = Path.Combine(

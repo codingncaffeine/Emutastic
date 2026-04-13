@@ -16,6 +16,9 @@ namespace Emutastic
         public static ILogger? Logger { get; private set; }
         public static CoreOptionsService CoreOptions { get; private set; } = null!;
 
+        /// <summary>True when first-run detected existing data at the chosen directory (no DB yet).</summary>
+        public static bool FirstRunDiscoveryNeeded { get; set; }
+
         private static Mutex? _singleInstanceMutex;
 
         protected override async void OnStartup(StartupEventArgs e)
@@ -130,7 +133,54 @@ namespace Emutastic
             {
                 Configuration = new JsonConfigurationService(Logger as ILogger<JsonConfigurationService>);
                 await Configuration.LoadAsync();
-                AppPaths.SetCustomRoot(Configuration.GetUserPreferences().CustomDataDirectory);
+                var prefs = Configuration.GetUserPreferences();
+                AppPaths.SetCustomRoot(prefs.CustomDataDirectory);
+
+                // First-run: let user pick data directory before anything creates folders
+                if (string.IsNullOrEmpty(prefs.CustomDataDirectory)
+                    && !File.Exists(Path.Combine(AppPaths.DataRoot, "library.db")))
+                {
+                    var result = System.Windows.MessageBox.Show(
+                        "Choose where to store your library (database, saves, artwork, snaps).\n\n" +
+                        $"Click Yes to browse, or No to use the default:\n{AppPaths.DefaultRoot}",
+                        "Welcome to Emutastic",
+                        System.Windows.MessageBoxButton.YesNo,
+                        System.Windows.MessageBoxImage.Question);
+
+                    if (result == System.Windows.MessageBoxResult.Yes)
+                    {
+                        var folderDlg = new Microsoft.Win32.OpenFolderDialog
+                        {
+                            Title = "Select data directory"
+                        };
+                        if (folderDlg.ShowDialog() == true)
+                        {
+                            string chosen = folderDlg.FolderName;
+
+                            // Detect existing Emutastic data at the chosen location
+                            bool hasExistingData = Directory.Exists(Path.Combine(chosen, "Artwork"))
+                                || Directory.Exists(Path.Combine(chosen, "BatterySaves"))
+                                || Directory.Exists(Path.Combine(chosen, "Save States"))
+                                || Directory.Exists(Path.Combine(chosen, "Snaps"));
+                            bool hasDb = File.Exists(Path.Combine(chosen, "library.db"));
+
+                            if (hasExistingData && !hasDb)
+                            {
+                                System.Windows.MessageBox.Show(
+                                    "Existing Emutastic data found at this location (artwork, saves, etc.).\n\n" +
+                                    "A new library database will be created. Import your games and existing artwork will be discovered automatically.",
+                                    "Existing Data Found", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+                                FirstRunDiscoveryNeeded = true;
+                            }
+
+                            prefs.CustomDataDirectory = chosen;
+                            Configuration.SetUserPreferences(prefs);
+                            await Configuration.SaveAsync();
+                            AppPaths.SetCustomRoot(chosen);
+                        }
+                    }
+                }
+
                 CoreOptions = new CoreOptionsService();
                 ApplyThemeResources();
 

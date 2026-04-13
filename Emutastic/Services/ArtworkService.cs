@@ -112,11 +112,12 @@ namespace Emutastic.Services
             _cacheFolder = AppPaths.GetFolder("Artwork");
             // Build a hash→path index once so the repair pass is O(1) per game.
             // Scan recursively so console subfolders are included.
-            _cacheIndex = Directory.EnumerateFiles(_cacheFolder, "*.*", SearchOption.AllDirectories)
-                .ToDictionary(
-                    f => Path.GetFileNameWithoutExtension(f).ToLowerInvariant(),
-                    f => f,
-                    StringComparer.OrdinalIgnoreCase);
+            _cacheIndex = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string f in Directory.EnumerateFiles(_cacheFolder, "*.*", SearchOption.AllDirectories))
+            {
+                string key = Path.GetFileNameWithoutExtension(f).ToLowerInvariant();
+                _cacheIndex.TryAdd(key, f);  // first match wins; duplicates across consoles are harmless
+            }
 
             _http = new HttpClient();
             _http.DefaultRequestHeaders.Add("User-Agent", "Emutastic/1.0");

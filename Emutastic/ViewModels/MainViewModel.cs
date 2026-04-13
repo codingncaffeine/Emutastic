@@ -146,9 +146,7 @@ namespace Emutastic.ViewModels
         public void Reload()
         {
             var games = _db.GetAllGames();
-            _allGames = games.Count == 0
-                ? new ObservableCollection<Game>(GetSampleGames())
-                : new ObservableCollection<Game>(games);
+            _allGames = new ObservableCollection<Game>(games);
             InvalidateCache();
         }
 
@@ -209,12 +207,53 @@ namespace Emutastic.ViewModels
                 _allGames.Add(updated);
             }
 
+            // Keep the per-console cache in sync so the user doesn't have to
+            // navigate away and back to see artwork / new games after import.
+            var target = existing ?? updated;
+            string console = target.Console ?? "";
+            if (!string.IsNullOrEmpty(console) && _consoleCache.TryGetValue(console, out var cached))
+            {
+                var inCache = cached.FirstOrDefault(g => g.Id == target.Id);
+                if (inCache != null)
+                {
+                    if (inCache != target) MergeOnto(inCache);
+                    int ci = cached.IndexOf(inCache);
+                    cached[ci] = inCache; // re-seat
+                }
+                else
+                {
+                    cached.Add(target);
+                }
+            }
+            // Also update the "All Games" cache
+            if (_consoleCache.TryGetValue("All Games", out var allCache))
+            {
+                var inAll = allCache.FirstOrDefault(g => g.Id == target.Id);
+                if (inAll != null)
+                {
+                    if (inAll != target) MergeOnto(inAll);
+                    int ai = allCache.IndexOf(inAll);
+                    allCache[ai] = inAll;
+                }
+                else
+                {
+                    allCache.Add(target);
+                }
+            }
+
             var inView = Games.FirstOrDefault(g => g.Id == updated.Id);
             if (inView != null)
             {
                 if (inView != existing) MergeOnto(inView);
                 int idx = Games.IndexOf(inView);
                 Games[idx] = inView; // re-seat to trigger collection change
+            }
+            else if (Games != _allGames)
+            {
+                // Game not in current view — add it if we're viewing its console or "All Games"
+                string viewing = SelectedConsole ?? "";
+                if (viewing == "All Games" || viewing == console)
+                    Games.Add(target);
             }
         }
 
