@@ -7,6 +7,8 @@ using Emutastic.Configuration;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 
 namespace Emutastic.Services
@@ -39,12 +41,21 @@ namespace Emutastic.Services
         public event Action<string>? StatusChanged;
         public event Action<Game>? GameImported;
         public event Action<int, int>? ProgressChanged; // (current, total)
+        public event Action? ImportQueueDrained; // fired when all queued batches finish
 
         private int _progressCurrent;
         private int _progressTotal;
         private int _artworkTotal;
         private int _artworkDone;
-        private int _artworkSession; // incremented on each new import; tasks check this before reporting
+        private volatile int _drainGeneration; // artwork tasks check this to avoid corrupting new cycle's counters
+
+        // ── Serial import queue (OpenEmu-style) ──────────────────────────
+        // New imports are appended; a single background worker drains them in order.
+        private readonly Channel<List<string>> _importQueue =
+            Channel.CreateUnbounded<List<string>>(new UnboundedChannelOptions { SingleReader = true });
+        private Task? _importWorker;
+        private readonly object _workerLock = new();
+        public volatile bool IsImporting;
 
         /// <summary>
         /// Set by the UI layer to resolve ambiguous extensions (e.g. .chd which could be
@@ -56,43 +67,81 @@ namespace Emutastic.Services
         // Per-folder cache for .bin archives: ask once per folder, apply to the rest.
         private readonly Dictionary<string, string> _folderBinConsole = new(StringComparer.OrdinalIgnoreCase);
 
-        public async Task ImportFilesAsync(IEnumerable<string> filePaths)
+        /// <summary>
+        /// Enqueues paths for import. If an import is already running the new batch
+        /// is appended to the queue and progress counters accumulate (OpenEmu-style).
+        /// Returns immediately — the actual work happens on a background worker.
+        /// </summary>
+        public void ImportFilesAsync(IEnumerable<string> filePaths)
         {
             var paths = filePaths.ToList();
+            if (paths.Count == 0) return;
 
-            // Bump session so any still-running background tasks from a previous import
-            // stop reporting progress and don't corrupt the new counters.
-            int session = System.Threading.Interlocked.Increment(ref _artworkSession);
+            lock (_workerLock)
+            {
+                _importQueue.Writer.TryWrite(paths);
 
-            // Reset counters and show immediate feedback while counting runs in background.
+                if (_importWorker == null || _importWorker.IsCompleted)
+                    _importWorker = Task.Run(ProcessImportQueueAsync);
+            }
+        }
+
+        private async Task ProcessImportQueueAsync()
+        {
+            IsImporting = true;
+
+            // Bump generation so stale artwork tasks from a previous drain don't touch our counters.
+            Interlocked.Increment(ref _drainGeneration);
+
+            // Reset counters at the start of a new queue drain.
             _progressCurrent = 0;
             _progressTotal   = 0;
             _artworkTotal    = 0;
             _artworkDone     = 0;
-            StatusChanged?.Invoke("Scanning files…");
 
-            // Pre-load known paths so we can skip duplicates without a DB query per ROM.
+            // Pre-load known paths once per queue drain.
             _knownPaths = _db.GetAllRomPaths();
 
-            // Pre-count all ROM files off the calling thread so the UI stays responsive.
-            await Task.Run(() =>
+            // Drain loop: process available batches, then wait briefly for more.
+            // The 200ms coalescing window lets rapid drag-and-drops merge into one drain.
+            while (true)
             {
-                foreach (string path in paths)
+                if (!_importQueue.Reader.TryRead(out var paths))
                 {
-                    if (Directory.Exists(path))
-                        _progressTotal += Directory.EnumerateFiles(path, "*.*", SearchOption.AllDirectories)
-                                                   .Count(RomService.IsRomFile);
-                    else if (File.Exists(path) && RomService.IsRomFile(path))
-                        _progressTotal++;
+                    // Nothing ready — wait up to 200ms for a new batch before exiting.
+                    using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+                    try
+                    {
+                        if (!await _importQueue.Reader.WaitToReadAsync(cts.Token))
+                            break; // Channel completed (shouldn't happen with unbounded)
+                        continue;  // Item available — loop back to TryRead
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break; // Timeout — no more batches, we're done
+                    }
                 }
-            });
 
-            ProgressChanged?.Invoke(0, _progressTotal);
+                StatusChanged?.Invoke("Scanning files…");
 
-            // Run the actual import off the UI thread so the window stays responsive.
-            // AmbiguousConsoleResolver already marshals its dialog back to the dispatcher.
-            await Task.Run(async () =>
-            {
+                // Count new files and add to running total.
+                int batchCount = 0;
+                await Task.Run(() =>
+                {
+                    foreach (string path in paths)
+                    {
+                        if (Directory.Exists(path))
+                            batchCount += Directory.EnumerateFiles(path, "*.*", SearchOption.AllDirectories)
+                                                   .Count(RomService.IsRomFile);
+                        else if (File.Exists(path) && RomService.IsRomFile(path))
+                            batchCount++;
+                    }
+                });
+
+                Interlocked.Add(ref _progressTotal, batchCount);
+                ProgressChanged?.Invoke(_progressCurrent, _progressTotal);
+
+                // Process this batch.
                 foreach (string path in paths)
                 {
                     if (Directory.Exists(path))
@@ -104,12 +153,14 @@ namespace Emutastic.Services
                     if (!File.Exists(path)) continue;
 
                     await ImportSingleRomAsync(path);
-                    _progressCurrent++;
+                    Interlocked.Increment(ref _progressCurrent);
                     ProgressChanged?.Invoke(_progressCurrent, _progressTotal);
                 }
-            });
+            }
 
             ProgressChanged?.Invoke(_progressTotal, _progressTotal);
+            IsImporting = false;
+            ImportQueueDrained?.Invoke();
         }
 
         private async Task ImportFolderAsync(string folderPath)
@@ -155,7 +206,7 @@ namespace Emutastic.Services
             {
                 if (!RomService.IsRomFile(file)) continue;
                 await ImportSingleRomAsync(file);
-                _progressCurrent++;
+                Interlocked.Increment(ref _progressCurrent);
                 ProgressChanged?.Invoke(_progressCurrent, _progressTotal);
             }
         }
@@ -414,11 +465,9 @@ namespace Emutastic.Services
             // denominator is always >= the numerator even if tasks complete out of order.
             System.Threading.Interlocked.Increment(ref _artworkTotal);
 
-            // Capture session so this task can detect if a newer import has started.
-            int taskSession = _artworkSession;
-
-            // Hash and artwork fetch in background — semaphore caps concurrent writers to 4
+            // Hash and artwork fetch in background — semaphore caps concurrent writers to 6
             // so SQLite isn't locked solid during a large bulk import.
+            int taskGen = _drainGeneration;
             _ = Task.Run(async () =>
             {
                 await _hashSemaphore.WaitAsync();
@@ -516,10 +565,10 @@ namespace Emutastic.Services
                 // ── Discover existing save states on disk ──
                 DiscoverSaveStates(game);
 
-                // Only report progress if no newer import has started since this task was spawned.
-                if (taskSession == _artworkSession)
+                // Only update progress if this task belongs to the current drain cycle.
+                if (taskGen == _drainGeneration)
                 {
-                    int done  = System.Threading.Interlocked.Increment(ref _artworkDone);
+                    int done  = Interlocked.Increment(ref _artworkDone);
                     int total = _artworkTotal;
                     int pct   = (int)((done / (double)total) * 100);
                     StatusChanged?.Invoke($"Artwork — {pct}%  ({done} of {total})  {game.Title}");
