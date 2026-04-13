@@ -85,6 +85,13 @@ namespace Emutastic
                     _vm.RefreshGame(game);
                     UpdateBoxArtToggleVisibility();
                 });
+            _importer.ImportQueueDrained += () =>
+                Dispatcher.Invoke(async () =>
+                {
+                    await Task.Run(() => _vm.Reload());
+                    await _vm.FilterGamesAsync();
+                    _vm.ToolbarTitle = _vm.SelectedConsole;
+                });
             _importer.AmbiguousConsoleResolver = (fileName, candidates) =>
             {
                 var tcs = new System.Threading.Tasks.TaskCompletionSource<string?>();
@@ -506,7 +513,7 @@ namespace Emutastic
             base.OnDragLeave(e);
         }
 
-        protected override async void OnDrop(DragEventArgs e)
+        protected override void OnDrop(DragEventArgs e)
         {
             _dragLeaveTimer?.Stop();
             DropOverlay.Visibility = Visibility.Collapsed;
@@ -530,10 +537,7 @@ namespace Emutastic
 
                 if (romFiles.Length > 0)
                 {
-                    await _importer.ImportFilesAsync(romFiles);
-                    await Task.Run(() => _vm.Reload());
-                    await _vm.FilterGamesAsync();
-                    _vm.ToolbarTitle = _vm.SelectedConsole;
+                    _importer.ImportFilesAsync(romFiles);
                 }
             }
             base.OnDrop(e);
@@ -867,7 +871,7 @@ namespace Emutastic
             }
         }
 
-        private async void NavImport_Click(object sender, RoutedEventArgs e)
+        private void NavImport_Click(object sender, RoutedEventArgs e)
         {
             var dialog = new OpenFileDialog
             {
@@ -877,10 +881,7 @@ namespace Emutastic
             };
             if (dialog.ShowDialog() == true)
             {
-                await _importer.ImportFilesAsync(dialog.FileNames);
-                await Task.Run(() => _vm.Reload());
-                await _vm.FilterGamesAsync();
-                _vm.ToolbarTitle = _vm.SelectedConsole;
+                _importer.ImportFilesAsync(dialog.FileNames);
             }
         }
 

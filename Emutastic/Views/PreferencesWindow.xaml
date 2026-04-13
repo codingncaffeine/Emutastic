@@ -689,36 +689,21 @@
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Style="{StaticResource MinimalScrollViewer}">
                     <StackPanel Margin="32,24,32,24" MaxWidth="600" HorizontalAlignment="Left">
 
-                        <!-- Data directory -->
+                        <!-- Data directory (read-only) -->
                         <TextBlock Text="DATA DIRECTORY" Style="{StaticResource PrefLabel}"/>
                         <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,0,0,8"
                                    Foreground="{DynamicResource TextSecondaryBrush}">
                             <Run>All app data (database, saves, artwork, video snaps, screenshots) is stored here. </Run>
-                            <Run FontStyle="Italic">Video snaps from ScreenScraper can add up quickly — consider pointing this to a drive with plenty of space.</Run>
+                            <Run FontStyle="Italic">This is configured on first launch.</Run>
                         </TextBlock>
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Background="{DynamicResource BgTertiaryBrush}"
-                                    BorderBrush="{DynamicResource BorderNormalBrush}" BorderThickness="1"
-                                    CornerRadius="6" Padding="10,8">
-                                <TextBlock x:Name="DataDirPathText"
-                                           Foreground="{DynamicResource TextSecondaryBrush}"
-                                           FontSize="12" VerticalAlignment="Center"
-                                           TextTrimming="CharacterEllipsis"/>
-                            </Border>
-                            <Button x:Name="BrowseDataDirBtn" Grid.Column="1"
-                                    Content="Change&#x2026;" Style="{StaticResource SecondaryBtn}"
-                                    Margin="8,0,0,0" Padding="14,8"
-                                    Click="BrowseDataDirBtn_Click"/>
-                            <Button x:Name="ResetDataDirBtn" Grid.Column="2"
-                                    Content="Reset" Style="{StaticResource SecondaryBtn}"
-                                    Margin="4,0,0,0" Padding="14,8"
-                                    Click="ResetDataDirBtn_Click"/>
-                        </Grid>
+                        <Border Background="{DynamicResource BgTertiaryBrush}"
+                                BorderBrush="{DynamicResource BorderNormalBrush}" BorderThickness="1"
+                                CornerRadius="6" Padding="10,8">
+                            <TextBlock x:Name="DataDirPathText"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       FontSize="12" VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis"/>
+                        </Border>
 
                         <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,24,0,16"/>
 

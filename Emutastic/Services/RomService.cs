@@ -345,12 +345,66 @@ namespace Emutastic.Services
                 : ("#1F1F21", "#E03535");
         }
 
+        // ── Persistent hash cache ────────────────────────────────────────
+        // Survives DB rebuilds so reimporting the same ROM files is instant.
+        // Key = "path|size|lastWriteUtc"  →  Value = md5 hex string
+        private static readonly object _hashCacheLock = new();
+        private static Dictionary<string, string>? _hashCache;
+        private static readonly string _hashCachePath =
+            Path.Combine(AppPaths.DataRoot, "hash_cache.txt");
+
+        private static Dictionary<string, string> LoadHashCache()
+        {
+            var cache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (!File.Exists(_hashCachePath)) return cache;
+            try
+            {
+                foreach (var line in File.ReadLines(_hashCachePath))
+                {
+                    int eq = line.IndexOf('=');
+                    if (eq > 0)
+                        cache[line[..eq]] = line[(eq + 1)..];
+                }
+            }
+            catch { /* corrupt file — start fresh */ }
+            return cache;
+        }
+
+        private static void SaveHashCacheEntry(string key, string hash)
+        {
+            try { File.AppendAllText(_hashCachePath, $"{key}={hash}\n"); }
+            catch { /* non-fatal */ }
+        }
+
+        private static string MakeCacheKey(string filePath)
+        {
+            var fi = new FileInfo(filePath);
+            return $"{filePath}|{fi.Length}|{fi.LastWriteTimeUtc:o}";
+        }
+
         public static string HashRom(string filePath)
         {
+            string cacheKey = MakeCacheKey(filePath);
+
+            lock (_hashCacheLock)
+            {
+                _hashCache ??= LoadHashCache();
+                if (_hashCache.TryGetValue(cacheKey, out var cached))
+                    return cached;
+            }
+
             using var md5 = MD5.Create();
             using var stream = File.OpenRead(filePath);
             byte[] hash = md5.ComputeHash(stream);
-            return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+            string hex = BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+
+            lock (_hashCacheLock)
+            {
+                _hashCache![cacheKey] = hex;
+            }
+            SaveHashCacheEntry(cacheKey, hex);
+
+            return hex;
         }
 
         public static string CleanTitle(string fileName)
