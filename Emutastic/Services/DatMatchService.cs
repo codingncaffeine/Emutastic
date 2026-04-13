@@ -53,7 +53,11 @@ namespace Emutastic.Services
             foreach (string datPath in Directory.EnumerateFiles(_datsFolder, "*.dat"))
             {
                 string console = Path.GetFileNameWithoutExtension(datPath);
-                if (console.Equals("NeoGeo", StringComparison.OrdinalIgnoreCase))
+                // NGPC games use the same core and sidebar entry as NGP
+                if (console.Equals("NGPC", StringComparison.OrdinalIgnoreCase))
+                    console = "NGP";
+                if (console.Equals("NeoGeo", StringComparison.OrdinalIgnoreCase) ||
+                    console.Equals("NGP",    StringComparison.OrdinalIgnoreCase))
                     LoadClrmameproDat(datPath, console);
                 else
                     LoadDat(datPath, console);
@@ -127,6 +131,8 @@ namespace Emutastic.Services
         {
             try
             {
+                bool isNeoGeo = console.Equals("NeoGeo", StringComparison.OrdinalIgnoreCase);
+                int sha1Count = 0;
                 string? currentDescription = null;
                 foreach (string rawLine in File.ReadLines(path))
                 {
@@ -152,13 +158,30 @@ namespace Emutastic.Services
                                 string romFile = line.Substring(q1 + 1, q2 - q1 - 1);
                                 string romName = Path.GetFileNameWithoutExtension(romFile);
                                 string title = currentDescription ?? romName;
-                                _neoGeoNameIndex.TryAdd(romName, title);
+                                if (isNeoGeo)
+                                    _neoGeoNameIndex.TryAdd(romName, title);
+                            }
+                        }
+
+                        // Extract SHA1 for hash-based identification (NGP, NGPC, etc.)
+                        int sha1Idx = line.IndexOf("sha1 ", StringComparison.OrdinalIgnoreCase);
+                        if (sha1Idx >= 0)
+                        {
+                            int start = sha1Idx + 5;
+                            int end = start;
+                            while (end < line.Length && char.IsLetterOrDigit(line[end])) end++;
+                            if (end > start)
+                            {
+                                string sha1 = line[start..end];
+                                string title = currentDescription ?? Path.GetFileNameWithoutExtension(path);
+                                _sha1Index.TryAdd(sha1, new DatMatch(console, title));
+                                sha1Count++;
                             }
                         }
                     }
                 }
                 System.Diagnostics.Trace.WriteLine(
-                    $"[DatMatchService] Loaded {_neoGeoNameIndex.Count} NeoGeo titles from {Path.GetFileName(path)}");
+                    $"[DatMatchService] Loaded {(isNeoGeo ? $"{_neoGeoNameIndex.Count} NeoGeo titles" : $"{sha1Count} SHA1 entries for {console}")} from {Path.GetFileName(path)}");
             }
             catch (Exception ex)
             {

@@ -1797,6 +1797,8 @@ namespace Emutastic.Views
             ("TGCD",   "TurboGrafx-CD",      "pce",  null),
             ("3DO",    "3DO",                 "3do",  null),
             ("CDi",    "Philips CD-i",        "cdi",  null),
+            ("NGP",    "Neo Geo Pocket",       null, "https://raw.githubusercontent.com/libretro/libretro-database/master/metadat/no-intro/SNK%20-%20Neo%20Geo%20Pocket.dat"),
+            ("NGPC",   "Neo Geo Pocket Color", null, "https://raw.githubusercontent.com/libretro/libretro-database/master/metadat/no-intro/SNK%20-%20Neo%20Geo%20Pocket%20Color.dat"),
         };
 
         private void BuildExtrasSection()

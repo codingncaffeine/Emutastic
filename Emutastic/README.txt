@@ -24,7 +24,9 @@ GETTING STARTED
 2. Open Preferences (gear icon) and go to Cores / Extras:
    - Download the cores for the systems you want to play
    - Download SDL3.dll for controller name detection
-   - Download DAT files for automatic disc image detection during import
+   - Download DAT files — these are important! Without them, disc images
+     and some cartridge ROMs may be assigned to the wrong system or
+     require manual selection during import. Grab all of them.
 
 3. If any system requires a BIOS (Sega CD, Saturn, PlayStation, etc.),
    go to Preferences → System Files to see what's needed and where to
