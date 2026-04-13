@@ -304,7 +304,7 @@ namespace Emutastic.Services
                         Interlocked.Increment(ref fetched);
                         ApplyMetadata(game, metadata);
                     }
-                    else if (ssArtPath == null)
+                    else
                     {
                         _db.IncrementArtworkAttempts(game.Id);
                     }
@@ -318,7 +318,13 @@ namespace Emutastic.Services
 
                     int completed = Interlocked.Increment(ref done);
                     int pct = (int)((completed / (double)total) * 100);
-                    OnUI(() => _vm.SetStatus($"{label} — {pct}%  ({completed} of {total})  {game.Title}"));
+                    OnUI(() => _vm.SetStatus($"{label} — {pct}%  ({completed} of {total})  [{game.Console}] {game.Title}"));
+                }
+                catch
+                {
+                    // Count failed fetches toward the attempt cap so we don't
+                    // retry the same broken games every launch.
+                    try { _db.IncrementArtworkAttempts(game.Id); } catch { }
                 }
                 finally { sem.Release(); }
             });
@@ -352,7 +358,7 @@ namespace Emutastic.Services
                         game.CoverArtPath = artworkPath;
                         ApplyMetadata(game, metadata);
                     }
-                    else if (ssArtPath == null)
+                    else
                     {
                         _db.IncrementArtworkAttempts(game.Id);
                     }
@@ -362,6 +368,10 @@ namespace Emutastic.Services
 
                     if (artworkPath != null || ssArtPath != null)
                         OnUI(() => _vm.RefreshGame(game));
+                }
+                catch
+                {
+                    try { _db.IncrementArtworkAttempts(game.Id); } catch { }
                 }
                 finally { sem.Release(); }
             });
