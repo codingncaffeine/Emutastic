@@ -147,7 +147,7 @@ namespace Emutastic.Views
         // Services
         private ControllerManager? _controllerManager;
         private AudioPlayer?       _audioPlayer;
-        private RecordingService?  _recordingService;
+        private IRecordingService?  _recordingService;
         private readonly IConfigurationService _configService;
         private InputConfiguration? _inputConfig;
         private readonly Dictionary<Key, uint> _keyboardMappings = new();
@@ -596,10 +596,44 @@ namespace Emutastic.Views
         [DllImport("user32.dll")] private static extern IntPtr DefWindowProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
         [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern ushort RegisterClassEx(ref WNDCLASSEX lpwcx);
+        [DllImport("user32.dll")] private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+        [DllImport("user32.dll")] private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
+        [DllImport("user32.dll")] private static extern IntPtr CallWindowProc(IntPtr lpPrevWndFunc, IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+        [DllImport("user32.dll")] private static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
         // Field-pinned WndProc delegate — prevents GC collecting the stub while the
         // window class is registered (window class lifetime = process lifetime).
         private WndProcDelegate? _offscreenWndProc;
+
+        // Overlay subclass — forwards key messages to the WPF window so F9/F5/F12/Escape work
+        private WndProcDelegate? _overlaySubclassProc;
+        private IntPtr _overlayOldWndProc;
+        private IntPtr _wpfHwnd;
+
+        private void SubclassOverlay(IntPtr overlayHwnd)
+        {
+            if (_wpfHwnd == IntPtr.Zero)
+                _wpfHwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            _overlaySubclassProc = OverlayWndProc;
+            _overlayOldWndProc = GetWindowLongPtr(overlayHwnd, -4 /* GWL_WNDPROC */);
+            SetWindowLongPtr(overlayHwnd, -4, Marshal.GetFunctionPointerForDelegate(_overlaySubclassProc));
+        }
+
+        private IntPtr OverlayWndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
+        {
+            const uint WM_KEYDOWN   = 0x0100;
+            const uint WM_KEYUP     = 0x0101;
+            const uint WM_SYSKEYDOWN = 0x0104;
+            const uint WM_SYSKEYUP  = 0x0105;
+
+            if (msg == WM_KEYDOWN || msg == WM_KEYUP || msg == WM_SYSKEYDOWN || msg == WM_SYSKEYUP)
+            {
+                // Forward key messages to the WPF window
+                PostMessage(_wpfHwnd, msg, wParam, lParam);
+            }
+
+            return CallWindowProc(_overlayOldWndProc, hWnd, msg, wParam, lParam);
+        }
 
         // PeekMessage / DispatchMessage — used to pump NVIDIA driver sync messages
         // on the emu thread so it doesn't __fastfail waiting for a message pump.
@@ -1118,6 +1152,9 @@ namespace Emutastic.Views
                                 vulkanHwnd = _vulkanOverlayHwnd;
                                 System.Diagnostics.Trace.WriteLine($"[Vulkan] Overlay HWND=0x{vulkanHwnd:X} at ({vx},{vy}) {vw}x{vh}");
 
+                                // Subclass overlay to forward key events to WPF window
+                                SubclassOverlay(_vulkanOverlayHwnd);
+
                                 // Hook move/resize/state events to keep overlay in sync
                                 LocationChanged += VulkanOverlay_Reposition;
                                 SizeChanged += VulkanOverlay_Reposition;
@@ -1203,6 +1240,9 @@ namespace Emutastic.Views
                                 _glOverlayWidth = vw;
                                 _glOverlayHeight = vh;
                                 System.Diagnostics.Trace.WriteLine($"[GL Overlay] HWND=0x{_glOverlayHwnd:X} at ({vx},{vy}) {vw}x{vh}");
+
+                                // Subclass overlay to forward key events to WPF window
+                                SubclassOverlay(_glOverlayHwnd);
 
                                 // Hook move/resize/state events (same handler as Vulkan overlay)
                                 LocationChanged += VulkanOverlay_Reposition;
@@ -2253,9 +2293,6 @@ namespace Emutastic.Views
                             Dispatcher.BeginInvoke(() =>
                             {
                                 OverlayShaderBtn.Visibility = Visibility.Collapsed;
-                                OverlayRecordBtn.Visibility = Visibility.Collapsed;
-                                OverlayRecordMenuBtn.Visibility = Visibility.Collapsed;
-                                OverlayViewRecordingsBtn.Visibility = Visibility.Collapsed;
                             });
 
                             if (hw.context_reset != IntPtr.Zero)
@@ -2285,9 +2322,6 @@ namespace Emutastic.Views
                         Dispatcher.BeginInvoke(() =>
                         {
                             OverlayShaderBtn.Visibility = Visibility.Collapsed;
-                            OverlayRecordBtn.Visibility = Visibility.Collapsed;
-                            OverlayRecordMenuBtn.Visibility = Visibility.Collapsed;
-                            OverlayViewRecordingsBtn.Visibility = Visibility.Collapsed;
                         });
 
                         if (hw.context_reset != IntPtr.Zero)
@@ -3008,11 +3042,11 @@ namespace Emutastic.Views
                 // Recording: queue the raw frame for encoding.
                 // If the core's row pitch has padding (srcPitch > rowBytes), we must
                 // strip it — FFmpeg rawvideo expects tightly packed rows.
-                if (_recordingService?.IsRecording == true)
+                if (_recordingService is Services.RecordingService ffmpegRec && ffmpegRec.IsRecording)
                 {
                     if (srcPitch == rowBytes)
                     {
-                        _recordingService.QueueVideoFrame(_videoFrameBuffer, frameSize);
+                        ffmpegRec.QueueVideoFrame(_videoFrameBuffer, frameSize);
                     }
                     else
                     {
@@ -3021,7 +3055,7 @@ namespace Emutastic.Views
                             _recPackedBuffer = new byte[packedSize];
                         for (int row = 0; row < (int)height; row++)
                             Buffer.BlockCopy(_videoFrameBuffer, row * srcPitch, _recPackedBuffer, row * rowBytes, rowBytes);
-                        _recordingService.QueueVideoFrame(_recPackedBuffer, packedSize);
+                        ffmpegRec.QueueVideoFrame(_recPackedBuffer, packedSize);
                     }
                 }
 
@@ -3325,6 +3359,7 @@ namespace Emutastic.Views
 
         private void Window_KeyDown(object sender, KeyEventArgs e)
         {
+            RecLog($"KeyDown: {e.Key}");
             SetKey(e.Key, true);
             if (e.Key == Key.Escape) Close();
             if (e.Key == Key.F5)
@@ -3380,6 +3415,13 @@ namespace Emutastic.Views
             }
         }
 
+        private void OverlayReset_Click(object sender, RoutedEventArgs e)
+        {
+            _core?.Reset();
+            _transientMsg = "Game reset";
+            _transientExpiry = DateTime.Now.AddSeconds(2);
+        }
+
         private void OverlayRecord_Click(object sender, RoutedEventArgs e) => ToggleRecording();
 
         private void OverlayViewRecordings_Click(object sender, RoutedEventArgs e)
@@ -3393,23 +3435,121 @@ namespace Emutastic.Views
             catch { }
         }
 
+        private static void RecLog(string msg)
+        {
+            try
+            {
+                string logDir = @"D:\Emutastic Data\Logs";
+                System.IO.Directory.CreateDirectory(logDir);
+                string logPath = System.IO.Path.Combine(logDir, "recording_debug.log");
+                System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] {msg}\n");
+            }
+            catch { }
+        }
+
         private void ToggleRecording()
         {
-            if (_hwRenderActive) return;
-
+            RecLog($"ToggleRecording called. hwRenderActive={_hwRenderActive}, isVulkan={_isVulkanHwRender}, vulkanHwnd=0x{_vulkanOverlayHwnd:X}, glHwnd=0x{_glOverlayHwnd:X}");
             if (_recordingService?.IsRecording == true)
             {
                 var elapsed = _recordingService.Elapsed;
+                bool wasWgc = _recordingService is Services.WgcRecordingService;
                 _recordingService.Stop();
                 _recordingService = null;
                 OverlayRecordIcon.Foreground = System.Windows.Media.Brushes.White;
                 OverlayRecordMenuBtn.Content = "Record";
                 RecIndicator.Visibility = Visibility.Collapsed;
-                _transientMsg = $"Recording stopped ({elapsed:mm\\:ss}) — encoding...";
+                _transientMsg = wasWgc
+                    ? $"Recording saved ({elapsed:mm\\:ss})"
+                    : $"Recording stopped ({elapsed:mm\\:ss}) — encoding...";
                 _transientExpiry = DateTime.Now.AddSeconds(3);
+                return;
+            }
+
+            var avInfo = _core?.AvInfo;
+            if (avInfo == null)
+            {
+                _transientMsg = "Recording unavailable — core not ready";
+                _transientExpiry = DateTime.Now.AddSeconds(3);
+                return;
+            }
+
+            int fps = (int)Math.Round(avInfo.Value.timing.fps);
+            int sampleRate = (int)Math.Round(avInfo.Value.timing.sample_rate);
+            if (sampleRate <= 0) sampleRate = 44100;
+
+            string safeTitle = string.Join("_", _game.Title.Split(System.IO.Path.GetInvalidFileNameChars()));
+            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            string consoleDir = AppPaths.GetFolder("Recordings", _game.Console);
+            string outputDir = System.IO.Path.Combine(consoleDir, safeTitle);
+            System.IO.Directory.CreateDirectory(outputDir);
+            string outputPath = System.IO.Path.Combine(outputDir, $"{timestamp}.mp4");
+
+            string? err;
+
+            if (_hwRenderActive)
+            {
+                // 3D / HW-render cores: use Windows.Graphics.Capture (zero-copy GPU pipeline)
+                RecLog("HW render path — checking WGC support...");
+                if (!Services.WgcRecordingService.IsSupported)
+                {
+                    RecLog("WGC not supported on this OS");
+                    _transientMsg = "Recording requires Windows 10 1903 or later";
+                    _transientExpiry = DateTime.Now.AddSeconds(4);
+                    return;
+                }
+
+                // Determine the HWND to capture
+                IntPtr captureHwnd = IntPtr.Zero;
+                if (_isVulkanHwRender && _vulkanOverlayHwnd != IntPtr.Zero)
+                    captureHwnd = _vulkanOverlayHwnd;
+                else if (_glOverlayHwnd != IntPtr.Zero)
+                    captureHwnd = _glOverlayHwnd;
+                else if (_hwndHost is not null && _hwndHost.Handle != IntPtr.Zero)
+                    captureHwnd = _hwndHost.Handle;
+
+                RecLog($"captureHwnd=0x{captureHwnd:X}");
+
+                if (captureHwnd == IntPtr.Zero)
+                {
+                    _transientMsg = "Recording unavailable — no render window found";
+                    _transientExpiry = DateTime.Now.AddSeconds(3);
+                    return;
+                }
+
+                Action<string> onComplete = (result) =>
+                {
+                    Dispatcher.BeginInvoke(() =>
+                    {
+                        if (System.IO.File.Exists(result))
+                        {
+                            _transientMsg = "Recording saved to Recordings";
+                            _transientExpiry = DateTime.Now.AddSeconds(4);
+                        }
+                        else
+                        {
+                            _transientMsg = $"Recording failed: {result}";
+                            _transientExpiry = DateTime.Now.AddSeconds(5);
+                        }
+                    });
+                };
+
+                try
+                {
+                    var wgcService = new Services.WgcRecordingService();
+                    err = wgcService.Start(outputPath, captureHwnd, fps, sampleRate, onComplete);
+                    _recordingService = wgcService;
+                    RecLog($"WGC Start result: {err ?? "OK"}");
+                }
+                catch (Exception ex)
+                {
+                    RecLog($"WGC Start exception: {ex}");
+                    err = ex.Message;
+                }
             }
             else
             {
+                // 2D / software-render cores: use raw frame capture + FFmpeg encode
                 if (Services.RecordingService.FindFfmpeg() == null)
                 {
                     _transientMsg = "ffmpeg.exe not found — download it in Preferences → Extras";
@@ -3417,43 +3557,17 @@ namespace Emutastic.Views
                     return;
                 }
 
-                var avInfo = _core?.AvInfo;
-                if (avInfo == null)
-                {
-                    _transientMsg = "Recording unavailable — core not ready";
-                    _transientExpiry = DateTime.Now.AddSeconds(3);
-                    return;
-                }
-
-
                 uint w = _lastFrameWidth > 0 ? _lastFrameWidth : avInfo.Value.geometry.base_width;
                 uint h = _lastFrameHeight > 0 ? _lastFrameHeight : avInfo.Value.geometry.base_height;
-                int fps = (int)Math.Round(avInfo.Value.timing.fps);
-                int sampleRate = (int)Math.Round(avInfo.Value.timing.sample_rate);
-                if (sampleRate <= 0) sampleRate = 44100;
 
-                // Determine FFmpeg pixel format from libretro format
                 string pixFmt;
-                if (_hwRenderActive)
-                    pixFmt = "bgra";
-                else if (_pixelFormat == RETRO_PIXEL_FORMAT_XRGB8888)
+                if (_pixelFormat == RETRO_PIXEL_FORMAT_XRGB8888)
                     pixFmt = "bgra";
                 else if (_pixelFormat == RETRO_PIXEL_FORMAT_RGB565)
                     pixFmt = "rgb565le";
-                else // RETRO_PIXEL_FORMAT_0RGB1555
+                else
                     pixFmt = "rgb555le";
 
-                string safeTitle = string.Join("_", _game.Title.Split(System.IO.Path.GetInvalidFileNameChars()));
-                string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-                string consoleDir = AppPaths.GetFolder("Recordings", _game.Console);
-                string outputDir = System.IO.Path.Combine(consoleDir, safeTitle);
-                System.IO.Directory.CreateDirectory(outputDir);
-                string outputPath = System.IO.Path.Combine(outputDir, $"{timestamp}.mp4");
-
-                var service = new Services.RecordingService();
-                _recordingService = service;
-
-                // Callback when background encoding finishes after recording stops
                 Action<string> onEncodeComplete = (result) =>
                 {
                     Dispatcher.BeginInvoke(() =>
@@ -3471,22 +3585,25 @@ namespace Emutastic.Views
                     });
                 };
 
-                string? err = service.Start(outputPath, (int)w, (int)h, fps, sampleRate, pixFmt, onEncodeComplete);
-                if (err == null)
-                {
-                    OverlayRecordIcon.Foreground = new System.Windows.Media.SolidColorBrush(
-                        System.Windows.Media.Color.FromRgb(0xE0, 0x35, 0x35));
-                    OverlayRecordMenuBtn.Content = "Stop Recording";
-                    RecIndicator.Visibility = Visibility.Visible;
-                    _transientMsg = "Recording started — press F9 to stop";
-                    _transientExpiry = DateTime.Now.AddSeconds(3);
-                }
-                else
-                {
-                    _recordingService = null;
-                    _transientMsg = $"Recording failed: {err}";
-                    _transientExpiry = DateTime.Now.AddSeconds(5);
-                }
+                var ffmpegService = new Services.RecordingService();
+                err = ffmpegService.Start(outputPath, (int)w, (int)h, fps, sampleRate, pixFmt, onEncodeComplete);
+                _recordingService = ffmpegService;
+            }
+
+            if (err == null)
+            {
+                OverlayRecordIcon.Foreground = new System.Windows.Media.SolidColorBrush(
+                    System.Windows.Media.Color.FromRgb(0xE0, 0x35, 0x35));
+                OverlayRecordMenuBtn.Content = "Stop Recording";
+                RecIndicator.Visibility = Visibility.Visible;
+                _transientMsg = "Recording started — press F9 to stop";
+                _transientExpiry = DateTime.Now.AddSeconds(3);
+            }
+            else
+            {
+                _recordingService = null;
+                _transientMsg = $"Recording failed: {err}";
+                _transientExpiry = DateTime.Now.AddSeconds(5);
             }
         }
 

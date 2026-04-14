@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace Emutastic.Services
 {
-    public class RecordingService : IDisposable
+    public class RecordingService : IRecordingService
     {
         // During recording: raw frames go straight to temp files on disk.
         // No FFmpeg process runs during gameplay — zero CPU/GPU contention.
