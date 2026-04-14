@@ -135,6 +135,8 @@ namespace Emutastic
                 await Configuration.LoadAsync();
                 var prefs = Configuration.GetUserPreferences();
                 AppPaths.SetCustomRoot(prefs.CustomDataDirectory);
+                AppPaths.SetScreenshotsFolder(prefs.ScreenshotsFolder);
+                AppPaths.SetRecordingsFolder(prefs.RecordingsFolder);
 
                 // First-run: let user pick data directory before anything creates folders
                 if (string.IsNullOrEmpty(prefs.CustomDataDirectory)

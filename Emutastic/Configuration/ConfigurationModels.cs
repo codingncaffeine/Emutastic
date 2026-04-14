@@ -64,6 +64,8 @@ namespace Emutastic.Configuration
         public int RecentGamesLimit { get; set; } = 20;
         public List<string> FavoriteConsoles { get; set; } = new();
         public string BackupFolder { get; set; } = "";
+        public string ScreenshotsFolder { get; set; } = "";
+        public string RecordingsFolder { get; set; } = "";
     }
 
     // Theme configuration

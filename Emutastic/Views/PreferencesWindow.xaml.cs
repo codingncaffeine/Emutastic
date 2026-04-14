@@ -56,7 +56,7 @@ namespace Emutastic.Views
         private List<string> _lastKnownDevices = new();
 
         // ── Section navigation ────────────────────────────────────────────────
-        private enum PrefSection { Controls, SystemFiles, Cores, Library, Theme, Snaps, CoreOptions, Achievements }
+        private enum PrefSection { Controls, SystemFiles, Cores, Library, Theme, Snaps, CoreOptions, Achievements, Folders }
         private PrefSection _activeSection = PrefSection.Controls;
 
         // ── Core Options state ────────────────────────────────────────────────
@@ -609,6 +609,7 @@ namespace Emutastic.Views
             else if (sender == NavSnaps)        ShowSection(PrefSection.Snaps);
             else if (sender == NavCoreOptions)  ShowSection(PrefSection.CoreOptions);
             else if (sender == NavAchievements) ShowSection(PrefSection.Achievements);
+            else if (sender == NavFolders)      ShowSection(PrefSection.Folders);
         }
 
         private void ShowSection(PrefSection section)
@@ -623,8 +624,10 @@ namespace Emutastic.Views
             PanelSnaps.Visibility       = section == PrefSection.Snaps       ? Visibility.Visible : Visibility.Collapsed;
             PanelCoreOptions.Visibility = section == PrefSection.CoreOptions ? Visibility.Visible : Visibility.Collapsed;
             PanelAchievements.Visibility = section == PrefSection.Achievements ? Visibility.Visible : Visibility.Collapsed;
+            PanelFolders.Visibility     = section == PrefSection.Folders      ? Visibility.Visible : Visibility.Collapsed;
 
             if (section == PrefSection.SystemFiles) BuildBiosPanel();
+            if (section == PrefSection.Folders)     LoadFoldersSettings();
             if (section == PrefSection.Cores)       BuildCoresPanel();
             if (section == PrefSection.Library)     LoadLibrarySettings();
             if (section == PrefSection.Theme)       LoadThemeSettings();
@@ -2923,6 +2926,92 @@ namespace Emutastic.Views
             ra.Password     = RAPasswordBox.Password;
             ra.HardcoreMode = RAHardcoreToggle.IsChecked == true;
             _configService.SetRetroAchievementsConfiguration(ra);
+            _ = _configService.SaveAsync();
+        }
+
+        // ── Folders tab ───────────────────────────────────────────────────────
+
+        private void LoadFoldersSettings()
+        {
+            var prefs = _configService.GetUserPreferences();
+            var brushText = (System.Windows.Media.Brush)FindResource("TextPrimaryBrush");
+            var brushMuted = (System.Windows.Media.Brush)FindResource("TextSecondaryBrush");
+
+            ScreenshotsDefaultText.Text = $"Default: {System.IO.Path.Combine(AppPaths.DataRoot, "Screenshots")}";
+            RecordingsDefaultText.Text  = $"Default: {System.IO.Path.Combine(AppPaths.DataRoot, "Recordings")}";
+
+            if (!string.IsNullOrEmpty(prefs.ScreenshotsFolder))
+            {
+                ScreenshotsFolderText.Text = prefs.ScreenshotsFolder;
+                ScreenshotsFolderText.Foreground = brushText;
+            }
+            else
+            {
+                ScreenshotsFolderText.Text = "Default";
+                ScreenshotsFolderText.Foreground = brushMuted;
+            }
+
+            if (!string.IsNullOrEmpty(prefs.RecordingsFolder))
+            {
+                RecordingsFolderText.Text = prefs.RecordingsFolder;
+                RecordingsFolderText.Foreground = brushText;
+            }
+            else
+            {
+                RecordingsFolderText.Text = "Default";
+                RecordingsFolderText.Foreground = brushMuted;
+            }
+        }
+
+        private void BrowseScreenshotsFolder_Click(object sender, RoutedEventArgs e)
+        {
+            var prefs = _configService.GetUserPreferences();
+            var dialog = new Microsoft.Win32.OpenFolderDialog { Title = "Select screenshots folder" };
+            if (!string.IsNullOrEmpty(prefs.ScreenshotsFolder) && System.IO.Directory.Exists(prefs.ScreenshotsFolder))
+                dialog.InitialDirectory = prefs.ScreenshotsFolder;
+            if (dialog.ShowDialog(this) != true) return;
+
+            ScreenshotsFolderText.Text = dialog.FolderName;
+            ScreenshotsFolderText.Foreground = (System.Windows.Media.Brush)FindResource("TextPrimaryBrush");
+        }
+
+        private void ClearScreenshotsFolder_Click(object sender, RoutedEventArgs e)
+        {
+            ScreenshotsFolderText.Text = "Default";
+            ScreenshotsFolderText.Foreground = (System.Windows.Media.Brush)FindResource("TextSecondaryBrush");
+        }
+
+        private void BrowseRecordingsFolder_Click(object sender, RoutedEventArgs e)
+        {
+            var prefs = _configService.GetUserPreferences();
+            var dialog = new Microsoft.Win32.OpenFolderDialog { Title = "Select recordings folder" };
+            if (!string.IsNullOrEmpty(prefs.RecordingsFolder) && System.IO.Directory.Exists(prefs.RecordingsFolder))
+                dialog.InitialDirectory = prefs.RecordingsFolder;
+            if (dialog.ShowDialog(this) != true) return;
+
+            RecordingsFolderText.Text = dialog.FolderName;
+            RecordingsFolderText.Foreground = (System.Windows.Media.Brush)FindResource("TextPrimaryBrush");
+        }
+
+        private void ClearRecordingsFolder_Click(object sender, RoutedEventArgs e)
+        {
+            RecordingsFolderText.Text = "Default";
+            RecordingsFolderText.Foreground = (System.Windows.Media.Brush)FindResource("TextSecondaryBrush");
+        }
+
+        private void FoldersSaveBtn_Click(object sender, RoutedEventArgs e)
+        {
+            var prefs = _configService.GetUserPreferences();
+
+            string ssText = ScreenshotsFolderText.Text;
+            prefs.ScreenshotsFolder = ssText == "Default" ? "" : ssText;
+            AppPaths.SetScreenshotsFolder(prefs.ScreenshotsFolder);
+
+            string recText = RecordingsFolderText.Text;
+            prefs.RecordingsFolder = recText == "Default" ? "" : recText;
+            AppPaths.SetRecordingsFolder(prefs.RecordingsFolder);
+
+            _configService.SetUserPreferences(prefs);
             _ = _configService.SaveAsync();
         }
 

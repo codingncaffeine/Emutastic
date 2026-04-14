@@ -67,6 +67,8 @@
     <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Windows TFM auto-includes Assets\ as Content — remove so Resource takes effect -->
+    <Content Remove="Assets\**" />
     <Resource Include="Assets\images\**\*.png" />
     <Resource Include="Assets\images\**\*.jpg" />
     <Resource Include="Assets\buttons\**\*.png" />
