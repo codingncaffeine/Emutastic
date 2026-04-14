@@ -321,6 +321,14 @@ namespace Emutastic.Services
                     }
                 }
 
+                // Arcade and NeoGeo ROMs are multi-file chip dump archives — import the ZIP as-is.
+                if (innerConsole.Equals("Arcade", StringComparison.OrdinalIgnoreCase) ||
+                    innerConsole.Equals("NeoGeo", StringComparison.OrdinalIgnoreCase))
+                {
+                    await ImportRomFileAsync(romPath, innerConsole, fileName);
+                    return;
+                }
+
                 // Non-arcade archives: extract the single ROM file and re-import it.
                 StatusChanged?.Invoke($"Extracting {fileName}…");
                 string? extractedPath = await ExtractZipRomAsync(romPath);
@@ -709,16 +717,21 @@ namespace Emutastic.Services
                     return "BIOS_SKIP";
                 }
 
+                // First pass: look for a non-.bin recognized ROM extension.
+                // .bin inside arcade ZIPs are chip dumps, not standalone ROMs —
+                // we only treat .bin as ambiguous if the archive has NO other clue.
+                bool hasBinOnly = false;
                 foreach (var entry in entries)
                 {
                     string entryName = entry.Key ?? string.Empty;
                     string ext = Path.GetExtension(entryName);
-                    // .bin is ambiguous — signal caller to ask the user rather than guess
+
                     if (ext.Equals(".bin", StringComparison.OrdinalIgnoreCase))
                     {
-                        ImportLog($"  → .bin found, returning BIN_AMBIGUOUS");
-                        return "BIN_AMBIGUOUS";
+                        hasBinOnly = true;
+                        continue; // skip .bin on first pass — check other entries first
                     }
+
                     bool recognized = RomService.IsRomExtension(ext);
                     ImportLog($"  entry='{entryName}' ext='{ext}' recognized={recognized}");
                     if (recognized)
@@ -751,6 +764,22 @@ namespace Emutastic.Services
                         return console;
                     }
                 }
+
+                // Archive contains only .bin files and no recognized ROM extensions —
+                // this is the typical layout for Arcade chip dumps.  If the folder path
+                // hints at a non-Arcade console, honour it; otherwise treat as Arcade.
+                if (hasBinOnly)
+                {
+                    string fromFolder = RomService.DetectConsoleFromFolderName(archivePath);
+                    if (!string.IsNullOrEmpty(fromFolder) && !fromFolder.Equals("Arcade", StringComparison.OrdinalIgnoreCase))
+                    {
+                        ImportLog($"  → .bin-only archive, folder detection → {fromFolder}, returning BIN_AMBIGUOUS");
+                        return "BIN_AMBIGUOUS";
+                    }
+                    ImportLog($"  → .bin-only archive, treating as Arcade");
+                    return string.Empty; // routes to Arcade via the caller
+                }
+
                 ImportLog($"  → no ROM extension found, routing to Arcade");
                 return string.Empty;
             }
