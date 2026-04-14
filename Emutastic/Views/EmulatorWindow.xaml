@@ -412,7 +412,7 @@
                                         Style="{StaticResource OverlayPillBtnStyle}"
                                         ToolTip="Close Game"
                                         Click="OverlayPower_Click">
-                                    <Image Source="/Assets/buttons/powerbutton.png"
+                                    <Image Source="pack://application:,,,/Emutastic;component/Assets/buttons/powerbutton.png"
                                            Width="45" Height="45"
                                            RenderOptions.BitmapScalingMode="HighQuality"/>
                                 </Button>

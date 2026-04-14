@@ -550,6 +550,11 @@
                                  GroupName="NavGroup"
                                  Style="{StaticResource NavBtn}"
                                  Checked="NavBtn_Checked"/>
+                    <RadioButton x:Name="NavFolders"
+                                 Content="Folders"
+                                 GroupName="NavGroup"
+                                 Style="{StaticResource NavBtn}"
+                                 Checked="NavBtn_Checked"/>
                 </StackPanel>
             </Border>
 
@@ -1524,6 +1529,94 @@
                                     Style="{StaticResource ActionBtn}"
                                     HorizontalAlignment="Left"
                                     Click="RASaveBtn_Click"/>
+
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+
+                <!-- ── PANEL: Folders ────────────────────────────────────── -->
+                <Grid x:Name="PanelFolders" Visibility="Collapsed">
+                    <ScrollViewer Margin="32,24,32,24" VerticalScrollBarVisibility="Auto">
+                        <StackPanel MaxWidth="560" HorizontalAlignment="Left">
+
+                            <TextBlock Text="MEDIA FOLDERS" Style="{StaticResource PrefLabel}"/>
+                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,0,0,16"/>
+
+                            <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,0,0,24"
+                                       Foreground="{DynamicResource TextSecondaryBrush}">
+                                <Run>Choose where screenshots and video recordings are saved. The app will continue creating per-console and per-game subfolders inside your chosen directory.</Run>
+                            </TextBlock>
+
+                            <!-- Screenshots folder -->
+                            <TextBlock Text="Screenshots" FontSize="14" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,4"/>
+                            <TextBlock x:Name="ScreenshotsDefaultText"
+                                       FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                       TextWrapping="Wrap" Margin="0,0,0,8"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0" Background="{DynamicResource BgTertiaryBrush}"
+                                        BorderBrush="{DynamicResource BorderNormalBrush}" BorderThickness="1"
+                                        CornerRadius="6" Padding="10,8">
+                                    <TextBlock x:Name="ScreenshotsFolderText"
+                                               Text="Default"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                               FontSize="12" VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </Border>
+                                <Button Grid.Column="1"
+                                        Content="Browse&#x2026;" Style="{StaticResource SecondaryBtn}"
+                                        Margin="8,0,0,0" Padding="14,8"
+                                        Click="BrowseScreenshotsFolder_Click"/>
+                                <Button Grid.Column="2"
+                                        Content="Clear" Style="{StaticResource SecondaryBtn}"
+                                        Margin="4,0,0,0" Padding="14,8"
+                                        Click="ClearScreenshotsFolder_Click"/>
+                            </Grid>
+
+                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,24,0,16"/>
+
+                            <!-- Recordings folder -->
+                            <TextBlock Text="Recordings" FontSize="14" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,4"/>
+                            <TextBlock x:Name="RecordingsDefaultText"
+                                       FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                       TextWrapping="Wrap" Margin="0,0,0,8"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0" Background="{DynamicResource BgTertiaryBrush}"
+                                        BorderBrush="{DynamicResource BorderNormalBrush}" BorderThickness="1"
+                                        CornerRadius="6" Padding="10,8">
+                                    <TextBlock x:Name="RecordingsFolderText"
+                                               Text="Default"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                               FontSize="12" VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </Border>
+                                <Button Grid.Column="1"
+                                        Content="Browse&#x2026;" Style="{StaticResource SecondaryBtn}"
+                                        Margin="8,0,0,0" Padding="14,8"
+                                        Click="BrowseRecordingsFolder_Click"/>
+                                <Button Grid.Column="2"
+                                        Content="Clear" Style="{StaticResource SecondaryBtn}"
+                                        Margin="4,0,0,0" Padding="14,8"
+                                        Click="ClearRecordingsFolder_Click"/>
+                            </Grid>
+
+                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,24,0,16"/>
+
+                            <Button Content="Save"
+                                    Style="{StaticResource ActionBtn}"
+                                    HorizontalAlignment="Left"
+                                    Click="FoldersSaveBtn_Click"/>
 
                         </StackPanel>
                     </ScrollViewer>
