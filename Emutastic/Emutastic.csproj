@@ -1,15 +1,19 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net8.0-windows10.0.22621.0</TargetFramework>
     <RootNamespace>Emutastic</RootNamespace>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <PlatformTarget>x64</PlatformTarget>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IncludePackageReferencesDuringMarkupCompilation>true</IncludePackageReferencesDuringMarkupCompilation>
     <AssemblyName>Emutastic</AssemblyName>
     <ApplicationIcon>Assets\emutastic-logo.ico</ApplicationIcon>
+    <!-- Suppress WinRT AOT warnings (MVVMTK0045) and PRI resource warnings — not applicable to WPF -->
+    <NoWarn>$(NoWarn);MVVMTK0045</NoWarn>
+    <AppxGeneratePriEnabled>false</AppxGeneratePriEnabled>
   </PropertyGroup>
   <ItemGroup>
     <None Remove="Assets\openvgdb.sqlite" />
@@ -42,6 +46,9 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="Vortice.Direct3D11" Version="3.6.2" />
+    <PackageReference Include="Vortice.DXGI" Version="3.6.2" />
+    <PackageReference Include="Vortice.MediaFoundation" Version="3.6.2" />
     <PackageReference Include="LibVLCSharp" Version="3.9.6" />
     <PackageReference Include="MaterialDesignThemes" Version="5.3.1" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.5" />

@@ -422,6 +422,12 @@
                                         Click="OverlayPause_Click">
                                     <md:PackIcon x:Name="OverlayPauseIcon" Kind="Pause" Width="22" Height="22" Foreground="White"/>
                                 </Button>
+                                <Button x:Name="OverlayResetBtn"
+                                        Style="{StaticResource OverlayPillBtnStyle}"
+                                        ToolTip="Reset Game"
+                                        Click="OverlayReset_Click">
+                                    <md:PackIcon Kind="Restart" Width="22" Height="22" Foreground="White"/>
+                                </Button>
                                 <Button x:Name="OverlaySaveBtn"
                                         Style="{StaticResource OverlayPillBtnStyle}"
                                         ToolTip="Save State"
