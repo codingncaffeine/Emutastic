@@ -13,7 +13,7 @@
     <ApplicationIcon>Assets\emutastic-logo.ico</ApplicationIcon>
     <!-- Suppress WinRT AOT warnings (MVVMTK0045) and PRI resource warnings — not applicable to WPF -->
     <NoWarn>$(NoWarn);MVVMTK0045</NoWarn>
-    <AppxGeneratePriEnabled>false</AppxGeneratePriEnabled>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
   </PropertyGroup>
   <ItemGroup>
     <None Remove="Assets\openvgdb.sqlite" />
