@@ -54,7 +54,7 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 | TurboGrafx-CD | TGCD | mednafen_pce → mednafen_pce_fast | `syscard3.pce` |
 | Neo Geo Pocket / Color | NGP | mednafen_ngp | No |
 | Neo Geo | NeoGeo | geolith | `neogeo.zip` + `aes.zip` |
-| Arcade | Arcade | fbneo → mame variants | No |
+| Arcade | Arcade | fbneo | No |
 | Atari 2600 | Atari2600 | stella | No |
 | Atari 7800 | Atari7800 | prosystem | No |
 | Atari Jaguar | Jaguar | virtualjaguar | No |

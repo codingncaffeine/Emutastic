@@ -94,6 +94,7 @@ namespace Emutastic.Services
         private static readonly Dictionary<string, string[]> SystemFolderFallbacks = new()
         {
             { "NGP", new[] { "SNK - Neo Geo Pocket Color" } },
+            { "Arcade", new[] { "MAME" } },
         };
 
         private IEnumerable<string> GetSystemFolders(string console)

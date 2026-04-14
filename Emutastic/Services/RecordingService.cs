@@ -245,8 +245,8 @@ namespace Emutastic.Services
             {
                 bool useNvenc = ProbeNvenc(ffmpegPath);
                 string encoder = useNvenc
-                    ? "-c:v h264_nvenc -preset p4 -rc vbr -cq 23 -pix_fmt yuv420p"
-                    : "-c:v libx264 -preset fast -crf 23 -pix_fmt yuv420p";
+                    ? "-c:v h264_nvenc -preset p4 -rc vbr -cq 18 -pix_fmt yuv420p"
+                    : "-c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p";
 
                 Trace.WriteLine($"[Recording] Encoding with {(useNvenc ? "NVENC (hardware)" : "x264 (software)")}");
                 Trace.WriteLine($"[Recording] {frameCount} frames, {width}x{height}@{fps}fps");

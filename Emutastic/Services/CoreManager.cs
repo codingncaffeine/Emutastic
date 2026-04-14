@@ -63,19 +63,7 @@ namespace Emutastic.Services
             { "3DO",         new[] { "opera_libretro.dll"               }},
             { "CDi",         new[] { "same_cdi_libretro.dll"            }},
             { "NeoGeo",      new[] { "geolith_libretro.dll"              }},
-            { "Arcade",      new[] { "fbneo_libretro.dll",
-                                     "fbalpha2012_libretro.dll",
-                                     "fbalpha2012_cps1_libretro.dll",
-                                     "fbalpha2012_cps2_libretro.dll",
-                                     "fbalpha2012_cps3_libretro.dll",
-                                     "fbalpha2012_neogeo_libretro.dll",
-                                     "mame2003_plus_libretro.dll",
-                                     "mame2003_libretro.dll",
-                                     "mame2010_libretro.dll",
-                                     "mame2015_libretro.dll",
-                                     "mame2016_libretro.dll",
-                                     "mame_libretro.dll",
-                                     "mame2000_libretro.dll"             }},
+            { "Arcade",      new[] { "fbneo_libretro.dll"                 }},
         };
 
         // Region-specific BIOS requirements for consoles where the BIOS must match the game region.
