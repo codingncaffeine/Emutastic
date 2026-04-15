@@ -36,6 +36,9 @@ namespace Emutastic.ViewModels
         [ObservableProperty]
         private string _selectedConsole = "All Games";
 
+        [ObservableProperty]
+        private bool _isMixedView = true;
+
         // Cached filtered results — reused across console-switch round trips.
         // Invalidated whenever games are added, removed, or reloaded.
         private readonly ConcurrentDictionary<string, ObservableCollection<Game>> _consoleCache = new();
@@ -94,6 +97,7 @@ namespace Emutastic.ViewModels
         {
             if (string.IsNullOrEmpty(tag)) return;
             IsShowingFavorites = false;
+            IsMixedView = false;
             SelectedConsole = tag;
             await FilterGamesAsync();
             Navigated?.Invoke(tag);
@@ -102,6 +106,7 @@ namespace Emutastic.ViewModels
         private async Task NavigateToAllGamesAsync()
         {
             IsShowingFavorites = false;
+            IsMixedView = true;
             SelectedConsole = "All Games";
             await FilterGamesAsync();
             ToolbarTitle = "All Games";
@@ -111,6 +116,7 @@ namespace Emutastic.ViewModels
         private void NavigateToRecent()
         {
             IsShowingFavorites = false;
+            IsMixedView = true;
             LoadRecent(_db);
             ToolbarTitle = "Recently Played";
             Navigated?.Invoke("Recent");
@@ -119,6 +125,7 @@ namespace Emutastic.ViewModels
         private void NavigateToFavorites()
         {
             IsShowingFavorites = true;
+            IsMixedView = true;
             LoadFavorites(_db);
             ToolbarTitle = "Favorites";
             Navigated?.Invoke("Favorites");
@@ -127,6 +134,7 @@ namespace Emutastic.ViewModels
         private void NavigateToRecentlyAdded()
         {
             IsShowingFavorites = false;
+            IsMixedView = true;
             var games = _db.GetRecentlyAdded(25);
             Games = new ObservableCollection<Game>(games);
             IsGroupedView = false;
@@ -138,6 +146,7 @@ namespace Emutastic.ViewModels
         private void NavigateToCollection(int collectionId)
         {
             IsShowingFavorites = false;
+            IsMixedView = true;
             var games = _db.GetGamesByCollectionId(collectionId);
             Games = new ObservableCollection<Game>(games);
             IsGroupedView = false;
