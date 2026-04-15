@@ -18,7 +18,8 @@ namespace Emutastic.Services.ConsoleHandlers
 
         public virtual void ConfigureControllerPorts(LibretroCore core)
         {
-            core.SetControllerPortDevice(0, RETRO_DEVICE_JOYPAD);
+            for (uint port = 0; port < 4; port++)
+                core.SetControllerPortDevice(port, RETRO_DEVICE_JOYPAD);
         }
 
         public virtual void OnVariableAnnounced(string key, string[] validValues,

@@ -279,6 +279,12 @@ namespace Emutastic.Views
                     DisplayText         = m.DisplayName,
                 };
             }
+
+            // Update controller slot picker: -1 = Default (index 0), 0-3 = Controller 1-4 (indices 1-4)
+            _suppressAutoSave = true;
+            int slot = config.ControllerSlot;
+            ControllerSlotComboBox.SelectedIndex = (slot >= 0 && slot <= 3) ? slot + 1 : 0;
+            _suppressAutoSave = false;
         }
 
         private void SaveMappingsToConfig()
@@ -500,6 +506,15 @@ namespace Emutastic.Views
             StopWaiting();
             LoadMappingsFromConfig();
             RefreshAllRows();
+        }
+
+        private void ControllerSlotComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_suppressAutoSave || ControllerSlotComboBox.SelectedIndex < 0) return;
+            var config = _configService.GetInputConfiguration(ConfigKey);
+            // Index 0 = Default (-1), Index 1-4 = Controller 1-4 (slot 0-3)
+            config.ControllerSlot = ControllerSlotComboBox.SelectedIndex - 1;
+            _configService.SetInputConfiguration(ConfigKey, config);
         }
 
         private void InputDeviceComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
