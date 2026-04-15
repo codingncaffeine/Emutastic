@@ -1425,13 +1425,16 @@ namespace Emutastic.Services
         /// </summary>
         public void RecreateSwapchain(uint width, uint height)
         {
-            if (!_swapchainActive || _surface.Handle == IntPtr.Zero) return;
-            if (width == _swapWidth && height == _swapHeight) return;
-            if (width == 0 || height == 0) return;
+            lock (_imageLock)
+            {
+                if (!_swapchainActive || _surface.Handle == IntPtr.Zero) return;
+                if (width == _swapWidth && height == _swapHeight) return;
+                if (width == 0 || height == 0) return;
 
-            vkDeviceWaitIdle(_device);
-            DestroySwapchainResources();
-            CreateSwapchain();
+                vkDeviceWaitIdle(_device);
+                DestroySwapchainResources();
+                CreateSwapchain();
+            }
         }
 
         private void DestroySwapchainResources()
