@@ -26,6 +26,8 @@ namespace Emutastic.Views
         private readonly IConfigurationService _configService;
         private readonly ILogger<PreferencesWindow>? _logger;
 
+        private bool _suppressAutoSave;
+
         private string _currentConsole = "SNES";
         private int    _currentPlayer  = 1;            // 1-based
         private bool   _isKeyboardMode = true;
@@ -91,6 +93,9 @@ namespace Emutastic.Views
                     _controllerManager.RawMode = false;
                     _controllerManager.ButtonChanged -= OnControllerButtonChanged;
                 }
+                // Save any pending credential changes on close
+                SaveSnapSettings();
+                SaveAchievementsSettings();
             };
         }
 
@@ -2809,6 +2814,7 @@ namespace Emutastic.Views
         // ── Snaps panel ───────────────────────────────────────────────────────
         private void LoadSnapsSettings()
         {
+            _suppressAutoSave = true;
             var snap = _configService.GetSnapConfiguration();
             SSEnabledToggle.IsChecked = snap.ScreenScraperEnabled;
             SSUsernameBox.Text        = snap.ScreenScraperUser;
@@ -2817,6 +2823,7 @@ namespace Emutastic.Views
             // Only enable the 2D preference toggle when SS credentials are configured
             SSPrefer2DToggle.IsEnabled = snap.ScreenScraperEnabled
                 && !string.IsNullOrWhiteSpace(snap.ScreenScraperUser);
+            _suppressAutoSave = false;
         }
 
         private void SnapProvider_Checked(object sender, RoutedEventArgs e)
@@ -2837,6 +2844,7 @@ namespace Emutastic.Views
                 SSPrefer2DToggle.IsEnabled = ssOn;
                 if (!ssOn) SSPrefer2DToggle.IsChecked = false;
             }
+            SaveSnapSettings();
         }
 
         private async void SSTestBtn_Click(object sender, RoutedEventArgs e)
@@ -2875,8 +2883,9 @@ namespace Emutastic.Views
             }
         }
 
-        private void SnapsSaveBtn_Click(object sender, RoutedEventArgs e)
+        private void SaveSnapSettings()
         {
+            if (SSEnabledToggle == null || _suppressAutoSave) return;
             var snap = _configService.GetSnapConfiguration();
             snap.ScreenScraperEnabled  = SSEnabledToggle.IsChecked == true;
             snap.ScreenScraperUser     = SSUsernameBox.Text.Trim();
@@ -2884,14 +2893,20 @@ namespace Emutastic.Views
             snap.PreferScreenScraper2D = SSPrefer2DToggle.IsChecked == true;
             _configService.SetSnapConfiguration(snap);
             _ = _configService.SaveAsync();
-            // Apply the 2D art preference immediately
             Models.Game.PreferScreenScraper2D = snap.PreferScreenScraper2D;
         }
+
+        private void SSPrefer2D_Changed(object sender, RoutedEventArgs e)
+            => SaveSnapSettings();
+
+        private void SnapsSaveBtn_Click(object sender, RoutedEventArgs e)
+            => SaveSnapSettings();
 
         // ── Achievements tab ─────────────────────────────────────────────────
 
         private void LoadAchievementsSettings()
         {
+            _suppressAutoSave = true;
             var ra = _configService.GetRetroAchievementsConfiguration();
             RAEnabledToggle.IsChecked  = ra.Enabled;
             RAUsernameBox.Text         = ra.Username;
@@ -2900,6 +2915,7 @@ namespace Emutastic.Views
             RATokenStatus.Text = !string.IsNullOrEmpty(ra.Token)
                 ? "Login token saved — password not required for future sessions."
                 : "No login token yet — password required for first login.";
+            _suppressAutoSave = false;
         }
 
         private async void RATestBtn_Click(object sender, RoutedEventArgs e)
@@ -2909,7 +2925,18 @@ namespace Emutastic.Views
             RAStatusLabel.Foreground = (System.Windows.Media.Brush)FindResource("TextMutedBrush");
 
             var svc = new Services.RetroAchievementsService();
-            string? error = await svc.TestLoginAsync(RAUsernameBox.Text.Trim(), RAPasswordBox.Password);
+            var (error, token) = await svc.TestLoginAsync(RAUsernameBox.Text.Trim(), RAPasswordBox.Password);
+
+            if (error == null && !string.IsNullOrEmpty(token))
+            {
+                var ra = _configService.GetRetroAchievementsConfiguration();
+                ra.Token = token;
+                ra.Username = RAUsernameBox.Text.Trim();
+                ra.Password = RAPasswordBox.Password;
+                _configService.SetRetroAchievementsConfiguration(ra);
+                _ = _configService.SaveAsync();
+                RATokenStatus.Text = "Login token saved — password not required for future sessions.";
+            }
 
             RAStatusLabel.Text = error == null ? "Connected" : error;
             RAStatusLabel.Foreground = error == null
@@ -2918,8 +2945,9 @@ namespace Emutastic.Views
             RATestBtn.IsEnabled = true;
         }
 
-        private void RASaveBtn_Click(object sender, RoutedEventArgs e)
+        private void SaveAchievementsSettings()
         {
+            if (RAEnabledToggle == null || _suppressAutoSave) return;
             var ra = _configService.GetRetroAchievementsConfiguration();
             ra.Enabled      = RAEnabledToggle.IsChecked == true;
             ra.Username     = RAUsernameBox.Text.Trim();
@@ -2928,6 +2956,15 @@ namespace Emutastic.Views
             _configService.SetRetroAchievementsConfiguration(ra);
             _ = _configService.SaveAsync();
         }
+
+        private void RAEnabled_Changed(object sender, RoutedEventArgs e)
+            => SaveAchievementsSettings();
+
+        private void RAHardcore_Changed(object sender, RoutedEventArgs e)
+            => SaveAchievementsSettings();
+
+        private void RASaveBtn_Click(object sender, RoutedEventArgs e)
+            => SaveAchievementsSettings();
 
         // ── Folders tab ───────────────────────────────────────────────────────
 

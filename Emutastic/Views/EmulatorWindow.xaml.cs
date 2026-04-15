@@ -4420,11 +4420,16 @@ namespace Emutastic.Views
             try
             {
                 var raConfig = _configService.GetRetroAchievementsConfiguration();
-                if (!raConfig.Enabled ||
-                    string.IsNullOrWhiteSpace(raConfig.Username) ||
+                if (!raConfig.Enabled)
+                {
+                    System.Diagnostics.Trace.WriteLine("[RA] Disabled — skipping.");
+                    return;
+                }
+                if (string.IsNullOrWhiteSpace(raConfig.Username) ||
                     (string.IsNullOrWhiteSpace(raConfig.Password) && string.IsNullOrWhiteSpace(raConfig.Token)))
                 {
-                    System.Diagnostics.Trace.WriteLine("[RA] Disabled or missing credentials — skipping.");
+                    System.Diagnostics.Trace.WriteLine("[RA] Missing credentials — skipping.");
+                    Dispatcher.BeginInvoke(() => _transientMsg = "RetroAchievements: credentials missing");
                     return;
                 }
 
@@ -4432,6 +4437,7 @@ namespace Emutastic.Views
                 if (consoleId == 0)
                 {
                     System.Diagnostics.Trace.WriteLine($"[RA] No RA console ID for '{_game.Console}' — skipping.");
+                    Dispatcher.BeginInvoke(() => _transientMsg = $"RetroAchievements: {_game.Console} not supported");
                     return;
                 }
 
@@ -4478,6 +4484,7 @@ namespace Emutastic.Views
                 if (!loginOk)
                 {
                     System.Diagnostics.Trace.WriteLine($"[RA] Login failed: {loginErr}");
+                    Dispatcher.BeginInvoke(() => _transientMsg = "RetroAchievements: login failed");
                     _raClient.Dispose();
                     _raClient = null;
                     return;
@@ -4489,7 +4496,7 @@ namespace Emutastic.Views
                 if (!loadOk)
                 {
                     System.Diagnostics.Trace.WriteLine($"[RA] Game load failed: {loadErr}");
-                    // Don't dispose — login succeeded, game just isn't in the RA database
+                    Dispatcher.BeginInvoke(() => _transientMsg = "RetroAchievements: game not in database");
                     _raClient.Dispose();
                     _raClient = null;
                     return;
