@@ -144,8 +144,9 @@ namespace Emutastic.Views
         private string   _transientMsg    = "";
         private DateTime _transientExpiry = DateTime.MinValue;
 
-        // Services
-        private ControllerManager? _controllerManager;
+        // Services — up to 4 controllers (one per XInput slot / libretro port)
+        private readonly ControllerManager?[] _controllers = new ControllerManager?[4];
+        private ControllerManager? _controllerManager; // alias for _controllers[0]
         private AudioPlayer?       _audioPlayer;
         private IRecordingService?  _recordingService;
         private readonly IConfigurationService _configService;
@@ -172,14 +173,29 @@ namespace Emutastic.Views
 
         private bool OnSetRumbleState(uint port, uint effect, ushort strength)
         {
-            if (port == 0 && _controllerManager != null)
+            if (port < 4)
             {
-                // effect 0 = RETRO_RUMBLE_STRONG (left/low-freq motor)
-                // effect 1 = RETRO_RUMBLE_WEAK   (right/high-freq motor)
-                // Cores send each motor independently; accumulate both before applying.
-                if (effect == 0) _rumbleStrong = strength;
-                else             _rumbleWeak   = strength;
-                _controllerManager.SetVibration(_rumbleStrong, _rumbleWeak);
+                var ctrl = _controllers[port];
+                if (ctrl != null)
+                {
+                    // effect 0 = RETRO_RUMBLE_STRONG (left/low-freq motor)
+                    // effect 1 = RETRO_RUMBLE_WEAK   (right/high-freq motor)
+                    // Cores send each motor independently; accumulate both before applying.
+                    // Note: rumble accumulators are only tracked for port 0 (P1).
+                    if (port == 0)
+                    {
+                        if (effect == 0) _rumbleStrong = strength;
+                        else             _rumbleWeak   = strength;
+                        ctrl.SetVibration(_rumbleStrong, _rumbleWeak);
+                    }
+                    else
+                    {
+                        // For ports 1-3, apply directly (no cross-frame accumulation)
+                        ctrl.SetVibration(
+                            effect == 0 ? strength : (ushort)0,
+                            effect == 1 ? strength : (ushort)0);
+                    }
+                }
             }
             return true;
         }
@@ -829,8 +845,10 @@ namespace Emutastic.Views
 
                 _db                = new DatabaseService();
                 _configService     = App.Configuration ?? throw new InvalidOperationException("Configuration not initialized");
-                _controllerManager = new ControllerManager(_configService, null, game.Console);
-                _controllerManager.ButtonChanged += OnControllerButtonChanged;
+                for (uint i = 0; i < 4; i++)
+                    _controllers[i] = new ControllerManager(_configService, null, game.Console, playerNumber: i);
+                _controllerManager = _controllers[0];
+                _controllerManager!.ButtonChanged += OnControllerButtonChanged;
                 _rumbleStateDelegate = OnSetRumbleState; // must be assigned after _controllerManager exists; field keeps it GC-rooted
 
                 LoadKeyboardMappings();
@@ -2592,6 +2610,11 @@ namespace Emutastic.Views
                                                      (1L << (int)RETRO_DEVICE_POINTER));
                         return true;
 
+                    // GET_INPUT_MAX_USERS — tell the core we support up to 4 players.
+                    case RETRO_ENVIRONMENT_GET_INPUT_MAX_USERS:
+                        if (data != IntPtr.Zero) Marshal.WriteInt32(data, 4);
+                        return true;
+
                     // GET_AUDIO_VIDEO_ENABLE = (47 | 0x10000) — core asks each frame
                     // whether audio/video are active. bit 0 = video, bit 1 = audio.
                     case RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE:
@@ -3223,7 +3246,10 @@ namespace Emutastic.Views
         {
             try
             {
-            if (port != 0) return 0;
+            if (port >= 4) return 0;
+            var ctrl = _controllers[port];
+            // Keyboard input is only for port 0 (player 1)
+            bool isPort0 = port == 0;
 
             if (device == RETRO_DEVICE_JOYPAD)
             {
@@ -3232,17 +3258,18 @@ namespace Emutastic.Views
                 if (id == RETRO_DEVICE_ID_JOYPAD_MASK)
                 {
                     short mask = 0;
-                    for (uint b = 0; b < (uint)_inputState.Length && b < 16; b++)
+                    for (uint b = 0; b < 16; b++)
                     {
-                        bool bp = _inputState[b] || (_controllerManager?.GetButtonState(b) ?? false);
-                        if (!bp && _consoleHandler is CdiHandler && _controllerManager != null)
+                        bool bp = (isPort0 && b < (uint)_inputState.Length && _inputState[b])
+                                  || (ctrl?.GetButtonState(b) ?? false);
+                        if (!bp && isPort0 && _consoleHandler is CdiHandler && ctrl != null)
                         {
                             bp = b switch
                             {
-                                JOYPAD_UP    => _controllerManager.GetButtonState(ControllerManager.ANALOG_LEFT_UP),
-                                JOYPAD_DOWN  => _controllerManager.GetButtonState(ControllerManager.ANALOG_LEFT_DOWN),
-                                JOYPAD_LEFT  => _controllerManager.GetButtonState(ControllerManager.ANALOG_LEFT_LEFT),
-                                JOYPAD_RIGHT => _controllerManager.GetButtonState(ControllerManager.ANALOG_LEFT_RIGHT),
+                                JOYPAD_UP    => ctrl.GetButtonState(ControllerManager.ANALOG_LEFT_UP),
+                                JOYPAD_DOWN  => ctrl.GetButtonState(ControllerManager.ANALOG_LEFT_DOWN),
+                                JOYPAD_LEFT  => ctrl.GetButtonState(ControllerManager.ANALOG_LEFT_LEFT),
+                                JOYPAD_RIGHT => ctrl.GetButtonState(ControllerManager.ANALOG_LEFT_RIGHT),
                                 _ => false
                             };
                         }
@@ -3251,21 +3278,22 @@ namespace Emutastic.Views
                     return mask;
                 }
 
-                if (id >= (uint)_inputState.Length) return 0;
-                bool pressed = _inputState[id] || (_controllerManager?.GetButtonState(id) ?? false);
+                if (id >= 16) return 0;
+                bool pressed = (isPort0 && id < (uint)_inputState.Length && _inputState[id])
+                               || (ctrl?.GetButtonState(id) ?? false);
 
                 // CDi: analog stick also drives the JOYPAD directional buttons so the
                 // cursor moves smoothly.  MAME's cdimono1 input ports are wired to the
                 // joystick device (hence d-pad works), not the mouse device, so we have
                 // to express movement as digital JOYPAD presses against a threshold.
-                if (!pressed && _consoleHandler is CdiHandler && _controllerManager != null)
+                if (!pressed && isPort0 && _consoleHandler is CdiHandler && ctrl != null)
                 {
                     pressed = id switch
                     {
-                        JOYPAD_UP    => _controllerManager.GetButtonState(ControllerManager.ANALOG_LEFT_UP),
-                        JOYPAD_DOWN  => _controllerManager.GetButtonState(ControllerManager.ANALOG_LEFT_DOWN),
-                        JOYPAD_LEFT  => _controllerManager.GetButtonState(ControllerManager.ANALOG_LEFT_LEFT),
-                        JOYPAD_RIGHT => _controllerManager.GetButtonState(ControllerManager.ANALOG_LEFT_RIGHT),
+                        JOYPAD_UP    => ctrl.GetButtonState(ControllerManager.ANALOG_LEFT_UP),
+                        JOYPAD_DOWN  => ctrl.GetButtonState(ControllerManager.ANALOG_LEFT_DOWN),
+                        JOYPAD_LEFT  => ctrl.GetButtonState(ControllerManager.ANALOG_LEFT_LEFT),
+                        JOYPAD_RIGHT => ctrl.GetButtonState(ControllerManager.ANALOG_LEFT_RIGHT),
                         _ => false
                     };
                 }
@@ -3283,13 +3311,13 @@ namespace Emutastic.Views
             {
                 if (id == 0) // MOUSE_X delta
                 {
-                    // WPF mouse delta (accumulated since last poll)
-                    int wpfDelta = Interlocked.Exchange(ref _mouseDeltaX, 0);
+                    // WPF mouse delta (accumulated since last poll) — port 0 only
+                    int wpfDelta = isPort0 ? Interlocked.Exchange(ref _mouseDeltaX, 0) : 0;
 
                     // Controller analog stick fallback
-                    if (_controllerManager != null && _controllerManager.IsConnected)
+                    if (ctrl != null && ctrl.IsConnected)
                     {
-                        short x = _controllerManager.GetAnalogAxisValue(0, 0);
+                        short x = ctrl.GetAnalogAxisValue(0, 0);
                         wpfDelta += (int)(x / MouseAnalogScale);
                     }
 
@@ -3297,11 +3325,11 @@ namespace Emutastic.Views
                 }
                 if (id == 1) // MOUSE_Y delta
                 {
-                    int wpfDelta = Interlocked.Exchange(ref _mouseDeltaY, 0);
+                    int wpfDelta = isPort0 ? Interlocked.Exchange(ref _mouseDeltaY, 0) : 0;
 
-                    if (_controllerManager != null && _controllerManager.IsConnected)
+                    if (ctrl != null && ctrl.IsConnected)
                     {
-                        short y = _controllerManager.GetAnalogAxisValue(0, 1);
+                        short y = ctrl.GetAnalogAxisValue(0, 1);
                         wpfDelta += (int)(-y / MouseAnalogScale); // negate: XInput up=+, mouse down=+
                     }
 
@@ -3309,15 +3337,15 @@ namespace Emutastic.Views
                 }
                 if (id == 2) // MOUSE_LEFT → Button 1
                 {
-                    bool pressed = _pointerPressed ||
-                                   _inputState[JOYPAD_B] ||
-                                   (_controllerManager?.GetButtonState(JOYPAD_B) ?? false);
+                    bool pressed = (isPort0 && _pointerPressed) ||
+                                   (isPort0 && _inputState[JOYPAD_B]) ||
+                                   (ctrl?.GetButtonState(JOYPAD_B) ?? false);
                     return pressed ? (short)1 : (short)0;
                 }
                 if (id == 3) // MOUSE_RIGHT → Button 2
                 {
-                    bool pressed = _inputState[JOYPAD_Y] ||
-                                   (_controllerManager?.GetButtonState(JOYPAD_Y) ?? false);
+                    bool pressed = (isPort0 && _inputState[JOYPAD_Y]) ||
+                                   (ctrl?.GetButtonState(JOYPAD_Y) ?? false);
                     return pressed ? (short)1 : (short)0;
                 }
                 return 0;
@@ -3329,10 +3357,10 @@ namespace Emutastic.Views
                 // Flycast queries Dreamcast L/R triggers this way. Returns 0..32767.
                 if (index == RETRO_DEVICE_INDEX_ANALOG_BUTTON)
                 {
-                    if (_controllerManager != null && _controllerManager.IsConnected)
+                    if (ctrl != null && ctrl.IsConnected)
                     {
-                        if (id == JOYPAD_L2) return _controllerManager.GetTriggerValue(0);
-                        if (id == JOYPAD_R2) return _controllerManager.GetTriggerValue(1);
+                        if (id == JOYPAD_L2) return ctrl.GetTriggerValue(0);
+                        if (id == JOYPAD_R2) return ctrl.GetTriggerValue(1);
                     }
                     return 0;
                 }
@@ -3340,9 +3368,9 @@ namespace Emutastic.Views
                 // Analog sticks — index=0 (left) or 1 (right), id=0 (X) or 1 (Y).
                 if (id == RETRO_DEVICE_ID_ANALOG_X || id == RETRO_DEVICE_ID_ANALOG_Y)
                 {
-                    if (_controllerManager != null && _controllerManager.IsConnected)
+                    if (ctrl != null && ctrl.IsConnected)
                     {
-                        short raw = _controllerManager.GetAnalogAxisValue(index, id);
+                        short raw = ctrl.GetAnalogAxisValue(index, id);
 
                         // Negate Y: XInput up = +32767, libretro up = -32768
                         if (id == RETRO_DEVICE_ID_ANALOG_Y)
@@ -3350,9 +3378,9 @@ namespace Emutastic.Views
 
                         return raw;
                     }
-                    else
+                    else if (isPort0)
                     {
-                        // Keyboard fallback — already in libretro convention
+                        // Keyboard fallback — already in libretro convention, port 0 only
                         return (index, id) switch
                         {
                             (0, 0) => _keyLeftStickX,
@@ -3365,9 +3393,8 @@ namespace Emutastic.Views
                 }
             }
 
-            // Pointer device — touch input for NDS bottom screen.
-            // Coordinates span the full framebuffer; the DS core maps the bottom half to touch.
-            if (device == RETRO_DEVICE_POINTER)
+            // Pointer device — touch input for NDS bottom screen (port 0 only).
+            if (isPort0 && device == RETRO_DEVICE_POINTER)
             {
                 return id switch
                 {
@@ -4723,7 +4750,7 @@ namespace Emutastic.Views
                 { Owner = this };
             win.ShowDialog();
             LoadKeyboardMappings();
-            _controllerManager?.ReloadInputConfiguration();
+            foreach (var c in _controllers) c?.ReloadInputConfiguration();
             ResetOverlayTimer();
         }
 
@@ -5289,7 +5316,7 @@ namespace Emutastic.Views
                 if (_glHwndOwned && _glHwnd != IntPtr.Zero) { DestroyWindow(_glHwnd); _glHwndOwned = false; }
                 _glHwnd = IntPtr.Zero;
 
-                try { _recordingService?.Dispose(); _controllerManager?.Dispose(); _audioPlayer?.Dispose(); }
+                try { _recordingService?.Dispose(); foreach (var c in _controllers) c?.Dispose(); _audioPlayer?.Dispose(); }
                 catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Service cleanup: {ex.Message}"); }
 
                 if (_systemDirPtr  != IntPtr.Zero) { Marshal.FreeHGlobal(_systemDirPtr);  _systemDirPtr  = IntPtr.Zero; }

@@ -20,6 +20,11 @@ namespace Emutastic.Configuration
         public int ControllerDeadzone { get; set; } = 15;
         public bool EnableRumble { get; set; } = true;
         public int ControllerSensitivity { get; set; } = 100;
+        /// <summary>
+        /// Which XInput controller slot (0-3) this player uses.
+        /// -1 means "use default" (Player 1 → slot 0, Player 2 → slot 1, etc.)
+        /// </summary>
+        public int ControllerSlot { get; set; } = -1;
     }
 
     // Display configuration

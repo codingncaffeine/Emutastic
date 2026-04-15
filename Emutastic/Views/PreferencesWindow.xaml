@@ -608,6 +608,17 @@
                                 <ComboBoxItem Content="Player 4"/>
                             </ComboBox>
 
+                            <TextBlock Text="CONTROLLER SLOT" Style="{StaticResource PrefLabel}"/>
+                            <ComboBox x:Name="ControllerSlotComboBox"
+                                      Style="{StaticResource PrefComboBox}"
+                                      SelectionChanged="ControllerSlotComboBox_SelectionChanged">
+                                <ComboBoxItem Content="Default"/>
+                                <ComboBoxItem Content="Controller 1"/>
+                                <ComboBoxItem Content="Controller 2"/>
+                                <ComboBoxItem Content="Controller 3"/>
+                                <ComboBoxItem Content="Controller 4"/>
+                            </ComboBox>
+
                             <TextBlock Text="GAMEPLAY BUTTONS"
                                        Style="{StaticResource PrefLabel}"
                                        Margin="0,16,0,6"/>

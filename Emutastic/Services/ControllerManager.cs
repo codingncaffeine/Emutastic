@@ -68,10 +68,12 @@ namespace Emutastic.Services
         private bool[] _buttonStates     = new bool[16];
         private bool[] _prevButtonStates = new bool[16];
         private bool _isConnected = false;
-        private InputConfiguration? _inputConfig;
+        private volatile InputConfiguration? _inputConfig;
         private readonly IConfigurationService _configService;
         private readonly ILogger<ControllerManager>? _logger;
         private readonly string _consoleName;
+        private readonly uint _playerNumber; // 0-based player/port index
+        private volatile int _xInputIndex;   // which XInput slot to poll (can be overridden by config)
 
         public event Action<uint, bool>? ButtonChanged;
 
@@ -170,11 +172,13 @@ namespace Emutastic.Services
         // -------------------------------------------------------------------------
         // Constructors
         // -------------------------------------------------------------------------
-        public ControllerManager(IConfigurationService configService, ILogger<ControllerManager>? logger = null, string consoleName = "NES")
+        public ControllerManager(IConfigurationService configService, ILogger<ControllerManager>? logger = null, string consoleName = "NES", uint playerNumber = 0)
         {
             _configService = configService ?? throw new ArgumentNullException(nameof(configService));
             _logger        = logger;
             _consoleName   = consoleName;
+            _playerNumber  = playerNumber;
+            _xInputIndex   = (int)playerNumber; // default: player N polls XInput slot N
 
             LoadInputConfiguration();
 
@@ -203,12 +207,20 @@ namespace Emutastic.Services
         {
             try
             {
-                // Preferences saves per-player keys as "{Console}_P{N}"; load P1 mappings.
-                var p1Key = $"{_consoleName}_P1";
-                var p1Config = _configService.GetInputConfiguration(p1Key);
-                _inputConfig = p1Config.ControllerMappings.Count > 0
-                    ? p1Config
-                    : _configService.GetInputConfiguration(_consoleName); // fallback for legacy saves
+                // Preferences saves per-player keys as "{Console}_P{N}"; load mappings for this player.
+                var playerKey = $"{_consoleName}_P{_playerNumber + 1}";
+                var playerConfig = _configService.GetInputConfiguration(playerKey);
+                _inputConfig = playerConfig.ControllerMappings.Count > 0
+                    ? playerConfig
+                    : _playerNumber == 0
+                        ? _configService.GetInputConfiguration(_consoleName) // fallback for legacy P1 saves
+                        : new InputConfiguration { ConsoleName = _consoleName };
+
+                // Apply user-assigned controller slot if configured (-1 = use default)
+                if (_inputConfig.ControllerSlot >= 0 && _inputConfig.ControllerSlot <= 3)
+                    _xInputIndex = _inputConfig.ControllerSlot;
+                else
+                    _xInputIndex = (int)_playerNumber;
                 _logger?.LogInformation($"Loaded input config for {_consoleName}: {_inputConfig.ControllerMappings.Count} mappings");
             }
             catch (Exception ex)
@@ -265,7 +277,7 @@ namespace Emutastic.Services
 
             try
             {
-                var result        = _xInputGetState(0, out XINPUT_STATE xinputState);
+                var result        = _xInputGetState((uint)_xInputIndex, out XINPUT_STATE xinputState);
                 bool wasConnected = _isConnected;
                 _isConnected      = result == 0;
 
@@ -479,7 +491,7 @@ namespace Emutastic.Services
             try
             {
                 var vib = new XINPUT_VIBRATION { wLeftMotorSpeed = leftSpeed, wRightMotorSpeed = rightSpeed };
-                _xInputSetState(0, ref vib);
+                _xInputSetState((uint)_xInputIndex, ref vib);
             }
             catch { }
         }
