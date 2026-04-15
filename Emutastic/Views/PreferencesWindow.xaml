@@ -1283,7 +1283,7 @@
 
                                 <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                                     <Button x:Name="SSTestBtn"
-                                            Content="Test Connection"
+                                            Content="Login"
                                             Style="{StaticResource ActionBtn}"
                                             Click="SSTestBtn_Click"
                                             Margin="0,0,12,0"/>

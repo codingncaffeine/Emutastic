@@ -27,6 +27,8 @@ namespace Emutastic.Views
         private readonly ILogger<PreferencesWindow>? _logger;
 
         private bool _suppressAutoSave;
+        private bool _snapsLoaded;
+        private bool _achievementsLoaded;
 
         private string _currentConsole = "SNES";
         private int    _currentPlayer  = 1;            // 1-based
@@ -2815,6 +2817,7 @@ namespace Emutastic.Views
         private void LoadSnapsSettings()
         {
             _suppressAutoSave = true;
+            _snapsLoaded = true;
             var snap = _configService.GetSnapConfiguration();
             SSEnabledToggle.IsChecked = snap.ScreenScraperEnabled;
             SSUsernameBox.Text        = snap.ScreenScraperUser;
@@ -2885,7 +2888,7 @@ namespace Emutastic.Views
 
         private void SaveSnapSettings()
         {
-            if (SSEnabledToggle == null || _suppressAutoSave) return;
+            if (SSEnabledToggle == null || _suppressAutoSave || !_snapsLoaded) return;
             var snap = _configService.GetSnapConfiguration();
             snap.ScreenScraperEnabled  = SSEnabledToggle.IsChecked == true;
             snap.ScreenScraperUser     = SSUsernameBox.Text.Trim();
@@ -2907,6 +2910,7 @@ namespace Emutastic.Views
         private void LoadAchievementsSettings()
         {
             _suppressAutoSave = true;
+            _achievementsLoaded = true;
             var ra = _configService.GetRetroAchievementsConfiguration();
             RAEnabledToggle.IsChecked  = ra.Enabled;
             RAUsernameBox.Text         = ra.Username;
@@ -2947,7 +2951,7 @@ namespace Emutastic.Views
 
         private void SaveAchievementsSettings()
         {
-            if (RAEnabledToggle == null || _suppressAutoSave) return;
+            if (RAEnabledToggle == null || _suppressAutoSave || !_achievementsLoaded) return;
             var ra = _configService.GetRetroAchievementsConfiguration();
             ra.Enabled      = RAEnabledToggle.IsChecked == true;
             ra.Username     = RAUsernameBox.Text.Trim();
