@@ -243,7 +243,7 @@ namespace Emutastic.Services
             IntPtr srcPtr;
             uint offset;
 
-            if (_systemRamSize > 0 && address < _systemRamSize)
+            if (_systemRamSize > 0 && _systemRamPtr != IntPtr.Zero && address < _systemRamSize)
             {
                 srcPtr = _systemRamPtr;
                 offset = address;
@@ -260,7 +260,7 @@ namespace Emutastic.Services
             }
 
             // Some cores expose save RAM as a secondary region
-            if (_saveRamSize > 0)
+            if (_saveRamSize > 0 && _saveRamPtr != IntPtr.Zero)
             {
                 uint saveStart = _systemRamSize; // save RAM starts after system RAM
                 if (address >= saveStart && address < saveStart + _saveRamSize)

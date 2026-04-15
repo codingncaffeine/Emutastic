@@ -762,6 +762,7 @@ namespace Emutastic.Views
 
                 System.Diagnostics.Trace.WriteLine("EmulatorWindow constructor started");
                 InitializeComponent();
+                ApplyWindowsChrome();
                 SourceInitialized += OnSourceInitialized;
 
                 // Wire up mouse events for touch input (NDS)
@@ -2181,30 +2182,32 @@ namespace Emutastic.Views
         private const uint RETRO_ENVIRONMENT_SET_SUPPORT_ACHIEVEMENTS                  = 42;
         private const uint RETRO_ENVIRONMENT_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE = 43;
         private const uint RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS                  = 44;
-        private const uint RETRO_ENVIRONMENT_SET_HW_SHARED_CONTEXT                     = 45;
-        private const uint RETRO_ENVIRONMENT_GET_VFS_INTERFACE                         = 46;
-        private const uint RETRO_ENVIRONMENT_GET_LED_INTERFACE                         = 47;
-        private const uint RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_INTERFACE                 = 48;
-        private const uint RETRO_ENVIRONMENT_GET_FASTMATHING_INTERFACE                 = 49;
-        private const uint RETRO_ENVIRONMENT_GET_MIDI_INTERFACE                        = 50;
-        private const uint RETRO_ENVIRONMENT_GET_TARGET_REFRESH_RATE                   = 52;
-        private const uint RETRO_ENVIRONMENT_GET_INPUT_BITMASKS                        = 53;
-        private const uint RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION                  = 54;
-        private const uint RETRO_ENVIRONMENT_SET_CORE_OPTIONS                          = 55;
-        private const uint RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL                     = 56;
-        private const uint RETRO_ENVIRONMENT_GET_CORE_OPTIONS_DISPLAY                  = 57;
-        private const uint RETRO_ENVIRONMENT_GET_CORE_OPTIONS_UPDATE_DISPLAY           = 58;
-        private const uint RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2                       = 59;
-        private const uint RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL                  = 60;
-        private const uint RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER                   = 61;
-        private const uint RETRO_ENVIRONMENT_GET_DISK_CONTROL_INTERFACE_VERSION        = 62;
-        private const uint RETRO_ENVIRONMENT_SET_DISK_CONTROL_EXT_INTERFACE            = 63;
-        private const uint RETRO_ENVIRONMENT_GET_MESSAGE_INTERFACE_VERSION             = 64;
-        private const uint RETRO_ENVIRONMENT_SET_MESSAGE_EXT                           = 65;
-        private const uint RETRO_ENVIRONMENT_SET_INPUT_BITMASKS                        = 66;
-        private const uint RETRO_ENVIRONMENT_GET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK  = 67;
-        private const uint RETRO_ENVIRONMENT_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK  = 68;
-        private const uint RETRO_ENVIRONMENT_GET_INPUT_MAX_USERS                       = 69;
+        private const uint RETRO_ENVIRONMENT_SET_HW_SHARED_CONTEXT                     = 44; // 44 | EXPERIMENTAL in libretro.h (same baseCmd)
+        private const uint RETRO_ENVIRONMENT_GET_VFS_INTERFACE                         = 45;
+        private const uint RETRO_ENVIRONMENT_GET_LED_INTERFACE                         = 46;
+        private const uint RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE                    = 47;
+        private const uint RETRO_ENVIRONMENT_GET_MIDI_INTERFACE                        = 48;
+        private const uint RETRO_ENVIRONMENT_GET_FASTFORWARDING                        = 49;
+        private const uint RETRO_ENVIRONMENT_GET_TARGET_REFRESH_RATE                   = 50;
+        private const uint RETRO_ENVIRONMENT_GET_INPUT_BITMASKS                        = 51;
+        private const uint RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION                  = 52;
+        private const uint RETRO_ENVIRONMENT_SET_CORE_OPTIONS                          = 53;
+        private const uint RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL                     = 54;
+        private const uint RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY                  = 55;
+        private const uint RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER                   = 56;
+        private const uint RETRO_ENVIRONMENT_GET_DISK_CONTROL_INTERFACE_VERSION        = 57;
+        private const uint RETRO_ENVIRONMENT_SET_DISK_CONTROL_EXT_INTERFACE            = 58;
+        private const uint RETRO_ENVIRONMENT_GET_MESSAGE_INTERFACE_VERSION             = 59;
+        private const uint RETRO_ENVIRONMENT_SET_MESSAGE_EXT                           = 60;
+        private const uint RETRO_ENVIRONMENT_GET_INPUT_MAX_USERS                       = 61;
+        private const uint RETRO_ENVIRONMENT_SET_AUDIO_BUFFER_STATUS_CALLBACK          = 62;
+        private const uint RETRO_ENVIRONMENT_SET_MINIMUM_AUDIO_LATENCY                 = 63;
+        private const uint RETRO_ENVIRONMENT_SET_FASTFORWARDING_OVERRIDE               = 64;
+        private const uint RETRO_ENVIRONMENT_SET_CONTENT_INFO_OVERRIDE                 = 65;
+        private const uint RETRO_ENVIRONMENT_GET_GAME_INFO_EXT                         = 66;
+        private const uint RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2                       = 67;
+        private const uint RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL                  = 68;
+        private const uint RETRO_ENVIRONMENT_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK  = 69;
 
         private const uint RETRO_HW_CONTEXT_NONE        = 0;
         private const uint RETRO_HW_CONTEXT_OPENGL      = 1;
@@ -2222,7 +2225,6 @@ namespace Emutastic.Views
             uint baseCmd = cmd & 0xFF;
             try
             {
-
                 switch (baseCmd)
                 {
                     // ------------------------------------------------------------------
@@ -2590,9 +2592,15 @@ namespace Emutastic.Views
                                                      (1L << (int)RETRO_DEVICE_POINTER));
                         return true;
 
+                    // GET_AUDIO_VIDEO_ENABLE = (47 | 0x10000) — core asks each frame
+                    // whether audio/video are active. bit 0 = video, bit 1 = audio.
+                    case RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE:
+                        if (data != IntPtr.Zero) Marshal.WriteInt32(data, 0x3); // video + audio enabled
+                        return true;
+
                     // GET_FASTFORWARDING = (49 | 0x10000) — Dolphin asks if we're fast-forwarding.
                     // data is a bool* (1 byte). Writing Int32 here would corrupt Dolphin's stack.
-                    case RETRO_ENVIRONMENT_GET_FASTMATHING_INTERFACE:  // base 49 = GET_FASTFORWARDING
+                    case RETRO_ENVIRONMENT_GET_FASTFORWARDING:
                         if (data != IntPtr.Zero) Marshal.WriteByte(data, 0);  // false = normal speed
                         return true;
 
@@ -2622,14 +2630,17 @@ namespace Emutastic.Views
                     case RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME:
                     case RETRO_ENVIRONMENT_GET_USERNAME:
                     case RETRO_ENVIRONMENT_GET_LANGUAGE:
-                    case RETRO_ENVIRONMENT_GET_INPUT_BITMASKS:
-                    case RETRO_ENVIRONMENT_SET_INPUT_BITMASKS:
                     case RETRO_ENVIRONMENT_GET_TARGET_REFRESH_RATE:
-                    case RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_INTERFACE:
                     case RETRO_ENVIRONMENT_SET_PERFORMANCE_LEVEL:
-                    case RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS:
                     case RETRO_ENVIRONMENT_SET_SUBSYSTEM_INFO:
                     case RETRO_ENVIRONMENT_SET_MEMORY_MAPS:
+                        return true;
+
+                    // baseCmd 44 is shared: SET_SERIALIZATION_QUIRKS (44) and
+                    // SET_HW_SHARED_CONTEXT (44 | EXPERIMENTAL). Check the flag.
+                    case RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS:
+                        if ((cmd & 0x10000) != 0)
+                            return _consoleHandler.AllowHwSharedContext;
                         return true;
 
                     case RETRO_ENVIRONMENT_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE:
@@ -2643,11 +2654,6 @@ namespace Emutastic.Views
                             $"Stored Vulkan context negotiation interface: ptr=0x{data:X} type={negType} version={negVer}");
                         return true;
                     }
-
-                    case RETRO_ENVIRONMENT_SET_HW_SHARED_CONTEXT:
-                        // N64/glide64's EmuThread needs this to create a shared GL context.
-                        // For all other cores, return false so they don't rely on it.
-                        return _consoleHandler.AllowHwSharedContext;
 
                     // FBNeo queries this to decide if save states / hiscores work.
                     // Return RETRO_SAVESTATE_CONTEXT_NORMAL (0) = standard save states.
@@ -3221,6 +3227,30 @@ namespace Emutastic.Views
 
             if (device == RETRO_DEVICE_JOYPAD)
             {
+                // Bitmask mode: core requests all buttons in a single call (id=256).
+                const uint RETRO_DEVICE_ID_JOYPAD_MASK = 256;
+                if (id == RETRO_DEVICE_ID_JOYPAD_MASK)
+                {
+                    short mask = 0;
+                    for (uint b = 0; b < (uint)_inputState.Length && b < 16; b++)
+                    {
+                        bool bp = _inputState[b] || (_controllerManager?.GetButtonState(b) ?? false);
+                        if (!bp && _consoleHandler is CdiHandler && _controllerManager != null)
+                        {
+                            bp = b switch
+                            {
+                                JOYPAD_UP    => _controllerManager.GetButtonState(ControllerManager.ANALOG_LEFT_UP),
+                                JOYPAD_DOWN  => _controllerManager.GetButtonState(ControllerManager.ANALOG_LEFT_DOWN),
+                                JOYPAD_LEFT  => _controllerManager.GetButtonState(ControllerManager.ANALOG_LEFT_LEFT),
+                                JOYPAD_RIGHT => _controllerManager.GetButtonState(ControllerManager.ANALOG_LEFT_RIGHT),
+                                _ => false
+                            };
+                        }
+                        if (bp) mask |= (short)(1 << (int)b);
+                    }
+                    return mask;
+                }
+
                 if (id >= (uint)_inputState.Length) return 0;
                 bool pressed = _inputState[id] || (_controllerManager?.GetButtonState(id) ?? false);
 
@@ -3790,8 +3820,11 @@ namespace Emutastic.Views
                 // ── Others ────────────────────────────────────────────────────
                 case "ColecoVision":
                     return n switch {
-                        "l" => JOYPAD_L, "r" => JOYPAD_R,
-                        "1" => JOYPAD_A, "2" => JOYPAD_B, "3" => JOYPAD_X, "4" => JOYPAD_Y,
+                        "left fire" => JOYPAD_B, "right fire" => JOYPAD_A,
+                        "1" => JOYPAD_Y, "2" => JOYPAD_X,
+                        "3" => JOYPAD_L, "4" => JOYPAD_R,
+                        "5" => JOYPAD_L2, "6" => JOYPAD_R2,
+                        "*" => JOYPAD_START, "#" => JOYPAD_SELECT,
                         "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
                         "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
                         _ => uint.MaxValue
@@ -4950,6 +4983,38 @@ namespace Emutastic.Views
         // =========================================================================
         // Window chrome + AR-constrained resize
         // =========================================================================
+
+        [System.Runtime.InteropServices.DllImport("dwmapi.dll", PreserveSig = true)]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+
+        private void ApplyWindowsChrome()
+        {
+            var theme = App.Configuration?.GetThemeConfiguration();
+            if (theme?.UseWindowsChrome != true) return;
+
+            WindowStyle = System.Windows.WindowStyle.SingleBorderWindow;
+            AllowsTransparency = false;
+            ResizeMode = ResizeMode.CanResize;
+
+            RootBorder.Margin = new Thickness(0);
+            RootBorder.CornerRadius = new CornerRadius(0);
+            RootBorder.BorderThickness = new Thickness(0);
+            RootBorder.Effect = null;
+
+            CustomTitleBar.Visibility = Visibility.Collapsed;
+            RootGrid.RowDefinitions[0].Height = new GridLength(0);
+
+            SourceInitialized += (_, _) =>
+            {
+                var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+                if (hwnd != IntPtr.Zero)
+                {
+                    int value = 1;
+                    DwmSetWindowAttribute(hwnd, 20, ref value, sizeof(int));
+                }
+            };
+        }
+
         private void OnSourceInitialized(object? sender, EventArgs e)
         {
             var source = System.Windows.Interop.HwndSource.FromHwnd(
