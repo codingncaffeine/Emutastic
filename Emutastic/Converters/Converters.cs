@@ -155,12 +155,17 @@ namespace Emutastic.Converters
     /// </summary>
     public class ConsoleToArtHeightConverter : IMultiValueConverter
     {
-        // values[0] = Console (string), values[1] = CardWidth (double via BindingProxy)
+        // values[0] = Console (string), values[1] = CardWidth (double, from parent ActualWidth),
+        // values[2] = IsMixedView (bool) — when true, use uniform height so mixed-console
+        //             views don't clip taller box art
+        private const double MixedViewRatio = 0.73; // DVD keepcase — most common shape
+
         public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
         {
             string console   = values.Length > 0 ? (values[0] as string ?? "") : "";
             double cardWidth = values.Length > 1 && values[1] is double d ? d : 148.0;
-            double ratio     = RomService.GetBoxRatio(console);
+            bool   isMixed   = values.Length > 2 && values[2] is bool b && b;
+            double ratio     = isMixed ? MixedViewRatio : RomService.GetBoxRatio(console);
             return Math.Round(cardWidth / ratio);
         }
 

@@ -18,7 +18,6 @@
 
     <Window.Resources>
         <!-- Proxy that lets MultiBinding consume the LibraryCardWidth DynamicResource -->
-        <converters:BindingProxy x:Key="CardWidthProxy" Data="{DynamicResource LibraryCardWidth}"/>
 
         <DropShadowEffect x:Key="WindowShadow"
                           BlurRadius="30"
@@ -885,7 +884,10 @@
                                             <Border.Height>
                                                 <MultiBinding Converter="{StaticResource ConsoleToArtHeight}">
                                                     <Binding Path="Console"/>
-                                                    <Binding Source="{StaticResource CardWidthProxy}" Path="Data"/>
+                                                    <Binding Path="ActualWidth"
+                                                             RelativeSource="{RelativeSource AncestorType=Border, AncestorLevel=1}"/>
+                                                    <Binding Path="DataContext.IsMixedView"
+                                                             RelativeSource="{RelativeSource AncestorType=ListBox}"/>
                                                 </MultiBinding>
                                             </Border.Height>
                                             <Grid>
@@ -912,9 +914,10 @@
                                                            Visibility="{Binding DisplayArtPath, Converter={StaticResource NullToVisibility}}"/>
                                                 <Image Source="{Binding DisplayArtPath, Converter={StaticResource PathToImage}}"
                                                        Stretch="Uniform"
+                                                       VerticalAlignment="Bottom"
                                                        Visibility="{Binding DisplayArtPath, Converter={StaticResource NotNullToVisibility}}"/>
                                                 <TextBlock Text="♥" FontSize="14" Foreground="{DynamicResource FavoriteHeartBrush}"
-                                                           VerticalAlignment="Top" HorizontalAlignment="Right" Margin="0,8,8,0"
+                                                           VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,0,8,8"
                                                            Visibility="{Binding IsFavorite, Converter={StaticResource BoolToVisibility}}"/>
                                             </Grid>
                                         </Border>
@@ -965,8 +968,8 @@
                                                 </ItemsControl.ItemsPanel>
                                                 <ItemsControl.ItemTemplate>
                                                     <DataTemplate>
-                                                        <Border Width="148"
-                                                                Margin="0,0,12,12"
+                                                        <Border Width="{DynamicResource LibraryCardWidth}"
+                                                                Margin="{DynamicResource LibraryCardMargin}"
                                                                 CornerRadius="8"
                                                                 ClipToBounds="True"
                                                                 Background="Transparent"
@@ -992,7 +995,8 @@
                                                                     <Border.Height>
                                                                         <MultiBinding Converter="{StaticResource ConsoleToArtHeight}">
                                                                             <Binding Path="Console"/>
-                                                                            <Binding Source="{StaticResource CardWidthProxy}" Path="Data"/>
+                                                                            <Binding Path="ActualWidth"
+                                                                                     RelativeSource="{RelativeSource AncestorType=Border, AncestorLevel=1}"/>
                                                                         </MultiBinding>
                                                                     </Border.Height>
                                                                     <Grid>
