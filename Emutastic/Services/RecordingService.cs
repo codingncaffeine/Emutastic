@@ -256,6 +256,7 @@ namespace Emutastic.Services
                     $"-y " +
                     $"-f rawvideo -pixel_format {pixelFormat} -video_size {width}x{height} -framerate {fps} " +
                     $"-i \"{videoRaw}\" " +
+                    $"-sws_flags neighbor " +
                     $"{encoder} " +
                     $"-an " +
                     $"\"{tempMp4}\"";
