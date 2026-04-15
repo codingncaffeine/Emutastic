@@ -155,7 +155,7 @@
             Effect="{StaticResource WindowShadow}"
             MouseMove="RootBorder_MouseMove"
             PreviewMouseLeftButtonDown="RootBorder_PreviewMouseLeftButtonDown">
-        <Grid>
+        <Grid x:Name="RootGrid">
             <Grid.RowDefinitions>
                 <RowDefinition Height="32"/>
                 <RowDefinition Height="*"/>
@@ -163,7 +163,7 @@
             </Grid.RowDefinitions>
 
             <!-- Title bar -->
-            <Grid Grid.Row="0"
+            <Grid x:Name="CustomTitleBar" Grid.Row="0"
                   Background="{DynamicResource BgSecondaryBrush}"
                   MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
                 <Grid.ColumnDefinitions>

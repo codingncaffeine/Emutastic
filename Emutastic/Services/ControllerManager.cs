@@ -625,7 +625,11 @@ namespace Emutastic.Services
                 // ── Others ────────────────────────────────────────────────────
                 case "ColecoVision":
                     return n switch {
-                        "l" => 10, "r" => 11, "1" => 8, "2" => 0, "3" => 9, "4" => 1,
+                        "left fire" => 0, "right fire" => 8,
+                        "1" => 1, "2" => 9,
+                        "3" => 10, "4" => 11,
+                        "5" => 12, "6" => 13,
+                        "*" => 3, "#" => 2,
                         "up" => 4, "down" => 5, "left" => 6, "right" => 7,
                         _ => uint.MaxValue
                     };
