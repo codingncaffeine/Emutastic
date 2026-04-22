@@ -87,6 +87,7 @@ namespace Emutastic.Services
             { "CDi",          "Philips - CD-i"                                 },
             { "NeoGeo",       "SNK - Neo Geo"                                  },
             { "Arcade",       "FBNeo - Arcade Games"                           },
+            { "DOS",          "DOS"                                            },
         };
 
         // Consoles whose thumbnails may live in more than one libretro folder.

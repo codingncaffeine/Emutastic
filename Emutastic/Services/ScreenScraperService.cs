@@ -80,6 +80,7 @@ namespace Emutastic.Services
             { "NeoGeo",       142},
             { "CDi",          133},
             { "Odyssey2",     104},
+            { "DOS",          135},   // ScreenScraper "PC Dos" — not 136 (Win3.x) / 138 (modern Windows)
         };
 
         public ScreenScraperService()

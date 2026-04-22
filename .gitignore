@@ -2,6 +2,12 @@
 bin/
 obj/
 
+# Release artifacts
+Emutastic-v*.zip
+
+# Claude tooling
+.claude/
+
 # Visual Studio
 .vs/
 *.user

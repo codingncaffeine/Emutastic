@@ -64,6 +64,7 @@ namespace Emutastic.Services
             { "CDi",         new[] { "same_cdi_libretro.dll"            }},
             { "NeoGeo",      new[] { "geolith_libretro.dll"              }},
             { "Arcade",      new[] { "fbneo_libretro.dll"                 }},
+            { "DOS",         new[] { "dosbox_pure_libretro.dll"          }},
         };
 
         // Region-specific BIOS requirements for consoles where the BIOS must match the game region.

@@ -687,7 +687,10 @@
                 </Grid>
 
                 <!-- ── PANEL: System Files ──────────────────────────────── -->
-                <Grid x:Name="PanelSystemFiles" Visibility="Collapsed">
+                <Grid x:Name="PanelSystemFiles" Visibility="Collapsed"
+                      AllowDrop="True"
+                      DragOver="BiosPanel_DragOver"
+                      Drop="BiosPanel_Drop">
                     <ScrollViewer Margin="24,16,24,16" VerticalScrollBarVisibility="Auto">
                         <StackPanel x:Name="BiosPanel"/>
                     </ScrollViewer>

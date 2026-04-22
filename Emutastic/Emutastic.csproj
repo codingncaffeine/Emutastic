@@ -75,6 +75,7 @@
     <Resource Include="Assets\banners and icons\*.ico" />
     <Resource Include="Assets\emutastic-logo.ico" />
     <Resource Include="Assets\system_icons\*.jpg" />
+    <Resource Include="Assets\system_icons\*.png" />
     <Resource Include="Shaders\Compiled\*.ps" />
   </ItemGroup>
 </Project>
