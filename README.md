@@ -164,6 +164,45 @@ dotnet build
 <details>
 <summary><strong>Credits</strong></summary>
 
+### Libretro Cores
+
+Emulation is handled by libretro cores maintained by their upstream authors. Emutastic bundles none of them — the in-app core manager downloads from the libretro build servers on demand. Please support these projects directly.
+
+| Core | Upstream author(s) |
+|---|---|
+| Azahar | Azahar team (successor to Citra / Lime3DS) |
+| Beetle PSX / Saturn / PCE / VB / NGP | Mednafen team (Ryphecha) |
+| blueMSX | blueMSX team (Daniel Vik and contributors) |
+| bsnes | byuu / near and contributors |
+| DeSmuME | DeSmuME team |
+| Dolphin | Dolphin team |
+| DOSBox Pure | Bernhard Schelling — [schellingb/dosbox-pure](https://github.com/schellingb/dosbox-pure) |
+| FBNeo (FinalBurn Neo) | FBNeo team |
+| FCEUmm | FCEUmm team |
+| Flycast | flyinghead and contributors |
+| Gambatte | Sindre Aamås (sinamas) |
+| Gearcoleco | Ignacio Sánchez (drhelius) |
+| Genesis Plus GX | Eke-Eke |
+| Geolith | R. Danbrook (rdanbrook) |
+| Kronos | Kronos team |
+| melonDS | Arisotura |
+| mGBA | Vicki Pfau (endrift) |
+| Mupen64Plus-Next | libretro team |
+| Nestopia UE | Nestopia UE team |
+| Opera | libretro team (3DO) |
+| ParaLLEl-N64 | libretro team (Themaister and contributors) |
+| PCSX-ReARMed | notaz |
+| Picodrive | notaz |
+| PPSSPP | Henrik Rydgård and contributors |
+| ProSystem | Greg Stanton (upstream) / libretro maintenance |
+| QuickNES | Shay Green (blargg) |
+| SAME CDi | CDi community (MAME derivative) |
+| Snes9x | Snes9x team |
+| Stella | Stella team |
+| VecX | Valavan Manohararajah (upstream) / libretro maintenance |
+| Virtual Jaguar | Virtual Jaguar team |
+| Yabause | Yabause team |
+
 ### Controller Illustrations
 Artwork from [OpenEmuControllerArt](https://github.com/kodi-game/OpenEmuControllerArt) (BSD 3-Clause). Not affiliated with or endorsed by OpenEmu.
 
