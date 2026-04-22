@@ -2774,6 +2774,13 @@ namespace Emutastic.Views
                         if (data != IntPtr.Zero) Marshal.WriteByte(data, 1);
                         return true;
 
+                    // Core requests frontend shutdown — e.g. DOSBox Pure's "Shutdown DOSBox"
+                    // menu item, or any game exit that triggers it. Queue a close on the UI
+                    // thread so retro_run can return cleanly first.
+                    case RETRO_ENVIRONMENT_SHUTDOWN:
+                        Dispatcher.BeginInvoke(new Action(() => { try { Close(); } catch { } }));
+                        return true;
+
                     case RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY:
                         if (data != IntPtr.Zero) Marshal.WriteIntPtr(data, _systemDirPtr);
                         return true;
