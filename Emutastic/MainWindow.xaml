@@ -539,6 +539,7 @@
                                 <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="ColecoVision"><StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/coleco.jpg"        Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="ColecoVision"  VerticalAlignment="Center"/></StackPanel></Button>
 
                                 <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="Vectrex">     <StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/vectrex.jpg"       Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Vectrex"       VerticalAlignment="Center"/></StackPanel></Button>
+                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="DOS">         <StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/dos.png"          Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="DOS"           VerticalAlignment="Center"/></StackPanel></Button>
                             </StackPanel>
 
                             <Rectangle Height="1"

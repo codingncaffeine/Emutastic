@@ -227,10 +227,18 @@ namespace Emutastic.Services
                     return;
             }
 
-            // Handle zip / 7z files
-            if (ext.Equals(".zip", StringComparison.OrdinalIgnoreCase) ||
-                ext.Equals(".7z",  StringComparison.OrdinalIgnoreCase))
+            // Handle zip / 7z / dosz files
+            if (ext.Equals(".zip",  StringComparison.OrdinalIgnoreCase) ||
+                ext.Equals(".7z",   StringComparison.OrdinalIgnoreCase) ||
+                ext.Equals(".dosz", StringComparison.OrdinalIgnoreCase))
             {
+                // .dosz is unambiguously DOSBox Pure content — skip the peek and import as-is.
+                if (ext.Equals(".dosz", StringComparison.OrdinalIgnoreCase))
+                {
+                    await ImportRomFileAsync(romPath, "DOS", fileName);
+                    return;
+                }
+
                 // Peek inside to see if it contains a known ROM extension.
                 // Arcade ROMs (FBNeo) contain chip dumps with no standard ROM extension,
                 // so if nothing recognized is found inside we treat the archive as-is.
@@ -322,8 +330,10 @@ namespace Emutastic.Services
                 }
 
                 // Arcade and NeoGeo ROMs are multi-file chip dump archives — import the ZIP as-is.
+                // DOS zips are loaded directly by DOSBox Pure (auto-mounts as C:) — also as-is.
                 if (innerConsole.Equals("Arcade", StringComparison.OrdinalIgnoreCase) ||
-                    innerConsole.Equals("NeoGeo", StringComparison.OrdinalIgnoreCase))
+                    innerConsole.Equals("NeoGeo", StringComparison.OrdinalIgnoreCase) ||
+                    innerConsole.Equals("DOS",    StringComparison.OrdinalIgnoreCase))
                 {
                     await ImportRomFileAsync(romPath, innerConsole, fileName);
                     return;
@@ -778,6 +788,22 @@ namespace Emutastic.Services
                     }
                     ImportLog($"  → .bin-only archive, treating as Arcade");
                     return string.Empty; // routes to Arcade via the caller
+                }
+
+                // DOS detection: .exe/.com/.bat inside = DOSBox Pure content.
+                // Checked after the recognized-ROM pass so a real ROM takes priority,
+                // but before falling back to Arcade.
+                bool hasDosExe = entries.Any(e =>
+                {
+                    string x = Path.GetExtension(e.Key ?? string.Empty);
+                    return x.Equals(".exe", StringComparison.OrdinalIgnoreCase)
+                        || x.Equals(".com", StringComparison.OrdinalIgnoreCase)
+                        || x.Equals(".bat", StringComparison.OrdinalIgnoreCase);
+                });
+                if (hasDosExe)
+                {
+                    ImportLog($"  → archive contains .exe/.com/.bat, routing to DOS");
+                    return "DOS";
                 }
 
                 ImportLog($"  → no ROM extension found, routing to Arcade");

@@ -73,6 +73,16 @@ namespace Emutastic.Views
         private int _mouseDeltaX;
         private int _mouseDeltaY;
 
+        // DOS mouse capture — Boxer-style: lock cursor to window, hide it, and warp back to
+        // the GameScreen center each move to turn absolute WPF MouseMove into relative deltas.
+        // Middle mouse button releases capture. Window Deactivated also releases.
+        private bool _mouseCaptured;
+        private int  _captureCenterX;      // screen coords of GameScreen center
+        private int  _captureCenterY;
+        private bool _ignoreNextMove;      // suppress the warp-back event itself
+        private volatile bool _leftMousePressed;
+        private volatile bool _rightMousePressed;
+
         // RETRO_DEVICE_ANALOG index / id constants
         private const uint RETRO_DEVICE_INDEX_ANALOG_LEFT   = 0;
         private const uint RETRO_DEVICE_INDEX_ANALOG_RIGHT  = 1;
@@ -82,6 +92,22 @@ namespace Emutastic.Views
 
         // Joypad button IDs
         private readonly bool[] _inputState = new bool[16];
+        // Raw-keyboard state for cores that poll RETRO_DEVICE_KEYBOARD (DOSBox Pure, etc).
+        private readonly Services.RetroKeyboardState _retroKb = new();
+
+        // Keyboard event callback registered by cores via SET_KEYBOARD_CALLBACK (env cmd 12).
+        // DOSBox Pure routes INT 16h / text input through this — polled KEYBOARD state alone
+        // is not enough for menus, RPG prompts, character-level input.
+        [System.Runtime.InteropServices.UnmanagedFunctionPointer(System.Runtime.InteropServices.CallingConvention.Cdecl)]
+        private delegate void RetroKeyboardEventDelegate([MarshalAs(UnmanagedType.I1)] bool down, uint keycode, uint character, ushort keyModifiers);
+        private RetroKeyboardEventDelegate? _coreKeyboardEvent;
+
+        // Keyboard events must be delivered on the EmuThread — invoking the core's
+        // callback from the WPF UI thread while retro_run is executing races DBP's
+        // internal thread and corrupts the DOS BIOS buffer, producing a delayed
+        // CLR EE fault.  Queue on the UI thread; drain before every retro_run.
+        private readonly System.Collections.Concurrent.ConcurrentQueue<(bool down, uint key, ushort mod)> _kbEventQueue
+            = new(); // kept GC-rooted; provided by core
         private const uint JOYPAD_B      = 0;
         private const uint JOYPAD_Y      = 1;
         private const uint JOYPAD_SELECT = 2;
@@ -139,6 +165,16 @@ namespace Emutastic.Views
         private int  _frameCount        = 0;
         private long _coreRunTotalTicks  = 0;   // sum of Stopwatch ticks spent inside _core.Run()
         private int  _coreRunSampleCount = 0;
+
+        // DBP/DOS crash diagnostics — traces retro_run + env activity during LOLCD transitions
+        // to narrow down the 0x80131506 CLR fault that fires mid-retro_run on program swap.
+        private long _retroRunCallCount = 0;
+        private bool _crashDiagActive   = false;
+        private uint _vidDiagLastW = 0;
+        private uint _vidDiagLastH = 0;
+        private int  _vidDiagFramesRemaining = 0;
+        private int  _runDiagFramesRemaining = 0;   // log every retro_run for N frames after a transition
+        private int  _audDiagFramesRemaining = 0;
 
         // Transient save/load status — shown for 3s alongside the FPS counter
         private string   _transientMsg    = "";
@@ -221,6 +257,14 @@ namespace Emutastic.Views
         private readonly Dictionary<string, string> _coreOptions = new();
         // Track unmanaged string ptrs returned via GET_VARIABLE to prevent leaks
         private readonly Dictionary<string, IntPtr> _coreOptionPtrs = new();
+        // Tracks the value that each live HGlobal in _coreOptionPtrs currently encodes,
+        // so we can return the SAME pointer for repeated GET_VARIABLE calls with an
+        // unchanged value. Freeing + reallocating on every call is a use-after-free: cores
+        // like DOSBox Pure cache the const char* we return and dereference it later.
+        private readonly Dictionary<string, string> _coreOptionPtrValues = new();
+        // Every HGlobal we've ever handed to the core for GET_VARIABLE responses.
+        // Freed in one shot at emulator close — never mid-session.
+        private readonly List<IntPtr> _coreOptionPtrsAllocated = new();
         // Schema accumulated during SET_VARIABLES — saved for the Preferences UI
         private readonly List<CoreOptionEntry> _coreOptionSchema = new();
         // Set to true when the user changes an option mid-game so the core re-reads
@@ -671,6 +715,8 @@ namespace Emutastic.Views
         [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
         [StructLayout(LayoutKind.Sequential)] private struct POINT { public int X, Y; }
         [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
+        [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT lpPoint);
+        [DllImport("user32.dll")] private static extern bool SetCursorPos(int X, int Y);
 
         [StructLayout(LayoutKind.Sequential)]
         private struct RECT { public int Left, Top, Right, Bottom; }
@@ -781,11 +827,15 @@ namespace Emutastic.Views
                 ApplyWindowsChrome();
                 SourceInitialized += OnSourceInitialized;
 
-                // Wire up mouse events for touch input (NDS)
-                GameScreen.MouseLeftButtonDown += GameScreen_PointerDown;
-                GameScreen.MouseLeftButtonUp   += GameScreen_PointerUp;
-                GameScreen.MouseMove           += GameScreen_PointerMove;
-                GameScreen.MouseLeave          += (_, _) => { _pointerPressed = false; _mouseLastPixelX = double.NaN; };
+                // Wire up mouse events for touch input (NDS) and DOS mouse capture (DOSBox Pure)
+                GameScreen.MouseLeftButtonDown  += GameScreen_PointerDown;
+                GameScreen.MouseLeftButtonUp    += GameScreen_PointerUp;
+                GameScreen.MouseRightButtonDown += GameScreen_RightDown;
+                GameScreen.MouseRightButtonUp   += GameScreen_RightUp;
+                GameScreen.PreviewMouseDown     += GameScreen_PreviewMouseDown; // middle-click release
+                GameScreen.MouseMove            += GameScreen_PointerMove;
+                GameScreen.MouseLeave           += (_, _) => { _pointerPressed = false; _mouseLastPixelX = double.NaN; };
+                Deactivated                     += (_, _) => ExitMouseCapture();
 
                 _game = game;
 
@@ -826,6 +876,8 @@ namespace Emutastic.Views
                 _contentDirPtr = Marshal.StringToHGlobalAnsi(contentDir);
 
                 SeedDefaultCoreOptions();
+
+                _crashDiagActive = _consoleHandler is Services.ConsoleHandlers.DosHandler;
 
                 _envCb        = OnEnvironment;
                 _videoCb      = OnVideoRefresh;
@@ -878,6 +930,28 @@ namespace Emutastic.Views
             // NDS: default to touch mode (absolute pointer, no crosshair) instead of mouse mode
             if (_game.Console == "NDS")
                 _coreOptions.TryAdd("desmume_pointer_type", "touch");
+
+            // DOS: auto-enable MT-32 / CM-32L if the user has those ROMs in the system folder.
+            // Boxer-style plug-and-play — user drops the ROMs once and every MT-32-aware game
+            // picks them up automatically with no per-game Preferences tweaking.  The user's
+            // saved Core Options value (loaded below) still wins if they explicitly picked
+            // something else.
+            if (_consoleHandler is Services.ConsoleHandlers.DosHandler)
+            {
+                string sysDir = Marshal.PtrToStringAnsi(_systemDirPtr) ?? "";
+                if (!string.IsNullOrEmpty(sysDir) && Directory.Exists(sysDir))
+                {
+                    foreach (string rom in new[] { "CM32L_CONTROL.ROM", "MT32_CONTROL.ROM" })
+                    {
+                        if (File.Exists(Path.Combine(sysDir, rom)))
+                        {
+                            _coreOptions["dosbox_pure_midi"] = rom;
+                            System.Diagnostics.Trace.WriteLine($"DOS auto-MIDI: selected {rom}");
+                            break;
+                        }
+                    }
+                }
+            }
 
             // Apply legacy per-console overrides (e.g. N64 GFX plugin selection)
             var configSvc = _configService ?? App.Configuration;
@@ -1552,8 +1626,25 @@ namespace Emutastic.Views
                 // WaveOut.Play() is intentionally deferred until here so the hardware
                 // never starts reading from an empty buffer (initial underrun = crackling).
                 System.Diagnostics.Trace.WriteLine($"Pre-filling audio buffer to {prefillMs}ms...");
+
+                void DrainKeyboardQueue()
+                {
+                    var cb = _coreKeyboardEvent;
+                    if (cb == null) return;
+                    while (_kbEventQueue.TryDequeue(out var ev))
+                    {
+                        if (_crashDiagActive)
+                            System.Diagnostics.Trace.WriteLine($"[KB] dispatch down={ev.down} key={ev.key} mod=0x{ev.mod:X} cb=0x{System.Runtime.InteropServices.Marshal.GetFunctionPointerForDelegate(cb).ToInt64():X}");
+                        try { cb(ev.down, ev.key, 0, ev.mod); }
+                        catch (Exception kbEx) { System.Diagnostics.Trace.WriteLine($"[KB] dispatch exception: {kbEx.GetType().Name}: {kbEx.Message}"); }
+                        if (_crashDiagActive)
+                            System.Diagnostics.Trace.WriteLine($"[KB] dispatch returned");
+                    }
+                }
+
                 while (!_isClosing && (_audioPlayer?.GetBufferedMs() ?? prefillMs) < prefillMs)
                 {
+                    DrainKeyboardQueue();
                     _core?.Run();
                     // Apply startup state after the first retro_run — core is now at a safe checkpoint.
                     if (_loadStatePending) ExecuteLoadOnEmuThread();
@@ -1592,9 +1683,23 @@ namespace Emutastic.Views
                     try
                     {
                         var _sw = System.Diagnostics.Stopwatch.StartNew();
+                        long _runId = System.Threading.Interlocked.Increment(ref _retroRunCallCount);
+                        bool _logThisRun = _crashDiagActive && (_runId < 500 || _runId % 60 == 0 || _runDiagFramesRemaining > 0);
+                        if (_runDiagFramesRemaining > 0) _runDiagFramesRemaining--;
+                        int _tid = System.Threading.Thread.CurrentThread.ManagedThreadId;
+                        int _qCount = _kbEventQueue.Count;
+                        if (_logThisRun)
+                            System.Diagnostics.Trace.WriteLine($"[RUN #{_runId}] pre-drain tid={_tid} kbQ={_qCount}");
+                        DrainKeyboardQueue();
+                        if (_logThisRun)
+                            System.Diagnostics.Trace.WriteLine($"[RUN #{_runId}] drain-done → calling retro_run");
                         _core.Run();
+                        if (_logThisRun)
+                            System.Diagnostics.Trace.WriteLine($"[RUN #{_runId}] retro_run returned");
                         try { _raClient?.DoFrame(); }
                         catch (Exception raEx) { System.Diagnostics.Trace.WriteLine($"[RA] DoFrame error: {raEx.Message}"); }
+                        if (_logThisRun)
+                            System.Diagnostics.Trace.WriteLine($"[RUN #{_runId}] DoFrame done");
                         _sw.Stop();
                         System.Threading.Interlocked.Add(ref _coreRunTotalTicks, _sw.ElapsedTicks);
                         System.Threading.Interlocked.Increment(ref _coreRunSampleCount);
@@ -1603,6 +1708,7 @@ namespace Emutastic.Views
                         // run one extra frame to refill before sleeping the frame budget.
                         if ((_audioPlayer?.GetBufferedMs() ?? lowWatermark) < lowWatermark)
                         {
+                            DrainKeyboardQueue();
                             _core.Run();
                             try { _raClient?.DoFrame(); }
                             catch (Exception raEx) { System.Diagnostics.Trace.WriteLine($"[RA] DoFrame error: {raEx.Message}"); }
@@ -2241,6 +2347,27 @@ namespace Emutastic.Views
         private bool OnEnvironment(uint cmd, IntPtr data)
         {
             uint baseCmd = cmd & 0xFF;
+            bool _envDiag = _crashDiagActive && _runDiagFramesRemaining > 0;
+            if (_envDiag)
+                System.Diagnostics.Trace.WriteLine($"[ENV] enter cmd={cmd} base={baseCmd} dataNull={data == IntPtr.Zero}");
+            bool _envResult = false;
+            try
+            {
+            _envResult = OnEnvironmentBody(cmd, baseCmd, data);
+            if (_envDiag)
+                System.Diagnostics.Trace.WriteLine($"[ENV] exit base={baseCmd} result={_envResult}");
+            return _envResult;
+            }
+            catch (Exception _ex)
+            {
+                if (_envDiag)
+                    System.Diagnostics.Trace.WriteLine($"[ENV] THREW base={baseCmd} {_ex.GetType().Name}: {_ex.Message}");
+                return false;
+            }
+        }
+
+        private bool OnEnvironmentBody(uint cmd, uint baseCmd, IntPtr data)
+        {
             try
             {
                 switch (baseCmd)
@@ -2416,6 +2543,39 @@ namespace Emutastic.Views
                                 ? raw.Substring(semi + 1).Trim().Split('|').Select(v => v.Trim()).ToArray()
                                 : Array.Empty<string>();
 
+                            // DOSBox Pure announces `dosbox_pure_midi` with a minimal
+                            // [frontend, disabled] list when its VFS-based system-dir
+                            // scan can't run.  Seed MT-32 / CM-32L / SoundFont names
+                            // from the system dir into the valid list BEFORE validation
+                            // so our pre-seeded default (CM32L_CONTROL.ROM) isn't
+                            // rejected as "not in the list."
+                            if (key == "dosbox_pure_midi" && _consoleHandler is Services.ConsoleHandlers.DosHandler)
+                            {
+                                try
+                                {
+                                    string sysDir = Marshal.PtrToStringAnsi(_systemDirPtr) ?? "";
+                                    if (!string.IsNullOrEmpty(sysDir) && Directory.Exists(sysDir))
+                                    {
+                                        var extras = new List<string>();
+                                        foreach (string name in new[] { "CM32L_CONTROL.ROM", "MT32_CONTROL.ROM" })
+                                            if (File.Exists(Path.Combine(sysDir, name)))
+                                                extras.Add(name);
+                                        foreach (string sf2 in Directory.EnumerateFiles(sysDir, "*.sf2"))
+                                            extras.Add(Path.GetFileName(sf2));
+
+                                        if (extras.Count > 0)
+                                        {
+                                            var merged = new List<string>(validValues);
+                                            foreach (string v in extras)
+                                                if (!merged.Contains(v, StringComparer.OrdinalIgnoreCase))
+                                                    merged.Add(v);
+                                            validValues = merged.ToArray();
+                                        }
+                                    }
+                                }
+                                catch { /* non-fatal — fall back to core's original list */ }
+                            }
+
                             if (_coreOptions.ContainsKey(key))
                             {
                                 // Validate pre-seeded value — if not in the valid list, use safe fallback.
@@ -2486,11 +2646,28 @@ namespace Emutastic.Views
                         string key = Marshal.PtrToStringAnsi(keyPtr) ?? "";
                         if (_coreOptions.TryGetValue(key, out string? value))
                         {
-                            // Free previous allocation for this key, then allocate new one
-                            if (_coreOptionPtrs.TryGetValue(key, out IntPtr oldPtr) && oldPtr != IntPtr.Zero)
-                                Marshal.FreeHGlobal(oldPtr);
-                            IntPtr valPtr = Marshal.StringToHGlobalAnsi(value);
-                            _coreOptionPtrs[key] = valPtr;
+                            // Reuse an existing HGlobal if the value hasn't changed. Cores such as
+                            // DOSBox Pure cache the const char* we hand back and dereference it from
+                            // their own variable-change logic on later frames — freeing-and-reallocating
+                            // on every call causes a use-after-free that surfaces as 0x80131506 when
+                            // the CLR next scans the native heap.
+                            IntPtr valPtr;
+                            if (_coreOptionPtrs.TryGetValue(key, out IntPtr existing) && existing != IntPtr.Zero
+                                && _coreOptionPtrValues.TryGetValue(key, out string? prev) && prev == value)
+                            {
+                                valPtr = existing;
+                            }
+                            else
+                            {
+                                // Value differs — allocate a fresh pointer. We deliberately leak the
+                                // old one: another core thread may still be reading it. The per-session
+                                // leak is tiny (a few dozen short ANSI strings). All HGlobals are
+                                // released together in the close path.
+                                valPtr = Marshal.StringToHGlobalAnsi(value);
+                                _coreOptionPtrs[key] = valPtr;
+                                _coreOptionPtrValues[key] = value ?? "";
+                                _coreOptionPtrsAllocated.Add(valPtr);
+                            }
                             Marshal.WriteIntPtr(data, IntPtr.Size, valPtr);
                             // Clear dirty flag here (not in GET_VARIABLE_UPDATE) so the core
                             // can call GET_VARIABLE_UPDATE multiple times during check_variables()
@@ -2545,6 +2722,12 @@ namespace Emutastic.Views
                     {
                         if (data == IntPtr.Zero) return false;
                         var av = Marshal.PtrToStructure<retro_system_av_info>(data);
+                        if (_crashDiagActive)
+                        {
+                            System.Diagnostics.Trace.WriteLine($"[SYSAV] geom={av.geometry.base_width}x{av.geometry.base_height} ar={av.geometry.aspect_ratio:F3} fps={av.timing.fps:F2} runId={_retroRunCallCount}");
+                            _runDiagFramesRemaining = 20;
+                            _audDiagFramesRemaining = 20;
+                        }
                         // No FBO resize needed — same reasoning as SET_GEOMETRY above.
                         UpdateDisplayAspectRatio(av.geometry.base_width, av.geometry.base_height, av.geometry.aspect_ratio);
                         // Update loop timing only if the handler doesn't force a hardware rate.
@@ -2558,6 +2741,8 @@ namespace Emutastic.Views
                                 System.Diagnostics.Trace.WriteLine($"SET_SYSTEM_AV_INFO: fps={newFps:F2} → targetFrameMs={_targetFrameMs:F2}");
                             }
                         }
+                        if (_crashDiagActive)
+                            System.Diagnostics.Trace.WriteLine($"[SYSAV] handler returning true");
                         return true;
                     }
 
@@ -2646,6 +2831,17 @@ namespace Emutastic.Views
                         // The same callback drives real XInput vibration.
                         if (data != IntPtr.Zero && _rumbleStateDelegate != null)
                             Marshal.WriteIntPtr(data, Marshal.GetFunctionPointerForDelegate(_rumbleStateDelegate));
+                        return true;
+
+                    case RETRO_ENVIRONMENT_SET_KEYBOARD_CALLBACK:
+                        // struct retro_keyboard_callback { retro_keyboard_event_t callback; }
+                        if (data != IntPtr.Zero)
+                        {
+                            IntPtr fnPtr = Marshal.ReadIntPtr(data);
+                            _coreKeyboardEvent = fnPtr != IntPtr.Zero
+                                ? Marshal.GetDelegateForFunctionPointer<RetroKeyboardEventDelegate>(fnPtr)
+                                : null;
+                        }
                         return true;
 
                     case RETRO_ENVIRONMENT_SET_AUDIO_CALLBACK:
@@ -2893,6 +3089,8 @@ namespace Emutastic.Views
         // =========================================================================
         private void OnVideoRefresh(IntPtr data, uint width, uint height, UIntPtr pitch)
         {
+            if (_crashDiagActive && (_runDiagFramesRemaining > 17 || width != _lastFrameWidth || height != _lastFrameHeight))
+                System.Diagnostics.Trace.WriteLine($"[VID] refresh {width}x{height} pitch={(ulong)pitch} dataNull={data == IntPtr.Zero} runId={_retroRunCallCount}");
             // Track last frame dimensions for recording (all paths including Vulkan swapchain)
             if (width > 0 && height > 0) { _lastFrameWidth = width; _lastFrameHeight = height; }
 
@@ -3056,17 +3254,35 @@ namespace Emutastic.Views
                 int rowBytes  = (int)width * bpp;
                 int frameSize = srcPitch * (int)height;
 
+                bool diagThisFrame = _crashDiagActive &&
+                    (width != _vidDiagLastW || height != _vidDiagLastH || _vidDiagFramesRemaining > 0 || _runDiagFramesRemaining > 17);
+                if (_crashDiagActive && (width != _vidDiagLastW || height != _vidDiagLastH))
+                {
+                    _vidDiagLastW = width; _vidDiagLastH = height;
+                    _vidDiagFramesRemaining = 3;
+                }
+                if (diagThisFrame)
+                {
+                    _vidDiagFramesRemaining--;
+                    System.Diagnostics.Trace.WriteLine($"[VID-SW] enter w={width} h={height} sp={srcPitch} rBytes={rowBytes} frameSize={frameSize} bufLen={_videoFrameBuffer.Length} vidPending={_videoPending}");
+                }
+
                 // Drop this frame if the UI thread is still processing the previous one.
                 // This prevents BeginInvoke from queueing unlimited frames AND prevents
                 // writing new data into the buffer while the UI thread is reading it.
                 if (_videoPending) return;
-                
+
                 // Reuse the frame buffer — resize only when resolution changes.
                 // Avoids Large Object Heap allocation every frame (was 1.2MB/frame at
                 // 640×480 XRGB8888, causing gen2 GC pauses and stuttering).
                 if (_videoFrameBuffer.Length != frameSize)
+                {
+                    if (diagThisFrame) System.Diagnostics.Trace.WriteLine($"[VID-SW] realloc frameBuffer {_videoFrameBuffer.Length} → {frameSize}");
                     _videoFrameBuffer = new byte[frameSize];
+                }
+                if (diagThisFrame) System.Diagnostics.Trace.WriteLine($"[VID-SW] about to Marshal.Copy(data=0x{data.ToInt64():X}, dst={frameSize} bytes)");
                 Marshal.Copy(data, _videoFrameBuffer, 0, frameSize);
+                if (diagThisFrame) System.Diagnostics.Trace.WriteLine($"[VID-SW] Marshal.Copy(native→managed) done");
 
                 // Recording: queue the raw frame for encoding.
                 // If the core's row pitch has padding (srcPitch > rowBytes), we must
@@ -3096,32 +3312,41 @@ namespace Emutastic.Views
                 int    rBytes   = rowBytes;
                 uint   w = width, h = height;
                 PixelFormat pf  = pixFmt;
+                bool   diagC    = diagThisFrame;
 
+                if (diagThisFrame) System.Diagnostics.Trace.WriteLine($"[VID-SW] scheduling Dispatcher.BeginInvoke");
                 Dispatcher.BeginInvoke(() =>
                 {
                     try
                     {
+                        if (diagC) System.Diagnostics.Trace.WriteLine($"[UI-VID] closure start w={w} h={h} pf={pf} curBitmap={(_bitmap==null?"null":$"{_videoWidth}x{_videoHeight}/{_bitmap.Format}")}");
                         if (_bitmap == null || _videoWidth != w || _videoHeight != h || _bitmap.Format != pf)
                         {
+                            if (diagC) System.Diagnostics.Trace.WriteLine($"[UI-VID] recreating WriteableBitmap");
                             _videoWidth = w; _videoHeight = h;
                             _bitmap = new WriteableBitmap((int)w, (int)h, 96, 96, pf, null);
                             GameScreen.Source = _bitmap;
                             UpdateDisplayAspectRatio(w, h, _core?.AvInfo.geometry.aspect_ratio ?? 0f);
                             UpdateShaderScreenHeight(h);
+                            if (diagC) System.Diagnostics.Trace.WriteLine($"[UI-VID] bitmap recreated");
                         }
                         _bitmap.Lock();
                         try
                         {
                             int destPitch = _bitmap.BackBufferStride;
+                            if (diagC) System.Diagnostics.Trace.WriteLine($"[UI-VID] destPitch={destPitch} backBuf=0x{_bitmap.BackBuffer.ToInt64():X} bufLen={buf.Length}");
                             for (int y = 0; y < (int)h; y++)
                                 Marshal.Copy(buf, y * sp, _bitmap.BackBuffer + y * destPitch, rBytes);
                             _bitmap.AddDirtyRect(new Int32Rect(0, 0, (int)w, (int)h));
+                            if (diagC) System.Diagnostics.Trace.WriteLine($"[UI-VID] row copies + dirty rect done");
                         }
                         finally { _bitmap.Unlock(); }
+                        if (diagC) System.Diagnostics.Trace.WriteLine($"[UI-VID] closure end");
                     }
                     catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Video UI: {ex.Message}"); }
                     finally { _videoPending = false; }
                 }, DispatcherPriority.Render);
+                if (diagThisFrame) System.Diagnostics.Trace.WriteLine($"[VID-SW] BeginInvoke returned — leaving OnVideoRefresh");
             }
             catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Video refresh: {ex.Message}"); }
         }
@@ -3131,6 +3356,8 @@ namespace Emutastic.Views
         // =========================================================================
         private void OnAudioSample(short left, short right)
         {
+            if (_crashDiagActive && _runDiagFramesRemaining > 0)
+                System.Diagnostics.Trace.WriteLine($"[AUDs] L={left} R={right} runId={_retroRunCallCount}");
             try { _audioPlayer?.QueueSample(left, right); }
             catch { }
         }
@@ -3145,6 +3372,12 @@ namespace Emutastic.Views
             {
                 // Native data is already interleaved 16-bit stereo PCM — copy straight to bytes.
                 int byteCount = (int)(uint)frames * 4; // 2 channels × 2 bytes
+                bool _diagAud = _audDiagFramesRemaining > 0;
+                if (_diagAud)
+                {
+                    _audDiagFramesRemaining--;
+                    System.Diagnostics.Trace.WriteLine($"[AUD] frames={(ulong)frames} byteCount={byteCount} bufLen={_audioBatchBuffer.Length} runId={_retroRunCallCount}");
+                }
                 if (_audioBatchBuffer.Length < byteCount)
                     _audioBatchBuffer = new byte[byteCount * 2]; // grow with headroom, rare
                 Marshal.Copy(data, _audioBatchBuffer, 0, byteCount);
@@ -3176,9 +3409,13 @@ namespace Emutastic.Views
 
         /// <summary>
         /// Minimal printf formatter for core log messages.
-        /// Handles the common specifiers cores use (%s, %d, %i, %u, %x, %X, %ld, %lu, %02d, etc.).
-        /// Floats are skipped — their 8-byte value can't be reliably read from an IntPtr slot.
-        /// Covers up to 4 varargs (R8, R9, and first two stack slots in x64 Windows ABI).
+        /// Handles the common specifiers cores use (%s, %d, %i, %u, %x, %X, %f, %g, %e, %ld, %lu, %02d, etc.).
+        /// Every matched specifier MUST advance argIdx — otherwise a skipped spec (e.g. %f) would
+        /// leave a double's bit pattern sitting in the next args[] slot and a following %s would
+        /// feed that bit pattern into Marshal.PtrToStringAnsi as a wild pointer, AV in native
+        /// code, and corrupt CLR state (0x80131506 on next GC scan).
+        /// Covers up to 4 varargs (R8, R9, and first two stack slots in x64 Windows ABI; doubles
+        /// in varargs positions are mirrored into the integer register per the MS x64 ABI).
         /// </summary>
         private static string FormatCoreLog(string fmt, IntPtr a0, IntPtr a1, IntPtr a2, IntPtr a3)
         {
@@ -3188,7 +3425,7 @@ namespace Emutastic.Views
             int argIdx = 0;
 
             return System.Text.RegularExpressions.Regex.Replace(fmt,
-                @"%%|%[-+0 #]*\d*(?:\.\d+)?(?:hh?|ll?|[Lqjzt])?([diouxXscp])",
+                @"%%|%[-+0 #]*\d*(?:\.\d+)?(?:hh?|ll?|[Lqjzt])?([diouxXscpfFgGeE])",
                 m =>
                 {
                     if (m.Value == "%%") return "%";
@@ -3213,6 +3450,11 @@ namespace Emutastic.Views
                         'X'        => PadNum(((ulong)arg).ToString("X"), width, zeroPad),
                         'p'        => "0x" + ((ulong)arg).ToString("x16"),
                         'c'        => ((char)(byte)arg).ToString(),
+                        // Windows x64 variadic ABI: floats/doubles are passed in XMM AND mirrored
+                        // into the corresponding integer register / stack slot. Reinterpret the
+                        // 8-byte slot as an IEEE-754 double.
+                        'f' or 'F' or 'g' or 'G' or 'e' or 'E' =>
+                            System.BitConverter.Int64BitsToDouble((long)arg).ToString("G"),
                         _          => m.Value
                     };
                 });
@@ -3224,7 +3466,11 @@ namespace Emutastic.Views
         // =========================================================================
         // Input
         // =========================================================================
-        private void OnInputPoll() { }
+        private void OnInputPoll()
+        {
+            if (_crashDiagActive && _runDiagFramesRemaining > 0)
+                System.Diagnostics.Trace.WriteLine($"[POLL] input_poll_cb runId={_retroRunCallCount}");
+        }
 
         /// <summary>
         /// Called by the core once per frame to query each button/axis state.
@@ -3244,6 +3490,8 @@ namespace Emutastic.Views
         /// </summary>
         private short OnInputState(uint port, uint device, uint index, uint id)
         {
+            if (_crashDiagActive && _runDiagFramesRemaining > 17)
+                System.Diagnostics.Trace.WriteLine($"[IN-ST] port={port} dev={device} idx={index} id={id} runId={_retroRunCallCount}");
             try
             {
             if (port >= 4) return 0;
@@ -3301,18 +3549,20 @@ namespace Emutastic.Views
                 return pressed ? (short)1 : (short)0;
             }
 
-            // Mouse device — used by MAME-based cores (e.g. SAME CDi) for pointer/thumbpad input.
-            // The SAME CDi core polls port 0 as mouse alongside joypad in the same frame.
+            // Mouse device — used by MAME-based cores (e.g. SAME CDi, port 0) and DOSBox Pure
+            // (port 1 per DosHandler.ConfigureControllerPorts).
             // id=0 MOUSE_X: X delta (right = positive)
             // id=1 MOUSE_Y: Y delta (down = positive, so negate XInput Y)
-            // id=2 MOUSE_LEFT:  Button 1 (JOYPAD_B, libretro id 0)
-            // id=3 MOUSE_RIGHT: Button 2 (JOYPAD_Y, libretro id 1)
+            // id=2 MOUSE_LEFT:  Button 1
+            // id=3 MOUSE_RIGHT: Button 2
             if (device == RETRO_DEVICE_MOUSE)
             {
+                bool isDos = _consoleHandler is Services.ConsoleHandlers.DosHandler;
+                bool acceptDeltas = isDos ? (port == 0 || port == 1) : isPort0;
+
                 if (id == 0) // MOUSE_X delta
                 {
-                    // WPF mouse delta (accumulated since last poll) — port 0 only
-                    int wpfDelta = isPort0 ? Interlocked.Exchange(ref _mouseDeltaX, 0) : 0;
+                    int wpfDelta = acceptDeltas ? Interlocked.Exchange(ref _mouseDeltaX, 0) : 0;
 
                     // Controller analog stick fallback
                     if (ctrl != null && ctrl.IsConnected)
@@ -3325,7 +3575,7 @@ namespace Emutastic.Views
                 }
                 if (id == 1) // MOUSE_Y delta
                 {
-                    int wpfDelta = isPort0 ? Interlocked.Exchange(ref _mouseDeltaY, 0) : 0;
+                    int wpfDelta = acceptDeltas ? Interlocked.Exchange(ref _mouseDeltaY, 0) : 0;
 
                     if (ctrl != null && ctrl.IsConnected)
                     {
@@ -3337,14 +3587,15 @@ namespace Emutastic.Views
                 }
                 if (id == 2) // MOUSE_LEFT → Button 1
                 {
-                    bool pressed = (isPort0 && _pointerPressed) ||
+                    bool pressed = (acceptDeltas && (_pointerPressed || _leftMousePressed)) ||
                                    (isPort0 && _inputState[JOYPAD_B]) ||
                                    (ctrl?.GetButtonState(JOYPAD_B) ?? false);
                     return pressed ? (short)1 : (short)0;
                 }
                 if (id == 3) // MOUSE_RIGHT → Button 2
                 {
-                    bool pressed = (isPort0 && _inputState[JOYPAD_Y]) ||
+                    bool pressed = (acceptDeltas && _rightMousePressed) ||
+                                   (isPort0 && _inputState[JOYPAD_Y]) ||
                                    (ctrl?.GetButtonState(JOYPAD_Y) ?? false);
                     return pressed ? (short)1 : (short)0;
                 }
@@ -3393,6 +3644,11 @@ namespace Emutastic.Views
                 }
             }
 
+            // Raw keyboard — used by DOSBox Pure and any core that polls RETRO_DEVICE_KEYBOARD.
+            // Core queries each RETROK_* id individually; we just return the tracked state.
+            if (device == RETRO_DEVICE_KEYBOARD)
+                return _retroKb.IsPressed(id) ? (short)1 : (short)0;
+
             // Pointer device — touch input for NDS bottom screen (port 0 only).
             if (isPort0 && device == RETRO_DEVICE_POINTER)
             {
@@ -3418,22 +3674,32 @@ namespace Emutastic.Views
         {
             RecLog($"KeyDown: {e.Key}");
             SetKey(e.Key, true);
-            if (e.Key == Key.Escape) Close();
-            if (e.Key == Key.F5)
+
+            // Cores that consume raw keyboard (DOSBox Pure) need Escape/F-keys passed through.
+            // Gate frontend hotkeys behind Ctrl so the game still sees every key.
+            bool rawKeyboardCore = _consoleHandler is Services.ConsoleHandlers.DosHandler;
+            bool hotkeyModifier  = !rawKeyboardCore ||
+                                   (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
+
+            if (hotkeyModifier)
             {
-                LoadPickerPanel.Visibility = Visibility.Collapsed;
-                RequestSave("Quick Save");
+                if (e.Key == Key.Escape) Close();
+                if (e.Key == Key.F5)
+                {
+                    LoadPickerPanel.Visibility = Visibility.Collapsed;
+                    RequestSave("Quick Save");
+                }
+                if (e.Key == Key.F7)
+                {
+                    var qs = _db?.GetSaveStateByGameAndName(_game.Id, "Quick Save");
+                    if (qs != null) RequestLoad(qs.StatePath, "Quick Save");
+                    else { _transientMsg = "No Quick Save found"; _transientExpiry = DateTime.Now.AddSeconds(3); }
+                }
+                if (e.Key == Key.PrintScreen || e.Key == Key.F12)
+                    TakeScreenshot();
+                if (e.Key == Key.F9)
+                    ToggleRecording();
             }
-            if (e.Key == Key.F7)
-            {
-                var qs = _db?.GetSaveStateByGameAndName(_game.Id, "Quick Save");
-                if (qs != null) RequestLoad(qs.StatePath, "Quick Save");
-                else { _transientMsg = "No Quick Save found"; _transientExpiry = DateTime.Now.AddSeconds(3); }
-            }
-            if (e.Key == Key.PrintScreen || e.Key == Key.F12)
-                TakeScreenshot();
-            if (e.Key == Key.F9)
-                ToggleRecording();
             e.Handled = true;
         }
 
@@ -3949,6 +4215,20 @@ namespace Emutastic.Views
 
         private void GameScreen_PointerDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
+            // DOS: first click captures the mouse; subsequent clicks while captured are
+            // just "press left button" and also reassert capture in case it was lost.
+            if (_consoleHandler is Services.ConsoleHandlers.DosHandler)
+            {
+                if (!_mouseCaptured)
+                {
+                    EnterMouseCapture();
+                    return;
+                }
+                _leftMousePressed = true;
+                return;
+            }
+
+            // Non-DOS (NDS touch etc.) — absolute pointer
             UpdatePointerPosition(e);
             _pointerPressed = true;
             GameScreen.CaptureMouse();
@@ -3956,12 +4236,89 @@ namespace Emutastic.Views
 
         private void GameScreen_PointerUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
+            if (_consoleHandler is Services.ConsoleHandlers.DosHandler)
+            {
+                _leftMousePressed = false;
+                return;
+            }
             _pointerPressed = false;
             GameScreen.ReleaseMouseCapture();
         }
 
+        private void GameScreen_RightDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            if (_consoleHandler is Services.ConsoleHandlers.DosHandler && _mouseCaptured)
+                _rightMousePressed = true;
+        }
+
+        private void GameScreen_RightUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            if (_consoleHandler is Services.ConsoleHandlers.DosHandler)
+                _rightMousePressed = false;
+        }
+
+        private void GameScreen_PreviewMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton == MouseButton.Middle && _mouseCaptured)
+            {
+                ExitMouseCapture();
+                e.Handled = true;
+            }
+        }
+
+        private void EnterMouseCapture()
+        {
+            if (_mouseCaptured) return;
+            RecomputeCaptureCenter();
+            _mouseCaptured = true;
+            _ignoreNextMove = true;
+            SetCursorPos(_captureCenterX, _captureCenterY);
+            Mouse.OverrideCursor = System.Windows.Input.Cursors.None;
+            GameScreen.CaptureMouse();
+
+            _transientMsg = "Mouse captured — middle-click to release";
+            _transientExpiry = DateTime.Now.AddSeconds(3);
+        }
+
+        private void ExitMouseCapture()
+        {
+            if (!_mouseCaptured) return;
+            _mouseCaptured = false;
+            _leftMousePressed = false;
+            _rightMousePressed = false;
+            Mouse.OverrideCursor = null;
+            GameScreen.ReleaseMouseCapture();
+        }
+
+        private void RecomputeCaptureCenter()
+        {
+            double w = GameScreen.ActualWidth;
+            double h = GameScreen.ActualHeight;
+            if (w <= 0 || h <= 0) return;
+            try
+            {
+                var center = GameScreen.PointToScreen(new System.Windows.Point(w / 2.0, h / 2.0));
+                _captureCenterX = (int)center.X;
+                _captureCenterY = (int)center.Y;
+            }
+            catch { /* PointToScreen can throw if window not yet presented */ }
+        }
+
         private void GameScreen_PointerMove(object sender, System.Windows.Input.MouseEventArgs e)
         {
+            if (_mouseCaptured)
+            {
+                if (_ignoreNextMove) { _ignoreNextMove = false; return; }
+                if (!GetCursorPos(out POINT cur)) return;
+                int dx = cur.X - _captureCenterX;
+                int dy = cur.Y - _captureCenterY;
+                if (dx == 0 && dy == 0) return;
+                _mouseDeltaX += dx;
+                _mouseDeltaY += dy;
+                _ignoreNextMove = true;
+                SetCursorPos(_captureCenterX, _captureCenterY);
+                return;
+            }
             if (_pointerPressed)
                 UpdatePointerPosition(e);
         }
@@ -3970,7 +4327,33 @@ namespace Emutastic.Views
 
         private void SetKey(Key key, bool pressed)
         {
+            // Mirror every press to the raw-keyboard state so cores that poll
+            // RETRO_DEVICE_KEYBOARD (DOSBox Pure) see it regardless of joypad mapping.
+            _retroKb.SetKey(key, pressed);
+
+            // If a core registered a keyboard callback (DOSBox Pure does), enqueue the
+            // event.  DrainKeyboardQueue() invokes the core's callback on the EmuThread
+            // right before each retro_run — never from the WPF UI thread, which would
+            // race the core's internal state and corrupt memory.
+            if (_coreKeyboardEvent != null)
+            {
+                uint retroKey = Services.RetroKeyboardMap.ToRetroKey(key);
+                if (retroKey != 0)
+                {
+                    var mods = Keyboard.Modifiers;
+                    ushort retroMod = 0;
+                    if ((mods & ModifierKeys.Shift)   != 0) retroMod |= 0x01;
+                    if ((mods & ModifierKeys.Control) != 0) retroMod |= 0x02;
+                    if ((mods & ModifierKeys.Alt)     != 0) retroMod |= 0x04;
+                    if ((mods & ModifierKeys.Windows) != 0) retroMod |= 0x08;
+                    if (Keyboard.IsKeyToggled(Key.NumLock))  retroMod |= 0x10;
+                    if (Keyboard.IsKeyToggled(Key.CapsLock)) retroMod |= 0x20;
+                    _kbEventQueue.Enqueue((pressed, retroKey, retroMod));
+                }
+            }
+
             // Custom mappings first
+            // (kb queue drain happens on EmuThread via DrainKeyboardQueue — never here)
             if (_keyboardMappings.TryGetValue(key, out var id) && id < 16)
             {
                 _inputState[id] = pressed;
@@ -5179,6 +5562,10 @@ namespace Emutastic.Views
                 ShowWindow(_vulkanOverlayHwnd, 0); // SW_HIDE
             _vulkanHudWindow?.Hide();
 
+            // Stop forwarding keyboard events to the core — the core's function pointer
+            // will be invalidated once retro_deinit runs, and a late key event would AV.
+            _coreKeyboardEvent = null;
+
             // Hide immediately so the user isn't staring at an unresponsive window
             // while the emu thread and GL cleanup finish in the background.
             Hide();
@@ -5323,10 +5710,15 @@ namespace Emutastic.Views
                 if (_saveDirPtr    != IntPtr.Zero) { Marshal.FreeHGlobal(_saveDirPtr);    _saveDirPtr    = IntPtr.Zero; }
                 if (_contentDirPtr != IntPtr.Zero) { Marshal.FreeHGlobal(_contentDirPtr); _contentDirPtr = IntPtr.Zero; }
 
-                // Free cached GET_VARIABLE string pointers
-                foreach (var ptr in _coreOptionPtrs.Values)
+                // Free cached GET_VARIABLE string pointers. Iterate the full allocation list
+                // (not just the current _coreOptionPtrs map) because the map only holds the
+                // latest pointer per key — historical ones are kept in _coreOptionPtrsAllocated
+                // to avoid the use-after-free we'd hit if we freed mid-session.
+                foreach (var ptr in _coreOptionPtrsAllocated)
                     if (ptr != IntPtr.Zero) Marshal.FreeHGlobal(ptr);
+                _coreOptionPtrsAllocated.Clear();
                 _coreOptionPtrs.Clear();
+                _coreOptionPtrValues.Clear();
 
                 static void FreeH(ref GCHandle? h) { if (h.HasValue) { h.Value.Free(); h = null; } }
                 FreeH(ref _envCbHandle);

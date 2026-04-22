@@ -25,7 +25,7 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 ## Supported Systems
 
 <details>
-<summary><strong>33 systems across 10 manufacturers</strong></summary>
+<summary><strong>34 systems across 11 manufacturers</strong></summary>
 
 | System | Tag | Core (priority order) | BIOS |
 |---|---|---|---|
@@ -62,6 +62,7 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 | Vectrex | Vectrex | vecx | No |
 | 3DO | 3DO | opera | `panafz10.bin` |
 | Philips CD-i | CDi | same_cdi | No |
+| MS-DOS | DOS | dosbox_pure | Optional MT-32 ROMs |
 
 </details>
 
@@ -85,6 +86,8 @@ Place BIOS files in `%AppData%\Roaming\Emutastic\system\`. The app also checks e
 **3DO** — Any of: `panafz10.bin` (Panasonic), `panafz1j.bin` (Japan), `goldstar.bin` (GoldStar)
 
 **Famicom Disk System** — `disksys.rom`
+
+**MS-DOS** — Optional MT-32 ROMs for Roland MT-32 / CM-32L MIDI: `MT32_CONTROL.ROM` + `MT32_PCM.ROM` (or `CM32L_CONTROL.ROM` + `CM32L_PCM.ROM`). Drop into the system folder; Emutastic auto-configures DBP to use them. SoundFonts (`.sf2`) in the same folder are picked up as alternatives.
 
 </details>
 

@@ -64,6 +64,9 @@ namespace Emutastic.Services
             // Arcade
             new() { FileName = "fbneo_libretro.dll",            DisplayName = "FBNeo (Final Burn Neo)", Systems = ["Arcade"],                            Recommended = true  },
             new() { FileName = "geolith_libretro.dll",         DisplayName = "Geolith (Neo Geo)",      Systems = ["NeoGeo"],                            Recommended = true  },
+
+            // PC
+            new() { FileName = "dosbox_pure_libretro.dll",      DisplayName = "DOSBox Pure",           Systems = ["DOS"],                               Recommended = true  },
         };
 
         // ── Infrastructure ────────────────────────────────────────────────────

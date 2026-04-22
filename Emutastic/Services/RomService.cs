@@ -11,9 +11,9 @@ namespace Emutastic.Services
         // Ordered by most common system first (shown that way in the picker).
         public static readonly Dictionary<string, string[]> AmbiguousExtensions = new(StringComparer.OrdinalIgnoreCase)
         {
-            { ".chd", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "3DO", "Dreamcast", "CDi" } },
-            { ".iso", new[] { "PSP", "GameCube", "3DO" } },
-            { ".cue", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "3DO", "CDi" } },
+            { ".chd", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "3DO", "Dreamcast", "CDi", "DOS" } },
+            { ".iso", new[] { "PSP", "GameCube", "3DO", "DOS" } },
+            { ".cue", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "3DO", "CDi", "DOS" } },
             { ".bin", new[] { "PS1", "SegaCD", "Saturn", "3DO", "Dreamcast", "Atari7800", "Atari2600", "Genesis", "Sega32X", "ColecoVision", "NES", "NGP" } },
         };
 
@@ -70,6 +70,11 @@ namespace Emutastic.Services
             { ".neo",  "NeoGeo"      },
             { ".zip",  "Arcade"      },
             { ".7z",   "Arcade"      },
+            { ".dosz", "DOS"         },
+            { ".exe",  "DOS"         },
+            { ".com",  "DOS"         },
+            { ".bat",  "DOS"         },
+            { ".conf", "DOS"         },
         };
 
         // Console to manufacturer mapping
@@ -100,6 +105,7 @@ namespace Emutastic.Services
             { "3DO",          "3DO"        },
             { "CDi",          "Philips"    },
             { "Arcade",       "Arcade"     },
+            { "DOS",          "PC"         },
         };
 
         // Console to background/accent color mapping
@@ -129,6 +135,7 @@ namespace Emutastic.Services
             { "NGPC",        ("#1A0A1A", "#D4A843") },
             { "NeoGeo",      ("#1A0A1A", "#FFD700") },
             { "Arcade",      ("#0A0A0A", "#E03535") },
+            { "DOS",         ("#0A0A0A", "#00A860") },
         };
 
         public static bool IsRomFile(string filePath)
@@ -245,6 +252,12 @@ namespace Emutastic.Services
             ("philips cdi",   "CDi"),
             ("cd-i",          "CDi"),
             ("cdi",           "CDi"),
+            ("ms-dos",        "DOS"),
+            ("msdos",         "DOS"),
+            ("dosbox",        "DOS"),
+            ("dos games",     "DOS"),
+            ("exodos",        "DOS"),
+            (" dos",          "DOS"),
         ];
 
         /// <summary>

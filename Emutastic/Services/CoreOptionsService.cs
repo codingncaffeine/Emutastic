@@ -76,6 +76,7 @@ namespace Emutastic.Services
             ["stella_libretro"]           = "Atari2600",
             ["vecx_libretro"]             = "Vectrex",
             ["virtualjaguar_libretro"]    = "Jaguar",
+            ["dosbox_pure_libretro"]      = "DOS",
         };
 
         /// <summary>Returns (coreName, displayName, consoleName) tuples for every core that has a saved schema.</summary>

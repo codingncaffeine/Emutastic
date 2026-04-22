@@ -696,6 +696,7 @@ namespace Emutastic.Views
             ("Sony",      new[] { "PlayStation" }),
             ("NEC",       new[] { "TurboGrafx-CD" }),
             ("Arcade",    new[] { "Neo Geo" }),
+            ("PC",        new[] { "DOS (MT-32 / CM-32L)" }),
             ("Other",     new[] { "3DO", "Philips CD-i" }),
         };
 
@@ -735,6 +736,14 @@ namespace Emutastic.Views
             bannerStack.Children.Add(new TextBlock
             {
                 Text = "Alternatively, place a BIOS file in the same folder as the ROMs for that system — it will be found automatically.",
+                FontSize = 11,
+                Foreground = _brushTextMuted,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 4, 0, 0)
+            });
+            bannerStack.Children.Add(new TextBlock
+            {
+                Text = "Or just drag and drop BIOS / MT-32 ROM / .sf2 SoundFont files anywhere on this panel — they'll be recognized and copied here automatically.",
                 FontSize = 11,
                 Foreground = _brushTextMuted,
                 TextWrapping = TextWrapping.Wrap,
@@ -1182,6 +1191,195 @@ namespace Emutastic.Views
                 return string.Equals(actual, expectedMd5, StringComparison.OrdinalIgnoreCase);
             }
             catch { return false; }
+        }
+
+        private static string? ComputeMd5(string path)
+        {
+            try
+            {
+                using var md5 = System.Security.Cryptography.MD5.Create();
+                using var stream = System.IO.File.OpenRead(path);
+                return BitConverter.ToString(md5.ComputeHash(stream)).Replace("-", "").ToLowerInvariant();
+            }
+            catch { return null; }
+        }
+
+        // ── BIOS drag-drop ────────────────────────────────────────────────────
+        // Drop any file on the System Files panel — it gets identified by MD5 →
+        // filename+size → filename, and copied to the system folder with the
+        // canonical name. Unknown .sf2 files are also accepted (DOSBox Pure picks
+        // any SoundFont in system/ automatically).
+        private void BiosPanel_DragOver(object sender, System.Windows.DragEventArgs e)
+        {
+            e.Effects = e.Data.GetDataPresent(System.Windows.DataFormats.FileDrop)
+                ? System.Windows.DragDropEffects.Copy
+                : System.Windows.DragDropEffects.None;
+            e.Handled = true;
+        }
+
+        private void BiosPanel_Drop(object sender, System.Windows.DragEventArgs e)
+        {
+            if (!e.Data.GetDataPresent(System.Windows.DataFormats.FileDrop)) return;
+            if (e.Data.GetData(System.Windows.DataFormats.FileDrop) is not string[] paths) return;
+
+            string sysDir = AppPaths.GetFolder("System");
+            int imported = 0, skipped = 0;
+            var messages = new System.Collections.Generic.List<string>();
+
+            foreach (string src in paths)
+            {
+                if (!System.IO.File.Exists(src)) { skipped++; continue; }
+                ProcessDroppedFile(src, sysDir, messages, ref imported, ref skipped);
+            }
+
+            if (imported > 0) BuildBiosPanel(); // refresh status badges
+
+            string summary = imported > 0
+                ? $"Imported {imported} file{(imported == 1 ? "" : "s")}"
+                  + (skipped > 0 ? $" ({skipped} skipped)" : "")
+                : "No files imported";
+            System.Windows.MessageBox.Show(
+                summary + "\n\n" + string.Join("\n", messages),
+                "BIOS drop",
+                System.Windows.MessageBoxButton.OK,
+                imported > 0 ? System.Windows.MessageBoxImage.Information : System.Windows.MessageBoxImage.Warning);
+        }
+
+        // Returns the best KnownBios match for (filename, size, md5). md5 may be null
+        // when the caller hasn't computed it yet — tier 1 is skipped in that case.
+        private static BiosEntry? MatchKnownBios(string entryName, long size, string? md5)
+        {
+            if (md5 != null)
+            {
+                var hashMatch = KnownBios.All.FirstOrDefault(b =>
+                    b.Md5 != null && string.Equals(b.Md5, md5, StringComparison.OrdinalIgnoreCase));
+                if (hashMatch != null) return hashMatch;
+            }
+
+            var sizeMatch = KnownBios.All.FirstOrDefault(b =>
+                string.Equals(System.IO.Path.GetFileName(b.Filename), entryName, StringComparison.OrdinalIgnoreCase)
+                && (b.ExpectedSize == 0 || b.ExpectedSize == size));
+            if (sizeMatch != null) return sizeMatch;
+
+            return KnownBios.All.FirstOrDefault(b =>
+                string.Equals(System.IO.Path.GetFileName(b.Filename), entryName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static void CopyEntryToSystem(BiosEntry match, System.IO.Stream source, string sysDir)
+        {
+            string destPath = System.IO.Path.Combine(sysDir, match.Filename);
+            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(destPath)!);
+            using var dest = System.IO.File.Create(destPath);
+            source.CopyTo(dest);
+        }
+
+        private void ProcessDroppedFile(string src, string sysDir,
+            System.Collections.Generic.List<string> messages,
+            ref int imported, ref int skipped)
+        {
+            long size;
+            try { size = new System.IO.FileInfo(src).Length; }
+            catch { skipped++; return; }
+
+            string srcName = System.IO.Path.GetFileName(src);
+            string srcExt  = System.IO.Path.GetExtension(srcName);
+            bool isArchive = srcExt.Equals(".zip", StringComparison.OrdinalIgnoreCase)
+                          || srcExt.Equals(".7z",  StringComparison.OrdinalIgnoreCase)
+                          || srcExt.Equals(".rar", StringComparison.OrdinalIgnoreCase);
+
+            // For archives: peek inside first. MT-32 ROMs, PS1 BIOS bundles, etc. typically ship zipped.
+            // If any entry matches a known BIOS, extract THAT. Fall back to treating the archive itself
+            // as the BIOS (covers neogeo.zip / cdibios.zip cases where the archive IS the expected file).
+            if (isArchive)
+            {
+                int extractedHere = 0;
+                try
+                {
+                    using var archive = SharpCompress.Archives.ArchiveFactory.Open(src);
+                    foreach (var entry in archive.Entries)
+                    {
+                        if (entry.IsDirectory || entry.Key == null) continue;
+                        string entryName = System.IO.Path.GetFileName(entry.Key);
+                        if (string.IsNullOrEmpty(entryName)) continue;
+
+                        // Tier 1: MD5 from entry stream (only if any KnownBios entry pins an MD5)
+                        string? entryMd5 = null;
+                        if (KnownBios.All.Any(b => b.Md5 != null))
+                        {
+                            try
+                            {
+                                using var mdStream = entry.OpenEntryStream();
+                                using var md5 = System.Security.Cryptography.MD5.Create();
+                                entryMd5 = BitConverter.ToString(md5.ComputeHash(mdStream))
+                                    .Replace("-", "").ToLowerInvariant();
+                            }
+                            catch { }
+                        }
+
+                        var match = MatchKnownBios(entryName, entry.Size, entryMd5);
+                        if (match == null) continue;
+
+                        try
+                        {
+                            using var es = entry.OpenEntryStream();
+                            CopyEntryToSystem(match, es, sysDir);
+                            messages.Add($"✓ {srcName} → {System.IO.Path.GetFileName(match.Filename)} ({match.ConsoleDisplay})");
+                            imported++;
+                            extractedHere++;
+                        }
+                        catch (Exception ex)
+                        {
+                            messages.Add($"⚠ {srcName}:{entryName}: {ex.Message}");
+                            skipped++;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    messages.Add($"⚠ {srcName}: archive open failed ({ex.Message})");
+                }
+
+                if (extractedHere > 0) return;
+                // No entries matched — fall through to treat the archive itself as a BIOS
+                // (e.g. neogeo.zip, cdibios.zip).
+            }
+
+            // Loose file (or archive that IS the BIOS)
+            string? fileMd5 = null;
+            if (KnownBios.All.Any(b => b.Md5 != null)) fileMd5 = ComputeMd5(src);
+            var fileMatch = MatchKnownBios(srcName, size, fileMd5);
+
+            string destPath;
+            string label;
+            if (fileMatch != null)
+            {
+                destPath = System.IO.Path.Combine(sysDir, fileMatch.Filename);
+                System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(destPath)!);
+                label = $"{System.IO.Path.GetFileName(fileMatch.Filename)} → {fileMatch.ConsoleDisplay}";
+            }
+            else if (srcExt.Equals(".sf2", StringComparison.OrdinalIgnoreCase))
+            {
+                destPath = System.IO.Path.Combine(sysDir, srcName);
+                label = $"{srcName} → SoundFont";
+            }
+            else
+            {
+                messages.Add($"⚠ {srcName}: not recognized as a known BIOS ({size / 1024} KB)");
+                skipped++;
+                return;
+            }
+
+            try
+            {
+                System.IO.File.Copy(src, destPath, overwrite: true);
+                messages.Add($"✓ {label}");
+                imported++;
+            }
+            catch (Exception ex)
+            {
+                messages.Add($"⚠ {srcName}: {ex.Message}");
+                skipped++;
+            }
         }
 
         // ── Cores panel ───────────────────────────────────────────────────────
@@ -2021,17 +2219,113 @@ namespace Emutastic.Views
                 Fill   = new SolidColorBrush(Color.FromRgb(0x30, 0x30, 0x33)),
                 Margin = new Thickness(0, 8, 0, 8)
             });
-            extrasStack.Children.Add(new TextBlock
+
+            // Count found DATs for the header badge
+            System.IO.Directory.CreateDirectory(datsDir);
+            int datsFound = 0;
+            foreach (var (tag, _, _, _) in KnownDats)
+                if (System.IO.File.Exists(System.IO.Path.Combine(datsDir, $"{tag}.dat")))
+                    datsFound++;
+
+            // Collapsible accordion header matching the BIOS category pattern
+            var datBody = new StackPanel { Visibility = Visibility.Collapsed };
+            var datChevron = new TextBlock
+            {
+                Text = "▸", FontSize = 14,
+                Foreground = _brushText,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 10, 0),
+                RenderTransformOrigin = new Point(0.5, 0.5),
+                RenderTransform = new RotateTransform(0)
+            };
+
+            var datHeaderGrid = new Grid { Cursor = Cursors.Hand };
+            datHeaderGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            datHeaderGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            datHeaderGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            datHeaderGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            Grid.SetColumn(datChevron, 0);
+
+            var datLabel = new TextBlock
+            {
+                Text = "Game Databases (DAT files)",
+                FontSize = 14,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = _brushText,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(datLabel, 1);
+
+            var datSummary = new TextBlock
+            {
+                Text = $"{KnownDats.Length} systems",
+                FontSize = 11,
+                Foreground = _brushTextMuted,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 10, 0)
+            };
+            Grid.SetColumn(datSummary, 2);
+
+            var datHeaderBadge = new Border
+            {
+                Background = datsFound == KnownDats.Length
+                    ? new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58))
+                    : datsFound > 0
+                        ? new SolidColorBrush(Color.FromArgb(0x22, 0xFF, 0xA5, 0x00))
+                        : new SolidColorBrush(Color.FromArgb(0x22, 0x88, 0x88, 0x88)),
+                CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(6, 2, 6, 2),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            datHeaderBadge.Child = new TextBlock
+            {
+                Text = $"{datsFound}/{KnownDats.Length}",
+                FontSize = 10,
+                Foreground = datsFound == KnownDats.Length
+                    ? new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58))
+                    : datsFound > 0
+                        ? new SolidColorBrush(Color.FromRgb(0xFF, 0xA5, 0x00))
+                        : _brushTextMuted
+            };
+            Grid.SetColumn(datHeaderBadge, 3);
+
+            datHeaderGrid.Children.Add(datChevron);
+            datHeaderGrid.Children.Add(datLabel);
+            datHeaderGrid.Children.Add(datSummary);
+            datHeaderGrid.Children.Add(datHeaderBadge);
+
+            var datHeaderBorder = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(0x18, 0x18, 0x1A)),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(14, 10, 14, 10),
+                Margin = new Thickness(0, 0, 0, 4)
+            };
+            datHeaderBorder.Child = datHeaderGrid;
+
+            var capturedDatBody = datBody;
+            var capturedDatChevron = datChevron;
+            datHeaderBorder.MouseLeftButtonUp += (_, _) =>
+            {
+                bool expanding = capturedDatBody.Visibility == Visibility.Collapsed;
+                capturedDatBody.Visibility = expanding ? Visibility.Visible : Visibility.Collapsed;
+                ((RotateTransform)capturedDatChevron.RenderTransform).Angle = expanding ? 90 : 0;
+            };
+
+            extrasStack.Children.Add(datHeaderBorder);
+            extrasStack.Children.Add(datBody);
+
+            datBody.Children.Add(new TextBlock
             {
                 Text         = "DAT files are game databases used during import to auto-detect which console a disc image belongs to and to resolve ROM names for artwork lookup. Without these, some games may show missing cover art or hero images.",
                 FontSize     = 11,
                 Foreground   = _brushTextMuted,
                 TextWrapping = TextWrapping.Wrap,
-                Margin       = new Thickness(0, 0, 0, 10)
+                Margin       = new Thickness(4, 6, 0, 10)
             });
 
             // Per-DAT rows
-            System.IO.Directory.CreateDirectory(datsDir);
             for (int i = 0; i < KnownDats.Length; i++)
             {
                 var (tag, label, slug, directUrl) = KnownDats[i];
@@ -2086,14 +2380,14 @@ namespace Emutastic.Views
                     finally { capturedBtn.IsEnabled = true; }
                 };
 
-                extrasStack.Children.Add(MakeExtrasRow(
+                datBody.Children.Add(MakeExtrasRow(
                     $"{tag}.dat",
                     label,
                     datBadge,
                     datProgress,
                     datStatus,
                     datBtn,
-                    isLast: false));
+                    isLast: (i == KnownDats.Length - 1)));
             }
 
             // ── Vectrex Overlays row ──
@@ -3316,6 +3610,13 @@ namespace Emutastic.Views
 
             // Game Boy Advance (optional — mgba has built-in HLE BIOS)
             new("GBA","Game Boy Advance","gba_bios.bin","BIOS (optional, improves compatibility)",16384,"a860e8c0b6d573d191e4ec7db1b1e4f6"),
+
+            // DOS — Roland MT-32 / CM-32L ROMs for authentic MIDI music (optional).
+            // Multiple firmware revisions exist; size is the stable identifier.
+            new("DOS","DOS (MT-32 / CM-32L)","MT32_CONTROL.ROM","Roland MT-32 control ROM (MIDI music)",65536,null),
+            new("DOS","DOS (MT-32 / CM-32L)","MT32_PCM.ROM","Roland MT-32 PCM ROM (MIDI music)",524288,null),
+            new("DOS","DOS (MT-32 / CM-32L)","CM32L_CONTROL.ROM","Roland CM-32L control ROM (adds sound effects)",65536,null),
+            new("DOS","DOS (MT-32 / CM-32L)","CM32L_PCM.ROM","Roland CM-32L PCM ROM (adds sound effects)",1048576,null),
         };
     }
 }
