@@ -379,6 +379,22 @@ namespace Emutastic.Services
         /// Strips a possessive publisher prefix ("Disney's ", "Warner's ") from the start
         /// of a title. Returns null if no such prefix is found.
         /// </summary>
+        // Folder names commonly found in DOS backups that shadow drive letters or
+        // bulk-dirs — never the actual game name. Single-letter names (C, D, etc.)
+        // are always treated as shadow folders.
+        private static readonly HashSet<string> DosShadowFolderNames = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "dos", "dos games", "doslib", "games", "game", "pc", "pcgames",
+            "bin", "program files", "programs",
+        };
+
+        private static bool IsDosShadowFolderName(string folder)
+        {
+            if (folder.Length <= 1) return true;
+            if (DosShadowFolderNames.Contains(folder)) return true;
+            return false;
+        }
+
         private static string? StripPossessivePrefix(string title)
         {
             var m = PossessivePrefixRx.Match(title);
@@ -500,14 +516,27 @@ namespace Emutastic.Services
             }
         }
 
+        private static readonly Dictionary<string, string> RomanToArabic = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["i"] = "1", ["ii"] = "2", ["iii"] = "3", ["iv"] = "4", ["v"] = "5",
+            ["vi"] = "6", ["vii"] = "7", ["viii"] = "8", ["ix"] = "9", ["x"] = "10",
+        };
+
         /// <summary>
         /// Normalizes a title for fuzzy comparison: lowercase, collapse whitespace,
-        /// strip trailing punctuation variants (vs. → vs, etc.).
+        /// strip trailing punctuation variants (vs. → vs, etc.), convert standalone
+        /// Roman numerals to Arabic so "Dungeon Master II" matches "Dungeon Master 2".
         /// </summary>
-        private static string NormalizeForFuzzy(string s) =>
-            System.Text.RegularExpressions.Regex.Replace(
+        private static string NormalizeForFuzzy(string s)
+        {
+            string step1 = System.Text.RegularExpressions.Regex.Replace(
                 s.ToLowerInvariant().Trim(), @"\.\s*", " ")   // "vs." → "vs "
-            .Replace("  ", " ").Trim();
+                .Replace("  ", " ").Trim();
+
+            return System.Text.RegularExpressions.Regex.Replace(
+                step1, @"\b(viii|vii|iii|ix|iv|vi|ii|x|v|i)\b",
+                m => RomanToArabic.TryGetValue(m.Value, out var a) ? a : m.Value);
+        }
 
         /// <summary>
         /// Finds the best libretro thumbnail filename for a given title.
@@ -522,13 +551,22 @@ namespace Emutastic.Services
             string? exact = index.FirstOrDefault(n => n.Equals(title, StringComparison.OrdinalIgnoreCase));
             if (exact != null) return exact;
 
-            if (title.Length < 6) return null;
+            // Short titles (Doom, Myst, Abuse, Hexen...) are common for DOS/arcade
+            // games. Allow them in the fuzzy pass but require a word boundary after
+            // the prefix so "Myst" doesn't latch onto "Mystaria".
+            if (title.Length < 4) return null;
 
             // Normalized prefix match — strips punctuation differences so
             // "SNK vs Capcom" matches "SNK vs. Capcom - The Match of the Millennium (...)"
             string normTitle = NormalizeForFuzzy(title);
             string? prefix = index.FirstOrDefault(n =>
-                NormalizeForFuzzy(n).StartsWith(normTitle));
+            {
+                string normIndex = NormalizeForFuzzy(n);
+                if (!normIndex.StartsWith(normTitle)) return false;
+                if (normIndex.Length == normTitle.Length) return true;
+                char next = normIndex[normTitle.Length];
+                return next == ' ' || next == '(' || next == '-' || next == ':' || next == ',';
+            });
             return prefix;
         }
 
@@ -670,19 +708,41 @@ namespace Emutastic.Services
                         titleCandidates.Add(neoTitle);
                 }
 
-                string rawStem = Path.GetFileNameWithoutExtension(romPath);
-                titleCandidates.Add(rawStem);
-                string cleaned = RomService.CleanTitle(Path.GetFileName(romPath));
-                if (!titleCandidates.Contains(cleaned))
-                    titleCandidates.Add(cleaned);
+                // DOS: prefer the install folder over the exe stem, skipping
+                // drive-letter shadow folders ("C"). Skip exe-stem fallbacks when
+                // a folder name is available — SKULL.EXE would false-match snaps
+                // the same way it false-matches box art.
+                bool dosSnapOverride = false;
+                if (console == "DOS")
+                {
+                    string? parent      = Path.GetFileName(Path.GetDirectoryName(romPath));
+                    string? grandparent = Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(romPath)));
+                    foreach (string? candidate in new[] { grandparent, parent })
+                    {
+                        if (string.IsNullOrWhiteSpace(candidate)) continue;
+                        if (IsDosShadowFolderName(candidate)) continue;
+                        if (titleCandidates.Any(c => c.Equals(candidate, StringComparison.OrdinalIgnoreCase))) continue;
+                        titleCandidates.Insert(0, candidate);
+                        dosSnapOverride = true;
+                    }
+                }
 
-                // No-Intro "~" alternate titles
-                InjectTildeAlternates(titleCandidates, rawStem);
+                if (!dosSnapOverride)
+                {
+                    string rawStem = Path.GetFileNameWithoutExtension(romPath);
+                    titleCandidates.Add(rawStem);
+                    string cleaned = RomService.CleanTitle(Path.GetFileName(romPath));
+                    if (!titleCandidates.Contains(cleaned))
+                        titleCandidates.Add(cleaned);
 
-                // Convert GoodTools region codes to No-Intro style
-                string? noIntroSnap = ConvertGoodToolsToNoIntro(rawStem);
-                if (noIntroSnap != null && !titleCandidates.Contains(noIntroSnap))
-                    titleCandidates.Insert(0, noIntroSnap);
+                    // No-Intro "~" alternate titles
+                    InjectTildeAlternates(titleCandidates, rawStem);
+
+                    // Convert GoodTools region codes to No-Intro style
+                    string? noIntroSnap = ConvertGoodToolsToNoIntro(rawStem);
+                    if (noIntroSnap != null && !titleCandidates.Contains(noIntroSnap))
+                        titleCandidates.Insert(0, noIntroSnap);
+                }
             }
 
             if (titleCandidates.Count == 0) return null;
@@ -776,9 +836,41 @@ namespace Emutastic.Services
                         titleCandidates.Add(neoTitle);
                 }
 
-                titleCandidates.Add(result.Title);
+                // DOS games live in per-game install folders; the executable stem
+                // ("DHACK", "ABUSE", "EP8", "SKULL") is usually not the game name,
+                // and often matches the wrong libretro thumbnail by prefix
+                // (SKULL.EXE → "Skull and Crossbones"). Try parent+grandparent
+                // (handles "Epic Pinball\C\EP8.EXE" shadow folders) and skip the
+                // exe-stem fallback entirely when a non-shadow folder is present.
+                string? dosParent = null;
+                string? dosGrandparent = null;
+                bool dosOverrideAvailable = false;
+                if (console == "DOS" && !string.IsNullOrWhiteSpace(romPath))
+                {
+                    dosParent      = Path.GetFileName(Path.GetDirectoryName(romPath));
+                    dosGrandparent = Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(romPath)));
+                    dosOverrideAvailable =
+                        (!string.IsNullOrWhiteSpace(dosParent)      && !IsDosShadowFolderName(dosParent)) ||
+                        (!string.IsNullOrWhiteSpace(dosGrandparent) && !IsDosShadowFolderName(dosGrandparent));
+                }
 
-                if (!string.IsNullOrWhiteSpace(romPath))
+                // result.Title comes from OpenVGDB (unlikely for DOS) or a cleaned
+                // filename fallback — skip it for DOS when we have a better folder name.
+                if (!dosOverrideAvailable)
+                    titleCandidates.Add(result.Title);
+
+                if (dosOverrideAvailable)
+                {
+                    foreach (string? candidate in new[] { dosGrandparent, dosParent })
+                    {
+                        if (string.IsNullOrWhiteSpace(candidate)) continue;
+                        if (IsDosShadowFolderName(candidate)) continue;
+                        if (titleCandidates.Any(c => c.Equals(candidate, StringComparison.OrdinalIgnoreCase))) continue;
+                        titleCandidates.Insert(0, candidate);
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(romPath) && !dosOverrideAvailable)
                 {
                     string raw = RomService.CleanTitle(Path.GetFileName(romPath));
                     if (!titleCandidates.Contains(raw))

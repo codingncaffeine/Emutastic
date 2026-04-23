@@ -177,6 +177,80 @@ namespace Emutastic.Services
         }
 
         /// <summary>
+        /// Builds <c>romnom</c> search candidates sent to ScreenScraper, in priority
+        /// order. DOS games are catalogued by zipped-folder names, so .exe filenames
+        /// never match — walk up past drive-letter and bulk-dir shadow folders.
+        /// ScreenScraper's fuzzy matcher doesn't bridge Arabic↔Roman numerals
+        /// ("Dungeon Master 2" vs "Dungeon Master II"), so we emit both forms.
+        /// </summary>
+        private static IEnumerable<string> BuildRomNomCandidates(string console, string romPath)
+        {
+            if (console == "DOS")
+            {
+                string ext = Path.GetExtension(romPath);
+                bool isLooseExe = ext.Equals(".exe", StringComparison.OrdinalIgnoreCase)
+                               || ext.Equals(".com", StringComparison.OrdinalIgnoreCase)
+                               || ext.Equals(".bat", StringComparison.OrdinalIgnoreCase);
+
+                if (isLooseExe)
+                {
+                    string? parent      = Path.GetFileName(Path.GetDirectoryName(romPath));
+                    string? grandparent = Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(romPath)));
+
+                    foreach (string? candidate in new[] { parent, grandparent })
+                    {
+                        if (string.IsNullOrWhiteSpace(candidate)) continue;
+                        if (candidate.Length <= 1) continue; // drive-letter shadow
+                        if (DosShadowFolders.Contains(candidate)) continue;
+
+                        yield return candidate + ".zip";
+
+                        string romanized = SwapNumeralStyle(candidate, toRoman: true);
+                        if (!string.Equals(romanized, candidate, StringComparison.OrdinalIgnoreCase))
+                            yield return romanized + ".zip";
+
+                        string arabicized = SwapNumeralStyle(candidate, toRoman: false);
+                        if (!string.Equals(arabicized, candidate, StringComparison.OrdinalIgnoreCase) &&
+                            !string.Equals(arabicized, romanized,  StringComparison.OrdinalIgnoreCase))
+                            yield return arabicized + ".zip";
+
+                        yield break;
+                    }
+                }
+            }
+            yield return Path.GetFileName(romPath);
+        }
+
+        private static readonly Dictionary<string, string> NumeralArabicToRoman = new()
+        {
+            ["1"] = "I", ["2"] = "II", ["3"] = "III", ["4"] = "IV", ["5"] = "V",
+            ["6"] = "VI", ["7"] = "VII", ["8"] = "VIII", ["9"] = "IX", ["10"] = "X",
+        };
+        private static readonly Dictionary<string, string> NumeralRomanToArabic = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["i"] = "1", ["ii"] = "2", ["iii"] = "3", ["iv"] = "4", ["v"] = "5",
+            ["vi"] = "6", ["vii"] = "7", ["viii"] = "8", ["ix"] = "9", ["x"] = "10",
+        };
+
+        private static string SwapNumeralStyle(string input, bool toRoman)
+        {
+            if (toRoman)
+            {
+                return System.Text.RegularExpressions.Regex.Replace(input, @"\b(10|[1-9])\b",
+                    m => NumeralArabicToRoman.TryGetValue(m.Value, out var r) ? r : m.Value);
+            }
+            return System.Text.RegularExpressions.Regex.Replace(input, @"\b(viii|vii|iii|ix|iv|vi|ii|x|v|i)\b",
+                m => NumeralRomanToArabic.TryGetValue(m.Value, out var a) ? a : m.Value,
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        }
+
+        private static readonly HashSet<string> DosShadowFolders = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "dos", "dos games", "doslib", "games", "game", "pc", "pcgames",
+            "bin", "program files", "programs",
+        };
+
+        /// <summary>
         /// Queries ScreenScraper for a video snap URL then downloads it.
         /// Searches by MD5 hash first, falls back to filename + system.
         /// Returns local .mp4 path on success, null otherwise.
@@ -205,21 +279,25 @@ namespace Emutastic.Services
                 string auth   = $"devid={Uri.EscapeDataString(DevId)}&devpassword={Uri.EscapeDataString(DevPass)}" +
                                 $"&softname={Uri.EscapeDataString(SoftName)}&output=json" +
                                 $"&ssid={Uri.EscapeDataString(username)}&sspassword={Uri.EscapeDataString(password)}";
-                string romName = Uri.EscapeDataString(Path.GetFileName(romPath));
                 string md5Part = string.IsNullOrWhiteSpace(romHash)
                     ? ""
                     : $"&md5={romHash.ToUpperInvariant()}";
 
-                string url = $"{BaseUrl}jeuInfos.php?{auth}&systemeid={systemId}{md5Part}&romnom={romName}";
+                foreach (string candidate in BuildRomNomCandidates(console, romPath))
+                {
+                    string romName = Uri.EscapeDataString(candidate);
+                    string url = $"{BaseUrl}jeuInfos.php?{auth}&systemeid={systemId}{md5Part}&romnom={romName}";
 
-                var response = await ThrottledGetAsync(url);
-                if (!response.IsSuccessStatusCode) return null;
+                    var response = await ThrottledGetAsync(url);
+                    if (!response.IsSuccessStatusCode) continue;
 
-                string json    = await response.Content.ReadAsStringAsync();
-                string? snapUrl = ExtractVideoUrl(json);
-                if (snapUrl == null) return null;
+                    string json    = await response.Content.ReadAsStringAsync();
+                    string? snapUrl = ExtractVideoUrl(json);
+                    if (snapUrl == null) continue;
 
-                return await DownloadSnapAsync(snapUrl, cacheKey, console);
+                    return await DownloadSnapAsync(snapUrl, cacheKey, console);
+                }
+                return null;
             }
             catch (Exception ex)
             {
@@ -318,53 +396,54 @@ namespace Emutastic.Services
                 string auth = $"devid={Uri.EscapeDataString(DevId)}&devpassword={Uri.EscapeDataString(DevPass)}" +
                               $"&softname={Uri.EscapeDataString(SoftName)}&output=json" +
                               $"&ssid={Uri.EscapeDataString(username)}&sspassword={Uri.EscapeDataString(password)}";
-                string romName = Uri.EscapeDataString(Path.GetFileName(romPath));
                 string md5Part = string.IsNullOrWhiteSpace(romHash)
                     ? ""
                     : $"&md5={romHash.ToUpperInvariant()}";
 
-                string url = $"{BaseUrl}jeuInfos.php?{auth}&systemeid={systemId}{md5Part}&romnom={romName}";
-
-                var response = await ThrottledGetAsync(url);
-                string json = await response.Content.ReadAsStringAsync();
-                int statusCode = (int)response.StatusCode;
-
-                System.Diagnostics.Debug.WriteLine($"[ScreenScraper] 3D art response: HTTP {statusCode}, {json.Length} bytes");
-
-                // Check for quota exceeded — SS returns 430 for over-quota
-                if (statusCode == 430 || statusCode == 423)
+                foreach (string candidate in BuildRomNomCandidates(console, romPath))
                 {
-                    System.Diagnostics.Debug.WriteLine($"[ScreenScraper] Quota exceeded (HTTP {statusCode})");
-                    return new BoxArt3DResult { OverQuota = true, ErrorMessage = "ScreenScraper daily request limit reached" };
+                    string romName = Uri.EscapeDataString(candidate);
+                    string url = $"{BaseUrl}jeuInfos.php?{auth}&systemeid={systemId}{md5Part}&romnom={romName}";
+
+                    var response = await ThrottledGetAsync(url);
+                    string json = await response.Content.ReadAsStringAsync();
+                    int statusCode = (int)response.StatusCode;
+
+                    System.Diagnostics.Debug.WriteLine($"[ScreenScraper] 3D art response ('{candidate}'): HTTP {statusCode}, {json.Length} bytes");
+
+                    if (statusCode == 430 || statusCode == 423)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[ScreenScraper] Quota exceeded (HTTP {statusCode})");
+                        return new BoxArt3DResult { OverQuota = true, ErrorMessage = "ScreenScraper daily request limit reached" };
+                    }
+
+                    if (json.Contains("API closed", StringComparison.OrdinalIgnoreCase) ||
+                        json.Contains("maxrequestsreached", StringComparison.OrdinalIgnoreCase))
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[ScreenScraper] Quota exceeded (body): {json[..Math.Min(200, json.Length)]}");
+                        return new BoxArt3DResult { OverQuota = true, ErrorMessage = "ScreenScraper daily request limit reached" };
+                    }
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[ScreenScraper] Non-success: HTTP {statusCode} — {json[..Math.Min(300, json.Length)]}");
+                        continue; // try next romnom variant
+                    }
+
+                    string? imageUrl = ExtractBoxArt3DUrl(json);
+                    if (imageUrl == null)
+                        continue; // no art for this variant — try next
+
+                    var imgResponse = await ThrottledGetAsync(imageUrl);
+                    if (!imgResponse.IsSuccessStatusCode)
+                        continue;
+
+                    byte[] bytes = await imgResponse.Content.ReadAsByteArrayAsync();
+                    await File.WriteAllBytesAsync(cached, bytes);
+                    System.Diagnostics.Debug.WriteLine($"[ScreenScraper] 3D box art saved: {cached}");
+                    return new BoxArt3DResult { LocalPath = cached };
                 }
-
-                // SS sometimes returns 200 with an error body instead of game data
-                if (json.Contains("API closed", StringComparison.OrdinalIgnoreCase) ||
-                    json.Contains("maxrequestsreached", StringComparison.OrdinalIgnoreCase))
-                {
-                    System.Diagnostics.Debug.WriteLine($"[ScreenScraper] Quota exceeded (body): {json[..Math.Min(200, json.Length)]}");
-                    return new BoxArt3DResult { OverQuota = true, ErrorMessage = "ScreenScraper daily request limit reached" };
-                }
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[ScreenScraper] Non-success: HTTP {statusCode} — {json[..Math.Min(300, json.Length)]}");
-                    return new BoxArt3DResult { ErrorMessage = $"Server returned {statusCode}" };
-                }
-
-                string? imageUrl = ExtractBoxArt3DUrl(json);
-                if (imageUrl == null)
-                    return new BoxArt3DResult(); // No 3D art available — not an error
-
-                // Download the image to console subfolder
-                var imgResponse = await ThrottledGetAsync(imageUrl);
-                if (!imgResponse.IsSuccessStatusCode)
-                    return new BoxArt3DResult();
-
-                byte[] bytes = await imgResponse.Content.ReadAsByteArrayAsync();
-                await File.WriteAllBytesAsync(cached, bytes);
-                System.Diagnostics.Debug.WriteLine($"[ScreenScraper] 3D box art saved: {cached}");
-                return new BoxArt3DResult { LocalPath = cached };
+                return new BoxArt3DResult(); // tried all variants, no match
             }
             catch (Exception ex)
             {
@@ -407,27 +486,31 @@ namespace Emutastic.Services
                 string auth = $"devid={Uri.EscapeDataString(DevId)}&devpassword={Uri.EscapeDataString(DevPass)}" +
                               $"&softname={Uri.EscapeDataString(SoftName)}&output=json" +
                               $"&ssid={Uri.EscapeDataString(username)}&sspassword={Uri.EscapeDataString(password)}";
-                string romName = Uri.EscapeDataString(Path.GetFileName(romPath));
                 string md5Part = string.IsNullOrWhiteSpace(romHash)
                     ? ""
                     : $"&md5={romHash.ToUpperInvariant()}";
 
-                string url = $"{BaseUrl}jeuInfos.php?{auth}&systemeid={systemId}{md5Part}&romnom={romName}";
+                foreach (string candidate in BuildRomNomCandidates(console, romPath))
+                {
+                    string romName = Uri.EscapeDataString(candidate);
+                    string url = $"{BaseUrl}jeuInfos.php?{auth}&systemeid={systemId}{md5Part}&romnom={romName}";
 
-                var response = await ThrottledGetAsync(url);
-                if (!response.IsSuccessStatusCode) return null;
+                    var response = await ThrottledGetAsync(url);
+                    if (!response.IsSuccessStatusCode) continue;
 
-                string json = await response.Content.ReadAsStringAsync();
-                string? imageUrl = ExtractBoxArt2DUrl(json);
-                if (imageUrl == null) return null;
+                    string json = await response.Content.ReadAsStringAsync();
+                    string? imageUrl = ExtractBoxArt2DUrl(json);
+                    if (imageUrl == null) continue;
 
-                var imgResponse = await ThrottledGetAsync(imageUrl);
-                if (!imgResponse.IsSuccessStatusCode) return null;
+                    var imgResponse = await ThrottledGetAsync(imageUrl);
+                    if (!imgResponse.IsSuccessStatusCode) continue;
 
-                byte[] bytes = await imgResponse.Content.ReadAsByteArrayAsync();
-                await File.WriteAllBytesAsync(cached, bytes);
-                System.Diagnostics.Debug.WriteLine($"[ScreenScraper] 2D box art saved: {cached}");
-                return cached;
+                    byte[] bytes = await imgResponse.Content.ReadAsByteArrayAsync();
+                    await File.WriteAllBytesAsync(cached, bytes);
+                    System.Diagnostics.Debug.WriteLine($"[ScreenScraper] 2D box art saved: {cached}");
+                    return cached;
+                }
+                return null;
             }
             catch (Exception ex)
             {
