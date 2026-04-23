@@ -1319,6 +1319,16 @@ namespace Emutastic.Views
                         _consoleHandler.OnAfterContextReset();
                         System.Diagnostics.Trace.WriteLine("context_reset done.");
 
+                        // DOS: surface that 3dfx Voodoo hardware rendering is live.
+                        // SET_HW_RENDER + context_reset both accepted means DBP is
+                        // running against our OpenGL context instead of the software
+                        // Voodoo path.
+                        if (_consoleHandler is Services.ConsoleHandlers.DosHandler dosHw && dosHw.UseVoodooOpenGL)
+                        {
+                            _transientMsg    = "3dfx Voodoo hardware acceleration active";
+                            _transientExpiry = DateTime.Now.AddSeconds(5);
+                        }
+
                         var swapFn = GetGLProc<wglSwapIntervalEXTDelegate>("wglSwapIntervalEXT");
                         if (swapFn != null)
                         {
