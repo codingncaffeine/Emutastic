@@ -69,10 +69,13 @@ namespace Emutastic.Services.ConsoleHandlers
         // we bind via get_current_framebuffer.
         public override bool UseEmbeddedWindow => false;
 
-        // GL overlay blit path = zero-CPU presentation.  DBP writes with
-        // bottom_left_origin=true, and the overlay's back buffer is also
-        // bottom-left, so glBlitFramebuffer presents correctly without a flip.
-        public override bool UseGLOverlay => UseVoodooOpenGL;
+        // No GL overlay — DOS needs the cursor to reach GameScreen for mouse
+        // capture (first-click-to-capture, middle-click to release). The
+        // overlay's WS_POPUP window eats WM_MOUSEMOVE / WM_LBUTTONDOWN before
+        // WPF sees them. Readback is inexpensive at DOS resolutions (base
+        // 640×480, up to 5120×3840 at voodoo_scale=8) — the overlay's CPU
+        // savings aren't worth breaking the input path.
+        public override bool UseGLOverlay => false;
 
         // DBP reports exact view_width/view_height to video_cb — read the
         // callback dimensions, not the full FBO.
