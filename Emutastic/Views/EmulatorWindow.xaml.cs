@@ -978,6 +978,26 @@ namespace Emutastic.Views
             // This overrides any legacy config that may still have a different plugin saved.
             if (_game.Console == "N64")
                 _coreOptions["parallel-n64-gfxplugin"] = "parallel";
+
+            // DOS: decide whether to pre-create a GL context for DBP's 3dfx Voodoo
+            // hardware-rendering path.  DBP only sends SET_HW_RENDER when Voodoo is
+            // enabled AND voodoo_perf is auto or OpenGL; otherwise it stays SW and
+            // the pre-created context would be wasted.  Evaluated after user core
+            // options are loaded so per-game saves are honoured.  DBP defaults:
+            //   dosbox_pure_voodoo      = "8mb"  (enabled)
+            //   dosbox_pure_voodoo_perf = "auto"
+            if (_consoleHandler is Services.ConsoleHandlers.DosHandler dosHandler)
+            {
+                _coreOptions.TryGetValue("dosbox_pure_voodoo",      out var voodoo);
+                _coreOptions.TryGetValue("dosbox_pure_voodoo_perf", out var voodooPerf);
+                bool voodooOn = string.IsNullOrEmpty(voodoo) || voodoo != "off";
+                bool hwOgl = voodooOn && (string.IsNullOrEmpty(voodooPerf) ||
+                                          voodooPerf == "auto" ||
+                                          voodooPerf == "4");
+                dosHandler.UseVoodooOpenGL = hwOgl;
+                System.Diagnostics.Trace.WriteLine(
+                    $"DOS HW 3dfx Voodoo OpenGL: {hwOgl} (voodoo={voodoo ?? "default"}, perf={voodooPerf ?? "default"})");
+            }
         }
 
         // =========================================================================
