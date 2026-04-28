@@ -70,7 +70,7 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 
 ## BIOS Files
 
-Place BIOS files in `%AppData%\Roaming\Emutastic\system\`. The app also checks each system's ROM folder.
+Place BIOS files in `%AppData%\Emutastic\System\` (or `PortableData\System\` next to the .exe in portable mode). The app also checks each system's ROM folder.
 
 <details>
 <summary><strong>BIOS file details by system</strong></summary>
@@ -137,9 +137,19 @@ DATs\           (No-Intro / Redump DATs — downloadable in-app)
 ```
 
 ```
-%AppData%\Roaming\Emutastic\
-    library.db / system\ / saves\ / screenshots\
+%AppData%\Emutastic\
+    library.db / System\ / saves\ / screenshots\
 ```
+
+### Portable mode
+
+Drop an empty `portable.txt` next to `Emutastic.exe` and the entire install (config + data) goes into a `PortableData\` subfolder beside the .exe instead of `%AppData%`. See **[Portable Mode](https://github.com/codingncaffeine/Emutastic/wiki/Portable-Mode)** in the wiki for the full layout, caveats, and how to revert.
+
+---
+
+## Cheats
+
+Per-game cheats from the in-game cog menu or the library detail card's `⋯` menu. Game Genie / GameShark / Action Replay / raw codes depending on system. See **[Cheats](https://github.com/codingncaffeine/Emutastic/wiki/Cheats)** in the wiki for code formats per system, storage paths, and the list of cores where cheats aren't supported.
 
 ---
 

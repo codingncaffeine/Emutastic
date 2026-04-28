@@ -589,7 +589,7 @@ namespace Emutastic.Services
 
                 // Non-arcade archives: extract the single ROM file and re-import it.
                 StatusChanged?.Invoke($"Extracting {fileName}…");
-                string? extractedPath = await ExtractZipRomAsync(romPath);
+                string? extractedPath = await ExtractZipRomAsync(romPath, innerConsole);
                 ImportLog($"[{fileName}] extract → {(extractedPath ?? "null (skipped)")}");
 
                 if (extractedPath == null)
@@ -1094,12 +1094,14 @@ namespace Emutastic.Services
             }
         }
 
-        private async Task<string?> ExtractZipRomAsync(string archivePath)
+        private async Task<string?> ExtractZipRomAsync(string archivePath, string console)
         {
             try
             {
-                string tempFolder = Path.Combine(Path.GetTempPath(), "Emutastic");
-                Directory.CreateDirectory(tempFolder);
+                // Extract under DataRoot, NOT %TEMP% — Windows wipes TEMP periodically and
+                // the extracted path was being stored as the game's RomPath, leading to
+                // "ROM file not found" the next time the user launched the game.
+                string outputDir = AppPaths.GetFolder("ExtractedRoms", console);
 
                 using var archive = ArchiveFactory.Open(archivePath);
 
@@ -1115,11 +1117,29 @@ namespace Emutastic.Services
                 if (romEntries.Count != 1) return null;
 
                 var romEntry = romEntries[0];
-                string outputPath = Path.Combine(tempFolder, Path.GetFileName(romEntry.Key!));
+                string outputPath = Path.Combine(outputDir, Path.GetFileName(romEntry.Key!));
+                string tmpPath    = outputPath + ".tmp";
 
-                using var inputStream = romEntry.OpenEntryStream();
-                using var outputStream = File.Create(outputPath);
-                await inputStream.CopyToAsync(outputStream);
+                // Reuse only if the existing file has a sane non-zero size that matches.
+                // SharpCompress reports Size == 0 / -1 for some archive formats (rar, multi-volume zip);
+                // in those cases skip the fast-path and always re-extract.
+                if (romEntry.Size > 0
+                    && File.Exists(outputPath)
+                    && new FileInfo(outputPath).Length == romEntry.Size)
+                    return outputPath;
+
+                // Write to .tmp first so a partial extraction (disk full, IO error, app crash)
+                // never leaves a half-written file that the size-match path could later reuse.
+                if (File.Exists(tmpPath)) try { File.Delete(tmpPath); } catch { }
+
+                using (var inputStream  = romEntry.OpenEntryStream())
+                using (var outputStream = File.Create(tmpPath))
+                {
+                    await inputStream.CopyToAsync(outputStream);
+                }
+
+                if (File.Exists(outputPath)) try { File.Delete(outputPath); } catch { }
+                File.Move(tmpPath, outputPath);
 
                 return outputPath;
             }

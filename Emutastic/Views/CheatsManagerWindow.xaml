@@ -1,0 +1,104 @@
+<Window x:Class="Emutastic.Views.CheatsManagerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Width="480" Height="560"
+        WindowStartupLocation="CenterOwner">
+    <Window.Resources>
+        <Style x:Key="RowBtn" TargetType="Button">
+            <Setter Property="Background"      Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Foreground"      Value="{DynamicResource TextPrimaryBrush}"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Padding"         Value="10,8"/>
+            <Setter Property="Cursor"          Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="6"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BgTertiaryBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Border Background="{DynamicResource BgSecondaryBrush}"
+            BorderBrush="{DynamicResource BorderNormalBrush}"
+            BorderThickness="1"
+            CornerRadius="10">
+        <Grid Margin="24">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0"
+                       x:Name="HeaderTitle"
+                       Text="Cheats"
+                       FontFamily="{StaticResource PrimaryFont}"
+                       FontSize="15"
+                       FontWeight="SemiBold"
+                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+
+            <TextBlock Grid.Row="1"
+                       x:Name="HeaderSubtitle"
+                       FontFamily="{StaticResource PrimaryFont}"
+                       FontSize="12"
+                       Foreground="{DynamicResource TextMutedBrush}"
+                       Margin="0,4,0,16"/>
+
+            <Button Grid.Row="2"
+                    x:Name="AddBtn"
+                    Style="{StaticResource RowBtn}"
+                    Click="Add_Click">
+                <TextBlock Text="＋  Add Cheat…"
+                           FontFamily="{StaticResource PrimaryFont}"
+                           Foreground="{DynamicResource AccentBrush}"
+                           FontWeight="SemiBold"/>
+            </Button>
+
+            <Border Grid.Row="3"
+                    BorderBrush="{DynamicResource BorderSubtleBrush}"
+                    BorderThickness="0,1,0,1"
+                    Margin="0,8,0,8">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="CheatList" Margin="0,4,0,4"/>
+                </ScrollViewer>
+            </Border>
+
+            <Grid Grid.Row="4">
+                <TextBlock x:Name="EmptyHint"
+                           Text="No cheats yet. Click Add Cheat… to create one."
+                           FontFamily="{StaticResource PrimaryFont}"
+                           FontSize="12"
+                           Foreground="{DynamicResource TextMutedBrush}"
+                           HorizontalAlignment="Left"
+                           VerticalAlignment="Center"/>
+                <Button x:Name="CloseBtn"
+                        Content="Close"
+                        HorizontalAlignment="Right"
+                        Style="{StaticResource SecondaryButtonStyle}"
+                        Padding="16,8"
+                        IsCancel="True"
+                        Click="Close_Click"/>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>

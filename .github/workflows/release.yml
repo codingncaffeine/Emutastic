@@ -40,7 +40,11 @@ jobs:
         run: |
           $version = "${{ github.ref_name }}"
           $zipName = "Emutastic-$version-win-x64.zip"
-          Compress-Archive -Path "Emutastic/bin/Publish/win-x64/*" -DestinationPath $zipName
+          $publishDir = "Emutastic/bin/Publish/win-x64"
+          # Single-file publish bundles README.txt into the .exe — copy it back
+          # out alongside the .exe so players can actually read it.
+          Copy-Item "Emutastic/README.txt" $publishDir -Force
+          Compress-Archive -Path "$publishDir/*" -DestinationPath $zipName
           echo "ZIP_NAME=$zipName" >> $env:GITHUB_ENV
         shell: pwsh
 

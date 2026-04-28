@@ -247,6 +247,12 @@ namespace Emutastic.Services
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate void retro_set_controller_port_device_t(uint port, uint device);
 
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate void retro_cheat_reset_t();
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate void retro_cheat_set_t(uint index, [MarshalAs(UnmanagedType.I1)] bool enabled, IntPtr code);
+
         private retro_init_t? _retro_init;
         private retro_deinit_t? _retro_deinit;
         private retro_api_version_t? _retro_api_version;
@@ -268,6 +274,8 @@ namespace Emutastic.Services
         private retro_get_memory_size_t? _retro_get_memory_size;
         private retro_get_memory_data_t? _retro_get_memory_data;
         private retro_set_controller_port_device_t? _retro_set_controller_port_device;
+        private retro_cheat_reset_t? _retro_cheat_reset;
+        private retro_cheat_set_t? _retro_cheat_set;
 
         public retro_system_av_info AvInfo => _avInfo;
         public retro_system_info SystemInfo { get; private set; }
@@ -328,6 +336,10 @@ namespace Emutastic.Services
             // retro_serialize_size is optional in some cores
             try { _retro_serialize_size = GetFunctionPointer<retro_serialize_size_t>("retro_serialize_size"); }
             catch { /* optional */ }
+
+            // Cheat APIs — required by spec but some old/minimal cores omit; tolerate.
+            try { _retro_cheat_reset = GetFunctionPointer<retro_cheat_reset_t>("retro_cheat_reset"); } catch { }
+            try { _retro_cheat_set   = GetFunctionPointer<retro_cheat_set_t>("retro_cheat_set"); }     catch { }
         }
 
         private T GetFunctionPointer<T>(string functionName) where T : class
@@ -511,6 +523,35 @@ namespace Emutastic.Services
 
         public void Run() => _retro_run?.Invoke();
         public void Reset() => _retro_reset?.Invoke();
+
+        /// <summary>
+        /// Clears every cheat the core currently has applied. Call before
+        /// re-applying the active set after a state load or game reset.
+        /// </summary>
+        public void CheatReset()
+        {
+            try { _retro_cheat_reset?.Invoke(); }
+            catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"CheatReset failed: {ex.Message}"); }
+        }
+
+        /// <summary>
+        /// Sets a single cheat by index. The core decides whether the code
+        /// string is valid (Game Genie / GameShark / raw — varies per core).
+        /// Cores that stub retro_cheat_set silently ignore the call.
+        /// </summary>
+        public void CheatSet(uint index, bool enabled, string code)
+        {
+            if (_retro_cheat_set == null) return;
+            if (string.IsNullOrEmpty(code)) return;
+
+            IntPtr codePtr = Marshal.StringToHGlobalAnsi(code);
+            try { _retro_cheat_set(index, enabled, codePtr); }
+            catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"CheatSet[{index}] failed: {ex.Message}"); }
+            finally { Marshal.FreeHGlobal(codePtr); }
+        }
+
+        /// <summary>True if the loaded core exports retro_cheat_set.</summary>
+        public bool HasCheatSupport => _retro_cheat_set != null;
 
         // Set when UnloadGame() is called explicitly so Dispose() doesn't call it again.
         private bool _gameUnloaded = false;

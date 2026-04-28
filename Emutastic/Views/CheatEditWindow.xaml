@@ -1,0 +1,106 @@
+<Window x:Class="Emutastic.Views.CheatEditWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Width="440" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner">
+
+    <Border Background="{DynamicResource BgSecondaryBrush}"
+            BorderBrush="{DynamicResource BorderNormalBrush}"
+            BorderThickness="1"
+            CornerRadius="10">
+        <StackPanel Margin="24">
+
+            <TextBlock x:Name="HeaderTitle"
+                       Text="Add Cheat"
+                       FontFamily="{StaticResource PrimaryFont}"
+                       FontSize="15"
+                       FontWeight="SemiBold"
+                       Foreground="{DynamicResource TextPrimaryBrush}"
+                       Margin="0,0,0,16"/>
+
+            <TextBlock Text="Title"
+                       FontFamily="{StaticResource PrimaryFont}"
+                       FontSize="11"
+                       Foreground="{DynamicResource TextSecondaryBrush}"
+                       Margin="0,0,0,4"/>
+            <Border Background="{DynamicResource BgTertiaryBrush}"
+                    BorderBrush="{DynamicResource BorderSubtleBrush}"
+                    BorderThickness="1"
+                    CornerRadius="6"
+                    Margin="0,0,0,12">
+                <TextBox x:Name="TitleBox"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         Foreground="{DynamicResource TextPrimaryBrush}"
+                         CaretBrush="{DynamicResource AccentBrush}"
+                         FontFamily="{StaticResource PrimaryFont}"
+                         FontSize="13"
+                         Padding="10,8"/>
+            </Border>
+
+            <TextBlock Text="Code"
+                       FontFamily="{StaticResource PrimaryFont}"
+                       FontSize="11"
+                       Foreground="{DynamicResource TextSecondaryBrush}"
+                       Margin="0,0,0,4"/>
+            <Border Background="{DynamicResource BgTertiaryBrush}"
+                    BorderBrush="{DynamicResource BorderSubtleBrush}"
+                    BorderThickness="1"
+                    CornerRadius="6"
+                    Margin="0,0,0,4">
+                <TextBox x:Name="CodeBox"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         Foreground="{DynamicResource TextPrimaryBrush}"
+                         CaretBrush="{DynamicResource AccentBrush}"
+                         FontFamily="Consolas"
+                         FontSize="13"
+                         Padding="10,8"
+                         AcceptsReturn="True"
+                         TextWrapping="Wrap"
+                         Height="60"
+                         VerticalScrollBarVisibility="Auto"/>
+            </Border>
+            <TextBlock x:Name="FormatHint"
+                       FontFamily="{StaticResource PrimaryFont}"
+                       FontSize="11"
+                       Foreground="{DynamicResource TextMutedBrush}"
+                       Margin="0,0,0,14"/>
+
+            <CheckBox x:Name="EnabledCheck"
+                      Content="Enable now"
+                      Foreground="{DynamicResource TextPrimaryBrush}"
+                      FontFamily="{StaticResource PrimaryFont}"
+                      Margin="0,0,0,18"/>
+
+            <Grid>
+                <Button x:Name="DeleteBtn"
+                        Content="Delete"
+                        HorizontalAlignment="Left"
+                        Style="{StaticResource SecondaryButtonStyle}"
+                        Padding="14,6"
+                        Visibility="Collapsed"
+                        Click="Delete_Click"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Cancel"
+                            Style="{StaticResource SecondaryButtonStyle}"
+                            Padding="16,8"
+                            Margin="0,0,8,0"
+                            IsCancel="True"
+                            Click="Cancel_Click"/>
+                    <Button x:Name="SaveBtn"
+                            Content="Add Cheat"
+                            Style="{StaticResource PlayButtonStyle}"
+                            Padding="16,8"
+                            IsDefault="True"
+                            Click="Save_Click"/>
+                </StackPanel>
+            </Grid>
+        </StackPanel>
+    </Border>
+</Window>

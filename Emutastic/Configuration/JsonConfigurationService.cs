@@ -44,8 +44,18 @@ namespace Emutastic.Configuration
         {
             _logger = logger;
 
-            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            string appFolder = Path.Combine(appData, "Emutastic");
+            // Portable mode: config sits inside PortableData beside the .exe.
+            // Otherwise the config file always lives in %AppData%\Emutastic\config.json.
+            string appFolder;
+            if (AppPaths.IsPortable)
+            {
+                appFolder = AppPaths.DataRoot;
+            }
+            else
+            {
+                string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                appFolder = Path.Combine(appData, "Emutastic");
+            }
             Directory.CreateDirectory(appFolder);
             _configPath = Path.Combine(appFolder, "config.json");
 

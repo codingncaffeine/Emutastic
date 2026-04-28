@@ -252,6 +252,12 @@ namespace Emutastic.Views
         private byte[]? _pendingLoadData = null;
         private string _pendingLoadName  = "";
         private string? _pendingLoadStatePath = null;  // load on startup if set
+        // Cheats — loaded once per game from disk, applied after retro_load_game and after every state load.
+        private System.Collections.Generic.List<Models.Cheat> _cheats = new();
+        private bool _cheatsApplied = false;
+        private volatile bool _cheatsApplyPending = false;
+        private System.Collections.Generic.List<Models.Cheat>? _cheatsApplyPayload;
+        private readonly object _cheatsApplyLock = new();
 
         // Core options
         private readonly Dictionary<string, string> _coreOptions = new();
@@ -1015,6 +1021,11 @@ namespace Emutastic.Views
 
                 // Overlay: set core label and start hide timer
                 OverlayCoreLabel.Text = System.IO.Path.GetFileNameWithoutExtension(_core.CorePath);
+
+                // Hide the Cheats item entirely for cores that stub retro_cheat_set —
+                // showing it would just frustrate users (e.g. PPSSPP uses CWCheat .ini files).
+                if (Services.CheatSupport.Lookup(_core.CorePath).Level == Services.CheatSupportLevel.NotSupported)
+                    OverlayCheatsBtn.Visibility = Visibility.Collapsed;
                 _overlayTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2.5) };
                 _overlayTimer.Tick += (_, _) => HideOverlay();
 
@@ -1438,6 +1449,24 @@ namespace Emutastic.Views
                     IntPtr curCtx = wglGetCurrentContext();
                     System.Diagnostics.Trace.WriteLine($"Pre-loop GL: current=0x{curCtx:X} _hglrc=0x{_hglrc:X}");
                 }
+
+                // Apply any pre-saved cheats before the loop starts. Safe even when the
+                // core stubs retro_cheat_set — the call is a silent no-op on stubs.
+                if (!_cheatsApplied)
+                {
+                    _cheatsApplied = true;
+                    try
+                    {
+                        _cheats = Services.CheatService.Load(_game);
+                        if (_cheats.Count > 0 && _core != null)
+                            Services.CheatService.Apply(_core, _cheats);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Trace.WriteLine($"Cheats initial apply failed: {ex.Message}");
+                    }
+                }
+
                 EmulationLoop(fps);
             }
             catch (Exception ex)
@@ -1747,6 +1776,7 @@ namespace Emutastic.Views
                         // Pending save/load — executed between retro_run calls for thread safety.
                         if (_saveStatePending) ExecuteSaveOnEmuThread();
                         if (_loadStatePending) ExecuteLoadOnEmuThread();
+                        if (_cheatsApplyPending) ExecuteCheatsApplyOnEmuThread();
                     }
                     catch (AccessViolationException ex)
                     {
@@ -4703,6 +4733,17 @@ namespace Emutastic.Views
             bool ok = _core?.LoadState(data) ?? false;
             _transientMsg    = ok ? $"Loaded: {name}" : $"Failed to load: {name}";
             _transientExpiry = DateTime.Now.AddSeconds(3);
+
+            // Some cores wipe their cheat table on state load — re-apply so codes survive.
+            // Snapshot the list before iterating to avoid racing the UI thread, which can
+            // mutate _cheats from the cheat editor at any moment.
+            if (ok && _core != null && _cheats.Count > 0)
+            {
+                var snapshot = new System.Collections.Generic.List<Models.Cheat>(_cheats);
+                try { Services.CheatService.Apply(_core, snapshot); }
+                catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Cheats re-apply (post state-load) failed: {ex.Message}"); }
+            }
+
             Dispatcher.BeginInvoke(() => LoadPickerPanel.Visibility = Visibility.Collapsed);
         }
 
@@ -4841,6 +4882,7 @@ namespace Emutastic.Views
             _overlayHiding = true;
             _overlayTimer?.Stop();
             OverlayMenu.Visibility = Visibility.Collapsed;
+            CheatsMenu.Visibility = Visibility.Collapsed;
             CloseSaveMenu();
             var fade = new System.Windows.Media.Animation.DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(300));
             fade.Completed += (_, _) =>
@@ -5039,6 +5081,7 @@ namespace Emutastic.Views
         private void OverlaySave_Click(object sender, RoutedEventArgs e)
         {
             OverlayMenu.Visibility = Visibility.Collapsed;
+            CheatsMenu.Visibility = Visibility.Collapsed;
             if (SaveMenu.Visibility == Visibility.Visible)
             {
                 CloseSaveMenu();
@@ -5157,10 +5200,124 @@ namespace Emutastic.Views
         private void OverlayCog_Click(object sender, RoutedEventArgs e)
         {
             CloseSaveMenu();
+            CheatsMenu.Visibility = Visibility.Collapsed;
             OverlayMenu.Visibility = OverlayMenu.Visibility == Visibility.Visible
                 ? Visibility.Collapsed
                 : Visibility.Visible;
             ResetOverlayTimer();
+        }
+
+        // ── Cheats menu ──────────────────────────────────────────────────────
+        private void OverlayCheats_Click(object sender, RoutedEventArgs e)
+        {
+            OverlayMenu.Visibility = Visibility.Collapsed;
+            CloseSaveMenu();
+            RefreshCheatsList();
+            CheatsMenu.Visibility = Visibility.Visible;
+            ResetOverlayTimer();
+        }
+
+        private void RefreshCheatsList()
+        {
+            CheatsListItems.Children.Clear();
+
+            // Tell the user up-front when their core can't apply cheats.
+            string corePath = _core?.CorePath ?? "";
+            var support = Services.CheatSupport.Lookup(corePath);
+            CheatsUnsupportedHint.Visibility = support.Level == Services.CheatSupportLevel.NotSupported
+                ? Visibility.Visible : Visibility.Collapsed;
+
+            CheatsListSeparator.Visibility = _cheats.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+            for (int i = 0; i < _cheats.Count; i++)
+            {
+                var cheat = _cheats[i];
+                int captured = i;
+
+                var btn = new Button { Style = (Style)FindResource("OverlayMenuItemStyle") };
+
+                var grid = new Grid();
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(20) });
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+                var check = new TextBlock
+                {
+                    Text              = cheat.Enabled ? "✓" : "",   // ✓
+                    Foreground        = Brushes.White,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    FontSize          = 14,
+                };
+                var label = new TextBlock
+                {
+                    Text              = cheat.Title,
+                    Foreground        = cheat.Enabled ? Brushes.White : new SolidColorBrush(Color.FromArgb(0xCC, 0xFF, 0xFF, 0xFF)),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextTrimming      = TextTrimming.CharacterEllipsis,
+                };
+                Grid.SetColumn(check, 0);
+                Grid.SetColumn(label, 1);
+                grid.Children.Add(check);
+                grid.Children.Add(label);
+                btn.Content = grid;
+
+                btn.Click += (_, _) => OpenCheatEditor(captured);
+                CheatsListItems.Children.Add(btn);
+            }
+        }
+
+        private void OverlayAddCheat_Click(object sender, RoutedEventArgs e)
+        {
+            OpenCheatEditor(-1);
+        }
+
+        private void OpenCheatEditor(int existingIndex)
+        {
+            string corePath = _core?.CorePath ?? "";
+
+            Models.Cheat? existing = (existingIndex >= 0 && existingIndex < _cheats.Count) ? _cheats[existingIndex] : null;
+            var dlg = new CheatEditWindow(existing, corePath) { Owner = this };
+            bool? ok = dlg.ShowDialog();
+            if (ok != true) return;
+
+            if (dlg.DeleteRequested && existingIndex >= 0)
+            {
+                _cheats.RemoveAt(existingIndex);
+            }
+            else if (existingIndex >= 0)
+            {
+                _cheats[existingIndex] = dlg.Result;
+            }
+            else
+            {
+                _cheats.Add(dlg.Result);
+            }
+
+            try { Services.CheatService.Save(_game, _cheats); }
+            catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Cheat save failed: {ex.Message}"); }
+
+            // Re-apply on the emu thread to avoid racing retro_run.
+            lock (_cheatsApplyLock)
+            {
+                _cheatsApplyPayload = new System.Collections.Generic.List<Models.Cheat>(_cheats);
+                _cheatsApplyPending = true;
+            }
+
+            RefreshCheatsList();
+        }
+
+        /// <summary>Called on the emu thread between retro_run calls.</summary>
+        private void ExecuteCheatsApplyOnEmuThread()
+        {
+            System.Collections.Generic.List<Models.Cheat>? payload;
+            lock (_cheatsApplyLock)
+            {
+                payload = _cheatsApplyPayload;
+                _cheatsApplyPayload = null;
+                _cheatsApplyPending = false;
+            }
+            if (payload == null || _core == null) return;
+            try { Services.CheatService.Apply(_core, payload); }
+            catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Cheats apply (queued) failed: {ex.Message}"); }
         }
         private void OverlayEditControls_Click(object sender, RoutedEventArgs e)
         {

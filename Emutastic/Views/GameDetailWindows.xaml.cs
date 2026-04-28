@@ -315,11 +315,18 @@ namespace Emutastic.Views
 
             if (!System.IO.File.Exists(_game.RomPath))
             {
-                MessageBox.Show(
-                    $"ROM file not found:\n{_game.RomPath}",
-                    "File Not Found",
+                bool wasTempExtracted = _game.RomPath.IndexOf(@"\Temp\Emutastic\",
+                    System.StringComparison.OrdinalIgnoreCase) >= 0;
+
+                string msg = wasTempExtracted
+                    ? "This game was imported from a .zip and Windows has cleared its " +
+                      "temporary working folder.\n\nRemove the entry from your library " +
+                      "and re-import the original archive — newer imports stay persistent."
+                    : $"ROM file not found:\n{_game.RomPath}";
+                MessageBox.Show(msg,
+                    wasTempExtracted ? "Re-import Required" : "File Not Found",
                     MessageBoxButton.OK,
-                    MessageBoxImage.Error);
+                    wasTempExtracted ? MessageBoxImage.Warning : MessageBoxImage.Error);
                 return;
             }
 
@@ -379,6 +386,13 @@ namespace Emutastic.Views
                 }
             };
 
+            var cheats = new MenuItem { Header = "Cheats…" };
+            cheats.Click += (_, _) =>
+            {
+                var win = new CheatsManagerWindow(_game) { Owner = this };
+                win.ShowDialog();
+            };
+
             var remove = new MenuItem { Header = "Remove from Library" };
             remove.Click += (_, _) =>
             {
@@ -396,6 +410,17 @@ namespace Emutastic.Views
 
             menu.Items.Add(showInExplorer);
             menu.Items.Add(rename);
+
+            // Show the Cheats entry only when this console actually has a known core
+            // AND that core isn't a known cheat-stub. Unknown consoles (no core in the
+            // map) hide the entry — there's nothing to apply cheats against.
+            if (Services.CoreManager.ConsoleCoreMap.TryGetValue(_game.Console ?? "", out var cores)
+                && cores.Length > 0
+                && Services.CheatSupport.Lookup(cores[0]).Level != Services.CheatSupportLevel.NotSupported)
+            {
+                menu.Items.Add(cheats);
+            }
+
             menu.Items.Add(new Separator());
             menu.Items.Add(remove);
 

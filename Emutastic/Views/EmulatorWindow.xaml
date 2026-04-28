@@ -347,12 +347,46 @@
                                         Content="View Recordings"
                                         Style="{StaticResource OverlayMenuItemStyle}"
                                         Click="OverlayViewRecordings_Click"/>
+                                <Button x:Name="OverlayCheatsBtn"
+                                        Content="Cheats"
+                                        Style="{StaticResource OverlayMenuItemStyle}"
+                                        Click="OverlayCheats_Click"/>
                                 <Rectangle Height="1" Fill="#33FFFFFF" Margin="6,2,6,2"/>
                                 <TextBlock x:Name="OverlayCoreLabel"
                                            Foreground="#99FFFFFF"
                                            FontSize="10"
                                            Margin="10,0,10,4"
                                            TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Cheats menu (stacks above pill, toggled by Cheats item in cog menu) -->
+                        <Border x:Name="CheatsMenu"
+                                Visibility="Collapsed"
+                                Background="#EE0F0F11"
+                                BorderBrush="#44FFFFFF"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                MinWidth="240"
+                                MaxHeight="340"
+                                Margin="0,0,0,6"
+                                HorizontalAlignment="Center">
+                            <StackPanel Margin="4,4,4,4">
+                                <Button x:Name="OverlayAddCheatBtn"
+                                        Content="Add Cheat…"
+                                        Style="{StaticResource OverlayMenuItemStyle}"
+                                        Click="OverlayAddCheat_Click"/>
+                                <TextBlock x:Name="CheatsUnsupportedHint"
+                                           Visibility="Collapsed"
+                                           Text="This core does not support cheats."
+                                           Foreground="#88FFFFFF"
+                                           FontSize="11" Margin="10,4,10,4"/>
+                                <Rectangle x:Name="CheatsListSeparator"
+                                           Height="1" Fill="#33FFFFFF" Margin="6,2,6,2"
+                                           Visibility="Collapsed"/>
+                                <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="240">
+                                    <StackPanel x:Name="CheatsListItems"/>
+                                </ScrollViewer>
                             </StackPanel>
                         </Border>
 

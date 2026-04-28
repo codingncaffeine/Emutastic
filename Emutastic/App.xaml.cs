@@ -44,6 +44,11 @@ namespace Emutastic
                 return;
             }
 
+            // Portable mode: must detect BEFORE config loads so the config service
+            // routes to PortableData instead of %AppData%. Drop a portable.txt next
+            // to the .exe to opt in.
+            AppPaths.DetectPortableMode();
+
             try
             {
                 // Trace.WriteLine (used throughout libretro callbacks) internally calls
@@ -138,8 +143,10 @@ namespace Emutastic
                 AppPaths.SetScreenshotsFolder(prefs.ScreenshotsFolder);
                 AppPaths.SetRecordingsFolder(prefs.RecordingsFolder);
 
-                // First-run: let user pick data directory before anything creates folders
-                if (string.IsNullOrEmpty(prefs.CustomDataDirectory)
+                // First-run: let user pick data directory before anything creates folders.
+                // Skipped in portable mode — that mode implies "use the folder beside the .exe".
+                if (!AppPaths.IsPortable
+                    && string.IsNullOrEmpty(prefs.CustomDataDirectory)
                     && !File.Exists(Path.Combine(AppPaths.DataRoot, "library.db")))
                 {
                     var result = System.Windows.MessageBox.Show(
