@@ -99,8 +99,7 @@ after you load a save state.
 
 Code formats depend on the system:
   Game Genie         — NES, SNES, Game Boy/GBC, Genesis, Master System
-  GameShark / AR     — GBA, NDS, N64, PlayStation, GameCube
-  Pro Action Replay  — SNES, Genesis
+  GameShark          — GBA, NDS, N64, PlayStation
   Raw address:value  — PlayStation, TG16, NGP, Virtual Boy, Saturn,
                        Dreamcast, Atari 2600
 

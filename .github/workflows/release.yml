@@ -55,5 +55,6 @@ jobs:
         with:
           name: Emutastic ${{ github.ref_name }}
           draft: true
+          prerelease: false
           generate_release_notes: true
           files: ${{ env.ZIP_NAME }}

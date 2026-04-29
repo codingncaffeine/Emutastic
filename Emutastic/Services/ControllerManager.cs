@@ -700,6 +700,20 @@ namespace Emutastic.Services
                         "select" => 2, "start" => 3,
                         _ => uint.MaxValue
                     };
+
+                // ── Neo Geo / Geolith ────────────────────────────────────────
+                // Standard RetroArch convention: A→JOYPAD_B, B→JOYPAD_A,
+                // C→JOYPAD_Y, D→JOYPAD_X. Without this case the polling loop
+                // falls through to the generic libretro fallback, which has no
+                // entry for "c" or "d" — those button presses are silently
+                // dropped and A/B end up swapped relative to what the core expects.
+                case "NeoGeo":
+                    return n switch {
+                        "a" => 0, "b" => 8, "c" => 1, "d" => 9,
+                        "select" => 2, "start" => 3,
+                        "up" => 4, "down" => 5, "left" => 6, "right" => 7,
+                        _ => uint.MaxValue
+                    };
             }
 
             // Standard libretro joypad mapping (NES, SNES, GB, GBA, NDS, FDS, MSX, etc.)

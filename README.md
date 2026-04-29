@@ -149,7 +149,7 @@ Drop an empty `portable.txt` next to `Emutastic.exe` and the entire install (con
 
 ## Cheats
 
-Per-game cheats from the in-game cog menu or the library detail card's `⋯` menu. Game Genie / GameShark / Action Replay / raw codes depending on system. See **[Cheats](https://github.com/codingncaffeine/Emutastic/wiki/Cheats)** in the wiki for code formats per system, storage paths, and the list of cores where cheats aren't supported.
+Per-game cheats from the in-game cog menu or the library detail card's `⋯` menu. Game Genie / GameShark / raw codes depending on system. See **[Cheats](https://github.com/codingncaffeine/Emutastic/wiki/Cheats)** in the wiki for code formats per system, storage paths, and the list of cores where cheats aren't supported.
 
 ---
 
