@@ -48,5 +48,6 @@ namespace Emutastic.Services.ConsoleHandlers
         public virtual void PrepareSaveDirectory(string saveDir) { }
         public virtual bool UseFullFboReadback => false;
         public virtual bool UseGLOverlay => false;
+        public virtual bool UseDefaultFramebuffer => false;
     }
 }

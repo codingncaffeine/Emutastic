@@ -102,5 +102,16 @@ namespace Emutastic.Services.ConsoleHandlers
         /// that bottlenecks HW cores at high internal resolutions.
         /// </summary>
         bool UseGLOverlay { get; }
+
+        /// <summary>
+        /// When true, return framebuffer 0 from get_current_framebuffer instead of
+        /// the frontend's own FBO, and read pixels back from FBO 0. Some OpenGL
+        /// cores (Dolphin libretro on AMD/Intel GL drivers) misrender into a
+        /// frontend-supplied FBO; rendering directly to the default backbuffer
+        /// sidesteps this. Cost: the in-game GL overlay is incompatible with
+        /// this mode, so it's disabled at runtime when UseDefaultFramebuffer is on.
+        /// Default false; opt-in per console (currently exposed for GameCube only).
+        /// </summary>
+        bool UseDefaultFramebuffer { get; }
     }
 }

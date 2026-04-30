@@ -2997,6 +2997,12 @@ namespace Emutastic.Views
             if (_consoleHandler.AllowHwSharedContext)
                 return 0;   // N64: core renders to EmuThread's FBO 0
 
+            // AMD/Intel GameCube compatibility: core renders directly to the default
+            // backbuffer (FBO 0) instead of our managed FBO. Trades the GL overlay
+            // for working video on drivers that don't tolerate the FBO indirection.
+            if (_consoleHandler.UseDefaultFramebuffer)
+                return 0;
+
             return _fboId;  // single-threaded HW core: GL context stays current on _emuThread
         }
 
@@ -3328,7 +3334,10 @@ namespace Emutastic.Views
                     uint rh = _consoleHandler.UseFullFboReadback
                         ? _fboHeight
                         : (height > 0 ? height : _fboHeight);
-                    ReadBackFromCurrentContext(_fboId, rw, rh);
+                    // AMD/Intel GameCube compatibility: core rendered into FBO 0 instead
+                    // of our managed FBO (mirrors GetCurrentFramebuffer's branch).
+                    uint sourceFbo = _consoleHandler.UseDefaultFramebuffer ? 0 : _fboId;
+                    ReadBackFromCurrentContext(sourceFbo, rw, rh);
                 }
                 return;
             }

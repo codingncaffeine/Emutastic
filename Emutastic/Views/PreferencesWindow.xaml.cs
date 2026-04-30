@@ -2533,6 +2533,76 @@ namespace Emutastic.Views
 
             extrasCard.Child = extrasStack;
             CoresListPanel.Children.Add(extrasCard);
+
+            BuildCompatibilitySection();
+        }
+
+        /// <summary>
+        /// Per-core compatibility toggles for GPU/driver edge cases.
+        /// Each checkbox here changes how a console's render path behaves —
+        /// not a setting most users should touch unless they're hitting a
+        /// specific bug their hardware exposes.
+        /// </summary>
+        private void BuildCompatibilitySection()
+        {
+            CoresListPanel.Children.Add(new Rectangle
+            {
+                Height = 1,
+                Fill   = new SolidColorBrush(Color.FromRgb(0x30, 0x30, 0x33)),
+                Margin = new Thickness(0, 20, 0, 0)
+            });
+            CoresListPanel.Children.Add(new TextBlock
+            {
+                Text       = "COMPATIBILITY",
+                FontSize   = 10,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = _brushTextMuted,
+                Margin     = new Thickness(0, 12, 0, 8)
+            });
+
+            var compatCard = new Border
+            {
+                Background   = new SolidColorBrush(Color.FromRgb(0x1F, 0x1F, 0x21)),
+                CornerRadius = new CornerRadius(6),
+                Padding      = new Thickness(14, 10, 14, 10),
+                Margin       = new Thickness(0, 0, 0, 4)
+            };
+            var compatStack = new StackPanel();
+
+            // ── GameCube: render to default framebuffer (AMD/Intel compat) ──
+            var emuConfig = _configService.GetEmulatorConfiguration();
+            var gcCheck = new CheckBox
+            {
+                Content    = "GameCube: render to default framebuffer (AMD/Intel GPU compatibility)",
+                Foreground = _brushText,
+                FontSize   = 13,
+                IsChecked  = emuConfig.GameCubeUseDefaultFramebuffer,
+                Cursor     = System.Windows.Input.Cursors.Hand,
+            };
+            var gcDesc = new TextBlock
+            {
+                Text         = "Fixes a video rendering issue where GameCube games render only in part of the window on AMD/Intel GPU drivers. Cost: the in-game GL overlay (cog menu, save/load slots, cheats panel) is disabled while this is on. NVIDIA users should leave this off.",
+                FontSize     = 11,
+                Foreground   = _brushTextMuted,
+                TextWrapping = TextWrapping.Wrap,
+                Margin       = new Thickness(22, 4, 0, 0),
+            };
+            gcCheck.Checked   += (_, _) => SaveCompatToggle(c => c.GameCubeUseDefaultFramebuffer = true);
+            gcCheck.Unchecked += (_, _) => SaveCompatToggle(c => c.GameCubeUseDefaultFramebuffer = false);
+
+            compatStack.Children.Add(gcCheck);
+            compatStack.Children.Add(gcDesc);
+
+            compatCard.Child = compatStack;
+            CoresListPanel.Children.Add(compatCard);
+        }
+
+        private void SaveCompatToggle(System.Action<Configuration.EmulatorConfiguration> mutate)
+        {
+            var cfg = _configService.GetEmulatorConfiguration();
+            mutate(cfg);
+            _configService.SetEmulatorConfiguration(cfg);
+            _ = _configService.SaveAsync();
         }
 
         private Grid MakeExtrasRow(string name, string description, Border badge,

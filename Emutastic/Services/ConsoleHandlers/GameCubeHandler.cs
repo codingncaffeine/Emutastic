@@ -158,7 +158,16 @@ namespace Emutastic.Services.ConsoleHandlers
         // so SwapBuffers on our HwndHost DC presents an empty back buffer (black screen).
         // Use the same FBO-0 readback path as N64 instead.
         public override bool UseEmbeddedWindow => false;
-        public override bool UseGLOverlay => true;
+
+        // GL overlay (cog menu, save/load slots, cheats panel) is incompatible
+        // with rendering directly to FBO 0, so users who flip the AMD/Intel
+        // compatibility option in Preferences trade the overlay for working
+        // GameCube video. NVIDIA users default-leave the option off and keep
+        // the overlay.
+        public override bool UseGLOverlay => !UseDefaultFramebuffer;
+
+        public override bool UseDefaultFramebuffer =>
+            App.Configuration?.GetEmulatorConfiguration().GameCubeUseDefaultFramebuffer ?? false;
 
         // Use the DLL's parent directory as the system directory so that
         // dolphin-emu\Sys\ can be placed alongside dolphin_libretro.dll.

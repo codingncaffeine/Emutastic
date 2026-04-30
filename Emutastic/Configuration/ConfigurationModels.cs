@@ -52,6 +52,17 @@ namespace Emutastic.Configuration
         public int RewindBufferSize { get; set; } = 10; // seconds
         public string DefaultCoreDirectory { get; set; } = "Cores";
         public bool LoadCheatsAutomatically { get; set; } = false;
+
+        /// <summary>
+        /// AMD/Intel GPU compatibility for GameCube (Dolphin libretro).
+        /// When true, the core renders directly to FBO 0 instead of our
+        /// managed FBO. Fixes a class of viewport/scaling bugs on AMD GL
+        /// drivers at the cost of disabling the in-game GL overlay (cog
+        /// menu, save/load, cheats panel) for GameCube. Default off —
+        /// existing NVIDIA users keep the overlay; AMD/Intel users
+        /// affected by the bottom-left rendering bug enable this.
+        /// </summary>
+        public bool GameCubeUseDefaultFramebuffer { get; set; } = false;
     }
 
     // User preferences
