@@ -45,6 +45,23 @@ namespace Emutastic
                 return;
             }
 
+            // Trace.WriteLine (used throughout libretro callbacks AND the portable migration
+            // helpers below) internally calls OutputDebugStringW, which raises SEH exception
+            // 0x4001000a to signal a debugger.  When a debugger IS attached, the debugger
+            // catches it silently.  When no debugger is attached (running outside VS), the
+            // exception propagates through reverse P/Invoke boundaries on native threads
+            // (e.g. mupen64plus EmuThread calling our env/log callbacks) and kills the process.
+            //
+            // Fix: when no debugger is attached, replace DefaultTraceListener
+            // (OutputDebugString) with ConsoleTraceListener (writes to stderr, no SEH).
+            // MUST run before the portable cores migration since that helper calls Trace.WriteLine.
+            if (!System.Diagnostics.Debugger.IsAttached)
+            {
+                System.Diagnostics.Trace.Listeners.Clear();
+                System.Diagnostics.Trace.Listeners.Add(
+                    new System.Diagnostics.ConsoleTraceListener(useErrorStream: true));
+            }
+
             // Portable mode: must detect BEFORE config loads so the config service
             // routes to PortableData instead of %AppData%. Drop a portable.txt next
             // to the .exe to opt in.
@@ -57,22 +74,6 @@ namespace Emutastic
 
             try
             {
-                // Trace.WriteLine (used throughout libretro callbacks) internally calls
-                // OutputDebugStringW, which raises SEH exception 0x4001000a to signal a
-                // debugger.  When a debugger IS attached, the debugger catches it silently.
-                // When no debugger is attached (running outside VS), the exception propagates
-                // through reverse P/Invoke boundaries on native threads (e.g. mupen64plus
-                // EmuThread calling our env/log callbacks) and kills the process.
-                //
-                // Fix: when no debugger is attached, replace DefaultTraceListener
-                // (OutputDebugString) with ConsoleTraceListener (writes to stderr, no SEH).
-                // This one change makes every Trace.WriteLine in the codebase safe.
-                if (!System.Diagnostics.Debugger.IsAttached)
-                {
-                    System.Diagnostics.Trace.Listeners.Clear();
-                    System.Diagnostics.Trace.Listeners.Add(
-                        new System.Diagnostics.ConsoleTraceListener(useErrorStream: true));
-                }
 
                 // Initialize logging
                 InitializeLogging();
@@ -213,31 +214,59 @@ namespace Emutastic
                     splash.Show();
                 }
 
+                // File moves run on a worker thread so the splash UI can repaint as
+                // progress updates. Dispatcher.Invoke from the same thread that called
+                // splash.Show() would block until the loop finished — splash would draw
+                // once at "0/N" and never update.
                 int moved = 0;
-                foreach (string dll in legacyDlls)
+                var doneFrame = new System.Windows.Threading.DispatcherFrame();
+                System.Threading.Tasks.Task.Run(() =>
                 {
-                    string dest = Path.Combine(newCores, Path.GetFileName(dll));
                     try
                     {
-                        // If a core with the same name already exists in the new folder, keep it
-                        // (user may have re-downloaded it after manually moving). Delete the legacy copy.
-                        if (File.Exists(dest))
-                            File.Delete(dll);
-                        else
-                            File.Move(dll, dest);
-                        moved++;
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Trace.WriteLine($"Cores migration: failed to move {Path.GetFileName(dll)} — {ex.Message}");
-                    }
+                        foreach (string dll in legacyDlls)
+                        {
+                            string dest = Path.Combine(newCores, Path.GetFileName(dll));
+                            try
+                            {
+                                // If a core with the same name already exists in the new folder, keep it
+                                // (user may have re-downloaded it after manually moving). Delete the legacy copy.
+                                if (File.Exists(dest))
+                                    File.Delete(dll);
+                                else
+                                    File.Move(dll, dest);
+                                System.Threading.Interlocked.Increment(ref moved);
+                            }
+                            catch (Exception ex)
+                            {
+                                System.Diagnostics.Trace.WriteLine($"Cores migration: failed to move {Path.GetFileName(dll)} — {ex.Message}");
+                            }
 
-                    if (splashText != null)
-                    {
-                        int captured = moved;
-                        splashText.Dispatcher.Invoke(() =>
-                            splashText.Text = $"Moving cores into PortableData… ({captured} / {legacyDlls.Count})");
+                            if (splashText != null)
+                            {
+                                int captured = moved;
+                                splashText.Dispatcher.BeginInvoke(new Action(() =>
+                                    splashText.Text = $"Moving cores into PortableData… ({captured} / {legacyDlls.Count})"));
+                            }
+                        }
                     }
+                    finally
+                    {
+                        // Stop pumping the dispatcher so OnStartup can continue.
+                        if (splashText != null)
+                            splashText.Dispatcher.BeginInvoke(new Action(() => doneFrame.Continue = false));
+                        else
+                            doneFrame.Continue = false;
+                    }
+                });
+
+                if (splash != null)
+                    System.Windows.Threading.Dispatcher.PushFrame(doneFrame);
+                else
+                {
+                    // No splash means no dispatcher pumping; just block on the task.
+                    while (doneFrame.Continue)
+                        System.Threading.Thread.Sleep(20);
                 }
 
                 splash?.Close();

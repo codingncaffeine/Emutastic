@@ -303,8 +303,11 @@ namespace Emutastic
         public void ApplyBackgroundImage()
         {
             var theme = App.Configuration?.GetThemeConfiguration();
-            if (theme == null || string.IsNullOrWhiteSpace(theme.BackgroundImagePath)
-                || !System.IO.File.Exists(theme.BackgroundImagePath))
+            // Storage form may be relative (under DataRoot in portable mode); resolve
+            // to absolute before File.Exists / Uri construction.
+            string bgPath = AppPaths.FromStoragePath(theme?.BackgroundImagePath ?? "");
+            if (theme == null || string.IsNullOrWhiteSpace(bgPath)
+                || !System.IO.File.Exists(bgPath))
             {
                 GridBackgroundImage.Visibility = Visibility.Collapsed;
                 GridBackgroundImage.Source = null;
@@ -317,7 +320,7 @@ namespace Emutastic
             {
                 var bmp = new System.Windows.Media.Imaging.BitmapImage();
                 bmp.BeginInit();
-                bmp.UriSource = new Uri(theme.BackgroundImagePath, UriKind.Absolute);
+                bmp.UriSource = new Uri(bgPath, UriKind.Absolute);
                 bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
                 bmp.EndInit();
                 bmp.Freeze();

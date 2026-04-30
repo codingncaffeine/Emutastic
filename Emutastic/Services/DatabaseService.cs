@@ -379,7 +379,7 @@ namespace Emutastic.Services
                     {
                         var upd = connection.CreateCommand();
                         upd.CommandText = $"UPDATE Games SET {dbColumn} = $path WHERE Id = $id;";
-                        upd.Parameters.AddWithValue("$path", destPath);
+                        upd.Parameters.AddWithValue("$path", AppPaths.ToStoragePath(destPath));
                         upd.Parameters.AddWithValue("$id", match.id);
                         upd.ExecuteNonQuery();
                     }
@@ -603,19 +603,26 @@ namespace Emutastic.Services
         /// <summary>
         /// Portable mode v2 (v1.3.3): rewrite absolute paths under the current DataRoot
         /// as relative ("Roms\NES\zelda.smc") so the DB survives drive-letter changes
-        /// when the data folder is moved between PCs. Idempotent — paths already relative
-        /// or outside DataRoot pass through unchanged.
+        /// when the data folder is moved between PCs. Covers Games (RomPath/CoverArtPath/
+        /// BoxArt3DPath/ScreenScraperArtPath) and SaveStates (FilePath/Screenshot).
+        /// Idempotent — paths already relative or outside DataRoot pass through unchanged.
+        /// Per-row try/catch ensures one malformed path can't poison the whole migration.
         /// </summary>
         private static void RelativizePathsUnderDataRoot(SqliteConnection connection)
         {
-            int rewrote = 0;
+            int gameRows = RelativizeGameRows(connection);
+            int saveRows = RelativizeSaveStateRows(connection);
+
+            if (gameRows > 0 || saveRows > 0)
+                System.Diagnostics.Trace.WriteLine($"[Migration] Relativized {gameRows} game rows + {saveRows} save state rows under DataRoot");
+        }
+
+        private static int RelativizeGameRows(SqliteConnection connection)
+        {
+            int rewrote = 0, failures = 0;
             try
             {
                 using var tx = connection.BeginTransaction();
-
-                // Single read followed by per-row writes inside the same transaction so
-                // the migration is atomic — partial application would leave half-relative
-                // half-absolute rows that confuse the storage convention.
                 var rows = new List<(int id, string? rom, string? cover, string? bx3d, string? ss)>();
                 var read = connection.CreateCommand();
                 read.Transaction = tx;
@@ -635,45 +642,114 @@ namespace Emutastic.Services
 
                 foreach (var row in rows)
                 {
-                    string? newRom   = row.rom   != null ? AppPaths.ToStoragePath(row.rom)   : null;
-                    string? newCover = row.cover != null ? AppPaths.ToStoragePath(row.cover) : null;
-                    string? new3D    = row.bx3d  != null ? AppPaths.ToStoragePath(row.bx3d)  : null;
-                    string? newSS    = row.ss    != null ? AppPaths.ToStoragePath(row.ss)    : null;
+                    try
+                    {
+                        string? newRom   = row.rom   != null ? AppPaths.ToStoragePath(row.rom)   : null;
+                        string? newCover = row.cover != null ? AppPaths.ToStoragePath(row.cover) : null;
+                        string? new3D    = row.bx3d  != null ? AppPaths.ToStoragePath(row.bx3d)  : null;
+                        string? newSS    = row.ss    != null ? AppPaths.ToStoragePath(row.ss)    : null;
 
-                    bool changed =
-                        !string.Equals(newRom, row.rom, StringComparison.Ordinal) ||
-                        !string.Equals(newCover, row.cover, StringComparison.Ordinal) ||
-                        !string.Equals(new3D, row.bx3d, StringComparison.Ordinal) ||
-                        !string.Equals(newSS, row.ss, StringComparison.Ordinal);
+                        bool changed =
+                            !string.Equals(newRom, row.rom, StringComparison.Ordinal) ||
+                            !string.Equals(newCover, row.cover, StringComparison.Ordinal) ||
+                            !string.Equals(new3D, row.bx3d, StringComparison.Ordinal) ||
+                            !string.Equals(newSS, row.ss, StringComparison.Ordinal);
 
-                    if (!changed) continue;
+                        if (!changed) continue;
 
-                    var u = connection.CreateCommand();
-                    u.Transaction = tx;
-                    u.CommandText = @"UPDATE Games
-                        SET RomPath = $rom,
-                            CoverArtPath = $cover,
-                            BoxArt3DPath = $bx3d,
-                            ScreenScraperArtPath = $ss
-                        WHERE Id = $id;";
-                    u.Parameters.AddWithValue("$rom",   newRom   ?? "");
-                    u.Parameters.AddWithValue("$cover", newCover ?? "");
-                    u.Parameters.AddWithValue("$bx3d",  new3D    ?? "");
-                    u.Parameters.AddWithValue("$ss",    newSS    ?? "");
-                    u.Parameters.AddWithValue("$id",    row.id);
-                    u.ExecuteNonQuery();
-                    rewrote++;
+                        var u = connection.CreateCommand();
+                        u.Transaction = tx;
+                        u.CommandText = @"UPDATE Games
+                            SET RomPath = $rom,
+                                CoverArtPath = $cover,
+                                BoxArt3DPath = $bx3d,
+                                ScreenScraperArtPath = $ss
+                            WHERE Id = $id;";
+                        u.Parameters.AddWithValue("$rom",   newRom   ?? "");
+                        u.Parameters.AddWithValue("$cover", newCover ?? "");
+                        u.Parameters.AddWithValue("$bx3d",  new3D    ?? "");
+                        u.Parameters.AddWithValue("$ss",    newSS    ?? "");
+                        u.Parameters.AddWithValue("$id",    row.id);
+                        u.ExecuteNonQuery();
+                        rewrote++;
+                    }
+                    catch (Exception rowEx)
+                    {
+                        // One bad row mustn't poison the rest of the migration.
+                        failures++;
+                        System.Diagnostics.Trace.WriteLine($"[Migration] Game row {row.id} skipped: {rowEx.Message}");
+                    }
                 }
                 tx.Commit();
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Trace.WriteLine($"[Migration] RelativizePathsUnderDataRoot failed: {ex.Message}");
-                return;
+                System.Diagnostics.Trace.WriteLine($"[Migration] RelativizeGameRows failed: {ex.Message}");
+                return 0;
             }
+            if (failures > 0)
+                System.Diagnostics.Trace.WriteLine($"[Migration] {failures} game row(s) skipped due to errors");
+            return rewrote;
+        }
 
-            if (rewrote > 0)
-                System.Diagnostics.Trace.WriteLine($"[Migration] Relativized {rewrote} game rows under DataRoot");
+        private static int RelativizeSaveStateRows(SqliteConnection connection)
+        {
+            int rewrote = 0, failures = 0;
+            try
+            {
+                using var tx = connection.BeginTransaction();
+                var rows = new List<(int id, string? path, string? snap)>();
+                var read = connection.CreateCommand();
+                read.Transaction = tx;
+                read.CommandText = "SELECT Id, FilePath, Screenshot FROM SaveStates;";
+                using (var reader = read.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        rows.Add((
+                            reader.GetInt32(0),
+                            reader.IsDBNull(1) ? null : reader.GetString(1),
+                            reader.IsDBNull(2) ? null : reader.GetString(2)));
+                    }
+                }
+
+                foreach (var row in rows)
+                {
+                    try
+                    {
+                        string? newPath = row.path != null ? AppPaths.ToStoragePath(row.path) : null;
+                        string? newSnap = row.snap != null ? AppPaths.ToStoragePath(row.snap) : null;
+
+                        bool changed =
+                            !string.Equals(newPath, row.path, StringComparison.Ordinal) ||
+                            !string.Equals(newSnap, row.snap, StringComparison.Ordinal);
+                        if (!changed) continue;
+
+                        var u = connection.CreateCommand();
+                        u.Transaction = tx;
+                        u.CommandText = "UPDATE SaveStates SET FilePath = $path, Screenshot = $snap WHERE Id = $id;";
+                        u.Parameters.AddWithValue("$path", newPath ?? "");
+                        u.Parameters.AddWithValue("$snap", newSnap ?? "");
+                        u.Parameters.AddWithValue("$id",   row.id);
+                        u.ExecuteNonQuery();
+                        rewrote++;
+                    }
+                    catch (Exception rowEx)
+                    {
+                        failures++;
+                        System.Diagnostics.Trace.WriteLine($"[Migration] SaveState row {row.id} skipped: {rowEx.Message}");
+                    }
+                }
+                tx.Commit();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[Migration] RelativizeSaveStateRows failed: {ex.Message}");
+                return 0;
+            }
+            if (failures > 0)
+                System.Diagnostics.Trace.WriteLine($"[Migration] {failures} save state row(s) skipped due to errors");
+            return rewrote;
         }
 
         /// <summary>
@@ -1462,8 +1538,8 @@ namespace Emutastic.Services
                 INSERT INTO SaveStates (GameId, Slot, FilePath, Screenshot, CreatedAt, Name, GameTitle, ConsoleName, CoreName, RomHash)
                 VALUES ($gameId, 0, $filePath, $screenshot, $createdAt, $name, $gameTitle, $consoleName, $coreName, $romHash);";
             cmd.Parameters.AddWithValue("$gameId",      s.GameId);
-            cmd.Parameters.AddWithValue("$filePath",    s.StatePath);
-            cmd.Parameters.AddWithValue("$screenshot",  s.ScreenshotPath);
+            cmd.Parameters.AddWithValue("$filePath",    AppPaths.ToStoragePath(s.StatePath));
+            cmd.Parameters.AddWithValue("$screenshot",  AppPaths.ToStoragePath(s.ScreenshotPath ?? ""));
             cmd.Parameters.AddWithValue("$createdAt",   s.CreatedAt.ToString("o"));
             cmd.Parameters.AddWithValue("$name",        s.Name);
             cmd.Parameters.AddWithValue("$gameTitle",   s.GameTitle);
@@ -1497,8 +1573,8 @@ namespace Emutastic.Services
                 SET Name = $name, FilePath = $filePath, Screenshot = $screenshot
                 WHERE Id = $id;";
             cmd.Parameters.AddWithValue("$name",       newName);
-            cmd.Parameters.AddWithValue("$filePath",   newStatePath);
-            cmd.Parameters.AddWithValue("$screenshot", newScreenshotPath);
+            cmd.Parameters.AddWithValue("$filePath",   AppPaths.ToStoragePath(newStatePath));
+            cmd.Parameters.AddWithValue("$screenshot", AppPaths.ToStoragePath(newScreenshotPath ?? ""));
             cmd.Parameters.AddWithValue("$id",         id);
             cmd.ExecuteNonQuery();
         }
@@ -1643,8 +1719,8 @@ namespace Emutastic.Services
             {
                 Id             = r.GetInt32(0),
                 GameId         = r.GetInt32(1),
-                StatePath      = r.IsDBNull(3) ? "" : r.GetString(3),
-                ScreenshotPath = r.IsDBNull(4) ? "" : r.GetString(4),
+                StatePath      = AppPaths.FromStoragePath(r.IsDBNull(3) ? "" : r.GetString(3)),
+                ScreenshotPath = AppPaths.FromStoragePath(r.IsDBNull(4) ? "" : r.GetString(4)),
                 CreatedAt      = r.IsDBNull(5) ? DateTime.Now :
                                      DateTime.TryParse(r.GetString(5), out var dt) ? dt : DateTime.Now,
                 Name           = r.IsDBNull(6) ? "" : r.GetString(6),

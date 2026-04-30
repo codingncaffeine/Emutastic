@@ -101,6 +101,30 @@ namespace Emutastic.Configuration
             }
         }
 
+        /// <summary>
+        /// Portable mode v2: rewrite path fields under DataRoot from absolute to relative.
+        /// Currently only the theme background image path needs this — other config fields
+        /// either reference paths outside DataRoot (user-chosen library/screenshots/recordings
+        /// folders) or are intentionally left absolute. Idempotent.
+        /// </summary>
+        private void MigratePathsToRelative()
+        {
+            try
+            {
+                var theme = _data.ThemeConfiguration;
+                if (theme != null && !string.IsNullOrEmpty(theme.BackgroundImagePath))
+                {
+                    string converted = AppPaths.ToStoragePath(theme.BackgroundImagePath);
+                    if (!string.Equals(converted, theme.BackgroundImagePath, StringComparison.Ordinal))
+                        theme.BackgroundImagePath = converted;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[Migration] MigratePathsToRelative failed: {ex.Message}");
+            }
+        }
+
         public async Task LoadAsync()
         {
             try
@@ -117,6 +141,11 @@ namespace Emutastic.Configuration
                 var loaded = JsonSerializer.Deserialize<ConfigData>(json, _jsonOptions);
                 _data = loaded ?? new ConfigData();
                 _loadedSuccessfully = true;
+
+                // Portable mode v2 (v1.3.3): rewrite any path fields stored absolute
+                // under DataRoot as relative so they survive drive-letter changes.
+                // Idempotent — paths already relative or outside DataRoot pass through.
+                MigratePathsToRelative();
             }
             catch (Exception ex)
             {

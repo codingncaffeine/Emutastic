@@ -108,7 +108,9 @@ namespace Emutastic.Services
 
             if (File.Exists(imgPath))
             {
-                cfg.BackgroundImagePath = imgPath;
+                // Stored relative to DataRoot when possible so portable installs
+                // survive drive-letter changes between PCs.
+                cfg.BackgroundImagePath = AppPaths.ToStoragePath(imgPath);
                 cfg.BackgroundImageOpacity = colors.BackgroundImageOpacity ?? 1.0;
                 cfg.BackgroundImageStretch = colors.BackgroundImageStretch ?? "UniformToFill";
                 App.Configuration?.SetThemeConfiguration(cfg);

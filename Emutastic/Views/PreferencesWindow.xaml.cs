@@ -2950,9 +2950,11 @@ namespace Emutastic.Views
 
             PopulateInstalledThemes();
 
-            // Background image
+            // Background image — show absolute path so the user can see exactly which
+            // file is referenced; storage form may be relative under DataRoot.
             BgImagePathLabel.Text = string.IsNullOrWhiteSpace(theme.BackgroundImagePath)
-                ? "No image selected" : theme.BackgroundImagePath;
+                ? "No image selected"
+                : Emutastic.AppPaths.FromStoragePath(theme.BackgroundImagePath);
             BgOpacitySlider.Value = Math.Clamp(theme.BackgroundImageOpacity * 100, 0, 100);
             BgOpacityValueLabel.Text = $"{(int)BgOpacitySlider.Value}%";
 
@@ -3230,9 +3232,12 @@ namespace Emutastic.Views
                 selectedThemeId = id;
             theme.ActiveThemeId = selectedThemeId;
 
-            // Background image settings
+            // Background image settings — relativize against DataRoot so portable installs
+            // survive drive-letter changes; absolute external paths pass through unchanged.
             var bgPath = BgImagePathLabel.Text;
-            theme.BackgroundImagePath = (bgPath == "No image selected") ? "" : bgPath;
+            theme.BackgroundImagePath = (bgPath == "No image selected")
+                ? ""
+                : Emutastic.AppPaths.ToStoragePath(bgPath);
             theme.BackgroundImageOpacity = Math.Clamp(BgOpacitySlider.Value / 100.0, 0.0, 1.0);
             if (BgStretchCombo.SelectedItem is System.Windows.Controls.ComboBoxItem stretchItem
                 && stretchItem.Tag is string stretchVal)

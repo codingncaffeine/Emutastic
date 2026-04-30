@@ -510,12 +510,14 @@ namespace Emutastic.Views
                 var exportColors = JsonSerializer.Deserialize<ThemeColors>(
                     JsonSerializer.Serialize(_editColors)) ?? _editColors; // clone
 
-                if (themeCfg != null && !string.IsNullOrWhiteSpace(themeCfg.BackgroundImagePath)
-                    && File.Exists(themeCfg.BackgroundImagePath))
+                // Storage form may be relative under DataRoot; resolve before file ops.
+                string bgPath = Emutastic.AppPaths.FromStoragePath(themeCfg?.BackgroundImagePath ?? "");
+                if (themeCfg != null && !string.IsNullOrWhiteSpace(bgPath)
+                    && File.Exists(bgPath))
                 {
-                    var imgFileName = IoPath.GetFileName(themeCfg.BackgroundImagePath);
+                    var imgFileName = IoPath.GetFileName(bgPath);
                     var assetPath = $"assets/{imgFileName}";
-                    zip.CreateEntryFromFile(themeCfg.BackgroundImagePath, assetPath);
+                    zip.CreateEntryFromFile(bgPath, assetPath);
                     exportColors.BackgroundImage = assetPath;
                     exportColors.BackgroundImageOpacity = themeCfg.BackgroundImageOpacity;
                     exportColors.BackgroundImageStretch = themeCfg.BackgroundImageStretch;
