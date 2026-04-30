@@ -82,6 +82,19 @@ True USB portability — what to expect:
   • Cores download into PortableData\Cores\, not next to the .exe,
     so the data folder is fully self-contained.
 
+Important — enable portable mode BEFORE importing ROMs:
+
+  ROMs imported while Emutastic is running in normal mode stay at
+  their original location, and the database stores the absolute path
+  to wherever you grabbed them from. Switching to portable mode
+  afterwards does NOT reach back to copy those ROMs into PortableData.
+
+  If you've already been using Emutastic in normal mode and want to
+  switch to portable, the cleanest path is: enable portable mode
+  first (drop portable.txt, launch once), then re-import your ROM
+  folder. The portable launch will copy each ROM into PortableData
+  and the library will travel with the USB from there on.
+
 To go back to normal mode, simply delete  portable.txt  — your
 %AppData% data (if any) becomes active again. ROMs, saves, and cores
 in PortableData stay where they are; you can move them manually if
