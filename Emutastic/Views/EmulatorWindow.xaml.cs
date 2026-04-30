@@ -861,6 +861,11 @@ namespace Emutastic.Views
                     UpdateScreenLayoutLabel();
                 }
 
+                // Show N64 controller pak swap button in overlay
+                // (Memory Pak ↔ Rumble Pak — N64 hardware only allows one at a time)
+                if (game.Console == "N64")
+                    OverlayPakBtn.Visibility = Visibility.Visible;
+
                 // Load Vectrex game overlay if available
                 if (game.Console == "Vectrex")
                     InitVectrexOverlay(game);
@@ -5235,6 +5240,8 @@ namespace Emutastic.Views
             OverlayMenu.Visibility = OverlayMenu.Visibility == Visibility.Visible
                 ? Visibility.Collapsed
                 : Visibility.Visible;
+            if (OverlayMenu.Visibility == Visibility.Visible && _game?.Console == "N64")
+                UpdatePakLabel();
             ResetOverlayTimer();
         }
 
@@ -5500,6 +5507,41 @@ namespace Emutastic.Views
             string coreName = Path.GetFileNameWithoutExtension(_core.CorePath);
             App.CoreOptions.SaveValues(coreName, new Dictionary<string, string>
                 { { "desmume_screens_layout", newLayout } });
+
+            ResetOverlayTimer();
+        }
+
+        // ── N64 Controller Pak swap (Memory ↔ Rumble) ─────────────────────
+        // N64 hardware only allows one pak per controller at a time, so games that
+        // use both rumble and saves (Forsaken, Banjo, OoT, etc.) can't see them
+        // simultaneously. Cycling here flips Player 1's pak between Memory and
+        // Rumble; the core picks up the change via _coreOptionsDirty + check_variables().
+        private void UpdatePakLabel()
+        {
+            string current = _coreOptions.TryGetValue("parallel-n64-pak1", out var v) ? v : "memory";
+            string label = current switch
+            {
+                "memory"   => "Memory Pak",
+                "rumble"   => "Rumble Pak",
+                "transfer" => "Transfer Pak",
+                "none"     => "No Pak",
+                _          => current,
+            };
+            OverlayPakBtn.Content = $"P1 Pak: {label}";
+        }
+
+        private void OverlayPak_Click(object sender, RoutedEventArgs e)
+        {
+            string current = _coreOptions.TryGetValue("parallel-n64-pak1", out var v) ? v : "memory";
+            string next = current == "memory" ? "rumble" : "memory";
+
+            _coreOptions["parallel-n64-pak1"] = next;
+            _coreOptionsDirty = true;
+            UpdatePakLabel();
+
+            string coreName = Path.GetFileNameWithoutExtension(_core.CorePath);
+            App.CoreOptions.SaveValues(coreName, new Dictionary<string, string>
+                { { "parallel-n64-pak1", next } });
 
             ResetOverlayTimer();
         }

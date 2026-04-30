@@ -339,6 +339,10 @@
                                         Visibility="Collapsed"
                                         Style="{StaticResource OverlayMenuItemStyle}"
                                         Click="OverlayScreenLayout_Click"/>
+                                <Button x:Name="OverlayPakBtn"
+                                        Visibility="Collapsed"
+                                        Style="{StaticResource OverlayMenuItemStyle}"
+                                        Click="OverlayPak_Click"/>
                                 <Button x:Name="OverlayRecordMenuBtn"
                                         Content="Record"
                                         Style="{StaticResource OverlayMenuItemStyle}"
