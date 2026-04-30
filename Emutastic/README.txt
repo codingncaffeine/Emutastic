@@ -123,6 +123,15 @@ GameCube (Dolphin): The emulator core remains loaded in memory after
 closing a game to prevent a crash during cleanup. This is harmless
 and the memory is reclaimed when Emutastic exits.
 
+GameCube on AMD / Intel GPUs: If GameCube games render only in the
+bottom-left corner of the window, open Preferences -> Cores / Extras
+and enable "GameCube: render to default framebuffer (AMD/Intel GPU
+compatibility)" under the Compatibility section. NVIDIA users should
+leave it off -- the option is for AMD Radeon and Intel GL drivers
+that don't tolerate the default framebuffer indirection. While this
+is enabled the in-game overlay (cog menu, save/load, cheats panel)
+is hidden for GameCube, but the game itself will render correctly.
+
 N64 (parallel_n64): May crash on close due to internal cleanup threads.
 This is a known issue with the core and does not affect save data.
 
