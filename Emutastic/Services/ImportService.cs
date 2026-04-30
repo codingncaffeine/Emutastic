@@ -713,9 +713,19 @@ namespace Emutastic.Services
                 }
                 catch (Exception ex)
                 {
+                    // In portable mode, falling through to import the source absolute path
+                    // would silently break the portable contract — the DB row would point at
+                    // a non-portable location that can't follow the USB stick. Skip with a
+                    // visible warning instead so the user knows to retry or check permissions.
+                    if (portableForceCopy)
+                    {
+                        ImportLog($"[{fileName}] PORTABLE COPY FAILED — {ex.Message} — skipping");
+                        StatusChanged?.Invoke($"Skipped {fileName} — portable copy failed: {ex.Message}");
+                        return;
+                    }
                     ImportLog($"[{fileName}] COPY FAILED — {ex.Message}");
                     StatusChanged?.Invoke($"Copy failed for {fileName} — importing in-place");
-                    // Fall through and import from the original location
+                    // Non-portable: fall through and import from the original location
                 }
             }
 

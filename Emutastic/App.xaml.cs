@@ -282,6 +282,15 @@ namespace Emutastic
                         System.Threading.Thread.Sleep(20);
                 }
 
+                // Defensive: if the splash transiently became Application.MainWindow
+                // (no other window exists yet), null it out before closing so we can't
+                // accidentally trigger OnMainWindowClose shutdown before the real
+                // MainWindow opens.
+                if (splash != null && Application.Current != null
+                    && ReferenceEquals(Application.Current.MainWindow, splash))
+                {
+                    Application.Current.MainWindow = null;
+                }
                 splash?.Close();
                 System.Diagnostics.Trace.WriteLine($"Portable cores migration: moved {moved} core(s) from {legacyCores} → {newCores}");
             }
