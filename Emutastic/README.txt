@@ -57,21 +57,35 @@ See Preferences → System Files for the exact filenames required per system.
 
 PORTABLE MODE
 -------------
-Want Emutastic to keep everything (config, library database, saves, save
-states, screenshots, artwork) in its own folder instead of %AppData% —
-so you can run it from a USB stick, sync the whole folder, or just keep
-your install self-contained?
+Run Emutastic from a USB stick, take it between PCs, sync the whole
+folder — everything Emutastic needs lives inside the install folder.
 
   1. Create an empty file named  portable.txt  in the same folder as
      Emutastic.exe.
   2. Launch Emutastic.
 
-That's it. From then on, all data lives in a  PortableData  subfolder
-right next to the .exe. Nothing is written to %AppData%, and the
-first-run "choose data folder" prompt is skipped.
+That's it. From then on, ALL data lives in a  PortableData  subfolder
+right next to the .exe — that includes the library database, configs,
+save states, battery saves, screenshots, recordings, artwork, BIOS
+files, libretro cores, and ROMs you import. Nothing is written to
+%AppData%, and the first-run "choose data folder" prompt is skipped.
+
+True USB portability — what to expect:
+
+  • Move the entire Emutastic folder to a USB stick.
+  • Plug the USB into ANY Windows PC; the drive letter doesn't matter
+    (it can be E: on one PC and F: on another). Library paths are
+    stored relative to PortableData, so they don't break across PCs.
+  • ROMs you import are auto-copied into PortableData\Roms\<Console>\
+    so they travel with the USB. You don't have to set up a "library
+    folder" — portable mode handles it for you.
+  • Cores download into PortableData\Cores\, not next to the .exe,
+    so the data folder is fully self-contained.
 
 To go back to normal mode, simply delete  portable.txt  — your
-%AppData% data (if any) becomes active again.
+%AppData% data (if any) becomes active again. ROMs, saves, and cores
+in PortableData stay where they are; you can move them manually if
+you want them under %AppData%.
 
 Note: portable.txt must be at the same level as the .exe, not inside a
 subfolder. The folder must also be writable (running from a read-only

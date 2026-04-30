@@ -183,8 +183,9 @@ namespace Emutastic.Services
 
         public CoreManager()
         {
-            string exeFolder = AppDomain.CurrentDomain.BaseDirectory;
-            _coresFolder = Path.Combine(exeFolder, "Cores");
+            // Portable mode: cores live under [DataRoot]/Cores/ so the entire
+            // portable experience sits inside PortableData/. Otherwise: [exe]/Cores/.
+            _coresFolder = AppPaths.GetCoresFolder();
         }
 
         public CoreManager(IConfigurationService configService) : this()

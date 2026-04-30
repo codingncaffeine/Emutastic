@@ -41,7 +41,7 @@ namespace Emutastic.Views
         {
             _consoles.Clear();
 
-            var coresFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Cores");
+            var coresFolder = Emutastic.AppPaths.GetCoresFolder();
             var preferences = _configService?.GetCorePreferences() ?? new CorePreferences();
 
             // Group cores by console and create view models

@@ -1408,7 +1408,7 @@ namespace Emutastic.Views
         private void BuildCoresPanel()
         {
             CoresListPanel.Children.Clear();
-            string coresFolder = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Cores");
+            string coresFolder = Emutastic.AppPaths.GetCoresFolder();
             var prefs = _configService.GetCorePreferences();
 
             // ── Download All button + progress ──

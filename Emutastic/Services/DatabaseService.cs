@@ -177,6 +177,11 @@ namespace Emutastic.Services
             // Old FetchBoxArt2DAsync stored 2D images in the BoxArt3D folder; these aren't 3D box art
             // and prevent the real 3D fetch from running.
             CleanupBogus3DPaths(connection);
+
+            // Portable mode v2 (v1.3.3): rewrite absolute paths that live under DataRoot
+            // as relative so the DB survives drive-letter changes (USB on PC1=E:, PC2=F:).
+            // Idempotent — paths already relative or outside DataRoot are skipped.
+            RelativizePathsUnderDataRoot(connection);
         }
 
         private void MigrateCollectionsToJoinTable(SqliteConnection connection)
@@ -254,9 +259,10 @@ namespace Emutastic.Services
                 {
                     int id = reader.GetInt32(0);
                     string console = reader.IsDBNull(1) ? "" : reader.GetString(1);
-                    string coverPath = reader.IsDBNull(2) ? "" : reader.GetString(2);
-                    string art3DPath = reader.IsDBNull(3) ? "" : reader.GetString(3);
-                    string ssArtPath = reader.IsDBNull(4) ? "" : reader.GetString(4);
+                    // Resolve to absolute so MoveFileToConsoleSubfolder can locate the file on disk.
+                    string coverPath = AppPaths.FromStoragePath(reader.IsDBNull(2) ? "" : reader.GetString(2));
+                    string art3DPath = AppPaths.FromStoragePath(reader.IsDBNull(3) ? "" : reader.GetString(3));
+                    string ssArtPath = AppPaths.FromStoragePath(reader.IsDBNull(4) ? "" : reader.GetString(4));
 
                     if (string.IsNullOrWhiteSpace(console)) continue;
 
@@ -278,7 +284,7 @@ namespace Emutastic.Services
                         {
                             var u = connection.CreateCommand();
                             u.CommandText = "UPDATE Games SET CoverArtPath = $path WHERE Id = $id;";
-                            u.Parameters.AddWithValue("$path", newCover);
+                            u.Parameters.AddWithValue("$path", AppPaths.ToStoragePath(newCover));
                             u.Parameters.AddWithValue("$id", id);
                             u.ExecuteNonQuery();
                         }
@@ -286,7 +292,7 @@ namespace Emutastic.Services
                         {
                             var u = connection.CreateCommand();
                             u.CommandText = "UPDATE Games SET BoxArt3DPath = $path WHERE Id = $id;";
-                            u.Parameters.AddWithValue("$path", new3D);
+                            u.Parameters.AddWithValue("$path", AppPaths.ToStoragePath(new3D));
                             u.Parameters.AddWithValue("$id", id);
                             u.ExecuteNonQuery();
                         }
@@ -294,7 +300,7 @@ namespace Emutastic.Services
                         {
                             var u = connection.CreateCommand();
                             u.CommandText = "UPDATE Games SET ScreenScraperArtPath = $path WHERE Id = $id;";
-                            u.Parameters.AddWithValue("$path", newSS);
+                            u.Parameters.AddWithValue("$path", AppPaths.ToStoragePath(newSS));
                             u.Parameters.AddWithValue("$id", id);
                             u.ExecuteNonQuery();
                         }
@@ -595,6 +601,82 @@ namespace Emutastic.Services
         }
 
         /// <summary>
+        /// Portable mode v2 (v1.3.3): rewrite absolute paths under the current DataRoot
+        /// as relative ("Roms\NES\zelda.smc") so the DB survives drive-letter changes
+        /// when the data folder is moved between PCs. Idempotent — paths already relative
+        /// or outside DataRoot pass through unchanged.
+        /// </summary>
+        private static void RelativizePathsUnderDataRoot(SqliteConnection connection)
+        {
+            int rewrote = 0;
+            try
+            {
+                using var tx = connection.BeginTransaction();
+
+                // Single read followed by per-row writes inside the same transaction so
+                // the migration is atomic — partial application would leave half-relative
+                // half-absolute rows that confuse the storage convention.
+                var rows = new List<(int id, string? rom, string? cover, string? bx3d, string? ss)>();
+                var read = connection.CreateCommand();
+                read.Transaction = tx;
+                read.CommandText = "SELECT Id, RomPath, CoverArtPath, BoxArt3DPath, ScreenScraperArtPath FROM Games;";
+                using (var reader = read.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        rows.Add((
+                            reader.GetInt32(0),
+                            reader.IsDBNull(1) ? null : reader.GetString(1),
+                            reader.IsDBNull(2) ? null : reader.GetString(2),
+                            reader.IsDBNull(3) ? null : reader.GetString(3),
+                            reader.IsDBNull(4) ? null : reader.GetString(4)));
+                    }
+                }
+
+                foreach (var row in rows)
+                {
+                    string? newRom   = row.rom   != null ? AppPaths.ToStoragePath(row.rom)   : null;
+                    string? newCover = row.cover != null ? AppPaths.ToStoragePath(row.cover) : null;
+                    string? new3D    = row.bx3d  != null ? AppPaths.ToStoragePath(row.bx3d)  : null;
+                    string? newSS    = row.ss    != null ? AppPaths.ToStoragePath(row.ss)    : null;
+
+                    bool changed =
+                        !string.Equals(newRom, row.rom, StringComparison.Ordinal) ||
+                        !string.Equals(newCover, row.cover, StringComparison.Ordinal) ||
+                        !string.Equals(new3D, row.bx3d, StringComparison.Ordinal) ||
+                        !string.Equals(newSS, row.ss, StringComparison.Ordinal);
+
+                    if (!changed) continue;
+
+                    var u = connection.CreateCommand();
+                    u.Transaction = tx;
+                    u.CommandText = @"UPDATE Games
+                        SET RomPath = $rom,
+                            CoverArtPath = $cover,
+                            BoxArt3DPath = $bx3d,
+                            ScreenScraperArtPath = $ss
+                        WHERE Id = $id;";
+                    u.Parameters.AddWithValue("$rom",   newRom   ?? "");
+                    u.Parameters.AddWithValue("$cover", newCover ?? "");
+                    u.Parameters.AddWithValue("$bx3d",  new3D    ?? "");
+                    u.Parameters.AddWithValue("$ss",    newSS    ?? "");
+                    u.Parameters.AddWithValue("$id",    row.id);
+                    u.ExecuteNonQuery();
+                    rewrote++;
+                }
+                tx.Commit();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[Migration] RelativizePathsUnderDataRoot failed: {ex.Message}");
+                return;
+            }
+
+            if (rewrote > 0)
+                System.Diagnostics.Trace.WriteLine($"[Migration] Relativized {rewrote} game rows under DataRoot");
+        }
+
+        /// <summary>
         /// Returns the ID of an existing game with the given RomHash and Console, or null if none.
         /// Used during import to prevent creating duplicates for ~ alternate title ROMs.
         /// </summary>
@@ -645,11 +727,14 @@ namespace Emutastic.Services
             cmd.Parameters.AddWithValue("$console", game.Console);
             cmd.Parameters.AddWithValue("$manufacturer", game.Manufacturer);
             cmd.Parameters.AddWithValue("$year", game.Year);
-            cmd.Parameters.AddWithValue("$romPath", game.RomPath);
+            // All filesystem paths are relativized against DataRoot before storage so the DB
+            // is portable across drive-letter changes (USB on PC1=E:, PC2=F:). Paths outside
+            // DataRoot pass through unchanged.
+            cmd.Parameters.AddWithValue("$romPath", AppPaths.ToStoragePath(game.RomPath));
             cmd.Parameters.AddWithValue("$romHash", game.RomHash ?? "");
-            cmd.Parameters.AddWithValue("$coverArt", game.CoverArtPath ?? "");
-            cmd.Parameters.AddWithValue("$boxArt3D", game.BoxArt3DPath ?? "");
-            cmd.Parameters.AddWithValue("$ssArt", game.ScreenScraperArtPath ?? "");
+            cmd.Parameters.AddWithValue("$coverArt", AppPaths.ToStoragePath(game.CoverArtPath ?? ""));
+            cmd.Parameters.AddWithValue("$boxArt3D", AppPaths.ToStoragePath(game.BoxArt3DPath ?? ""));
+            cmd.Parameters.AddWithValue("$ssArt", AppPaths.ToStoragePath(game.ScreenScraperArtPath ?? ""));
             cmd.Parameters.AddWithValue("$bgColor", game.BackgroundColor);
             cmd.Parameters.AddWithValue("$accentColor", game.AccentColor);
             cmd.Parameters.AddWithValue("$dateAdded", DateTime.Now.ToString("o"));
@@ -669,13 +754,18 @@ namespace Emutastic.Services
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             var cmd = connection.CreateCommand();
+            // Match against the storage form. Caller may hand us either an absolute path
+            // (a freshly-resolved game ROM) or a value that's already been relativized;
+            // ToStoragePath is idempotent on already-relative inputs.
             cmd.CommandText = "SELECT COUNT(*) FROM Games WHERE RomPath = $romPath;";
-            cmd.Parameters.AddWithValue("$romPath", romPath);
+            cmd.Parameters.AddWithValue("$romPath", AppPaths.ToStoragePath(romPath));
             return (long)cmd.ExecuteScalar()! > 0;
         }
 
         public HashSet<string> GetAllRomPaths()
         {
+            // Returns paths in absolute (resolved) form so callers can compare against
+            // freshly-discovered files on disk without worrying about the storage convention.
             var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
@@ -685,7 +775,7 @@ namespace Emutastic.Services
             while (reader.Read())
             {
                 string path = reader.GetString(0);
-                if (!string.IsNullOrEmpty(path)) set.Add(path);
+                if (!string.IsNullOrEmpty(path)) set.Add(AppPaths.FromStoragePath(path));
             }
             return set;
         }
@@ -734,7 +824,7 @@ namespace Emutastic.Services
             connection.Open();
             var cmd = connection.CreateCommand();
             cmd.CommandText = "UPDATE Games SET CoverArtPath = $path WHERE Id = $id;";
-            cmd.Parameters.AddWithValue("$path", coverArtPath);
+            cmd.Parameters.AddWithValue("$path", AppPaths.ToStoragePath(coverArtPath));
             cmd.Parameters.AddWithValue("$id", gameId);
             cmd.ExecuteNonQuery();
         }
@@ -751,7 +841,7 @@ namespace Emutastic.Services
             connection.Open();
             var cmd = connection.CreateCommand();
             cmd.CommandText = "UPDATE Games SET BoxArt3DPath = $path WHERE Id = $id;";
-            cmd.Parameters.AddWithValue("$path", path);
+            cmd.Parameters.AddWithValue("$path", AppPaths.ToStoragePath(path));
             cmd.Parameters.AddWithValue("$id", gameId);
             cmd.ExecuteNonQuery();
         }
@@ -762,7 +852,7 @@ namespace Emutastic.Services
             connection.Open();
             var cmd = connection.CreateCommand();
             cmd.CommandText = "UPDATE Games SET ScreenScraperArtPath = $path WHERE Id = $id;";
-            cmd.Parameters.AddWithValue("$path", path);
+            cmd.Parameters.AddWithValue("$path", AppPaths.ToStoragePath(path));
             cmd.Parameters.AddWithValue("$id", gameId);
             cmd.ExecuteNonQuery();
         }
@@ -875,7 +965,7 @@ namespace Emutastic.Services
                     Title = reader.GetString(1),
                     Console = reader.GetString(2),
                     RomHash = reader.IsDBNull(3) ? "" : reader.GetString(3),
-                    RomPath = reader.IsDBNull(4) ? "" : reader.GetString(4),
+                    RomPath = AppPaths.FromStoragePath(reader.IsDBNull(4) ? "" : reader.GetString(4)),
                 });
             }
             return games;
@@ -1154,7 +1244,7 @@ namespace Emutastic.Services
                     Title = reader.GetString(1),
                     Console = reader.GetString(2),
                     RomHash = reader.GetString(3),
-                    RomPath = reader.IsDBNull(4) ? "" : reader.GetString(4),
+                    RomPath = AppPaths.FromStoragePath(reader.IsDBNull(4) ? "" : reader.GetString(4)),
                     BackgroundColor = reader.IsDBNull(5) ? "#1F1F21" : reader.GetString(5),
                     AccentColor = reader.IsDBNull(6) ? "#E03535" : reader.GetString(6),
                 });
@@ -1185,7 +1275,7 @@ namespace Emutastic.Services
                     Title = reader.GetString(1),
                     Console = reader.GetString(2),
                     RomHash = reader.GetString(3),
-                    RomPath = reader.IsDBNull(4) ? "" : reader.GetString(4),
+                    RomPath = AppPaths.FromStoragePath(reader.IsDBNull(4) ? "" : reader.GetString(4)),
                     BackgroundColor = reader.IsDBNull(5) ? "#1F1F21" : reader.GetString(5),
                     AccentColor = reader.IsDBNull(6) ? "#E03535" : reader.GetString(6),
                     ArtworkAttempts = reader.IsDBNull(7) ? 0 : reader.GetInt32(7),
@@ -1298,9 +1388,12 @@ namespace Emutastic.Services
                 Console         = reader.GetString(o.Console),
                 Manufacturer    = GetStr(reader, o.Manufacturer),
                 Year            = GetInt(reader, o.Year),
-                RomPath         = GetStr(reader, o.RomPath),
+                // Filesystem paths are stored relative to DataRoot when possible (portable mode
+                // survives drive-letter changes). Resolve back to absolute on read so the rest
+                // of the app sees fully-qualified paths.
+                RomPath         = AppPaths.FromStoragePath(GetStr(reader, o.RomPath)),
                 RomHash         = GetStr(reader, o.RomHash),
-                CoverArtPath    = GetStr(reader, o.CoverArtPath),
+                CoverArtPath    = AppPaths.FromStoragePath(GetStr(reader, o.CoverArtPath)),
                 BackgroundColor = GetStr(reader, o.BackgroundColor, "#1F1F21"),
                 AccentColor     = GetStr(reader, o.AccentColor, "#E03535"),
                 PlayCount       = GetInt(reader, o.PlayCount),
@@ -1309,8 +1402,8 @@ namespace Emutastic.Services
                 Rating          = GetInt(reader, o.Rating),
                 Collection      = GetStr(reader, o.Collection),
                 LastPlayed      = GetDate(reader, o.LastPlayed),
-                BoxArt3DPath    = GetStr(reader, o.BoxArt3DPath),
-                ScreenScraperArtPath = GetStr(reader, o.ScreenScraperArtPath),
+                BoxArt3DPath    = AppPaths.FromStoragePath(GetStr(reader, o.BoxArt3DPath)),
+                ScreenScraperArtPath = AppPaths.FromStoragePath(GetStr(reader, o.ScreenScraperArtPath)),
                 ArtworkAttempts = GetInt(reader, o.ArtworkAttempts),
                 Developer   = GetStr(reader, o.Developer),
                 Publisher   = GetStr(reader, o.Publisher),

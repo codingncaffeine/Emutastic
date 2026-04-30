@@ -666,16 +666,31 @@ namespace Emutastic.Services
             string? overrideTitle = null)
         {
             // ── Copy to library folder if configured ──
+            // Portable mode forces a copy into [DataRoot]/Roms/{Console}/ regardless of the
+            // user's CopyToLibrary setting — the whole point of portable is that the USB
+            // is self-contained, and a ROM living outside PortableData/ defeats that.
+            // Logged as a warning when it overrides a user's explicit setting.
             var libConfig = _configService?.GetLibraryConfiguration();
-            if (libConfig is { CopyToLibrary: true }
-                && !string.IsNullOrEmpty(libConfig.LibraryPath))
+            bool portableForceCopy = AppPaths.IsPortable;
+            bool effectiveCopy = portableForceCopy || (libConfig is { CopyToLibrary: true } && !string.IsNullOrEmpty(libConfig.LibraryPath));
+
+            if (effectiveCopy)
             {
                 try
                 {
-                    string destDir = libConfig.LibraryPath;
-                    if (libConfig.OrganizeByConsole)
-                        destDir = Path.Combine(destDir, console);
-                    Directory.CreateDirectory(destDir);
+                    string destDir;
+                    if (portableForceCopy)
+                    {
+                        // Portable wins: route every import into [DataRoot]/Roms/{Console}/.
+                        destDir = AppPaths.GetFolder("Roms", console);
+                    }
+                    else
+                    {
+                        destDir = libConfig!.LibraryPath;
+                        if (libConfig.OrganizeByConsole)
+                            destDir = Path.Combine(destDir, console);
+                        Directory.CreateDirectory(destDir);
+                    }
 
                     string destPath = Path.Combine(destDir, Path.GetFileName(romPath));
                     destPath = GetUniqueDestPath(destPath);

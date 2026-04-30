@@ -6,6 +6,7 @@ using Emutastic.Configuration;
 using Emutastic.Services;
 using Microsoft.Extensions.Logging;
 using System.IO;
+using System.Linq;
 using Microsoft.Extensions.Logging.Debug;
 
 namespace Emutastic
@@ -48,6 +49,11 @@ namespace Emutastic
             // routes to PortableData instead of %AppData%. Drop a portable.txt next
             // to the .exe to opt in.
             AppPaths.DetectPortableMode();
+
+            // Portable mode v2 (v1.3.3): cores moved from [exe]/Cores/ → [DataRoot]/Cores/
+            // so the entire portable experience sits inside PortableData/. Migrate any
+            // pre-existing cores from the old location on first launch with the new code.
+            MigratePortableCoresIfNeeded();
 
             try
             {
@@ -130,6 +136,117 @@ namespace Emutastic
         {
             var loggerFactory = LoggerFactory.Create(builder => builder.AddDebug());
             Logger = loggerFactory.CreateLogger<App>();
+        }
+
+        /// <summary>
+        /// One-time migration: pre-v1.3.3 portable installs kept Cores at [exe]/Cores/.
+        /// The new layout puts them under [DataRoot]/Cores/ so PortableData/ holds the
+        /// entire portable experience. Move any cores from the legacy location on first
+        /// launch with the new code; idempotent — does nothing if already migrated.
+        ///
+        /// Shows a small "migrating" splash when the total payload is large enough to
+        /// take noticeable time on slow USB media (>100MB threshold) so the user knows
+        /// the app is working, not hung.
+        /// </summary>
+        private static void MigratePortableCoresIfNeeded()
+        {
+            if (!AppPaths.IsPortable) return;
+            try
+            {
+                string? exeFolder = AppPaths.GetExeFolderIfPortable();
+                if (string.IsNullOrEmpty(exeFolder)) return;
+                string legacyCores = Path.Combine(exeFolder, "Cores");
+                string newCores    = AppPaths.GetCoresFolder();
+
+                // Same path → nothing to migrate (sanity check)
+                if (string.Equals(Path.GetFullPath(legacyCores).TrimEnd('\\'),
+                                  Path.GetFullPath(newCores).TrimEnd('\\'),
+                                  StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                if (!Directory.Exists(legacyCores)) return;
+
+                var legacyDlls = Directory.EnumerateFiles(legacyCores, "*.dll", SearchOption.TopDirectoryOnly).ToList();
+                if (legacyDlls.Count == 0) return;
+
+                long totalBytes = 0;
+                foreach (string dll in legacyDlls)
+                {
+                    try { totalBytes += new FileInfo(dll).Length; } catch { }
+                }
+
+                // Threshold: 100MB. Below this, the move is fast enough on typical media that
+                // a splash creates more confusion than it resolves.
+                const long SPLASH_THRESHOLD = 100L * 1024 * 1024;
+                Window? splash = null;
+                System.Windows.Controls.TextBlock? splashText = null;
+                if (totalBytes >= SPLASH_THRESHOLD)
+                {
+                    splash = new Window
+                    {
+                        Title = "Emutastic — Setting up portable mode",
+                        Width = 380,
+                        Height = 130,
+                        WindowStartupLocation = WindowStartupLocation.CenterScreen,
+                        WindowStyle = WindowStyle.None,
+                        ResizeMode = ResizeMode.NoResize,
+                        Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1F, 0x1F, 0x21)),
+                        Topmost = true,
+                    };
+                    var stack = new System.Windows.Controls.StackPanel { Margin = new Thickness(20) };
+                    stack.Children.Add(new System.Windows.Controls.TextBlock
+                    {
+                        Text = "Setting up portable mode…",
+                        FontSize = 14,
+                        FontWeight = FontWeights.SemiBold,
+                        Foreground = System.Windows.Media.Brushes.White,
+                        Margin = new Thickness(0, 0, 0, 8),
+                    });
+                    splashText = new System.Windows.Controls.TextBlock
+                    {
+                        Text = $"Moving cores into PortableData… (0 / {legacyDlls.Count})",
+                        FontSize = 12,
+                        Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xCC, 0xCC, 0xCC)),
+                    };
+                    stack.Children.Add(splashText);
+                    splash.Content = stack;
+                    splash.Show();
+                }
+
+                int moved = 0;
+                foreach (string dll in legacyDlls)
+                {
+                    string dest = Path.Combine(newCores, Path.GetFileName(dll));
+                    try
+                    {
+                        // If a core with the same name already exists in the new folder, keep it
+                        // (user may have re-downloaded it after manually moving). Delete the legacy copy.
+                        if (File.Exists(dest))
+                            File.Delete(dll);
+                        else
+                            File.Move(dll, dest);
+                        moved++;
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Trace.WriteLine($"Cores migration: failed to move {Path.GetFileName(dll)} — {ex.Message}");
+                    }
+
+                    if (splashText != null)
+                    {
+                        int captured = moved;
+                        splashText.Dispatcher.Invoke(() =>
+                            splashText.Text = $"Moving cores into PortableData… ({captured} / {legacyDlls.Count})");
+                    }
+                }
+
+                splash?.Close();
+                System.Diagnostics.Trace.WriteLine($"Portable cores migration: moved {moved} core(s) from {legacyCores} → {newCores}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"Portable cores migration failed: {ex.Message}");
+            }
         }
 
         private async Task InitializeConfigurationAsync()
