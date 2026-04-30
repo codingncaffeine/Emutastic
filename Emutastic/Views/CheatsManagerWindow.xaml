@@ -64,15 +64,24 @@
                        Foreground="{DynamicResource TextMutedBrush}"
                        Margin="0,4,0,16"/>
 
-            <Button Grid.Row="2"
-                    x:Name="AddBtn"
-                    Style="{StaticResource RowBtn}"
-                    Click="Add_Click">
-                <TextBlock Text="＋  Add Cheat…"
-                           FontFamily="{StaticResource PrimaryFont}"
-                           Foreground="{DynamicResource AccentBrush}"
-                           FontWeight="SemiBold"/>
-            </Button>
+            <StackPanel Grid.Row="2" Orientation="Horizontal">
+                <Button x:Name="AddBtn"
+                        Style="{StaticResource RowBtn}"
+                        Click="Add_Click">
+                    <TextBlock Text="＋  Add Cheat…"
+                               FontFamily="{StaticResource PrimaryFont}"
+                               Foreground="{DynamicResource AccentBrush}"
+                               FontWeight="SemiBold"/>
+                </Button>
+                <Button x:Name="ImportBtn"
+                        Style="{StaticResource RowBtn}"
+                        Click="Import_Click"
+                        ToolTip="Import cheats from the downloaded database for this game (Preferences → Cores / Extras → Cheats Database)">
+                    <TextBlock Text="⇩  Import from database…"
+                               FontFamily="{StaticResource PrimaryFont}"
+                               Foreground="{DynamicResource TextSecondaryBrush}"/>
+                </Button>
+            </StackPanel>
 
             <Border Grid.Row="3"
                     BorderBrush="{DynamicResource BorderSubtleBrush}"

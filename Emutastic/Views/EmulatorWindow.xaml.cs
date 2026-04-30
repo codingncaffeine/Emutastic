@@ -259,6 +259,15 @@ namespace Emutastic.Views
         private System.Collections.Generic.List<Models.Cheat>? _cheatsApplyPayload;
         private readonly object _cheatsApplyLock = new();
 
+        // Frontend-handled AR cheats: parsed (address, value, byteCount) tuples
+        // applied to system RAM directly after each retro_run. Mirrors the
+        // "RetroArch handled" cheat path so codes like Genesis FFFE12:0009
+        // actually take effect even though genesis_plus_gx's retro_cheat_set
+        // is unreliable for AR.
+        private volatile Services.CheatService.ParsedAr[] _frontendArCheats = System.Array.Empty<Services.CheatService.ParsedAr>();
+        private IntPtr _systemRamPtr  = IntPtr.Zero;
+        private uint   _systemRamSize = 0;
+
         // Core options
         private readonly Dictionary<string, string> _coreOptions = new();
         // Track unmanaged string ptrs returned via GET_VARIABLE to prevent leaks
@@ -1457,9 +1466,20 @@ namespace Emutastic.Views
                     _cheatsApplied = true;
                     try
                     {
+                        // Cache system RAM for frontend-handled AR cheats. id=2
+                        // is RETRO_MEMORY_SYSTEM_RAM. Cores that don't expose it
+                        // (or expose it as 0 bytes) just skip frontend AR.
+                        if (_core != null)
+                        {
+                            const uint RETRO_MEMORY_SYSTEM_RAM = 2;
+                            var (ptr, size) = _core.GetMemoryRegion(RETRO_MEMORY_SYSTEM_RAM);
+                            _systemRamPtr  = ptr;
+                            _systemRamSize = size;
+                        }
+
                         _cheats = Services.CheatService.Load(_game);
                         if (_cheats.Count > 0 && _core != null)
-                            Services.CheatService.Apply(_core, _cheats);
+                            ApplyAllCheats(_cheats);
                     }
                     catch (Exception ex)
                     {
@@ -1753,6 +1773,7 @@ namespace Emutastic.Views
                         if (_logThisRun)
                             System.Diagnostics.Trace.WriteLine($"[RUN #{_runId}] drain-done → calling retro_run");
                         _core.Run();
+                        ApplyFrontendArToRam();   // re-clamp AR cheats every frame
                         if (_logThisRun)
                             System.Diagnostics.Trace.WriteLine($"[RUN #{_runId}] retro_run returned");
                         try { _raClient?.DoFrame(); }
@@ -1769,6 +1790,7 @@ namespace Emutastic.Views
                         {
                             DrainKeyboardQueue();
                             _core.Run();
+                            ApplyFrontendArToRam();
                             try { _raClient?.DoFrame(); }
                             catch (Exception raEx) { System.Diagnostics.Trace.WriteLine($"[RA] DoFrame error: {raEx.Message}"); }
                         }
@@ -4740,7 +4762,7 @@ namespace Emutastic.Views
             if (ok && _core != null && _cheats.Count > 0)
             {
                 var snapshot = new System.Collections.Generic.List<Models.Cheat>(_cheats);
-                try { Services.CheatService.Apply(_core, snapshot); }
+                try { ApplyAllCheats(snapshot); }
                 catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Cheats re-apply (post state-load) failed: {ex.Message}"); }
             }
 
@@ -5237,16 +5259,45 @@ namespace Emutastic.Views
                 var btn = new Button { Style = (Style)FindResource("OverlayMenuItemStyle") };
 
                 var grid = new Grid();
-                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(20) });
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(46) });
                 grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-                var check = new TextBlock
+                // Pill-style sliding toggle — knob right + accent when on,
+                // knob left + dim when off. Reads unambiguously as a control.
+                // The row Button still opens the editor for clicks anywhere
+                // else in the row.
+                var knob = new Border
                 {
-                    Text              = cheat.Enabled ? "✓" : "",   // ✓
-                    Foreground        = Brushes.White,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    FontSize          = 14,
+                    Width             = 14,
+                    Height            = 14,
+                    CornerRadius      = new CornerRadius(7),
+                    Background        = Brushes.White,
+                    Margin            = new Thickness(2, 0, 2, 0),
+                    HorizontalAlignment = cheat.Enabled ? HorizontalAlignment.Right : HorizontalAlignment.Left,
+                    VerticalAlignment   = VerticalAlignment.Center,
                 };
+                var toggle = new Border
+                {
+                    Background        = cheat.Enabled
+                        ? (Brush)FindResource("AccentBrush")
+                        : new SolidColorBrush(Color.FromArgb(0x55, 0xFF, 0xFF, 0xFF)),
+                    BorderBrush       = new SolidColorBrush(Color.FromArgb(0x66, 0xFF, 0xFF, 0xFF)),
+                    BorderThickness   = new Thickness(1),
+                    Width             = 34,
+                    Height            = 18,
+                    CornerRadius      = new CornerRadius(9),
+                    Cursor            = System.Windows.Input.Cursors.Hand,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    ToolTip           = cheat.Enabled ? "Click to disable" : "Click to enable",
+                    Child             = knob,
+                };
+                toggle.MouseLeftButtonDown += (_, e) =>
+                {
+                    e.Handled = true;   // don't fall through to the row Button's OpenCheatEditor
+                    ToggleCheatInOverlay(captured);
+                };
+
                 var label = new TextBlock
                 {
                     Text              = cheat.Title,
@@ -5254,15 +5305,35 @@ namespace Emutastic.Views
                     VerticalAlignment = VerticalAlignment.Center,
                     TextTrimming      = TextTrimming.CharacterEllipsis,
                 };
-                Grid.SetColumn(check, 0);
+                Grid.SetColumn(toggle, 0);
                 Grid.SetColumn(label, 1);
-                grid.Children.Add(check);
+                grid.Children.Add(toggle);
                 grid.Children.Add(label);
                 btn.Content = grid;
 
                 btn.Click += (_, _) => OpenCheatEditor(captured);
                 CheatsListItems.Children.Add(btn);
             }
+        }
+
+        private void ToggleCheatInOverlay(int index)
+        {
+            if (index < 0 || index >= _cheats.Count) return;
+            _cheats[index].Enabled = !_cheats[index].Enabled;
+
+            try { Services.CheatService.Save(_game, _cheats); }
+            catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Cheat toggle save failed: {ex.Message}"); }
+
+            // Re-apply on the emu thread (same pending-flag pattern as Add/Edit)
+            // so disabling a cheat actually clears it from the core mid-game.
+            lock (_cheatsApplyLock)
+            {
+                _cheatsApplyPayload = new System.Collections.Generic.List<Models.Cheat>(_cheats);
+                _cheatsApplyPending = true;
+            }
+
+            RefreshCheatsList();
+            ResetOverlayTimer();
         }
 
         private void OverlayAddCheat_Click(object sender, RoutedEventArgs e)
@@ -5316,8 +5387,55 @@ namespace Emutastic.Views
                 _cheatsApplyPending = false;
             }
             if (payload == null || _core == null) return;
-            try { Services.CheatService.Apply(_core, payload); }
+            try { ApplyAllCheats(payload); }
             catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Cheats apply (queued) failed: {ex.Message}"); }
+        }
+
+        /// <summary>
+        /// Sorts cheats into core-handled vs frontend AR, applies the core
+        /// path via retro_cheat_set, and updates the per-frame frontend AR
+        /// list. Caller must already be on the EmuThread (retro_cheat_set
+        /// is unsafe from UI thread).
+        /// </summary>
+        private void ApplyAllCheats(System.Collections.Generic.IList<Models.Cheat> cheats)
+        {
+            if (_core == null) return;
+            var (coreHandled, frontendAr) = Services.CheatService.Sort(cheats, _game?.Console ?? "");
+            // Volatile swap — the per-frame ApplyFrontendArToRam reads this
+            // without locking; new array reference is the safe handover.
+            _frontendArCheats = frontendAr.ToArray();
+            Services.CheatService.Apply(_core, coreHandled);
+        }
+
+        /// <summary>
+        /// Writes every parsed AR code into system RAM. Called once per
+        /// retro_run on the emu thread. No-op when there are no AR cheats
+        /// or no system RAM exposed by the core.
+        /// </summary>
+        private unsafe void ApplyFrontendArToRam()
+        {
+            var ar = _frontendArCheats;  // volatile snapshot
+            if (ar.Length == 0 || _systemRamPtr == IntPtr.Zero || _systemRamSize == 0) return;
+
+            uint mask = _systemRamSize - 1;  // works for power-of-2 RAM sizes (NES 2K, Genesis 64K, SNES 128K, etc.)
+            byte* ram = (byte*)_systemRamPtr.ToPointer();
+            for (int i = 0; i < ar.Length; i++)
+            {
+                var c = ar[i];
+                uint offset = c.Address & mask;
+                if (c.ByteCount == 1)
+                {
+                    ram[offset] = (byte)c.Value;
+                }
+                else
+                {
+                    // Big-endian word write — Genesis/Saturn/N64 native order.
+                    // LE systems (PS1/SNES/NES/GBA) might want byte-swap; most
+                    // LE-system cheat databases use byte-only AR codes anyway.
+                    ram[offset]              = (byte)((c.Value >> 8) & 0xFF);
+                    ram[(offset + 1) & mask] = (byte)( c.Value       & 0xFF);
+                }
+            }
         }
         private void OverlayEditControls_Click(object sender, RoutedEventArgs e)
         {

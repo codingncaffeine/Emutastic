@@ -358,16 +358,76 @@ namespace Emutastic.ViewModels
             UpdateCount();
         }
 
-        public void SearchGames(string query)
+        // Search debounce: cancel the previous in-flight search whenever a new
+        // keystroke comes in so we only do one pass after the user pauses typing.
+        // Avoids hammering the LINQ filter on a multi-thousand-game library and
+        // prevents results flicker as the user types out a longer query.
+        private System.Threading.CancellationTokenSource? _searchCts;
+
+        public async void SearchGames(string query)
         {
-            if (string.IsNullOrWhiteSpace(query)) { _ = FilterGamesAsync(); return; }
-            var filtered = _allGames
-                .Where(g => g.Title.Contains(query, StringComparison.OrdinalIgnoreCase)
-                         || g.Console.Contains(query, StringComparison.OrdinalIgnoreCase))
-                .ToList();
+            // Cancel anything in flight from the previous keystroke.
+            _searchCts?.Cancel();
+            var cts = new System.Threading.CancellationTokenSource();
+            _searchCts = cts;
+            var token = cts.Token;
+
+            if (string.IsNullOrWhiteSpace(query))
+            {
+                await FilterGamesAsync();
+                return;
+            }
+
+            GameCountText = "Searching…";
+
+            // Debounce: wait briefly before actually searching. If the user keeps
+            // typing within 180ms, this Task.Delay throws and we exit cleanly.
+            try { await Task.Delay(180, token); }
+            catch (TaskCanceledException) { return; }
+            if (token.IsCancellationRequested) return;
+
+            // Tokenize on whitespace — "zelda ocarina" should match
+            // "The Legend of Zelda: Ocarina of Time" even though the words
+            // aren't adjacent in the title.
+            var tokens = query
+                .Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(t => t.ToLowerInvariant())
+                .ToArray();
+            if (tokens.Length == 0)
+            {
+                await FilterGamesAsync();
+                return;
+            }
+
+            List<Game>? filtered = null;
+            try
+            {
+                await Task.Run(() =>
+                {
+                    filtered = _allGames
+                        .Where(g => g != null && MatchesAllTokens(g, tokens))
+                        .ToList();
+                }, token);
+            }
+            catch (TaskCanceledException) { return; }
+            if (token.IsCancellationRequested || filtered == null) return;
+
             Games = new ObservableCollection<Game>(filtered);
             IsGroupedView = false;
             GameCountText = filtered.Count == 1 ? "1 result" : $"{filtered.Count} results";
+        }
+
+        private static bool MatchesAllTokens(Game g, string[] lowerTokens)
+        {
+            // Null-safe: a missing title shouldn't blow up the whole query.
+            string title   = (g.Title   ?? "").ToLowerInvariant();
+            string console = (g.Console ?? "").ToLowerInvariant();
+            foreach (var t in lowerTokens)
+            {
+                if (!title.Contains(t) && !console.Contains(t))
+                    return false;
+            }
+            return true;
         }
 
         /// <summary>

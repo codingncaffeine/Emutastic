@@ -857,31 +857,39 @@
                             <DataTemplate>
                                 <Border Width="{DynamicResource LibraryCardWidth}"
                                         Margin="{DynamicResource LibraryCardMargin}"
-                                        CornerRadius="8"
-                                        ClipToBounds="True"
                                         Background="Transparent"
                                         Cursor="Hand"
                                         MouseLeftButtonDown="GameCard_Click"
                                         MouseRightButtonUp="GameCard_RightClick">
-                                    <Border.Style>
-                                        <Style TargetType="Border">
-                                            <Style.Triggers>
-                                                <Trigger Property="IsMouseOver" Value="True">
-                                                    <Setter Property="Effect">
-                                                        <Setter.Value>
-                                                            <DropShadowEffect BlurRadius="16"
-                                                                              ShadowDepth="4"
-                                                                              Opacity="0.5"
-                                                                              Color="{StaticResource ShadowColor}"/>
-                                                        </Setter.Value>
-                                                    </Setter>
-                                                </Trigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </Border.Style>
+                                    <Border.Height>
+                                        <MultiBinding Converter="{StaticResource ConsoleToCardHeight}">
+                                            <Binding Path="Console"/>
+                                            <Binding Path="Width"
+                                                     RelativeSource="{RelativeSource Self}"/>
+                                            <Binding Path="DataContext.IsMixedView"
+                                                     RelativeSource="{RelativeSource AncestorType=ListBox}"/>
+                                        </MultiBinding>
+                                    </Border.Height>
                                     <StackPanel>
-                                        <Border Background="Transparent"
-                                                ClipToBounds="True">
+                                        <Border CornerRadius="8"
+                                                ClipToBounds="True"
+                                                Background="Transparent">
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Style.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter Property="Effect">
+                                                                <Setter.Value>
+                                                                    <DropShadowEffect BlurRadius="16"
+                                                                                      ShadowDepth="4"
+                                                                                      Opacity="0.5"
+                                                                                      Color="{StaticResource ShadowColor}"/>
+                                                                </Setter.Value>
+                                                            </Setter>
+                                                        </Trigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
                                             <Border.Height>
                                                 <MultiBinding Converter="{StaticResource ConsoleToArtHeight}">
                                                     <Binding Path="Console"/>
@@ -922,6 +930,22 @@
                                                            Visibility="{Binding IsFavorite, Converter={StaticResource BoolToVisibility}}"/>
                                             </Grid>
                                         </Border>
+                                        <TextBlock Text="{Binding Title, Converter={StaticResource SmartTitleCase}}"
+                                                   FontFamily="{StaticResource PrimaryFont}"
+                                                   FontSize="12"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="White"
+                                                   TextAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   MaxHeight="34"
+                                                   Margin="4,8,4,0">
+                                            <TextBlock.Effect>
+                                                <DropShadowEffect BlurRadius="4"
+                                                                  ShadowDepth="1"
+                                                                  Opacity="0.7"
+                                                                  Color="Black"/>
+                                            </TextBlock.Effect>
+                                        </TextBlock>
                                     </StackPanel>
                                 </Border>
                             </DataTemplate>
@@ -971,28 +995,34 @@
                                                     <DataTemplate>
                                                         <Border Width="{DynamicResource LibraryCardWidth}"
                                                                 Margin="{DynamicResource LibraryCardMargin}"
-                                                                CornerRadius="8"
-                                                                ClipToBounds="True"
                                                                 Background="Transparent"
                                                                 Cursor="Hand"
                                                                 MouseLeftButtonDown="GameCard_Click"
                                                                 MouseRightButtonUp="GameCard_RightClick">
-                                                            <Border.Style>
-                                                                <Style TargetType="Border">
-                                                                    <Style.Triggers>
-                                                                        <Trigger Property="IsMouseOver" Value="True">
-                                                                            <Setter Property="Effect">
-                                                                                <Setter.Value>
-                                                                                    <DropShadowEffect BlurRadius="16" ShadowDepth="4" Opacity="0.5" Color="{StaticResource ShadowColor}"/>
-                                                                                </Setter.Value>
-                                                                            </Setter>
-                                                                        </Trigger>
-                                                                    </Style.Triggers>
-                                                                </Style>
-                                                            </Border.Style>
+                                                            <Border.Height>
+                                                                <MultiBinding Converter="{StaticResource ConsoleToCardHeight}">
+                                                                    <Binding Path="Console"/>
+                                                                    <Binding Path="Width"
+                                                                             RelativeSource="{RelativeSource Self}"/>
+                                                                </MultiBinding>
+                                                            </Border.Height>
                                                             <StackPanel>
-                                                                <Border Background="Transparent"
-                                                                        ClipToBounds="True">
+                                                                <Border CornerRadius="8"
+                                                                        ClipToBounds="True"
+                                                                        Background="Transparent">
+                                                                    <Border.Style>
+                                                                        <Style TargetType="Border">
+                                                                            <Style.Triggers>
+                                                                                <Trigger Property="IsMouseOver" Value="True">
+                                                                                    <Setter Property="Effect">
+                                                                                        <Setter.Value>
+                                                                                            <DropShadowEffect BlurRadius="16" ShadowDepth="4" Opacity="0.5" Color="{StaticResource ShadowColor}"/>
+                                                                                        </Setter.Value>
+                                                                                    </Setter>
+                                                                                </Trigger>
+                                                                            </Style.Triggers>
+                                                                        </Style>
+                                                                    </Border.Style>
                                                                     <Border.Height>
                                                                         <MultiBinding Converter="{StaticResource ConsoleToArtHeight}">
                                                                             <Binding Path="Console"/>
@@ -1030,6 +1060,22 @@
                                                                                    Visibility="{Binding IsFavorite, Converter={StaticResource BoolToVisibility}}"/>
                                                                     </Grid>
                                                                 </Border>
+                                                                <TextBlock Text="{Binding Title, Converter={StaticResource SmartTitleCase}}"
+                                                                           FontFamily="{StaticResource PrimaryFont}"
+                                                                           FontSize="12"
+                                                                           FontWeight="SemiBold"
+                                                                           Foreground="White"
+                                                                           TextAlignment="Center"
+                                                                           TextTrimming="CharacterEllipsis"
+                                                                           MaxHeight="34"
+                                                                           Margin="4,8,4,0">
+                                                                    <TextBlock.Effect>
+                                                                        <DropShadowEffect BlurRadius="4"
+                                                                                          ShadowDepth="1"
+                                                                                          Opacity="0.7"
+                                                                                          Color="Black"/>
+                                                                    </TextBlock.Effect>
+                                                                </TextBlock>
                                                             </StackPanel>
                                                         </Border>
                                                     </DataTemplate>

@@ -2466,6 +2466,69 @@ namespace Emutastic.Views
                 "Vectrex Overlays",
                 "Game-specific screen overlays for Vectrex — enabled by default when present.",
                 ovlBadge, ovlProgress, ovlStatus, ovlBtn,
+                isLast: false));
+
+            // ── Cheats Database row ────────────────────────────────────────────
+            // Single-file download of the libretro community cheats database
+            // (~37 MB). Per-game cheats import from the in-game / library
+            // cheats menu after this is installed.
+            int cheatFiles    = CheatDatabaseService.TotalFileCount();
+            int cheatSystems  = CheatDatabaseService.InstalledSystemCount();
+            bool cheatsHere   = CheatDatabaseService.IsInstalled() && cheatFiles > 0;
+
+            var cheatsStatus = new TextBlock
+            {
+                FontSize    = 10,
+                Foreground  = _brushTextMuted,
+                Visibility  = cheatsHere ? Visibility.Visible : Visibility.Collapsed,
+                Text        = cheatsHere ? $"{cheatFiles} cheat files for {cheatSystems} systems" : "",
+            };
+            var cheatsProgress = new ProgressBar
+            {
+                Height = 4, Minimum = 0, Maximum = 100, Value = 0,
+                Visibility = Visibility.Collapsed, Margin = new Thickness(0, 4, 0, 0),
+            };
+            var cheatsBadge = MakeBadge(cheatsHere);
+            var cheatsBtn = new Button
+            {
+                Content           = cheatsHere ? "Update" : "Download",
+                Style             = (Style)FindResource("SmallOutlineButton"),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            cheatsBtn.Click += async (_, _) =>
+            {
+                cheatsBtn.IsEnabled       = false;
+                cheatsProgress.Visibility = Visibility.Visible;
+                cheatsStatus.Visibility   = Visibility.Visible;
+                cheatsStatus.Text         = "Connecting…";
+                cheatsProgress.Value      = 0;
+
+                try
+                {
+                    int extracted = await CheatDatabaseService.DownloadAndExtractAsync(
+                        (pct, msg) => Dispatcher.Invoke(() =>
+                        {
+                            cheatsProgress.Value = pct;
+                            cheatsStatus.Text    = msg;
+                        }));
+
+                    int sysNow = CheatDatabaseService.InstalledSystemCount();
+                    cheatsStatus.Text = $"{extracted} cheat files for {sysNow} systems";
+                    ((TextBlock)cheatsBadge.Child).Text = "✓ Installed";
+                    ((TextBlock)cheatsBadge.Child).Foreground = new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58));
+                    cheatsBtn.Content = "Update";
+                }
+                catch (Exception ex)
+                {
+                    cheatsStatus.Text = $"Failed: {ex.Message}";
+                }
+                finally { cheatsBtn.IsEnabled = true; }
+            };
+
+            extrasStack.Children.Add(MakeExtrasRow(
+                "Cheats Database",
+                "Community cheat code database from libretro (~37 MB, single download). Per-game cheats can be imported from the in-game cheats menu after installing.",
+                cheatsBadge, cheatsProgress, cheatsStatus, cheatsBtn,
                 isLast: true));
 
             extrasCard.Child = extrasStack;

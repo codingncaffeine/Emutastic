@@ -83,25 +83,35 @@ CHEATS
 Per-game cheats can be managed two ways:
 
   - In-game: open the overlay (move the mouse), click the cog, and
-    choose "Cheats" → "Add Cheat...". Cheats apply immediately when
-    "Enable now" is checked.
+    choose "Cheats" -> "Add Cheat...". Each cheat has a pill-style
+    toggle switch on the left -- click it to flip on/off without
+    opening the editor. Click anywhere else on the row to edit.
   - From the library: click a game to open its detail card, then
-    "⋯" → "Cheats...". Lets you set up cheats before launching;
-    they apply the next time you start the game.
+    "..." -> "Cheats...". Same toggles and editor; changes apply
+    the next time you start the game.
 
-Enter a Title and a Code, decide whether to enable it immediately,
-and click Add Cheat.
+Cheats database
+~~~~~~~~~~~~~~~
+The community libretro cheats database is one click away. Open
+Preferences -> Cores / Extras and download "Cheats Database" (about
+37 MB, single download covering 25+ systems). After it's installed,
+open any game's cheats menu and click "Import from database..." --
+matching cheats are imported all-disabled, then you toggle on the
+ones you want.
 
-Existing cheats are listed under Add Cheat... with a checkmark next to
-the active ones. Click any existing cheat to edit it, toggle it on/off,
-or delete it. Cheats are saved per-game and re-applied automatically
-after you load a save state.
+Cheats are matched by ROM filename, so for best results use ROMs that
+match the No-Intro / Redump naming convention. Different ROM regions
+(USA / Europe / Japan) often have different memory layouts, so an
+imported cheat list applies to the matching region's ROM.
 
-Code formats depend on the system:
-  Game Genie         — NES, SNES, Game Boy/GBC, Genesis, Master System
-  GameShark          — GBA, NDS, N64, PlayStation
-  Raw address:value  — PlayStation, TG16, NGP, Virtual Boy, Saturn,
-                       Dreamcast, Atari 2600
+Code formats supported:
+  Game Genie               -- NES, SNES, Game Boy/GBC, Genesis,
+                              Master System
+  GameShark                -- GBA, NDS, N64, PlayStation
+  Action Replay / raw      -- Genesis, Saturn, others (frontend
+                              applies these directly to system RAM
+                              every frame, the same way RetroArch
+                              does for "RetroArch handled" cheats)
 
 A few cores cannot apply cheats (PSP, 3DS, Vectrex, 3DO, CD-i, NeoGeo,
 ColecoVision, DOS). For those systems the Cheats option is hidden.

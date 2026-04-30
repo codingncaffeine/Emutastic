@@ -153,6 +153,37 @@ namespace Emutastic.Converters
     /// Used as IMultiValueConverter in the library DataTemplate so the height re-evaluates live
     /// whenever LibraryCardWidth changes.
     /// </summary>
+    /// <summary>
+    /// Display-time title normalizer: only re-cases titles that are uniformly
+    /// lowercase or uniformly uppercase ("metal slug x" → "Metal Slug X",
+    /// "SUPER MARIO" → "Super Mario"). Mixed-case titles are left alone so
+    /// "Tetris DX", "FIFA 99", or anything the user has explicitly renamed
+    /// keeps its intended capitalization.
+    /// </summary>
+    public class SmartTitleCaseConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            var s = value as string ?? "";
+            if (s.Length == 0) return s;
+            bool allLower = true, allUpper = true;
+            foreach (char c in s)
+            {
+                if (char.IsLetter(c))
+                {
+                    if (!char.IsLower(c)) allLower = false;
+                    if (!char.IsUpper(c)) allUpper = false;
+                }
+            }
+            if (allLower || allUpper)
+                return culture.TextInfo.ToTitleCase(s.ToLowerInvariant());
+            return s;
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+            => throw new NotImplementedException();
+    }
+
     public class ConsoleToArtHeightConverter : IMultiValueConverter
     {
         // values[0] = Console (string), values[1] = CardWidth (double, from parent ActualWidth),
@@ -167,6 +198,31 @@ namespace Emutastic.Converters
             bool   isMixed   = values.Length > 2 && values[2] is bool b && b;
             double ratio     = isMixed ? MixedViewRatio : RomService.GetBoxRatio(console);
             return Math.Round(cardWidth / ratio);
+        }
+
+        public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)
+            => throw new NotImplementedException();
+    }
+
+    /// <summary>
+    /// Same inputs as ConsoleToArtHeight, but returns the TOTAL card height
+    /// including the title caption beneath the art. Apply to the outer Border
+    /// so VirtualizingWrapPanel has a deterministic cell size — without an
+    /// explicit outer height, the panel's measurement caching can leave the
+    /// title clipped on some consoles depending on the order cards were first
+    /// realized.
+    /// </summary>
+    public class ConsoleToCardHeightConverter : IMultiValueConverter
+    {
+        private const double TitleArea = 40.0; // 12pt title + margin + breathing room
+
+        private static readonly ConsoleToArtHeightConverter _artHeight = new();
+
+        public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
+        {
+            var art = _artHeight.Convert(values, targetType, parameter, culture);
+            double h = art is double d ? d : 200.0;
+            return h + TitleArea;
         }
 
         public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)

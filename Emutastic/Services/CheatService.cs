@@ -59,27 +59,117 @@ namespace Emutastic.Services
         }
 
         /// <summary>
-        /// Clears the core's active cheats and re-applies every enabled entry.
-        /// Safe to call after retro_load_game and after a state load — both
-        /// places need a re-apply to survive core-internal cheat-table resets.
+        /// A pre-parsed Action Replay / PAR cheat: write Value (1 or 2 bytes,
+        /// big-endian for word writes on Genesis-like systems) into the system
+        /// RAM region at offset Address &amp; (ramSize - 1) after every retro_run.
+        /// Used for the frontend-handled cheat path that bypasses cores like
+        /// genesis_plus_gx where retro_cheat_set is unreliable for AR codes —
+        /// matches what RetroArch does for "RetroArch handled" cheats.
         /// </summary>
-        public static void Apply(LibretroCore core, IList<Cheat> cheats)
+        public readonly record struct ParsedAr(uint Address, uint Value, byte ByteCount);
+
+        /// <summary>True if a code looks like Action Replay / PAR (XXXXXX:XXXX)
+        /// rather than Game Genie. Multi-line codes joined with `+` are also AR.</summary>
+        public static bool IsActionReplayCode(string code) =>
+            !string.IsNullOrEmpty(code) && code.IndexOf(':') >= 0;
+
+        /// <summary>
+        /// Splits an enabled cheat list into the two handling paths:
+        /// AR codes get parsed for direct RAM writes; everything else
+        /// (Game Genie, GameShark, raw, etc.) gets passed through to
+        /// retro_cheat_set for the core to handle.
+        /// AR segments targeting addresses outside the system's RAM range
+        /// (i.e. ROM-patching cheats) are silently skipped — writing them
+        /// into system RAM via the offset mask would corrupt unrelated state.
+        /// </summary>
+        public static (List<Cheat> coreHandled, List<ParsedAr> frontendAr) Sort(IList<Cheat> cheats, string console = "")
+        {
+            var core = new List<Cheat>();
+            var ar   = new List<ParsedAr>();
+            foreach (var c in cheats)
+            {
+                if (!c.Enabled || string.IsNullOrWhiteSpace(c.Code)) continue;
+                if (IsActionReplayCode(c.Code))
+                {
+                    foreach (var seg in c.Code.Split('+'))
+                    {
+                        if (TryParseArSegment(seg.Trim(), out var parsed)
+                            && IsRamAddress(parsed.Address, console))
+                        {
+                            ar.Add(parsed);
+                        }
+                    }
+                }
+                else
+                {
+                    core.Add(c);
+                }
+            }
+            return (core, ar);
+        }
+
+        /// <summary>
+        /// True when the given AR code address targets system work RAM
+        /// (so a frontend write into system_ram + offset is safe). False
+        /// for ROM-patching cheats whose addresses fall in cartridge space —
+        /// those need actual ROM-byte patching and can't be applied via
+        /// the frontend RAM-write path.
+        /// </summary>
+        private static bool IsRamAddress(uint address, string console)
+        {
+            // Genesis-family (M68K): ROM 0x000000-0x3FFFFF, Work RAM 0xFF0000-0xFFFFFF.
+            // ROM-patch cheats (e.g. Sonic "invincibility" at 0x0039F0) need to modify
+            // cartridge bytes — silently skipping them beats corrupting work RAM.
+            if (console == "Genesis" || console == "SegaCD" || console == "Sega32X")
+                return address >= 0xFF0000;
+
+            // Other systems with `:` AR cheats are uncommon enough that we don't have
+            // good data on their RAM/ROM split. Default to "treat as RAM" until a
+            // real bug shows otherwise.
+            return true;
+        }
+
+        /// <summary>
+        /// Parses one AR segment of the form XXXXXX:XX or XXXXXX:XXXX.
+        /// Returns false on malformed input rather than throwing — bad codes
+        /// just get silently dropped.
+        /// </summary>
+        private static bool TryParseArSegment(string segment, out ParsedAr parsed)
+        {
+            parsed = default;
+            int colon = segment.IndexOf(':');
+            if (colon <= 0 || colon >= segment.Length - 1) return false;
+            string addrStr = segment[..colon].Trim();
+            string valStr  = segment[(colon + 1)..].Trim();
+            if (!uint.TryParse(addrStr, System.Globalization.NumberStyles.HexNumber, null, out uint addr)) return false;
+            if (!uint.TryParse(valStr,  System.Globalization.NumberStyles.HexNumber, null, out uint val))  return false;
+            byte byteCount = (byte)(valStr.Length <= 2 ? 1 : 2);
+            parsed = new ParsedAr(addr, val, byteCount);
+            return true;
+        }
+
+        /// <summary>
+        /// Clears the core's active cheats and re-applies every enabled
+        /// core-handled entry via retro_cheat_set. AR codes are NOT sent
+        /// here — they're handled frontend-side via direct RAM writes after
+        /// retro_run; see <see cref="Sort"/>. Safe to call after
+        /// retro_load_game and after state loads.
+        /// </summary>
+        public static void Apply(LibretroCore core, IList<Cheat> coreHandledCheats)
         {
             if (core == null) return;
             try
             {
                 core.CheatReset();
-                // Only count enabled cheats — most cores expect dense indexing starting at 0.
-                // A gap (e.g. enabling cheat #2 with #1 disabled) can confuse cores that track
-                // cheat_count from the highest index seen (mednafen, pcsx_rearmed).
+                // Only count enabled cheats — most cores expect dense indexing
+                // starting at 0; a gap can confuse cores that track cheat_count
+                // from the highest index seen (mednafen, pcsx_rearmed).
                 uint idx = 0;
-                foreach (var c in cheats)
+                foreach (var c in coreHandledCheats)
                 {
-                    if (c.Enabled && !string.IsNullOrWhiteSpace(c.Code))
-                    {
-                        core.CheatSet(idx, true, c.Code);
-                        idx++;
-                    }
+                    if (!c.Enabled || string.IsNullOrWhiteSpace(c.Code)) continue;
+                    core.CheatSet(idx, true, c.Code);
+                    idx++;
                 }
             }
             catch (Exception ex)

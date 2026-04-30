@@ -15,7 +15,9 @@
             <converters:StringToColorConverter       x:Key="StringToColor"/>
             <converters:PathToImageConverter         x:Key="PathToImage"/>
             <converters:ConsoleToArtHeightConverter       x:Key="ConsoleToArtHeight"/>
+            <converters:ConsoleToCardHeightConverter      x:Key="ConsoleToCardHeight"/>
             <converters:InverseBoolToVisibilityConverter   x:Key="InverseBoolToVisibility"/>
+            <converters:SmartTitleCaseConverter            x:Key="SmartTitleCase"/>
             <!-- Theme layout resources — updated at runtime by ApplyThemeResources() -->
             <Thickness x:Key="LibraryGridPadding">28</Thickness>
             <Thickness x:Key="LibraryCardMargin">0,0,20,20</Thickness>

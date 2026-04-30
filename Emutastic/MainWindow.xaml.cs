@@ -1287,6 +1287,18 @@ namespace Emutastic
 
             menu.Items.Add(new Separator());
 
+            // ── Rename ──
+            menu.Items.Add(MakeMenuItem("✎  Rename", () =>
+            {
+                var dialog = new Views.RenameWindow(game.Title) { Owner = this };
+                if (dialog.ShowDialog() == true)
+                {
+                    game.Title = dialog.NewTitle;
+                    _db.UpdateTitle(game.Id, game.Title);
+                    _vm.RefreshGame(game);
+                }
+            }));
+
             // ── Delete Game ──
             var deleteItem = MakeMenuItem("🗑  Delete Game", async () =>
             {
