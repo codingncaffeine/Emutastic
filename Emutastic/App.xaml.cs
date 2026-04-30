@@ -183,6 +183,12 @@ namespace Emutastic
                 System.Windows.Controls.TextBlock? splashText = null;
                 if (totalBytes >= SPLASH_THRESHOLD)
                 {
+                    // Splash matches the app's default dark theme: bg #1F1F21, text white,
+                    // muted text #CCCCCC, accent red #E03535 border for the brand cue.
+                    var bgBrush     = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1F, 0x1F, 0x21));
+                    var mutedBrush  = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xCC, 0xCC, 0xCC));
+                    var accentBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xE0, 0x35, 0x35));
+
                     splash = new Window
                     {
                         Title = "Emutastic — Setting up portable mode",
@@ -191,8 +197,14 @@ namespace Emutastic
                         WindowStartupLocation = WindowStartupLocation.CenterScreen,
                         WindowStyle = WindowStyle.None,
                         ResizeMode = ResizeMode.NoResize,
-                        Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1F, 0x1F, 0x21)),
+                        Background = bgBrush,
                         Topmost = true,
+                    };
+                    var border = new System.Windows.Controls.Border
+                    {
+                        BorderBrush = accentBrush,
+                        BorderThickness = new Thickness(1),
+                        Background = bgBrush,
                     };
                     var stack = new System.Windows.Controls.StackPanel { Margin = new Thickness(20) };
                     stack.Children.Add(new System.Windows.Controls.TextBlock
@@ -207,10 +219,11 @@ namespace Emutastic
                     {
                         Text = $"Moving cores into PortableData… (0 / {legacyDlls.Count})",
                         FontSize = 12,
-                        Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xCC, 0xCC, 0xCC)),
+                        Foreground = mutedBrush,
                     };
                     stack.Children.Add(splashText);
-                    splash.Content = stack;
+                    border.Child = stack;
+                    splash.Content = border;
                     splash.Show();
                 }
 
