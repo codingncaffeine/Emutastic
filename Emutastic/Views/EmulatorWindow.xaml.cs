@@ -4156,7 +4156,7 @@ namespace Emutastic.Views
                     return n switch {
                         "a" => JOYPAD_A, "b" => JOYPAD_B, "x" => JOYPAD_X, "y" => JOYPAD_Y,
                         "l" => JOYPAD_L, "r" => JOYPAD_R,
-                        "zl" => 12, "zr" => 13, "home" => 14,
+                        "zl" => 12, "zr" => 13, "home" => 14, "touch" => 15,
                         "select" => JOYPAD_SELECT, "start" => JOYPAD_START,
                         "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
                         "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,

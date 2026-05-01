@@ -223,6 +223,7 @@ namespace Emutastic.Configuration
                     new("Start",  "Start",  380, 250, ButtonType.Button, 50, 20, GSystem),
                     new("Select", "Select", 380, 275, ButtonType.Button, 50, 20, GSystem),
                     new("Home",   "Home",   380, 300, ButtonType.Button, 50, 20, GSystem),
+                    new("Touch",  "Touch",  380, 325, ButtonType.Button, 50, 20, GSystem),
                 }
             },
             ["VirtualBoy"] = new ControllerDefinition

@@ -580,7 +580,7 @@ namespace Emutastic.Services
                     return n switch {
                         "a" => 8, "b" => 0, "x" => 9, "y" => 1,
                         "l" => 10, "r" => 11,
-                        "zl" => 12, "zr" => 13, "home" => 14,
+                        "zl" => 12, "zr" => 13, "home" => 14, "touch" => 15,
                         "select" => 2, "start" => 3,
                         "up" => 4, "down" => 5, "left" => 6, "right" => 7,
                         "circle pad up"    => ANALOG_LEFT_UP,    "circle pad down"  => ANALOG_LEFT_DOWN,
