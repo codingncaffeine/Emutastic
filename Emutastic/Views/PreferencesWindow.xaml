@@ -550,8 +550,8 @@
                                  GroupName="NavGroup"
                                  Style="{StaticResource NavBtn}"
                                  Checked="NavBtn_Checked"/>
-                    <RadioButton x:Name="NavFolders"
-                                 Content="Folders"
+                    <RadioButton x:Name="NavMedia"
+                                 Content="Media"
                                  GroupName="NavGroup"
                                  Style="{StaticResource NavBtn}"
                                  Checked="NavBtn_Checked"/>
@@ -1544,8 +1544,8 @@
                     </ScrollViewer>
                 </Grid>
 
-                <!-- ── PANEL: Folders ────────────────────────────────────── -->
-                <Grid x:Name="PanelFolders" Visibility="Collapsed">
+                <!-- ── PANEL: Media ───────────────────────────────────────── -->
+                <Grid x:Name="PanelMedia" Visibility="Collapsed">
                     <ScrollViewer Margin="32,24,32,24" VerticalScrollBarVisibility="Auto">
                         <StackPanel MaxWidth="560" HorizontalAlignment="Left">
 
@@ -1621,12 +1621,91 @@
                                         Click="ClearRecordingsFolder_Click"/>
                             </Grid>
 
-                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,24,0,16"/>
+                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,32,0,16"/>
 
-                            <Button Content="Save"
-                                    Style="{StaticResource ActionBtn}"
-                                    HorizontalAlignment="Left"
-                                    Click="FoldersSaveBtn_Click"/>
+                            <TextBlock Text="RECORDING QUALITY" Style="{StaticResource PrefLabel}"/>
+                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,0,0,16"/>
+
+                            <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,0,0,20"
+                                       Foreground="{DynamicResource TextSecondaryBrush}">
+                                <Run>Settings for video recordings of 2D / software-rendered cores. GameCube and other GPU-accelerated cores use a separate Windows capture pipeline.</Run>
+                            </TextBlock>
+
+                            <!-- Quality preset -->
+                            <TextBlock Text="Quality" FontSize="14" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,4"/>
+                            <TextBlock FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                       TextWrapping="Wrap" Margin="0,0,0,8">
+                                <Run>Higher quality = larger files, slower encode after recording stops.</Run>
+                            </TextBlock>
+                            <ComboBox x:Name="RecQualityCombo"
+                                      Style="{StaticResource PrefComboBox}"
+                                      Margin="0,0,0,20"
+                                      SelectionChanged="RecSetting_Changed">
+                                <ComboBoxItem Content="Low — small files, faster encode"/>
+                                <ComboBoxItem Content="Medium"/>
+                                <ComboBoxItem Content="High (recommended)"/>
+                                <ComboBoxItem Content="Lossless — huge files, archival"/>
+                            </ComboBox>
+
+                            <!-- Output scale -->
+                            <TextBlock Text="Output Scale" FontSize="14" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,4"/>
+                            <TextBlock FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                       TextWrapping="Wrap" Margin="0,0,0,8">
+                                <Run>Integer upscale with nearest-neighbor. 2x or higher keeps pixel art sharp after YouTube/Twitch re-encode tiny frames.</Run>
+                            </TextBlock>
+                            <ComboBox x:Name="RecScaleCombo"
+                                      Style="{StaticResource PrefComboBox}"
+                                      Margin="0,0,0,20"
+                                      SelectionChanged="RecSetting_Changed">
+                                <ComboBoxItem Content="1x — native resolution"/>
+                                <ComboBoxItem Content="2x (recommended)"/>
+                                <ComboBoxItem Content="3x"/>
+                                <ComboBoxItem Content="4x — largest files"/>
+                            </ComboBox>
+
+                            <!-- Encoder -->
+                            <TextBlock Text="Encoder" FontSize="14" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,4"/>
+                            <TextBlock FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                       TextWrapping="Wrap" Margin="0,0,0,8">
+                                <Run>Auto picks NVIDIA's hardware encoder when available; otherwise falls back to x264 software encoding.</Run>
+                            </TextBlock>
+                            <ComboBox x:Name="RecEncoderCombo"
+                                      Style="{StaticResource PrefComboBox}"
+                                      Margin="0,0,0,20"
+                                      SelectionChanged="RecSetting_Changed">
+                                <ComboBoxItem Content="Auto"/>
+                                <ComboBoxItem Content="NVENC (NVIDIA GPU)"/>
+                                <ComboBoxItem Content="AMF (AMD GPU)"/>
+                                <ComboBoxItem Content="QSV (Intel GPU)"/>
+                                <ComboBoxItem Content="x264 (software / CPU)"/>
+                            </ComboBox>
+
+                            <!-- High chroma -->
+                            <CheckBox x:Name="RecHighChromaCheck"
+                                      Content="Higher color fidelity (yuv422p) — sharper color edges on pixel art"
+                                      Foreground="{DynamicResource TextPrimaryBrush}"
+                                      Margin="0,0,0,4"
+                                      Click="RecSetting_Changed"/>
+                            <TextBlock FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                       TextWrapping="Wrap" Margin="22,0,0,12">
+                                <Run>YouTube and Twitch accept these uploads. For local playback use VLC or mpv — Windows Media Player and Movies &amp; TV won't decode them.</Run>
+                            </TextBlock>
+
+                            <!-- Audio bitrate -->
+                            <TextBlock Text="Audio Bitrate" FontSize="14" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,8,0,4"/>
+                            <ComboBox x:Name="RecAudioBitrateCombo"
+                                      Style="{StaticResource PrefComboBox}"
+                                      Margin="0,0,0,8"
+                                      SelectionChanged="RecSetting_Changed">
+                                <ComboBoxItem Content="128 kbps"/>
+                                <ComboBoxItem Content="192 kbps (recommended)"/>
+                                <ComboBoxItem Content="256 kbps"/>
+                                <ComboBoxItem Content="320 kbps"/>
+                            </ComboBox>
 
                         </StackPanel>
                     </ScrollViewer>

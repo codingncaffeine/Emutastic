@@ -84,6 +84,35 @@ namespace Emutastic.Configuration
         public string RecordingsFolder { get; set; } = "";
     }
 
+    // Recording configuration — controls FFmpeg encode quality for the
+    // 2D/software-render recording path (RecordingService). The WGC path
+    // used by GL/Vulkan cores has its own MediaFoundation pipeline and
+    // ignores these settings.
+    public class RecordingConfiguration : ConfigurationBase
+    {
+        /// <summary>Quality preset: "Low", "Medium", "High", "Lossless".</summary>
+        public string Quality { get; set; } = "High";
+
+        /// <summary>
+        /// Integer upscale applied at encode time using nearest-neighbor.
+        /// 1 = native, 2/3/4 = 2x/3x/4x. Bigger output = sharper after platform
+        /// re-encode (e.g. YouTube), at the cost of file size and encode time.
+        /// </summary>
+        public int OutputScale { get; set; } = 2;
+
+        /// <summary>"Auto" (NVENC if available, else x264), "NVENC", or "x264".</summary>
+        public string Encoder { get; set; } = "Auto";
+
+        /// <summary>
+        /// When true, encode with yuv444p (full chroma) instead of yuv420p.
+        /// Sharper color edges on pixel art; some players don't decode 444.
+        /// </summary>
+        public bool HighChroma { get; set; } = false;
+
+        /// <summary>AAC audio bitrate in kbps. 128 / 192 / 256 / 320.</summary>
+        public int AudioBitrateKbps { get; set; } = 192;
+    }
+
     // Theme configuration
     public class ThemeConfiguration : ConfigurationBase
     {

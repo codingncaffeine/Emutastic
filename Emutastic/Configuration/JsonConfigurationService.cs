@@ -25,6 +25,7 @@ namespace Emutastic.Configuration
         // Per-console input configs keyed by ConfigKey (e.g. "SNES_P1")
         public SnapConfiguration SnapConfiguration { get; set; } = new();
         public RetroAchievementsConfiguration RetroAchievementsConfiguration { get; set; } = new();
+        public RecordingConfiguration RecordingConfiguration { get; set; } = new();
         public Dictionary<string, InputConfiguration> InputConfigurations { get; set; } = new();
         // Generic string→JsonElement store for arbitrary SetValue<T> callers
         public Dictionary<string, JsonElement> Extra { get; set; } = new();
@@ -237,6 +238,13 @@ namespace Emutastic.Configuration
         {
             config.LastModified = DateTime.UtcNow;
             _data.RetroAchievementsConfiguration = config;
+        }
+
+        public RecordingConfiguration GetRecordingConfiguration() => _data.RecordingConfiguration;
+        public void SetRecordingConfiguration(RecordingConfiguration config)
+        {
+            config.LastModified = DateTime.UtcNow;
+            _data.RecordingConfiguration = config;
         }
 
         // ── Generic key/value (for arbitrary callers) ─────────────────────────

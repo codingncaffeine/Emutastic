@@ -8,6 +8,20 @@ using System.Threading.Tasks;
 
 namespace Emutastic.Services
 {
+    /// <summary>
+    /// Encode-time settings for the FFmpeg recording path. Translated from
+    /// <c>Configuration.RecordingConfiguration</c> by the caller so this
+    /// service stays decoupled from the configuration layer.
+    /// </summary>
+    public class RecordingEncodeSettings
+    {
+        public string Quality { get; set; } = "High";   // Low / Medium / High / Lossless
+        public int OutputScale { get; set; } = 2;       // 1..4
+        public string Encoder { get; set; } = "Auto";   // Auto / NVENC / x264
+        public bool HighChroma { get; set; } = false;
+        public int AudioBitrateKbps { get; set; } = 192;
+    }
+
     public class RecordingService : IRecordingService
     {
         // During recording: raw frames go straight to temp files on disk.
@@ -43,6 +57,7 @@ namespace Emutastic.Services
         // Post-recording encode state
         private Task? _encodeTask;
         private Action<string>? _onEncodeComplete;
+        private RecordingEncodeSettings _encodeSettings = new();
 
         public bool IsRecording => _isRecording;
         public bool IsEncoding => _encodeTask != null && !_encodeTask.IsCompleted;
@@ -70,9 +85,13 @@ namespace Emutastic.Services
         }
 
         /// <summary>
-        /// Probes whether FFmpeg supports h264_nvenc (NVIDIA hardware encoder).
+        /// Probes which hardware H.264 encoders FFmpeg has compiled in.
+        /// Detection here is "encoder is built into ffmpeg.exe" — actual
+        /// runtime availability still depends on driver/GPU support, but
+        /// missing detection is the most common cause of users getting
+        /// software encoding when their GPU could do hardware.
         /// </summary>
-        private static bool ProbeNvenc(string ffmpegPath)
+        private static (bool nvenc, bool amf, bool qsv) ProbeHardwareEncoders(string ffmpegPath)
         {
             try
             {
@@ -93,9 +112,13 @@ namespace Emutastic.Services
                 probe.WaitForExit(5000);
                 if (!probe.HasExited) { try { probe.Kill(); } catch { } }
                 probe.Dispose();
-                return output.Contains("h264_nvenc");
+                return (
+                    nvenc: output.Contains("h264_nvenc"),
+                    amf:   output.Contains("h264_amf"),
+                    qsv:   output.Contains("h264_qsv")
+                );
             }
-            catch { return false; }
+            catch { return (false, false, false); }
         }
 
         /// <summary>
@@ -103,7 +126,8 @@ namespace Emutastic.Services
         /// No FFmpeg process is spawned — raw frames are written directly to temp files.
         /// </summary>
         public string? Start(string outputPath, int width, int height, int fps,
-            int sampleRate, string pixelFormat = "bgra", Action<string>? onEncodeComplete = null)
+            int sampleRate, string pixelFormat = "bgra", Action<string>? onEncodeComplete = null,
+            RecordingEncodeSettings? encodeSettings = null)
         {
             lock (_lock)
             {
@@ -121,6 +145,7 @@ namespace Emutastic.Services
                 _stopping = false;
                 _framesWritten = 0;
                 _onEncodeComplete = onEncodeComplete;
+                _encodeSettings = encodeSettings ?? new RecordingEncodeSettings();
 
                 string? dir = Path.GetDirectoryName(outputPath);
                 if (dir != null) Directory.CreateDirectory(dir);
@@ -213,9 +238,10 @@ namespace Emutastic.Services
                 string pf = _pixelFormat;
                 long frames = _framesWritten;
                 var callback = _onEncodeComplete;
+                var settings = _encodeSettings;
 
                 // Encode in background — user can keep playing
-                _encodeTask = Task.Run(() => EncodeAndMux(videoRaw, audioRaw, output, w, h, fps, sr, pf, frames, callback));
+                _encodeTask = Task.Run(() => EncodeAndMux(videoRaw, audioRaw, output, w, h, fps, sr, pf, frames, callback, settings));
 
                 _videoWriter = null;
                 _audioWriter = null;
@@ -230,7 +256,7 @@ namespace Emutastic.Services
         /// </summary>
         private static void EncodeAndMux(string videoRaw, string audioRaw, string outputPath,
             int width, int height, int fps, int sampleRate, string pixelFormat,
-            long frameCount, Action<string>? onComplete)
+            long frameCount, Action<string>? onComplete, RecordingEncodeSettings settings)
         {
             string? ffmpegPath = FindFfmpeg();
             if (ffmpegPath == null)
@@ -243,13 +269,86 @@ namespace Emutastic.Services
 
             try
             {
-                bool useNvenc = ProbeNvenc(ffmpegPath);
-                string encoder = useNvenc
-                    ? "-c:v h264_nvenc -preset p4 -rc vbr -cq 18 -pix_fmt yuv420p"
-                    : "-c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p";
+                // Resolve encoder. Two cases force x264 software encoding:
+                //   - Lossless quality (no hardware H.264 encoder is truly
+                //     lossless — they all apply in-loop deblocking at qp=0)
+                //   - HighChroma (hardware H.264 encoders don't accept yuv422p;
+                //     NVENC supports yuv444p but Chrome/Edge can't decode it)
+                // Auto preference order for hardware: NVENC > AMF > QSV.
+                var hw = ProbeHardwareEncoders(ffmpegPath);
+                string activeEncoder; // "nvenc" | "amf" | "qsv" | "x264"
 
-                Trace.WriteLine($"[Recording] Encoding with {(useNvenc ? "NVENC (hardware)" : "x264 (software)")}");
-                Trace.WriteLine($"[Recording] {frameCount} frames, {width}x{height}@{fps}fps");
+                if (settings.Quality == "Lossless" || settings.HighChroma)
+                {
+                    activeEncoder = "x264";
+                }
+                else
+                {
+                    activeEncoder = settings.Encoder switch
+                    {
+                        "NVENC" => hw.nvenc ? "nvenc" : "x264",
+                        "AMF"   => hw.amf   ? "amf"   : "x264",
+                        "QSV"   => hw.qsv   ? "qsv"   : "x264",
+                        "x264"  => "x264",
+                        _ => hw.nvenc ? "nvenc"
+                           : hw.amf   ? "amf"
+                           : hw.qsv   ? "qsv"
+                           : "x264", // Auto
+                    };
+                }
+
+                // Quality preset → quality values per encoder
+                // x264 CRF: 0 lossless, 18 visually lossless, 23 default, 28 lower
+                // NVENC CQ / AMF QP / QSV global_quality use similar 0–51 H.264 QP scales
+                (int x264Crf, int hwQ, string nvencPreset, string amfQuality, string x264Preset) = settings.Quality switch
+                {
+                    "Low"      => (23, 26, "p3", "speed",    "veryfast"),
+                    "Medium"   => (20, 22, "p4", "balanced", "fast"),
+                    "Lossless" => (0,   0, "p7", "quality",  "veryslow"),
+                    _          => (16, 19, "p5", "quality",  "medium"), // High (default)
+                };
+
+                // Pixel format selection:
+                //   Lossless  → yuv444p (full chroma, x264 only — produces Hi444PP)
+                //   HighChroma → yuv422p (sharper color edges than 420, broadly
+                //                playable; 444 was rejected because Edge/Chrome/
+                //                Windows Player won't decode High 4:4:4 reliably)
+                //   default    → yuv420p (universal compatibility)
+                string pixFmtOut;
+                if (settings.Quality == "Lossless")
+                    pixFmtOut = "yuv444p";
+                else if (settings.HighChroma)
+                    pixFmtOut = "yuv422p";
+                else
+                    pixFmtOut = "yuv420p";
+
+                // h264_qsv only accepts nv12 / qsv input pix_fmts — yuv420p is rejected.
+                // h264_amf accepts yuv420p directly (auto-converts to NV12 internally).
+                // -qp_b on AMF: B-frames are auto-enabled by default; without an explicit
+                // B-frame QP they encode unconstrained, drifting quality.
+                string encoder = activeEncoder switch
+                {
+                    "nvenc" => $"-c:v h264_nvenc -preset {nvencPreset} -rc vbr -cq {hwQ} -pix_fmt {pixFmtOut}",
+                    "amf"   => $"-c:v h264_amf -quality {amfQuality} -rc cqp -qp_i {hwQ} -qp_p {hwQ} -qp_b {hwQ} -pix_fmt {pixFmtOut}",
+                    "qsv"   => $"-c:v h264_qsv -preset medium -global_quality {hwQ} -pix_fmt nv12",
+                    _ => settings.Quality == "Lossless"
+                        // x264 -qp 0 with veryslow is a true lossless stream.
+                        ? $"-c:v libx264 -preset {x264Preset} -qp 0 -pix_fmt {pixFmtOut}"
+                        : $"-c:v libx264 -preset {x264Preset} -crf {x264Crf} -pix_fmt {pixFmtOut}",
+                };
+
+                // Integer upscale at encode time using nearest-neighbor.
+                // Sharper after platform re-encode (e.g. YouTube re-encodes
+                // tiny frames with heavy quantization that smears pixel art).
+                int scale = Math.Clamp(settings.OutputScale, 1, 4);
+                string scaleFilter = scale > 1
+                    ? $"-vf scale={width * scale}:{height * scale}:flags=neighbor "
+                    : "";
+
+                Trace.WriteLine($"[Recording] Encoding with {activeEncoder} " +
+                                $"quality={settings.Quality} scale={scale}x pixfmt={pixFmtOut} " +
+                                $"(hw probe: nvenc={hw.nvenc} amf={hw.amf} qsv={hw.qsv})");
+                Trace.WriteLine($"[Recording] {frameCount} frames, {width}x{height}@{fps}fps → {width * scale}x{height * scale}");
 
                 // Step 1: Encode raw video → temp MP4
                 string encodeArgs =
@@ -257,6 +356,7 @@ namespace Emutastic.Services
                     $"-f rawvideo -pixel_format {pixelFormat} -video_size {width}x{height} -framerate {fps} " +
                     $"-i \"{videoRaw}\" " +
                     $"-sws_flags neighbor " +
+                    $"{scaleFilter}" +
                     $"{encoder} " +
                     $"-an " +
                     $"\"{tempMp4}\"";
@@ -294,11 +394,16 @@ namespace Emutastic.Services
                 // Step 2: Mux video + audio → final MP4
                 if (File.Exists(audioRaw) && new FileInfo(audioRaw).Length > 0)
                 {
+                    // Explicit -map: pull video from input 0 (tempMp4) and audio
+                    // from input 1 (raw PCM). Without this, ffmpeg's auto stream
+                    // selection can silently drop the audio track when the video
+                    // uses an unusual H.264 profile (e.g. High 4:2:2 from yuv422p).
                     string muxArgs =
                         $"-y " +
                         $"-i \"{tempMp4}\" " +
                         $"-f s16le -ar {sampleRate} -ac 2 -i \"{audioRaw}\" " +
-                        $"-c:v copy -c:a aac -b:a 192k " +
+                        $"-map 0:v:0 -map 1:a:0 " +
+                        $"-c:v copy -c:a aac -b:a {Math.Clamp(settings.AudioBitrateKbps, 64, 320)}k " +
                         $"-shortest " +
                         $"\"{outputPath}\"";
 

@@ -4011,8 +4011,18 @@ namespace Emutastic.Views
                     });
                 };
 
+                var recCfg = _configService.GetRecordingConfiguration();
+                var encodeSettings = new Services.RecordingEncodeSettings
+                {
+                    Quality = recCfg.Quality,
+                    OutputScale = recCfg.OutputScale,
+                    Encoder = recCfg.Encoder,
+                    HighChroma = recCfg.HighChroma,
+                    AudioBitrateKbps = recCfg.AudioBitrateKbps,
+                };
+
                 var ffmpegService = new Services.RecordingService();
-                err = ffmpegService.Start(outputPath, (int)w, (int)h, fps, sampleRate, pixFmt, onEncodeComplete);
+                err = ffmpegService.Start(outputPath, (int)w, (int)h, fps, sampleRate, pixFmt, onEncodeComplete, encodeSettings);
                 _recordingService = ffmpegService;
             }
 

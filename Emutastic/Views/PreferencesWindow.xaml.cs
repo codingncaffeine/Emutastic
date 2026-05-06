@@ -60,7 +60,7 @@ namespace Emutastic.Views
         private List<string> _lastKnownDevices = new();
 
         // ── Section navigation ────────────────────────────────────────────────
-        private enum PrefSection { Controls, SystemFiles, Cores, Library, Theme, Snaps, CoreOptions, Achievements, Folders }
+        private enum PrefSection { Controls, SystemFiles, Cores, Library, Theme, Snaps, CoreOptions, Achievements, Media }
         private PrefSection _activeSection = PrefSection.Controls;
 
         // ── Core Options state ────────────────────────────────────────────────
@@ -631,7 +631,7 @@ namespace Emutastic.Views
             else if (sender == NavSnaps)        ShowSection(PrefSection.Snaps);
             else if (sender == NavCoreOptions)  ShowSection(PrefSection.CoreOptions);
             else if (sender == NavAchievements) ShowSection(PrefSection.Achievements);
-            else if (sender == NavFolders)      ShowSection(PrefSection.Folders);
+            else if (sender == NavMedia)        ShowSection(PrefSection.Media);
         }
 
         private void ShowSection(PrefSection section)
@@ -646,10 +646,10 @@ namespace Emutastic.Views
             PanelSnaps.Visibility       = section == PrefSection.Snaps       ? Visibility.Visible : Visibility.Collapsed;
             PanelCoreOptions.Visibility = section == PrefSection.CoreOptions ? Visibility.Visible : Visibility.Collapsed;
             PanelAchievements.Visibility = section == PrefSection.Achievements ? Visibility.Visible : Visibility.Collapsed;
-            PanelFolders.Visibility     = section == PrefSection.Folders      ? Visibility.Visible : Visibility.Collapsed;
+            PanelMedia.Visibility       = section == PrefSection.Media        ? Visibility.Visible : Visibility.Collapsed;
 
             if (section == PrefSection.SystemFiles) BuildBiosPanel();
-            if (section == PrefSection.Folders)     LoadFoldersSettings();
+            if (section == PrefSection.Media)       LoadFoldersSettings();
             if (section == PrefSection.Cores)       BuildCoresPanel();
             if (section == PrefSection.Library)     LoadLibrarySettings();
             if (section == PrefSection.Theme)       LoadThemeSettings();
@@ -3417,9 +3417,25 @@ namespace Emutastic.Views
         private void RASaveBtn_Click(object sender, RoutedEventArgs e)
             => SaveAchievementsSettings();
 
-        // ── Folders tab ───────────────────────────────────────────────────────
+        // ── Media tab ─────────────────────────────────────────────────────────
+        // Holds media folder paths (screenshots, recordings) and recording quality settings.
+
+        private bool _loadingMediaSettings;
 
         private void LoadFoldersSettings()
+        {
+            _loadingMediaSettings = true;
+            try
+            {
+                LoadMediaSettingsCore();
+            }
+            finally
+            {
+                _loadingMediaSettings = false;
+            }
+        }
+
+        private void LoadMediaSettingsCore()
         {
             var prefs = _configService.GetUserPreferences();
             var brushText = (System.Windows.Media.Brush)FindResource("TextPrimaryBrush");
@@ -3449,6 +3465,82 @@ namespace Emutastic.Views
                 RecordingsFolderText.Text = "Default";
                 RecordingsFolderText.Foreground = brushMuted;
             }
+
+            // Recording quality settings
+            var rec = _configService.GetRecordingConfiguration();
+
+            RecQualityCombo.SelectedIndex = rec.Quality switch
+            {
+                "Low"      => 0,
+                "Medium"   => 1,
+                "Lossless" => 3,
+                _          => 2, // High
+            };
+
+            int scale = Math.Clamp(rec.OutputScale, 1, 4);
+            RecScaleCombo.SelectedIndex = scale - 1;
+
+            RecEncoderCombo.SelectedIndex = rec.Encoder switch
+            {
+                "NVENC" => 1,
+                "AMF"   => 2,
+                "QSV"   => 3,
+                "x264"  => 4,
+                _       => 0, // Auto
+            };
+
+            RecHighChromaCheck.IsChecked = rec.HighChroma;
+
+            RecAudioBitrateCombo.SelectedIndex = rec.AudioBitrateKbps switch
+            {
+                128 => 0,
+                256 => 2,
+                320 => 3,
+                _   => 1, // 192
+            };
+        }
+
+        private void RecSetting_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_loadingMediaSettings) return;
+            SaveRecordingSettings();
+        }
+
+        private void SaveRecordingSettings()
+        {
+            var rec = _configService.GetRecordingConfiguration();
+
+            rec.Quality = RecQualityCombo.SelectedIndex switch
+            {
+                0 => "Low",
+                1 => "Medium",
+                3 => "Lossless",
+                _ => "High",
+            };
+
+            rec.OutputScale = Math.Clamp(RecScaleCombo.SelectedIndex + 1, 1, 4);
+
+            rec.Encoder = RecEncoderCombo.SelectedIndex switch
+            {
+                1 => "NVENC",
+                2 => "AMF",
+                3 => "QSV",
+                4 => "x264",
+                _ => "Auto",
+            };
+
+            rec.HighChroma = RecHighChromaCheck.IsChecked == true;
+
+            rec.AudioBitrateKbps = RecAudioBitrateCombo.SelectedIndex switch
+            {
+                0 => 128,
+                2 => 256,
+                3 => 320,
+                _ => 192,
+            };
+
+            _configService.SetRecordingConfiguration(rec);
+            _ = _configService.SaveAsync();
         }
 
         private void BrowseScreenshotsFolder_Click(object sender, RoutedEventArgs e)
@@ -3461,12 +3553,14 @@ namespace Emutastic.Views
 
             ScreenshotsFolderText.Text = dialog.FolderName;
             ScreenshotsFolderText.Foreground = (System.Windows.Media.Brush)FindResource("TextPrimaryBrush");
+            SaveMediaFolders();
         }
 
         private void ClearScreenshotsFolder_Click(object sender, RoutedEventArgs e)
         {
             ScreenshotsFolderText.Text = "Default";
             ScreenshotsFolderText.Foreground = (System.Windows.Media.Brush)FindResource("TextSecondaryBrush");
+            SaveMediaFolders();
         }
 
         private void BrowseRecordingsFolder_Click(object sender, RoutedEventArgs e)
@@ -3479,15 +3573,17 @@ namespace Emutastic.Views
 
             RecordingsFolderText.Text = dialog.FolderName;
             RecordingsFolderText.Foreground = (System.Windows.Media.Brush)FindResource("TextPrimaryBrush");
+            SaveMediaFolders();
         }
 
         private void ClearRecordingsFolder_Click(object sender, RoutedEventArgs e)
         {
             RecordingsFolderText.Text = "Default";
             RecordingsFolderText.Foreground = (System.Windows.Media.Brush)FindResource("TextSecondaryBrush");
+            SaveMediaFolders();
         }
 
-        private void FoldersSaveBtn_Click(object sender, RoutedEventArgs e)
+        private void SaveMediaFolders()
         {
             var prefs = _configService.GetUserPreferences();
 
