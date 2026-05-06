@@ -76,6 +76,16 @@ namespace Emutastic.Services
         private string ZipUrl(string fileName) => BuildbotBase + fileName + ".zip";
 
         // ── Status check ──────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Threshold for flagging a core as "update available". The buildbot
+        /// publishes nightlies, so any installed file is technically older
+        /// than the latest by hours — flagging on every drift would train
+        /// users to ignore the badge. Only flag when the remote is meaningfully
+        /// newer than the local file.
+        /// </summary>
+        public static readonly TimeSpan StalenessThreshold = TimeSpan.FromDays(14);
+
         /// <summary>
         /// Returns Installed / UpdateAvailable / NotInstalled for a single core.
         /// Uses HTTP HEAD to get Last-Modified and compares against local file write-time.
@@ -93,13 +103,41 @@ namespace Emutastic.Services
                 if (resp.Content.Headers.LastModified is DateTimeOffset remote)
                 {
                     var local = File.GetLastWriteTimeUtc(localPath);
-                    if (remote.UtcDateTime > local.AddMinutes(1))
+                    if (remote.UtcDateTime > local.Add(StalenessThreshold))
                         return CoreStatus.UpdateAvailable;
                 }
             }
             catch { /* network unavailable — treat as installed */ }
 
             return CoreStatus.Installed;
+        }
+
+        /// <summary>
+        /// Fans out CheckAsync across every catalog entry that's actually
+        /// installed locally. Returns the subset whose remote build is at
+        /// least <see cref="StalenessThreshold"/> newer than the local file.
+        /// Network failures are swallowed (returned as Installed in CheckAsync),
+        /// so an offline run produces an empty list rather than throwing.
+        /// </summary>
+        public async Task<List<CoreEntry>> CheckAllForUpdatesAsync(string coresFolder,
+            CancellationToken ct = default)
+        {
+            var installed = Catalog
+                .Where(e => File.Exists(Path.Combine(coresFolder, e.FileName)))
+                .ToList();
+
+            // Parallel HEAD requests — buildbot is a CDN, this is fine.
+            var tasks = installed.Select(async e =>
+            {
+                var status = await CheckAsync(e, coresFolder, ct).ConfigureAwait(false);
+                return (entry: e, status);
+            });
+
+            var results = await Task.WhenAll(tasks).ConfigureAwait(false);
+            return results
+                .Where(r => r.status == CoreStatus.UpdateAvailable)
+                .Select(r => r.entry)
+                .ToList();
         }
 
         // ── Backup / Revert ───────────────────────────────────────────────────
@@ -133,53 +171,110 @@ namespace Emutastic.Services
             string localPath = Path.Combine(coresFolder, entry.FileName);
             string url       = ZipUrl(entry.FileName);
             string zipPath   = Path.Combine(Path.GetTempPath(), entry.FileName + ".zip");
+            string phase     = "init";
 
-            // ── Download zip ──
-            using (var resp = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct))
+            void Trace(string msg)
             {
-                resp.EnsureSuccessStatusCode();
-                long total = resp.Content.Headers.ContentLength ?? -1;
-                long downloaded = 0;
-
-                await using var src  = await resp.Content.ReadAsStreamAsync(ct);
-                await using var dest = File.Create(zipPath);
-
-                byte[] buf = new byte[81920];
-                int read;
-                while ((read = await src.ReadAsync(buf, ct)) > 0)
+                string line = $"[{DateTime.Now:HH:mm:ss.fff}] [CoreDownload] {entry.FileName} {msg}";
+                System.Diagnostics.Trace.WriteLine(line);
+                try
                 {
-                    await dest.WriteAsync(buf.AsMemory(0, read), ct);
-                    downloaded += read;
-                    if (total > 0)
-                        progress?.Report((int)(downloaded * 100 / total));
+                    string logDir = AppPaths.GetFolder("Logs");
+                    File.AppendAllText(Path.Combine(logDir, "cores.log"), line + Environment.NewLine);
                 }
+                catch { /* non-fatal */ }
             }
 
-            progress?.Report(99);
-
-            // ── Back up existing dll before overwriting ──
-            if (File.Exists(localPath))
+            try
             {
-                string backup = BackupPath(coresFolder, entry.FileName);
-                File.Copy(localPath, backup, overwrite: true);
-            }
+                Trace($"start url={url} localPath={localPath}");
 
-            // ── Extract dll ──
-            using (var zip = ZipFile.OpenRead(zipPath))
-            {
-                foreach (var entry2 in zip.Entries)
+                // ── Download zip ──
+                phase = "http-get";
+                using (var resp = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct))
                 {
-                    if (entry2.Name.Equals(entry.FileName, StringComparison.OrdinalIgnoreCase))
+                    Trace($"http-status={(int)resp.StatusCode} {resp.StatusCode} content-length={resp.Content.Headers.ContentLength}");
+                    resp.EnsureSuccessStatusCode();
+                    long total = resp.Content.Headers.ContentLength ?? -1;
+                    long downloaded = 0;
+
+                    phase = "http-stream";
+                    await using var src  = await resp.Content.ReadAsStreamAsync(ct);
+                    await using var dest = File.Create(zipPath);
+
+                    byte[] buf = new byte[81920];
+                    int read;
+                    while ((read = await src.ReadAsync(buf, ct)) > 0)
                     {
-                        entry2.ExtractToFile(localPath, overwrite: true);
-                        break;
+                        await dest.WriteAsync(buf.AsMemory(0, read), ct);
+                        downloaded += read;
+                        if (total > 0)
+                            progress?.Report((int)(downloaded * 100 / total));
+                    }
+                    Trace($"downloaded={downloaded} bytes to {zipPath}");
+                }
+
+                progress?.Report(99);
+
+                // ── Back up existing dll before overwriting ──
+                phase = "backup";
+                if (File.Exists(localPath))
+                {
+                    string backup = BackupPath(coresFolder, entry.FileName);
+                    File.Copy(localPath, backup, overwrite: true);
+                    Trace($"backup created at {backup}");
+                }
+
+                // ── Extract dll ──
+                phase = "extract";
+                bool extracted = false;
+                string[] zipEntryNames;
+                using (var zip = ZipFile.OpenRead(zipPath))
+                {
+                    zipEntryNames = zip.Entries.Select(e => e.FullName).ToArray();
+                    foreach (var entry2 in zip.Entries)
+                    {
+                        if (entry2.Name.Equals(entry.FileName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            entry2.ExtractToFile(localPath, overwrite: true);
+                            extracted = true;
+                            break;
+                        }
                     }
                 }
+
+                if (!extracted)
+                {
+                    string contents = string.Join(", ", zipEntryNames);
+                    Trace($"NO MATCHING ENTRY in zip — entries: [{contents}]");
+                    throw new InvalidDataException(
+                        $"Zip did not contain '{entry.FileName}'. Contents: [{contents}]");
+                }
+
+                // ZipArchiveEntry.ExtractToFile preserves the entry's internal
+                // LastWriteTime — stamp with now so the 14-day staleness check
+                // is grounded in install time.
+                phase = "stamp-mtime";
+                try { File.SetLastWriteTimeUtc(localPath, DateTime.UtcNow); }
+                catch (Exception ex)
+                {
+                    Trace($"could not stamp mtime: {ex.Message}");
+                }
+
+                Trace($"extracted=true mtimeUtc={File.GetLastWriteTimeUtc(localPath):o}");
+
+                phase = "cleanup";
+                try { File.Delete(zipPath); } catch { }
+
+                progress?.Report(100);
             }
-
-            try { File.Delete(zipPath); } catch { }
-
-            progress?.Report(100);
+            catch (Exception ex)
+            {
+                Trace($"FAILED in phase={phase} type={ex.GetType().FullName} msg={ex.Message}");
+                if (ex.InnerException != null)
+                    Trace($"  inner type={ex.InnerException.GetType().FullName} msg={ex.InnerException.Message}");
+                throw;
+            }
         }
     }
 }

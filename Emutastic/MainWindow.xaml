@@ -1267,13 +1267,25 @@
 
             </Grid>
 
-            <!-- ── IMPORT BANNER (bottom-left, only visible during active import) ── -->
-            <Border Grid.Row="2"
+            <!-- ── BANNER (bottom-left transient: import progress or notification) ── -->
+            <Border x:Name="BannerBorder"
+                    Grid.Row="2"
                     Background="{DynamicResource BgSecondaryBrush}"
                     BorderBrush="{DynamicResource BorderSubtleBrush}"
                     BorderThickness="0,1,0,0"
                     Padding="16,6,16,6"
-                    Visibility="{Binding IsImporting, Converter={StaticResource BoolToVisibility}}">
+                    MouseLeftButtonUp="BannerBorder_MouseLeftButtonUp"
+                    Visibility="{Binding IsBannerVisible, Converter={StaticResource BoolToVisibility}}">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Cursor" Value="Arrow"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsNotification}" Value="True">
+                                <Setter Property="Cursor" Value="Hand"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -1281,7 +1293,7 @@
                     </Grid.ColumnDefinitions>
 
                     <TextBlock Grid.Column="0"
-                               Text="{Binding ImportStatusText}"
+                               Text="{Binding BannerText}"
                                FontFamily="{StaticResource PrimaryFont}"
                                FontSize="11"
                                Foreground="{DynamicResource TextMutedBrush}"
@@ -1292,12 +1304,13 @@
                                  Height="4"
                                  Minimum="0"
                                  Maximum="100"
-                                 Value="{Binding ImportProgressPercent, Mode=OneWay}"
+                                 Value="{Binding BannerProgressPercent, Mode=OneWay}"
                                  Background="{DynamicResource BgTertiaryBrush}"
                                  Foreground="{DynamicResource AccentBrush}"
                                  BorderThickness="0"
                                  VerticalAlignment="Center"
-                                 Margin="12,0,0,0"/>
+                                 Margin="12,0,0,0"
+                                 Visibility="{Binding IsProgressBarVisible, Converter={StaticResource BoolToVisibility}}"/>
                 </Grid>
             </Border>
 

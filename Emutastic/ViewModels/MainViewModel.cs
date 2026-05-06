@@ -50,16 +50,64 @@ namespace Emutastic.ViewModels
         [ObservableProperty]
         private string _statusText = "";
 
-        // Drives the bottom-left import banner — visible only while an import
-        // is in progress, auto-hides when ImportQueueDrained fires.
+        // Drives the bottom-left transient banner. Either an import is in progress
+        // (with a progress bar) or a notification is being surfaced (text only,
+        // e.g. "core updates available"). The banner is visible while either
+        // flag is true; when both, the import message takes precedence.
         [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(IsBannerVisible))]
+        [NotifyPropertyChangedFor(nameof(IsProgressBarVisible))]
+        [NotifyPropertyChangedFor(nameof(BannerText))]
+        [NotifyPropertyChangedFor(nameof(BannerProgressPercent))]
         private bool _isImporting;
 
         [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(BannerText))]
         private string _importStatusText = "";
 
         [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(BannerProgressPercent))]
         private double _importProgressPercent;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(IsBannerVisible))]
+        [NotifyPropertyChangedFor(nameof(BannerText))]
+        private bool _isNotification;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(BannerText))]
+        private string _notificationText = "";
+
+        // Surfaced from the Cores preferences "Update All" flow so the user
+        // sees per-completion progress + failure summary in the same banner.
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(IsBannerVisible))]
+        [NotifyPropertyChangedFor(nameof(IsProgressBarVisible))]
+        [NotifyPropertyChangedFor(nameof(BannerText))]
+        [NotifyPropertyChangedFor(nameof(BannerProgressPercent))]
+        private bool _isCoreUpdating;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(BannerText))]
+        private string _coreUpdateText = "";
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(BannerProgressPercent))]
+        private double _coreUpdateProgressPercent;
+
+        public bool IsBannerVisible => IsImporting || IsCoreUpdating || IsNotification;
+        public bool IsProgressBarVisible => IsImporting || IsCoreUpdating;
+
+        // Priority: import > core-update > notification (most-active-task wins).
+        public string BannerText =>
+            IsImporting     ? ImportStatusText :
+            IsCoreUpdating  ? CoreUpdateText :
+                              NotificationText;
+
+        public double BannerProgressPercent =>
+            IsImporting     ? ImportProgressPercent :
+            IsCoreUpdating  ? CoreUpdateProgressPercent :
+                              0;
 
         private ObservableCollection<ConsoleGroup> _groupedGames = new();
         public ObservableCollection<ConsoleGroup> GroupedGames

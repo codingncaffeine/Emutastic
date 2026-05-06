@@ -621,6 +621,31 @@ namespace Emutastic.Views
         }
 
         // ── Section navigation ────────────────────────────────────────────────
+
+        /// <summary>
+        /// Programmatic entry point for opening a specific preferences section.
+        /// Used by the bottom-left core-update banner click handler. Names match
+        /// the Nav* button identifiers (case-insensitive).
+        /// </summary>
+        public void OpenSection(string sectionName)
+        {
+            switch (sectionName.Trim().ToLowerInvariant())
+            {
+                case "controls":      NavControls.IsChecked = true; break;
+                case "systemfiles":
+                case "system files":  NavSystemFiles.IsChecked = true; break;
+                case "cores":         NavCores.IsChecked = true; break;
+                case "library":       NavLibrary.IsChecked = true; break;
+                case "theme":         NavTheme.IsChecked = true; break;
+                case "snaps":         NavSnaps.IsChecked = true; break;
+                case "coreoptions":
+                case "core options":  NavCoreOptions.IsChecked = true; break;
+                case "achievements":  NavAchievements.IsChecked = true; break;
+                case "media":
+                case "folders":       NavMedia.IsChecked = true; break;
+            }
+        }
+
         private void NavBtn_Checked(object sender, RoutedEventArgs e)
         {
             if (sender == NavControls)         ShowSection(PrefSection.Controls);
@@ -1402,7 +1427,7 @@ namespace Emutastic.Views
             ("NEC",       new[] { "TG16", "TGCD" }),
             ("Atari",     new[] { "Atari2600", "Atari7800", "Jaguar" }),
             ("Arcade",    new[] { "Arcade", "NeoGeo" }),
-            ("Other",     new[] { "NGP", "ColecoVision", "Vectrex", "3DO", "CDi" }),
+            ("Other",     new[] { "NGP", "ColecoVision", "Vectrex", "3DO", "CDi", "DOS" }),
         };
 
         private void BuildCoresPanel()
@@ -1419,6 +1444,7 @@ namespace Emutastic.Views
             var dlAllRow = new Grid { Margin = new Thickness(0, 0, 0, 12) };
             dlAllRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             dlAllRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            dlAllRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             var dlAllBtn = new Button
             {
@@ -1438,9 +1464,35 @@ namespace Emutastic.Views
             };
             Grid.SetColumn(dlSummary, 1);
 
+            // Visible only when CheckAllForUpdatesAsync returns ≥1 stale core.
+            // Triggered click runs the per-row download path for each, in
+            // parallel, reusing the existing per-row progress bars.
+            var updateAllBtn = new Button
+            {
+                Content = "Update All",
+                Style = (Style)FindResource("AccentButton"),
+                Margin = new Thickness(8, 0, 0, 0),
+                Visibility = Visibility.Collapsed,
+                VerticalAlignment = VerticalAlignment.Center,
+                ToolTip = "Re-download every core that has a newer build available"
+            };
+            Grid.SetColumn(updateAllBtn, 2);
+
             dlAllRow.Children.Add(dlAllBtn);
             dlAllRow.Children.Add(dlSummary);
+            dlAllRow.Children.Add(updateAllBtn);
             CoresListPanel.Children.Add(dlAllRow);
+
+            // Per-DLL "Update available" pill, populated below as rows are built
+            // and revealed once CheckAllForUpdatesAsync returns.
+            var updatePillMap = new Dictionary<string, TextBlock>();
+
+            // Awaitable per-row download closures used by the Update All flow
+            // so it can Task.WhenAll all in-flight downloads, collect outcomes
+            // (success/failure + error message), and rebuild the panel ONCE at
+            // the end. Single ⟳ click still goes through the dl button click
+            // → StartSingleDownload path unchanged.
+            var dlActionMap = new Dictionary<string, Func<Task<(bool ok, string? error)>>>();
 
             var allProgressBar = new ProgressBar
             {
@@ -1832,6 +1884,36 @@ namespace Emutastic.Views
 
                             dlRowMap[core.Dll] = (rowProgress, rowStatus, dlBtn);
 
+                            // Capture all per-row params so Update All can await this
+                            // download (the regular Click handler goes through async void).
+                            var capturedEntry = core.CatalogEntry;
+                            var capturedBadge = badge;
+                            var capturedBar = rowProgress;
+                            var capturedStatus = rowStatus;
+                            var capturedDlBtn = dlBtn;
+                            var capturedRevert = revertBtn;
+                            dlActionMap[core.Dll] = () => StartSingleDownloadAsync(
+                                capturedEntry, coresFolder, capturedBadge, capturedBar,
+                                capturedStatus, capturedDlBtn, capturedRevert);
+
+                            // "Update available" pill, hidden until the async
+                            // CheckAllForUpdatesAsync result lands and reveals it.
+                            // Only meaningful for cores that are actually installed —
+                            // CheckAsync returns NotInstalled otherwise.
+                            var updatePill = new TextBlock
+                            {
+                                Text = "Update available",
+                                FontSize = 10,
+                                FontWeight = FontWeights.SemiBold,
+                                Foreground = (System.Windows.Media.Brush)FindResource("AccentBrush"),
+                                VerticalAlignment = VerticalAlignment.Center,
+                                Margin = new Thickness(0, 0, 8, 0),
+                                Visibility = Visibility.Collapsed
+                            };
+                            if (core.Installed)
+                                updatePillMap[core.Dll] = updatePill;
+
+                            btnPanel.Children.Add(updatePill);
                             btnPanel.Children.Add(rowProgress);
                             btnPanel.Children.Add(rowStatus);
                             btnPanel.Children.Add(revertBtn);
@@ -1977,9 +2059,171 @@ namespace Emutastic.Views
             };
 
             BuildExtrasSection();
+
+            // ── Async stale-core check (~14d threshold) ──────────────────────
+            // Reveal "Update available" pills on rows + the Update All button
+            // once the per-core HEAD checks return. Cached at class level so
+            // re-opening this section doesn't re-hit the buildbot every time.
+            _ = DecorateUpdatesAvailableAsync(coresFolder, updatePillMap, updateAllBtn, dlActionMap);
         }
 
+        private List<CoreEntry>? _coreUpdatesCache;
+
+        private async Task DecorateUpdatesAvailableAsync(
+            string coresFolder,
+            Dictionary<string, TextBlock> updatePillMap,
+            Button updateAllBtn,
+            Dictionary<string, Func<Task<(bool ok, string? error)>>> dlActionMap)
+        {
+            try
+            {
+                _coreUpdatesCache ??= await _downloader.CheckAllForUpdatesAsync(coresFolder);
+                var updates = _coreUpdatesCache;
+                if (updates.Count == 0) return;
+
+                foreach (var entry in updates)
+                {
+                    if (updatePillMap.TryGetValue(entry.FileName, out var pill))
+                        pill.Visibility = Visibility.Visible;
+                }
+
+                updateAllBtn.Visibility = Visibility.Visible;
+                updateAllBtn.Click += async (_, _) =>
+                {
+                    var mvm = (Application.Current.MainWindow as MainWindow)?.DataContext as Emutastic.ViewModels.MainViewModel;
+                    int total = updates.Count;
+                    int done = 0;
+                    var failures = new System.Collections.Concurrent.ConcurrentBag<(string fileName, string error)>();
+
+                    if (mvm != null)
+                    {
+                        mvm.IsCoreUpdating = true;
+                        mvm.CoreUpdateText = $"Updating cores… 0 of {total}";
+                        mvm.CoreUpdateProgressPercent = 0;
+                    }
+
+                    // Suppress per-download panel rebuilds — each successful
+                    // download would otherwise call BuildCoresPanel() while
+                    // peer downloads are still writing into the now-orphaned
+                    // row controls. Single rebuild at the end covers everyone.
+                    updateAllBtn.IsEnabled = false;
+                    _suppressPanelRebuildDuringDownload = true;
+                    try
+                    {
+                        var tasks = updates.Select(async e =>
+                        {
+                            // Prefer the per-row closure (preserves progress UI in the
+                            // Cores tab). Fall back to a direct download for cores that
+                            // are in the catalog but not iterated in BuildCoresPanel
+                            // (config drift between Catalog / ConsoleCoreMap / ConsoleCategories).
+                            bool ok;
+                            string? err;
+                            if (dlActionMap.TryGetValue(e.FileName, out var f))
+                            {
+                                (ok, err) = await f();
+                            }
+                            else
+                            {
+                                try
+                                {
+                                    await _downloader.DownloadAsync(e, coresFolder);
+                                    _coreUpdatesCache?.RemoveAll(c =>
+                                        string.Equals(c.FileName, e.FileName, StringComparison.OrdinalIgnoreCase));
+                                    ok = true; err = null;
+                                }
+                                catch (Exception ex)
+                                {
+                                    ok = false; err = ex.Message;
+                                    System.Diagnostics.Trace.WriteLine($"[CoreUpdateAll] direct download failed {e.FileName}: {ex}");
+                                }
+                            }
+                            if (!ok) failures.Add((e.FileName, err ?? "unknown"));
+
+                            int n = System.Threading.Interlocked.Increment(ref done);
+                            if (mvm != null)
+                            {
+                                Dispatcher.Invoke(() =>
+                                {
+                                    mvm.CoreUpdateText = ok
+                                        ? $"Updated {e.FileName} — {n} of {total}"
+                                        : $"Failed {e.FileName} — {n} of {total}";
+                                    mvm.CoreUpdateProgressPercent = (double)n / total * 100;
+                                });
+                            }
+                        }).ToList();
+
+                        await Task.WhenAll(tasks);
+                    }
+                    finally
+                    {
+                        _suppressPanelRebuildDuringDownload = false;
+                        // Successful downloads already removed themselves from
+                        // _coreUpdatesCache; remaining entries are failures, so
+                        // the next BuildCoresPanel will keep their pills.
+                        BuildCoresPanel();
+
+                        // Surface final result via banner. Dwell ~20s so the
+                        // user can read failure summary before it auto-clears.
+                        if (mvm != null)
+                        {
+                            int succeeded = total - failures.Count;
+                            string finalText;
+                            if (failures.IsEmpty)
+                            {
+                                finalText = $"Done — {succeeded} core{(succeeded == 1 ? "" : "s")} updated";
+                            }
+                            else
+                            {
+                                var names = failures.Select(f => f.fileName).Take(3).ToList();
+                                string list = string.Join(", ", names);
+                                if (failures.Count > 3) list += $", +{failures.Count - 3} more";
+                                finalText = $"Updated {succeeded} of {total}. Failed: {list}";
+
+                                // Full per-core failure detail goes to the trace log.
+                                foreach (var (fn, err) in failures)
+                                    System.Diagnostics.Trace.WriteLine($"[CoreUpdateAll] FAILED {fn}: {err}");
+                            }
+                            Dispatcher.Invoke(() =>
+                            {
+                                mvm.CoreUpdateText = finalText;
+                                mvm.CoreUpdateProgressPercent = 100;
+                            });
+
+                            _ = Task.Run(async () =>
+                            {
+                                await Task.Delay(20_000);
+                                if (Dispatcher.HasShutdownStarted) return;
+                                Dispatcher.Invoke(() =>
+                                {
+                                    mvm.IsCoreUpdating = false;
+                                    mvm.CoreUpdateText = "";
+                                    mvm.CoreUpdateProgressPercent = 0;
+                                });
+                            });
+                        }
+                    }
+                };
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[CoresUpdateCheck] {ex.Message}");
+            }
+        }
+
+        // Set during an "Update All" run so per-download success doesn't
+        // rebuild the panel mid-flight (which would orphan the still-running
+        // rows' UI controls). Update All performs a single rebuild after all
+        // downloads complete.
+        private bool _suppressPanelRebuildDuringDownload;
+
         private async void StartSingleDownload(CoreEntry entry, string coresFolder,
+            Border badge, ProgressBar bar, TextBlock statusText, Button dlBtn, Button? revertBtn = null)
+        {
+            await StartSingleDownloadAsync(entry, coresFolder, badge, bar, statusText, dlBtn, revertBtn);
+        }
+
+        private async Task<(bool ok, string? error)> StartSingleDownloadAsync(
+            CoreEntry entry, string coresFolder,
             Border badge, ProgressBar bar, TextBlock statusText, Button dlBtn, Button? revertBtn = null)
         {
             dlBtn.IsEnabled = false;
@@ -1999,12 +2243,23 @@ namespace Emutastic.Views
                 dlBtn.IsEnabled = true;
                 if (revertBtn != null)
                     revertBtn.Visibility = Visibility.Visible;
-                BuildCoresPanel();
+
+                // Drop this core from the staleness cache so the next panel
+                // rebuild doesn't show its pill again immediately after update.
+                _coreUpdatesCache?.RemoveAll(e =>
+                    string.Equals(e.FileName, entry.FileName, StringComparison.OrdinalIgnoreCase));
+
+                if (!_suppressPanelRebuildDuringDownload)
+                    BuildCoresPanel();
+
+                return (true, null);
             }
             catch (Exception ex)
             {
                 statusText.Text = $"Error: {ex.Message}";
                 dlBtn.IsEnabled = true;
+                System.Diagnostics.Trace.WriteLine($"[CoreDownload] FAILED {entry.FileName}: {ex.Message}");
+                return (false, ex.Message);
             }
         }
 

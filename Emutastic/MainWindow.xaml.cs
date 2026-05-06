@@ -158,6 +158,58 @@ namespace Emutastic
             });
 
             ApplyBackgroundImage();
+
+            // Background scan for stale libretro cores. Fire-and-forget — never
+            // blocks startup, falls silent if the user is offline (CheckAsync
+            // swallows network errors). Result surfaces in the bottom-left
+            // banner as a non-blocking nudge that auto-hides after 20 seconds.
+            _ = CheckCoreUpdatesAndNotifyAsync();
+        }
+
+        private async Task CheckCoreUpdatesAndNotifyAsync()
+        {
+            try
+            {
+                string coresFolder = AppPaths.GetCoresFolder();
+                var updates = await new Services.CoreDownloadService()
+                    .CheckAllForUpdatesAsync(coresFolder);
+                if (updates.Count == 0) return;
+
+                if (Dispatcher.HasShutdownStarted) return;
+                Dispatcher.Invoke(() =>
+                {
+                    _vm.NotificationText = updates.Count == 1
+                        ? "1 core update available — Preferences → Cores"
+                        : $"{updates.Count} core updates available — Preferences → Cores";
+                    _vm.IsNotification = true;
+                });
+
+                await Task.Delay(20_000);
+
+                if (Dispatcher.HasShutdownStarted) return;
+                Dispatcher.Invoke(() =>
+                {
+                    _vm.IsNotification = false;
+                    _vm.NotificationText = "";
+                });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[CoreUpdateCheck] {ex.Message}");
+            }
+        }
+
+        private void BannerBorder_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            // Banner is clickable only when surfacing a notification (not during
+            // an import). Open Preferences → Cores so the user can act on it.
+            if (!_vm.IsNotification) return;
+            _vm.IsNotification = false;
+            _vm.NotificationText = "";
+            InitializeControllerManager();
+            var prefs = new Views.PreferencesWindow(_db, _controllerManager!, App.Configuration!) { Owner = this };
+            prefs.OpenSection("Cores");
+            prefs.ShowDialog();
         }
 
         private void InitializeControllerManager()
