@@ -50,6 +50,17 @@ namespace Emutastic.ViewModels
         [ObservableProperty]
         private string _statusText = "";
 
+        // Drives the bottom-left import banner — visible only while an import
+        // is in progress, auto-hides when ImportQueueDrained fires.
+        [ObservableProperty]
+        private bool _isImporting;
+
+        [ObservableProperty]
+        private string _importStatusText = "";
+
+        [ObservableProperty]
+        private double _importProgressPercent;
+
         private ObservableCollection<ConsoleGroup> _groupedGames = new();
         public ObservableCollection<ConsoleGroup> GroupedGames
         {

@@ -1177,14 +1177,46 @@ namespace Emutastic.Services
 
         // ── Copy-to-library helpers ───────────────────────────────────────────
 
-        private static async Task CopyFileAsync(string source, string dest)
+        private async Task CopyFileAsync(string source, string dest)
         {
             const int bufferSize = 81920; // 80 KB — good balance for HDD/SSD
             using var src = new FileStream(source, FileMode.Open, FileAccess.Read,
                 FileShare.Read, bufferSize, useAsync: true);
             using var dst = new FileStream(dest, FileMode.CreateNew, FileAccess.Write,
                 FileShare.None, bufferSize, useAsync: true);
-            await src.CopyToAsync(dst);
+
+            // For small files (<8 MB) just copy — emitting per-byte progress for
+            // tiny ROMs is wasteful and can flood the UI thread. Larger files
+            // (PSP ISOs, GC/Wii images) report progress every ~500 ms so the
+            // status doesn't sit frozen on a single per-file message for minutes.
+            long total = src.Length;
+            if (total < 8 * 1024 * 1024)
+            {
+                await src.CopyToAsync(dst);
+                return;
+            }
+
+            string fileName = Path.GetFileName(source);
+            string totalMb = (total / 1048576d).ToString("F0");
+            byte[] buffer = new byte[bufferSize];
+            long copied = 0;
+            var lastUpdate = Environment.TickCount64;
+
+            int read;
+            while ((read = await src.ReadAsync(buffer.AsMemory(0, bufferSize))) > 0)
+            {
+                await dst.WriteAsync(buffer.AsMemory(0, read));
+                copied += read;
+
+                long now = Environment.TickCount64;
+                if (now - lastUpdate >= 500)
+                {
+                    int pct = (int)((copied * 100L) / total);
+                    string copiedMb = (copied / 1048576d).ToString("F0");
+                    StatusChanged?.Invoke($"Copying {fileName}… {pct}% ({copiedMb} / {totalMb} MB)");
+                    lastUpdate = now;
+                }
+            }
         }
 
         /// <summary>

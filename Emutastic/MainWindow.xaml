@@ -250,6 +250,7 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="38"/>
                 <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <!-- ══ TITLE BAR ══ -->
@@ -1266,9 +1267,43 @@
 
             </Grid>
 
+            <!-- ── IMPORT BANNER (bottom-left, only visible during active import) ── -->
+            <Border Grid.Row="2"
+                    Background="{DynamicResource BgSecondaryBrush}"
+                    BorderBrush="{DynamicResource BorderSubtleBrush}"
+                    BorderThickness="0,1,0,0"
+                    Padding="16,6,16,6"
+                    Visibility="{Binding IsImporting, Converter={StaticResource BoolToVisibility}}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="220" MinWidth="160"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Column="0"
+                               Text="{Binding ImportStatusText}"
+                               FontFamily="{StaticResource PrimaryFont}"
+                               FontSize="11"
+                               Foreground="{DynamicResource TextMutedBrush}"
+                               VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis"/>
+
+                    <ProgressBar Grid.Column="1"
+                                 Height="4"
+                                 Minimum="0"
+                                 Maximum="100"
+                                 Value="{Binding ImportProgressPercent, Mode=OneWay}"
+                                 Background="{DynamicResource BgTertiaryBrush}"
+                                 Foreground="{DynamicResource AccentBrush}"
+                                 BorderThickness="0"
+                                 VerticalAlignment="Center"
+                                 Margin="12,0,0,0"/>
+                </Grid>
+            </Border>
+
             <!-- ── DROP OVERLAY ── -->
             <Border x:Name="DropOverlay"
-                    Grid.RowSpan="2"
+                    Grid.RowSpan="3"
                     Visibility="Collapsed"
                     Background="#CC0F0F10"
                     CornerRadius="10">

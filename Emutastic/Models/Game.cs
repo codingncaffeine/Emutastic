@@ -1,10 +1,22 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 
 namespace Emutastic.Models
 {
-    public class Game
+    public class Game : INotifyPropertyChanged
     {
+        // INPC is implemented narrowly: only the art-path properties notify.
+        // This lets DisplayArtPath update live during import (when artwork
+        // arrives async after a game is added to the list) without making
+        // every Game property a notifying setter — most fields don't change
+        // post-load, and full INPC would risk per-import-tile churn on
+        // libraries that complete in seconds.
+        public event PropertyChangedEventHandler? PropertyChanged;
+        protected void OnPropertyChanged([CallerMemberName] string? name = null) =>
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+
         public int Id { get; set; }
         public string Title { get; set; } = "";
         public string Console { get; set; } = "";
@@ -12,9 +24,42 @@ namespace Emutastic.Models
         public int Year { get; set; }
         public string RomPath { get; set; } = "";
         public string RomHash { get; set; } = "";
-        public string CoverArtPath { get; set; } = "";
-        public string BoxArt3DPath { get; set; } = "";
-        public string ScreenScraperArtPath { get; set; } = "";
+
+        private string _coverArtPath = "";
+        public string CoverArtPath
+        {
+            get => _coverArtPath;
+            set => SetArtPath(ref _coverArtPath, value);
+        }
+
+        private string _boxArt3DPath = "";
+        public string BoxArt3DPath
+        {
+            get => _boxArt3DPath;
+            set => SetArtPath(ref _boxArt3DPath, value);
+        }
+
+        private string _screenScraperArtPath = "";
+        public string ScreenScraperArtPath
+        {
+            get => _screenScraperArtPath;
+            set => SetArtPath(ref _screenScraperArtPath, value);
+        }
+
+        // Common setter: only notifies when the value actually changes, and
+        // only fires DisplayArtPath when the *resolved* path changes — e.g.
+        // a ScreenScraper path arriving while the user prefers libretro and
+        // libretro art is already set produces zero notifications.
+        private void SetArtPath(ref string field, string value, [CallerMemberName] string? name = null)
+        {
+            value ??= "";
+            if (field == value) return;
+            string prevDisplay = DisplayArtPath;
+            field = value;
+            OnPropertyChanged(name);
+            if (DisplayArtPath != prevDisplay)
+                OnPropertyChanged(nameof(DisplayArtPath));
+        }
 
         /// <summary>
         /// Returns the best available art path based on user preferences:

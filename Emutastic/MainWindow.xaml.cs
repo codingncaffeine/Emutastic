@@ -65,19 +65,32 @@ namespace Emutastic
             DataContext  = _vm;                     // _vm is now non-null; clicks work
 
             _importer.StatusChanged += msg =>
-                Dispatcher.Invoke(() => SetStatus(msg));
+                Dispatcher.Invoke(() =>
+                {
+                    SetStatus(msg);
+                    // Source `IsImporting` from the service's authoritative flag —
+                    // late artwork-task StatusChanged events fire AFTER drain sets
+                    // it false, and we don't want them re-animating the banner.
+                    _vm.IsImporting = _importer.IsImporting;
+                    _vm.ImportStatusText = msg;
+                });
 
             _importer.ProgressChanged += (current, total) =>
                 Dispatcher.Invoke(() =>
                 {
                     if (total == 0) return;
+                    _vm.IsImporting = _importer.IsImporting;
                     if (current >= total)
                     {
                         SetStatus("Import complete", autoClear: true);
+                        _vm.ImportProgressPercent = 100;
                         return;
                     }
                     int pct = (int)((current / (double)total) * 100);
-                    SetStatus($"Importing… {pct}%  ({current} of {total})");
+                    string headline = $"Importing… {pct}%  ({current} of {total})";
+                    SetStatus(headline);
+                    _vm.ImportStatusText = headline;
+                    _vm.ImportProgressPercent = pct;
                 });
             _importer.GameImported += game =>
                 Dispatcher.Invoke(() =>
@@ -91,6 +104,9 @@ namespace Emutastic
                     await Task.Run(() => _vm.Reload());
                     await _vm.FilterGamesAsync();
                     _vm.ToolbarTitle = _vm.SelectedConsole;
+                    _vm.IsImporting = false;
+                    _vm.ImportStatusText = "";
+                    _vm.ImportProgressPercent = 0;
                 });
             _importer.AmbiguousConsoleResolver = (fileName, candidates) =>
             {
