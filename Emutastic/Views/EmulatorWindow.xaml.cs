@@ -3931,12 +3931,17 @@ namespace Emutastic.Views
 
             string? err;
 
-            // Vectrex is HW-rendered at the libretro level (vecx → GL FBO) but the
-            // frontend reads pixels back to a CPU buffer and displays them via WPF.
-            // There's no child HWND for WGC to capture, so route Vectrex through the
-            // FFmpeg software path — its readback buffer feeds RecordingService
-            // directly. Other HW cores (GameCube/PSP/N64) still take the WGC path.
-            bool useReadbackFfmpegPath = _hwRenderActive && _consoleHandler?.ConsoleName == "Vectrex";
+            // Some HW-render cores (Vectrex, PPSSPP/PSP, CDi, anything routed through
+            // GenericHandler with no overlay flags) read back to a CPU buffer and
+            // display via WPF rather than rendering into a child HWND. WGC has no
+            // window to target in those cases. Detect that condition principle-first
+            // — if no captureHwnd would be available, route through the FFmpeg
+            // readback path. Cores that *do* have a HWND (GameCube embedded window,
+            // N64 GL overlay) still take the WGC zero-copy path.
+            bool noOverlayHwnd = _vulkanOverlayHwnd == IntPtr.Zero
+                              && _glOverlayHwnd == IntPtr.Zero
+                              && (_hwndHost?.Handle ?? IntPtr.Zero) == IntPtr.Zero;
+            bool useReadbackFfmpegPath = _hwRenderActive && noOverlayHwnd;
 
             if (_hwRenderActive && !useReadbackFfmpegPath)
             {
