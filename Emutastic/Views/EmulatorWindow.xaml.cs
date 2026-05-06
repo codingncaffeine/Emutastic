@@ -2209,6 +2209,15 @@ namespace Emutastic.Views
                 for (int i = 3; i < byteCount; i += 4)
                     _hwFlippedBuffer[i] = 0xFF;
 
+                // Recording: feed the readback buffer into the FFmpeg path.
+                // Only fires when the active service is the FFmpeg one — Vectrex
+                // routes here; WGC-recorded HW cores have a WgcRecordingService and
+                // skip this branch via the `is` type check.
+                if (_recordingService is Services.RecordingService ffmpegRec && ffmpegRec.IsRecording)
+                {
+                    ffmpegRec.QueueVideoFrame(_hwFlippedBuffer, byteCount);
+                }
+
                 _hwFlippedWidth  = w;
                 _hwFlippedHeight = h;
                 _hwVideoPending  = true;
@@ -2320,6 +2329,15 @@ namespace Emutastic.Views
                 // WPF Bgra32 treats alpha=0 as fully transparent → dark/black pixels.
                 for (int i = 3; i < byteCount; i += 4)
                     _hwFlippedBuffer[i] = 0xFF;
+
+                // Recording: feed the readback buffer into the FFmpeg path.
+                // Only fires when the active service is the FFmpeg one — Vectrex
+                // routes here; WGC-recorded HW cores have a WgcRecordingService and
+                // skip this branch via the `is` type check.
+                if (_recordingService is Services.RecordingService ffmpegRec && ffmpegRec.IsRecording)
+                {
+                    ffmpegRec.QueueVideoFrame(_hwFlippedBuffer, byteCount);
+                }
 
                 _hwFlippedWidth  = w;
                 _hwFlippedHeight = h;
@@ -3913,7 +3931,14 @@ namespace Emutastic.Views
 
             string? err;
 
-            if (_hwRenderActive)
+            // Vectrex is HW-rendered at the libretro level (vecx → GL FBO) but the
+            // frontend reads pixels back to a CPU buffer and displays them via WPF.
+            // There's no child HWND for WGC to capture, so route Vectrex through the
+            // FFmpeg software path — its readback buffer feeds RecordingService
+            // directly. Other HW cores (GameCube/PSP/N64) still take the WGC path.
+            bool useReadbackFfmpegPath = _hwRenderActive && _consoleHandler?.ConsoleName == "Vectrex";
+
+            if (_hwRenderActive && !useReadbackFfmpegPath)
             {
                 // 3D / HW-render cores: use Windows.Graphics.Capture (zero-copy GPU pipeline)
                 RecLog("HW render path — checking WGC support...");
@@ -3983,16 +4008,35 @@ namespace Emutastic.Views
                     return;
                 }
 
-                uint w = _lastFrameWidth > 0 ? _lastFrameWidth : avInfo.Value.geometry.base_width;
-                uint h = _lastFrameHeight > 0 ? _lastFrameHeight : avInfo.Value.geometry.base_height;
-
+                uint w, h;
                 string pixFmt;
-                if (_pixelFormat == RETRO_PIXEL_FORMAT_XRGB8888)
+                if (useReadbackFfmpegPath)
+                {
+                    // Vectrex feeds the readback buffer (BGRA32, post-flip) into
+                    // RecordingService.QueueVideoFrame from ReadBackFromCurrentContext.
+                    // Need at least one frame rendered before we can record.
+                    if (_hwFlippedWidth == 0 || _hwFlippedHeight == 0)
+                    {
+                        _transientMsg = "Recording unavailable — wait for first frame";
+                        _transientExpiry = DateTime.Now.AddSeconds(3);
+                        return;
+                    }
+                    w = _hwFlippedWidth;
+                    h = _hwFlippedHeight;
                     pixFmt = "bgra";
-                else if (_pixelFormat == RETRO_PIXEL_FORMAT_RGB565)
-                    pixFmt = "rgb565le";
+                }
                 else
-                    pixFmt = "rgb555le";
+                {
+                    w = _lastFrameWidth > 0 ? _lastFrameWidth : avInfo.Value.geometry.base_width;
+                    h = _lastFrameHeight > 0 ? _lastFrameHeight : avInfo.Value.geometry.base_height;
+
+                    if (_pixelFormat == RETRO_PIXEL_FORMAT_XRGB8888)
+                        pixFmt = "bgra";
+                    else if (_pixelFormat == RETRO_PIXEL_FORMAT_RGB565)
+                        pixFmt = "rgb565le";
+                    else
+                        pixFmt = "rgb555le";
+                }
 
                 Action<string> onEncodeComplete = (result) =>
                 {

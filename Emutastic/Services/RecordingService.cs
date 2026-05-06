@@ -504,14 +504,21 @@ namespace Emutastic.Services
             var pool = _framePool;
             if (!_isRecording || q == null || q.IsAddingCompleted || pool == null) return;
 
+            // Drop frames whose size doesn't match the pre-allocated buffer.
+            // Truncating mid-recording would shift the byte stream and desync
+            // every subsequent frame in the rawvideo temp file (diagonal tearing
+            // in the final encode). Mismatched-dim frames are rare in practice
+            // — Vectrex/CD-i dims are stable per session — but if the core
+            // re-reports geometry mid-recording, dropping is the safe response.
+            if (length != _frameBufferSize) return;
+
             if (!pool.TryDequeue(out byte[]? frameBuf)) return; // drop frame
 
-            int copyLen = Math.Min(length, frameBuf.Length);
-            Buffer.BlockCopy(sourcePixels, 0, frameBuf, 0, copyLen);
+            Buffer.BlockCopy(sourcePixels, 0, frameBuf, 0, length);
 
             try
             {
-                if (!q.TryAdd((frameBuf, copyLen)))
+                if (!q.TryAdd((frameBuf, length)))
                     pool.Enqueue(frameBuf);
             }
             catch (InvalidOperationException)
