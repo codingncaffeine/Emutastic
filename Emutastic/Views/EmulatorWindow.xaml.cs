@@ -4012,10 +4012,21 @@ namespace Emutastic.Views
                 };
 
                 var recCfg = _configService.GetRecordingConfiguration();
+
+                // Aspect-ratio correction is currently scoped to CD-i only —
+                // its half-height interlaced framebuffer (e.g. 384x140) breaks
+                // uniform integer scaling and produces unusably stretched videos
+                // (1536x560 for 4x). Every other console gets the historical
+                // uniform-scale path, leaving working recordings untouched.
+                float displayAspect = _consoleHandler?.ConsoleName == "CDi"
+                    ? avInfo.Value.geometry.aspect_ratio
+                    : 0f;
+
                 var encodeSettings = new Services.RecordingEncodeSettings
                 {
                     Quality = recCfg.Quality,
                     OutputScale = recCfg.OutputScale,
+                    DisplayAspectRatio = displayAspect,
                     Encoder = recCfg.Encoder,
                     HighChroma = recCfg.HighChroma,
                     AudioBitrateKbps = recCfg.AudioBitrateKbps,

@@ -20,6 +20,15 @@ namespace Emutastic.Services
         public string Encoder { get; set; } = "Auto";   // Auto / NVENC / x264
         public bool HighChroma { get; set; } = false;
         public int AudioBitrateKbps { get; set; } = 192;
+
+        /// <summary>
+        /// Displayed aspect ratio reported by libretro (geometry.aspect_ratio).
+        /// When > 0, scaling derives output width from height × aspect so non-
+        /// square-pixel framebuffers (CD-i half-height interlaced, certain Genesis
+        /// modes, etc.) come out at the correct viewing aspect instead of a stretched
+        /// or squished mess. When 0/NaN, falls back to uniform integer scaling.
+        /// </summary>
+        public float DisplayAspectRatio { get; set; } = 0f;
     }
 
     public class RecordingService : IRecordingService
@@ -340,15 +349,50 @@ namespace Emutastic.Services
                 // Integer upscale at encode time using nearest-neighbor.
                 // Sharper after platform re-encode (e.g. YouTube re-encodes
                 // tiny frames with heavy quantization that smears pixel art).
+                //
+                // When the core reports a display aspect ratio that differs from
+                // the framebuffer's pixel aspect (CD-i half-height, interlaced
+                // modes, anamorphic Genesis hi-res), derive the target width from
+                // height × aspect so the final video matches what's on screen.
+                // Otherwise scale uniformly. H.264 needs even dimensions, so round.
+                // Aspect correction is conservative: only fires when the framebuffer
+                // pixel aspect is *dramatically* wrong vs the displayed aspect (>40%
+                // off). That catches half-height interlaced modes (CD-i, some N64
+                // resolutions) without disturbing typical retro consoles where the
+                // framebuffer is square-ish but libretro reports a CRT-correct
+                // display aspect — those recordings keep their existing pixel-
+                // perfect look.
                 int scale = Math.Clamp(settings.OutputScale, 1, 4);
-                string scaleFilter = scale > 1
-                    ? $"-vf scale={width * scale}:{height * scale}:flags=neighbor "
+                int targetW, targetH;
+                float aspect = settings.DisplayAspectRatio;
+                bool aspectValid = aspect > 0.1f && !float.IsNaN(aspect) && !float.IsInfinity(aspect);
+                float fbAspect = (float)width / Math.Max(1, height);
+                float aspectRatio = aspectValid ? Math.Max(aspect / fbAspect, fbAspect / aspect) : 1f;
+                bool needsAspectFix = aspectValid && aspectRatio > 1.4f;
+
+                if (needsAspectFix)
+                {
+                    targetH = height * scale;
+                    targetW = (int)Math.Round(targetH * aspect);
+                }
+                else
+                {
+                    targetW = width  * scale;
+                    targetH = height * scale;
+                }
+                if ((targetW & 1) != 0) targetW++;
+                if ((targetH & 1) != 0) targetH++;
+
+                bool needsScaleFilter = targetW != width || targetH != height;
+                string scaleFilter = needsScaleFilter
+                    ? $"-vf scale={targetW}:{targetH}:flags=neighbor "
                     : "";
 
                 Trace.WriteLine($"[Recording] Encoding with {activeEncoder} " +
                                 $"quality={settings.Quality} scale={scale}x pixfmt={pixFmtOut} " +
                                 $"(hw probe: nvenc={hw.nvenc} amf={hw.amf} qsv={hw.qsv})");
-                Trace.WriteLine($"[Recording] {frameCount} frames, {width}x{height}@{fps}fps → {width * scale}x{height * scale}");
+                Trace.WriteLine($"[Recording] {frameCount} frames, {width}x{height}@{fps}fps " +
+                                $"(fbAspect={fbAspect:F3} dispAspect={aspect:F3} fix={needsAspectFix}) → {targetW}x{targetH}");
 
                 // Step 1: Encode raw video → temp MP4
                 string encodeArgs =
