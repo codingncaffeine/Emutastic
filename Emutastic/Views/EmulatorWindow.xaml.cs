@@ -3931,17 +3931,27 @@ namespace Emutastic.Views
 
             string? err;
 
-            // Some HW-render cores (Vectrex, PPSSPP/PSP, CDi, anything routed through
+            // Some HW-render cores (Vectrex, PPSSPP/PSP, anything routed through
             // GenericHandler with no overlay flags) read back to a CPU buffer and
             // display via WPF rather than rendering into a child HWND. WGC has no
-            // window to target in those cases. Detect that condition principle-first
-            // — if no captureHwnd would be available, route through the FFmpeg
-            // readback path. Cores that *do* have a HWND (GameCube embedded window,
-            // N64 GL overlay) still take the WGC zero-copy path.
+            // child window to target in those cases.
+            //
+            // Two recovery paths:
+            //   - Vectrex stays on the FFmpeg readback path (verified working,
+            //     small frames, low data rate; no perf risk).
+            //   - Everything else (PSP and any future case) falls back to WGC
+            //     against the main emulator window HWND. WGC captures the
+            //     composited window via DWM on the GPU side — zero CPU readback,
+            //     no temp file, no emu-thread copy. Fixes PSP's 8.4 MB-per-frame
+            //     readback that was tanking game FPS during recording.
+            //
+            // Cores that *do* have an overlay HWND (GameCube embedded window,
+            // N64 GL overlay) keep their existing zero-copy WGC path unchanged.
             bool noOverlayHwnd = _vulkanOverlayHwnd == IntPtr.Zero
                               && _glOverlayHwnd == IntPtr.Zero
                               && (_hwndHost?.Handle ?? IntPtr.Zero) == IntPtr.Zero;
-            bool useReadbackFfmpegPath = _hwRenderActive && noOverlayHwnd;
+            bool isVectrex = _consoleHandler?.ConsoleName == "Vectrex";
+            bool useReadbackFfmpegPath = _hwRenderActive && noOverlayHwnd && isVectrex;
 
             if (_hwRenderActive && !useReadbackFfmpegPath)
             {
@@ -3955,7 +3965,11 @@ namespace Emutastic.Views
                     return;
                 }
 
-                // Determine the HWND to capture
+                // Determine the HWND to capture. Order: dedicated overlay
+                // (Vulkan/GL) → embedded host → main emulator window. The
+                // main-window fallback covers HW-readback cores like PSP that
+                // don't create a child HWND but still benefit from WGC's
+                // GPU-side capture instead of CPU-side glReadPixels recording.
                 IntPtr captureHwnd = IntPtr.Zero;
                 if (_isVulkanHwRender && _vulkanOverlayHwnd != IntPtr.Zero)
                     captureHwnd = _vulkanOverlayHwnd;
@@ -3963,6 +3977,14 @@ namespace Emutastic.Views
                     captureHwnd = _glOverlayHwnd;
                 else if (_hwndHost is not null && _hwndHost.Handle != IntPtr.Zero)
                     captureHwnd = _hwndHost.Handle;
+                else
+                {
+                    // Main-window fallback — _wpfHwnd is only set inside
+                    // SubclassOverlay, which never runs for HW cores without
+                    // an overlay (e.g. PSP). Resolve directly from this window
+                    // so the fallback actually works.
+                    captureHwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+                }
 
                 RecLog($"captureHwnd=0x{captureHwnd:X}");
 
@@ -4167,9 +4189,17 @@ namespace Emutastic.Views
                         _ => uint.MaxValue
                     };
                 case "Saturn":
+                    // Both Kronos and Beetle Saturn decode RetroPad IDs into Saturn
+                    // buttons using RetroArch's standard "6-button-on-modern-pad"
+                    // convention (not the Saturn pad's physical positional layout).
+                    // Kronos: yabause/src/libretro/libretro.c
+                    // Beetle: beetle-saturn-libretro/input.cpp
+                    //   JOYPAD_B (0) → A   JOYPAD_A (8) → B   JOYPAD_R (11) → C
+                    //   JOYPAD_Y (1) → X   JOYPAD_X (9) → Y   JOYPAD_L (10) → Z
+                    //   JOYPAD_L2 (12) → L-trigger  JOYPAD_R2 (13) → R-trigger
                     return n switch {
-                        "a" => JOYPAD_Y, "b" => JOYPAD_B, "c" => JOYPAD_A,
-                        "x" => JOYPAD_X, "y" => JOYPAD_L, "z" => JOYPAD_R,
+                        "a" => JOYPAD_B, "b" => JOYPAD_A, "c" => JOYPAD_R,
+                        "x" => JOYPAD_Y, "y" => JOYPAD_X, "z" => JOYPAD_L,
                         "l" => 12, "r" => 13,               // shoulder → L2/R2
                         "select" => JOYPAD_SELECT, "start" => JOYPAD_START,
                         "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,

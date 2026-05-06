@@ -520,9 +520,13 @@ namespace Emutastic.Services
                         _ => uint.MaxValue
                     };
                 case "Saturn":
+                    // RetroPad IDs both Kronos and Beetle Saturn expect (mirror of
+                    // EmulatorWindow.GetLibretroButtonId for "Saturn"):
+                    //   A=0 (B), B=8 (A), C=11 (R), X=1 (Y), Y=9 (X), Z=10 (L),
+                    //   L=12 (L2), R=13 (R2). Keep this aligned with that switch.
                     return n switch {
-                        "a" => 1, "b" => 0, "c" => 8,
-                        "x" => 9, "y" => 10, "z" => 11,
+                        "a" => 0, "b" => 8, "c" => 11,
+                        "x" => 1, "y" => 9, "z" => 10,
                         "l" => 12, "r" => 13,
                         "select" => 2, "start" => 3,
                         "up" => 4, "down" => 5, "left" => 6, "right" => 7,
