@@ -34,7 +34,14 @@ jobs:
         shell: pwsh
 
       - name: Publish
-        run: dotnet publish Emutastic/Emutastic.csproj /p:PublishProfile=Release-win-x64
+        # Strip the leading 'v' from the tag so /p:Version receives "1.3.10" not "v1.3.10"
+        # — System.Version doesn't accept the v-prefix. Sets AssemblyVersion / FileVersion
+        # so the About tab in-app reads the actual release version.
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $ver = $tag.TrimStart('v','V')
+          dotnet publish Emutastic/Emutastic.csproj /p:PublishProfile=Release-win-x64 /p:Version=$ver
+        shell: pwsh
 
       - name: Zip release
         run: |

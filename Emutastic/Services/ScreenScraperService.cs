@@ -80,7 +80,6 @@ namespace Emutastic.Services
             { "NeoGeo",       142},
             { "CDi",          133},
             { "Odyssey2",     104},
-            { "DOS",          135},   // ScreenScraper "PC Dos" — not 136 (Win3.x) / 138 (modern Windows)
         };
 
         public ScreenScraperService()
@@ -185,39 +184,6 @@ namespace Emutastic.Services
         /// </summary>
         private static IEnumerable<string> BuildRomNomCandidates(string console, string romPath)
         {
-            if (console == "DOS")
-            {
-                string ext = Path.GetExtension(romPath);
-                bool isLooseExe = ext.Equals(".exe", StringComparison.OrdinalIgnoreCase)
-                               || ext.Equals(".com", StringComparison.OrdinalIgnoreCase)
-                               || ext.Equals(".bat", StringComparison.OrdinalIgnoreCase);
-
-                if (isLooseExe)
-                {
-                    string? parent      = Path.GetFileName(Path.GetDirectoryName(romPath));
-                    string? grandparent = Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(romPath)));
-
-                    foreach (string? candidate in new[] { parent, grandparent })
-                    {
-                        if (string.IsNullOrWhiteSpace(candidate)) continue;
-                        if (candidate.Length <= 1) continue; // drive-letter shadow
-                        if (DosShadowFolders.Contains(candidate)) continue;
-
-                        yield return candidate + ".zip";
-
-                        string romanized = SwapNumeralStyle(candidate, toRoman: true);
-                        if (!string.Equals(romanized, candidate, StringComparison.OrdinalIgnoreCase))
-                            yield return romanized + ".zip";
-
-                        string arabicized = SwapNumeralStyle(candidate, toRoman: false);
-                        if (!string.Equals(arabicized, candidate, StringComparison.OrdinalIgnoreCase) &&
-                            !string.Equals(arabicized, romanized,  StringComparison.OrdinalIgnoreCase))
-                            yield return arabicized + ".zip";
-
-                        yield break;
-                    }
-                }
-            }
             yield return Path.GetFileName(romPath);
         }
 

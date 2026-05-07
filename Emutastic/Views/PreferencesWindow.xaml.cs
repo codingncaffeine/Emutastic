@@ -60,7 +60,7 @@ namespace Emutastic.Views
         private List<string> _lastKnownDevices = new();
 
         // ── Section navigation ────────────────────────────────────────────────
-        private enum PrefSection { Controls, SystemFiles, Cores, Library, Theme, Snaps, CoreOptions, Achievements, Media }
+        private enum PrefSection { Controls, SystemFiles, Cores, Library, Theme, Snaps, CoreOptions, Achievements, Media, About }
         private PrefSection _activeSection = PrefSection.Controls;
 
         // ── Core Options state ────────────────────────────────────────────────
@@ -643,6 +643,7 @@ namespace Emutastic.Views
                 case "achievements":  NavAchievements.IsChecked = true; break;
                 case "media":
                 case "folders":       NavMedia.IsChecked = true; break;
+                case "about":         NavAbout.IsChecked = true; break;
             }
         }
 
@@ -657,6 +658,7 @@ namespace Emutastic.Views
             else if (sender == NavCoreOptions)  ShowSection(PrefSection.CoreOptions);
             else if (sender == NavAchievements) ShowSection(PrefSection.Achievements);
             else if (sender == NavMedia)        ShowSection(PrefSection.Media);
+            else if (sender == NavAbout)        ShowSection(PrefSection.About);
         }
 
         private void ShowSection(PrefSection section)
@@ -672,6 +674,7 @@ namespace Emutastic.Views
             PanelCoreOptions.Visibility = section == PrefSection.CoreOptions ? Visibility.Visible : Visibility.Collapsed;
             PanelAchievements.Visibility = section == PrefSection.Achievements ? Visibility.Visible : Visibility.Collapsed;
             PanelMedia.Visibility       = section == PrefSection.Media        ? Visibility.Visible : Visibility.Collapsed;
+            PanelAbout.Visibility       = section == PrefSection.About        ? Visibility.Visible : Visibility.Collapsed;
 
             if (section == PrefSection.SystemFiles) BuildBiosPanel();
             if (section == PrefSection.Media)       LoadFoldersSettings();
@@ -681,6 +684,7 @@ namespace Emutastic.Views
             if (section == PrefSection.Snaps)       LoadSnapsSettings();
             if (section == PrefSection.CoreOptions) BuildCoreOptionsTab();
             if (section == PrefSection.Achievements) LoadAchievementsSettings();
+            if (section == PrefSection.About)       LoadAboutSettings();
 
             // Start controller hotplug polling only while Controls tab is visible.
             if (section == PrefSection.Controls)
@@ -721,7 +725,6 @@ namespace Emutastic.Views
             ("Sony",      new[] { "PlayStation" }),
             ("NEC",       new[] { "TurboGrafx-CD" }),
             ("Arcade",    new[] { "Neo Geo" }),
-            ("PC",        new[] { "DOS (MT-32 / CM-32L)" }),
             ("Other",     new[] { "3DO", "Philips CD-i" }),
         };
 
@@ -1427,7 +1430,7 @@ namespace Emutastic.Views
             ("NEC",       new[] { "TG16", "TGCD" }),
             ("Atari",     new[] { "Atari2600", "Atari7800", "Jaguar" }),
             ("Arcade",    new[] { "Arcade", "NeoGeo" }),
-            ("Other",     new[] { "NGP", "ColecoVision", "Vectrex", "3DO", "CDi", "DOS" }),
+            ("Other",     new[] { "NGP", "ColecoVision", "Vectrex", "3DO", "CDi" }),
         };
 
         private void BuildCoresPanel()
@@ -3672,6 +3675,191 @@ namespace Emutastic.Views
         private void RASaveBtn_Click(object sender, RoutedEventArgs e)
             => SaveAchievementsSettings();
 
+        // ── About tab ─────────────────────────────────────────────────────────
+        // Shows the installed app version, queries GitHub for the latest release,
+        // and provides links to the release page + repo. Read-only — no auto-update.
+
+        private const string GitHubRepoUrl = "https://github.com/codingncaffeine/Emutastic";
+        private const string GitHubLatestApiUrl = "https://api.github.com/repos/codingncaffeine/Emutastic/releases/latest";
+        private const string GitHubReleasesUrl = "https://github.com/codingncaffeine/Emutastic/releases";
+
+        private static readonly System.Net.Http.HttpClient _aboutHttp = CreateAboutHttp();
+        private string? _latestReleaseUrl;
+        private bool _aboutLoaded;
+
+        private static System.Net.Http.HttpClient CreateAboutHttp()
+        {
+            var http = new System.Net.Http.HttpClient
+            {
+                Timeout = TimeSpan.FromSeconds(10)
+            };
+            // GitHub API rejects requests without a User-Agent.
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("Emutastic/about-tab");
+            http.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
+            return http;
+        }
+
+        private void LoadAboutSettings()
+        {
+            // Installed version comes from the assembly (set in csproj via auto-versioning,
+            // or defaults to 1.0.0.0 in dev builds). Strip the trailing ".0" if present
+            // so it reads as "1.3.10" instead of "1.3.10.0".
+            var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+            string installedDisplay = version != null
+                ? $"v{version.Major}.{version.Minor}.{version.Build}"
+                : "v?.?.?";
+            AboutInstalledVersionText.Text = installedDisplay;
+
+            // Only hit GitHub once per window lifetime — re-clicking the tab shouldn't
+            // hammer the API. The "Check Again" button forces a re-fetch.
+            if (!_aboutLoaded)
+            {
+                _aboutLoaded = true;
+                _ = CheckLatestReleaseAsync();
+            }
+        }
+
+        private async Task CheckLatestReleaseAsync()
+        {
+            AboutLatestVersionText.Text = "Checking…";
+            AboutUpdateStatusText.Text = "";
+            AboutOpenLatestReleaseBtn.Visibility = Visibility.Collapsed;
+            AboutRecheckBtn.IsEnabled = false;
+
+            try
+            {
+                using var resp = await _aboutHttp.GetAsync(GitHubLatestApiUrl);
+                // User may have closed Preferences while the request was in flight —
+                // skip UI writes if so. Avoids ResourceReferenceKeyNotFoundException
+                // when FindResource runs against a detached visual tree.
+                if (!IsLoaded) return;
+                if (!resp.IsSuccessStatusCode)
+                {
+                    AboutLatestVersionText.Text = "—";
+                    AboutUpdateStatusText.Text = $"Could not reach GitHub ({(int)resp.StatusCode}). Check your connection or try again later.";
+                    return;
+                }
+
+                string json = await resp.Content.ReadAsStringAsync();
+                if (!IsLoaded) return;
+                using var doc = System.Text.Json.JsonDocument.Parse(json);
+                var root = doc.RootElement;
+
+                string tagName = root.TryGetProperty("tag_name", out var tagEl) ? tagEl.GetString() ?? "" : "";
+                string releaseUrl = root.TryGetProperty("html_url", out var urlEl) ? urlEl.GetString() ?? GitHubReleasesUrl : GitHubReleasesUrl;
+                _latestReleaseUrl = releaseUrl;
+
+                if (string.IsNullOrWhiteSpace(tagName))
+                {
+                    AboutLatestVersionText.Text = "—";
+                    AboutUpdateStatusText.Text = "GitHub returned an unexpected response. Try again later.";
+                    return;
+                }
+
+                AboutLatestVersionText.Text = tagName;
+
+                if (TryCompareVersions(tagName, out int comparison))
+                {
+                    if (comparison > 0)
+                    {
+                        AboutUpdateStatusText.Text = "A newer release is available.";
+                        AboutUpdateStatusText.Foreground = (System.Windows.Media.Brush)FindResource("AccentBrush");
+                        AboutOpenLatestReleaseBtn.Visibility = Visibility.Visible;
+                    }
+                    else if (comparison < 0)
+                    {
+                        AboutUpdateStatusText.Text = "Your installed version is newer than the latest release. (You're probably running a development build.)";
+                        AboutUpdateStatusText.Foreground = (System.Windows.Media.Brush)FindResource("TextSecondaryBrush");
+                    }
+                    else
+                    {
+                        AboutUpdateStatusText.Text = "You're running the latest release.";
+                        AboutUpdateStatusText.Foreground = (System.Windows.Media.Brush)FindResource("TextSecondaryBrush");
+                    }
+                }
+                else
+                {
+                    AboutUpdateStatusText.Text = "Could not compare versions — open the release on GitHub for details.";
+                    AboutOpenLatestReleaseBtn.Visibility = Visibility.Visible;
+                }
+            }
+            catch (TaskCanceledException)
+            {
+                if (!IsLoaded) return;
+                AboutLatestVersionText.Text = "—";
+                AboutUpdateStatusText.Text = "Network request timed out. Try again later.";
+            }
+            catch (Exception ex)
+            {
+                if (!IsLoaded) return;
+                AboutLatestVersionText.Text = "—";
+                AboutUpdateStatusText.Text = $"Could not check for updates: {ex.Message}";
+            }
+            finally
+            {
+                if (IsLoaded) AboutRecheckBtn.IsEnabled = true;
+            }
+        }
+
+        /// <summary>
+        /// Compare installed version (Assembly) against a GitHub tag like "v1.3.10".
+        /// comparison: positive = remote newer, negative = local newer, zero = equal.
+        /// Returns false when either side is unparseable.
+        /// </summary>
+        private static bool TryCompareVersions(string remoteTag, out int comparison)
+        {
+            comparison = 0;
+            string trimmed = remoteTag.TrimStart('v', 'V').Trim();
+            if (!Version.TryParse(trimmed, out var remote)) return false;
+            var local = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+            if (local == null) return false;
+            // Only compare Major.Minor.Build — the user-visible release scheme is 3-part.
+            var localTrimmed  = new Version(local.Major,  local.Minor,  local.Build);
+            var remoteTrimmed = new Version(remote.Major, remote.Minor, remote.Build);
+            comparison = remoteTrimmed.CompareTo(localTrimmed);
+            return true;
+        }
+
+        private void AboutOpenLatestRelease_Click(object sender, RoutedEventArgs e)
+        {
+            string url = _latestReleaseUrl ?? GitHubReleasesUrl;
+            OpenUrl(url);
+        }
+
+        private void AboutOpenRepo_Click(object sender, RoutedEventArgs e)
+            => OpenUrl(GitHubRepoUrl);
+
+        private void AboutRecheck_Click(object sender, RoutedEventArgs e)
+            => _ = CheckLatestReleaseAsync();
+
+        private static void OpenUrl(string url)
+        {
+            // Defense in depth: only allow http(s) URLs through ShellExecute. The
+            // hardcoded constants are already https; the latest-release URL comes
+            // from a parsed GitHub JSON response, which a hostile MITM/poisoned
+            // mirror could substitute with file:// or javascript:. Validate the
+            // scheme before launching anything.
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)
+                || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            {
+                System.Diagnostics.Trace.WriteLine($"[About] OpenUrl refused non-http(s) URL: {url}");
+                return;
+            }
+
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = uri.AbsoluteUri,
+                    UseShellExecute = true,
+                });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[About] OpenUrl failed: {ex.Message}");
+            }
+        }
+
         // ── Media tab ─────────────────────────────────────────────────────────
         // Holds media folder paths (screenshots, recordings) and recording quality settings.
 
@@ -4100,12 +4288,6 @@ namespace Emutastic.Views
             // Game Boy Advance (optional — mgba has built-in HLE BIOS)
             new("GBA","Game Boy Advance","gba_bios.bin","BIOS (optional, improves compatibility)",16384,"a860e8c0b6d573d191e4ec7db1b1e4f6"),
 
-            // DOS — Roland MT-32 / CM-32L ROMs for authentic MIDI music (optional).
-            // Multiple firmware revisions exist; size is the stable identifier.
-            new("DOS","DOS (MT-32 / CM-32L)","MT32_CONTROL.ROM","Roland MT-32 control ROM (MIDI music)",65536,null),
-            new("DOS","DOS (MT-32 / CM-32L)","MT32_PCM.ROM","Roland MT-32 PCM ROM (MIDI music)",524288,null),
-            new("DOS","DOS (MT-32 / CM-32L)","CM32L_CONTROL.ROM","Roland CM-32L control ROM (adds sound effects)",65536,null),
-            new("DOS","DOS (MT-32 / CM-32L)","CM32L_PCM.ROM","Roland CM-32L PCM ROM (adds sound effects)",1048576,null),
         };
     }
 }

@@ -87,7 +87,6 @@ namespace Emutastic.Services
             { "CDi",          "Philips - CD-i"                                 },
             { "NeoGeo",       "SNK - Neo Geo"                                  },
             { "Arcade",       "FBNeo - Arcade Games"                           },
-            { "DOS",          "DOS"                                            },
         };
 
         // Consoles whose thumbnails may live in more than one libretro folder.
@@ -708,26 +707,6 @@ namespace Emutastic.Services
                         titleCandidates.Add(neoTitle);
                 }
 
-                // DOS: prefer the install folder over the exe stem, skipping
-                // drive-letter shadow folders ("C"). Skip exe-stem fallbacks when
-                // a folder name is available — SKULL.EXE would false-match snaps
-                // the same way it false-matches box art.
-                bool dosSnapOverride = false;
-                if (console == "DOS")
-                {
-                    string? parent      = Path.GetFileName(Path.GetDirectoryName(romPath));
-                    string? grandparent = Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(romPath)));
-                    foreach (string? candidate in new[] { grandparent, parent })
-                    {
-                        if (string.IsNullOrWhiteSpace(candidate)) continue;
-                        if (IsDosShadowFolderName(candidate)) continue;
-                        if (titleCandidates.Any(c => c.Equals(candidate, StringComparison.OrdinalIgnoreCase))) continue;
-                        titleCandidates.Insert(0, candidate);
-                        dosSnapOverride = true;
-                    }
-                }
-
-                if (!dosSnapOverride)
                 {
                     string rawStem = Path.GetFileNameWithoutExtension(romPath);
                     titleCandidates.Add(rawStem);
@@ -842,35 +821,9 @@ namespace Emutastic.Services
                 // (SKULL.EXE → "Skull and Crossbones"). Try parent+grandparent
                 // (handles "Epic Pinball\C\EP8.EXE" shadow folders) and skip the
                 // exe-stem fallback entirely when a non-shadow folder is present.
-                string? dosParent = null;
-                string? dosGrandparent = null;
-                bool dosOverrideAvailable = false;
-                if (console == "DOS" && !string.IsNullOrWhiteSpace(romPath))
-                {
-                    dosParent      = Path.GetFileName(Path.GetDirectoryName(romPath));
-                    dosGrandparent = Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(romPath)));
-                    dosOverrideAvailable =
-                        (!string.IsNullOrWhiteSpace(dosParent)      && !IsDosShadowFolderName(dosParent)) ||
-                        (!string.IsNullOrWhiteSpace(dosGrandparent) && !IsDosShadowFolderName(dosGrandparent));
-                }
+                titleCandidates.Add(result.Title);
 
-                // result.Title comes from OpenVGDB (unlikely for DOS) or a cleaned
-                // filename fallback — skip it for DOS when we have a better folder name.
-                if (!dosOverrideAvailable)
-                    titleCandidates.Add(result.Title);
-
-                if (dosOverrideAvailable)
-                {
-                    foreach (string? candidate in new[] { dosGrandparent, dosParent })
-                    {
-                        if (string.IsNullOrWhiteSpace(candidate)) continue;
-                        if (IsDosShadowFolderName(candidate)) continue;
-                        if (titleCandidates.Any(c => c.Equals(candidate, StringComparison.OrdinalIgnoreCase))) continue;
-                        titleCandidates.Insert(0, candidate);
-                    }
-                }
-
-                if (!string.IsNullOrWhiteSpace(romPath) && !dosOverrideAvailable)
+                if (!string.IsNullOrWhiteSpace(romPath))
                 {
                     string raw = RomService.CleanTitle(Path.GetFileName(romPath));
                     if (!titleCandidates.Contains(raw))

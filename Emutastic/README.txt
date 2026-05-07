@@ -141,7 +141,7 @@ Code formats supported:
                               does for "RetroArch handled" cheats)
 
 A few cores cannot apply cheats (PSP, 3DS, Vectrex, 3DO, CD-i, NeoGeo,
-ColecoVision, DOS). For those systems the Cheats option is hidden.
+ColecoVision). For those systems the Cheats option is hidden.
 
 
 CORE SPECIFIC NOTES

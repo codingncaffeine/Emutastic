@@ -555,6 +555,11 @@
                                  GroupName="NavGroup"
                                  Style="{StaticResource NavBtn}"
                                  Checked="NavBtn_Checked"/>
+                    <RadioButton x:Name="NavAbout"
+                                 Content="About"
+                                 GroupName="NavGroup"
+                                 Style="{StaticResource NavBtn}"
+                                 Checked="NavBtn_Checked"/>
                 </StackPanel>
             </Border>
 
@@ -1706,6 +1711,78 @@
                                 <ComboBoxItem Content="256 kbps"/>
                                 <ComboBoxItem Content="320 kbps"/>
                             </ComboBox>
+
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+
+                <!-- ── PANEL: About ───────────────────────────────────────── -->
+                <Grid x:Name="PanelAbout" Visibility="Collapsed">
+                    <ScrollViewer Margin="32,24,32,24" VerticalScrollBarVisibility="Auto">
+                        <StackPanel MaxWidth="560" HorizontalAlignment="Left">
+
+                            <TextBlock Text="ABOUT" Style="{StaticResource PrefLabel}"/>
+                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,0,0,16"/>
+
+                            <!-- App name + tagline -->
+                            <TextBlock Text="Emutastic"
+                                       FontSize="24" FontWeight="Bold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                       Margin="0,0,0,4"/>
+                            <TextBlock Text="An OpenEmu-style retro game library for Windows."
+                                       FontSize="12"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       Margin="0,0,0,24"/>
+
+                            <!-- Current version -->
+                            <TextBlock Text="Installed Version"
+                                       FontSize="11" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       Margin="0,0,0,4"/>
+                            <TextBlock x:Name="AboutInstalledVersionText"
+                                       Text="v0.0.0"
+                                       FontSize="14"
+                                       FontFamily="Consolas"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                       Margin="0,0,0,16"/>
+
+                            <!-- Latest release -->
+                            <TextBlock Text="Latest Release"
+                                       FontSize="11" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       Margin="0,0,0,4"/>
+                            <TextBlock x:Name="AboutLatestVersionText"
+                                       Text="Checking…"
+                                       FontSize="14"
+                                       FontFamily="Consolas"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                       Margin="0,0,0,4"/>
+                            <TextBlock x:Name="AboutUpdateStatusText"
+                                       FontSize="11"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       Margin="0,0,0,16"
+                                       TextWrapping="Wrap"/>
+
+                            <!-- Action buttons -->
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <Button x:Name="AboutOpenLatestReleaseBtn"
+                                        Content="Open Latest Release"
+                                        Style="{StaticResource ActionBtn}"
+                                        Margin="0,0,8,0"
+                                        Visibility="Collapsed"
+                                        Click="AboutOpenLatestRelease_Click"/>
+                                <Button x:Name="AboutOpenRepoBtn"
+                                        Content="View on GitHub"
+                                        Style="{StaticResource SecondaryBtn}"
+                                        Padding="14,8"
+                                        Click="AboutOpenRepo_Click"/>
+                                <Button x:Name="AboutRecheckBtn"
+                                        Content="Check Again"
+                                        Style="{StaticResource SecondaryBtn}"
+                                        Padding="14,8"
+                                        Margin="8,0,0,0"
+                                        Click="AboutRecheck_Click"/>
+                            </StackPanel>
 
                         </StackPanel>
                     </ScrollViewer>

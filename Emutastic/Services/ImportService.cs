@@ -157,11 +157,6 @@ namespace Emutastic.Services
                 if (!string.IsNullOrEmpty(_activeHintedConsole))
                     System.Diagnostics.Trace.WriteLine($"[Import] Batch hinted console: {_activeHintedConsole}");
 
-                // Clear DOS scan cache from any prior batch — the new batch
-                // could touch the same paths but should re-walk because file
-                // contents may have changed (e.g. user just added a CD image).
-                Services.Dos.DosImporter.ResetBatchCache();
-
                 StatusChanged?.Invoke("Scanning files…");
 
                 // Count new files and add to running total.
@@ -172,8 +167,8 @@ namespace Emutastic.Services
                     {
                         if (Directory.Exists(path))
                         {
-                            var (files, _) = PrepareFolderImport(path);
-                            batchCount += files.Count;
+                            batchCount += Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories)
+                                .Count(f => RomService.IsRomFile(f));
                         }
                         else if (File.Exists(path) && RomService.IsRomFile(path))
                             batchCount++;
@@ -243,15 +238,12 @@ namespace Emutastic.Services
                 }
             }
 
-            // Console-nav hint short-circuit (non-DOS): user dropped a folder
-            // while on a specific console nav like "SNES" or "Saturn". Trust that
-            // — recursively flat-import every file as the hinted console, no
-            // per-file heuristic detection. DOS keeps the existing folder import
-            // path because PrepareFolderImport's job (multi-exe consolidation) is
-            // already DOS-specific.
+            // Console-nav hint short-circuit: user dropped a folder while on a
+            // specific console nav (e.g. SNES). Trust that signal — recursively
+            // flat-import every file as the hinted console, no per-file
+            // heuristic detection.
             if (!string.IsNullOrEmpty(_activeHintedConsole)
-                && _activeHintedConsole != "All Games"
-                && _activeHintedConsole != "DOS")
+                && _activeHintedConsole != "All Games")
             {
                 foreach (string file in Directory.EnumerateFiles(folderPath, "*", SearchOption.AllDirectories))
                 {
@@ -263,318 +255,13 @@ namespace Emutastic.Services
                 return;
             }
 
-            var (filesToImport, dosOverrides) = PrepareFolderImport(folderPath);
-
-            foreach (string file in filesToImport)
+            // No hint: per-file detection.
+            foreach (string file in Directory.EnumerateFiles(folderPath, "*", SearchOption.AllDirectories))
             {
-                if (dosOverrides.TryGetValue(file, out string? overrideTitle))
-                    await ImportRomFileAsync(file, "DOS", Path.GetFileName(file), overrideTitle: overrideTitle);
-                else
-                    await ImportSingleRomAsync(file);
-
+                if (!RomService.IsRomFile(file)) continue;
+                await ImportSingleRomAsync(file);
                 Interlocked.Increment(ref _progressCurrent);
                 ProgressChanged?.Invoke(_progressCurrent, _progressTotal);
-            }
-        }
-
-        /// <summary>
-        /// Enumerates importable ROM files in a folder, collapsing multi-executable
-        /// DOS game installs (e.g. Dungeon Hack/ with DHACK.EXE + SETUP.EXE + DOS4GW.EXE)
-        /// down to one entry per folder. Returns the filtered file list plus a map
-        /// of DOS entry-point paths → folder-name title overrides so artwork lookup
-        /// uses the game name rather than the executable stem.
-        /// </summary>
-        private static (List<string> files, Dictionary<string, string> dosOverrides)
-            PrepareFolderImport(string folderPath)
-        {
-            var allRoms = Directory.EnumerateFiles(folderPath, "*.*", SearchOption.AllDirectories)
-                                   .Where(RomService.IsRomFile)
-                                   .ToList();
-
-            // Group DOS executables (.exe/.com/.bat) by their containing folder.
-            var dosByFolder = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-            foreach (string f in allRoms)
-            {
-                if (!IsDosExecutable(f)) continue;
-                string folder = Path.GetDirectoryName(f) ?? string.Empty;
-                if (!dosByFolder.TryGetValue(folder, out var list))
-                    dosByFolder[folder] = list = new List<string>();
-                list.Add(f);
-            }
-
-            var skip = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var overrides = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-            // Pass 1: pick one exe per containing folder.
-            var folderPicks = new List<(string folder, string chosenExe, string? title)>();
-
-            foreach (var kvp in dosByFolder)
-            {
-                string folder = kvp.Key;
-                var exes = kvp.Value;
-                string? gameTitle = ResolveDosGameFolderName(folder, folderPath);
-
-                if (exes.Count == 1)
-                {
-                    string onlyExe = exes[0];
-                    // Always prefer the resolved game title when we have one — even
-                    // for top-of-scan single-exe folders. Without this, a folder
-                    // like `King's Quest 1/dosbox.exe` (TDC packaging where the
-                    // bundled DOSBox launcher is the only exe at the top, real
-                    // game in a subfolder) would import with title "Dosbox"
-                    // because CleanTitle falls back to the exe stem.
-                    string? title = string.IsNullOrWhiteSpace(gameTitle) ? null : gameTitle;
-                    folderPicks.Add((folder, onlyExe, title));
-                    continue;
-                }
-
-                string chosen = DosEntryPointPicker.Pick(folder, exes);
-                string resolvedTitle = string.IsNullOrWhiteSpace(gameTitle)
-                    ? Path.GetFileNameWithoutExtension(chosen)
-                    : gameTitle;
-                folderPicks.Add((folder, chosen, resolvedTitle));
-
-                foreach (string f in exes)
-                    if (!string.Equals(f, chosen, StringComparison.OrdinalIgnoreCase))
-                        skip.Add(f);
-            }
-
-            // Pass 2: merge picks sharing the same game-root folder. A GOG install
-            // typically has "<Game>/dosbox.exe" + "<Game>/C/GAME.EXE" + often a pile
-            // of "<Game>/C/VESA/<VENDOR>/*.exe" video-driver probes — all one game.
-            // Within a bucket, discard utility picks (dosbox.exe, VESA probes) and
-            // prefer the shallowest remaining pick (the real game binary in "C/").
-            var bucketsByRoot = new Dictionary<string, List<(string folder, string exe, string? title, int depth)>>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var (folder, exe, title) in folderPicks)
-            {
-                string? rootPath = ResolveDosGameRootPath(folder, folderPath);
-                string key = rootPath ?? folder;
-                int depth = folder.Count(c => c == Path.DirectorySeparatorChar);
-
-                if (!bucketsByRoot.TryGetValue(key, out var list))
-                    bucketsByRoot[key] = list = new List<(string, string, string?, int)>();
-                list.Add((folder, exe, title, depth));
-            }
-
-            foreach (var (_, picks) in bucketsByRoot)
-            {
-                var nonUtil = picks.Where(p => !DosEntryPointPicker.IsUtility(p.exe)).ToList();
-
-                // Every candidate in this bucket is a utility (DOSBOX.EXE,
-                // setup.exe, dos4gw.exe, etc.). There's no actual game here
-                // to import — the folder ships only launcher chrome with no
-                // discoverable game binary. Skip every pick instead of
-                // promoting one of them as the "main exe" (which would land
-                // in the library as a "Dosbox" tile that does nothing useful).
-                if (nonUtil.Count == 0)
-                {
-                    foreach (var p in picks) skip.Add(p.exe);
-                    System.Diagnostics.Trace.WriteLine($"[Import] SKIPPED bucket {Path.GetFileName(picks[0].folder)} — only utility exes found ({string.Join(", ", picks.Select(p => Path.GetFileName(p.exe)))})");
-                    continue;
-                }
-
-                var chosen = nonUtil
-                    .OrderBy(p => p.depth)
-                    .ThenByDescending(p => DosEntryPointPicker.TryGetSize(p.exe))
-                    .First();
-
-                // Prefer a folder-derived title from ANY pick in the bucket (the
-                // top-level pick knows the real game folder name even if the C/-level
-                // pick couldn't resolve it).
-                string? title = picks.Select(p => p.title).FirstOrDefault(t => !string.IsNullOrWhiteSpace(t));
-                if (!string.IsNullOrWhiteSpace(title))
-                    overrides[chosen.exe] = title;
-
-                foreach (var p in picks)
-                    if (!string.Equals(p.exe, chosen.exe, StringComparison.OrdinalIgnoreCase))
-                        skip.Add(p.exe);
-            }
-
-            var filtered = allRoms.Where(f => !skip.Contains(f)).ToList();
-            return (filtered, overrides);
-        }
-
-        private static bool IsDosExecutable(string path)
-        {
-            string ext = Path.GetExtension(path);
-            return ext.Equals(".exe", StringComparison.OrdinalIgnoreCase)
-                || ext.Equals(".com", StringComparison.OrdinalIgnoreCase)
-                || ext.Equals(".bat", StringComparison.OrdinalIgnoreCase);
-        }
-
-        // Folder names that shadow the DOS drive letter or are bulk containers —
-        // never the actual game name. Walk past them when resolving a game title.
-        private static readonly HashSet<string> DosShadowFolderNames = new(StringComparer.OrdinalIgnoreCase)
-        {
-            "dos", "dos games", "doslib", "games", "game", "pc", "pcgames",
-            "bin", "program files", "programs",
-        };
-
-        private static bool IsShadowFolder(string folderName)
-        {
-            if (string.IsNullOrWhiteSpace(folderName)) return true;
-            if (folderName.Length <= 1) return true; // drive-letter shadows (C, D, etc.)
-            return DosShadowFolderNames.Contains(folderName);
-        }
-
-        /// <summary>
-        /// Walks up from <paramref name="exeFolder"/> (the folder containing the chosen
-        /// DOS executable) toward <paramref name="scanRoot"/>, skipping drive-letter
-        /// shadow folders like "C" and bulk-dirs like "DOS" / "games". Returns the
-        /// first folder name that looks like a real game title, or null if nothing
-        /// suitable is found before reaching the scan root.
-        /// </summary>
-        private static string? ResolveDosGameFolderName(string exeFolder, string scanRoot)
-        {
-            string? path = ResolveDosGameRootPath(exeFolder, scanRoot);
-            if (string.IsNullOrEmpty(path)) return null;
-            string name = Path.GetFileName(path);
-            if (string.IsNullOrWhiteSpace(name)) return null;
-
-            // Curated profile DB gets first look — its title is authoritative for hits
-            // (e.g. user's folder is "doom19s" but the profile says "DOOM").
-            try
-            {
-                var scan = Services.Dos.DosImporter.Scan(path);
-                if (scan?.Profile != null && !string.IsNullOrWhiteSpace(scan.Profile.Title))
-                    return scan.Profile.Title;
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Trace.WriteLine($"[ResolveDosGameFolderName] profile scan failed: {ex.Message}");
-            }
-
-            // Fall back to the existing DosGameList catalog (filename-based fuzzy match)
-            // and finally the raw folder name.
-            var entry = DosGameListService.Match(name);
-            return entry?.Title ?? name;
-        }
-
-        /// <summary>
-        /// Resolves the "game root" for a DOS executable folder. If the user imported
-        /// a per-game folder (e.g. "Sim City 2000"), every nested exe — even under
-        /// VESA/AHEAD/ — buckets into that one game root. If they imported a bulk
-        /// directory (e.g. "dos games"), each immediate subfolder becomes its own root.
-        /// Two picks sharing this path are collapsed into a single game entry.
-        /// </summary>
-        private static string? ResolveDosGameRootPath(string exeFolder, string scanRoot)
-        {
-            string scanRootFull   = Path.GetFullPath(scanRoot).TrimEnd(Path.DirectorySeparatorChar);
-            string exeFolderFull  = Path.GetFullPath(exeFolder).TrimEnd(Path.DirectorySeparatorChar);
-            string scanRootName   = Path.GetFileName(scanRootFull);
-            bool scanRootIsBulk   = IsShadowFolder(scanRootName);
-
-            // Per-game scan: scanRoot itself is the game folder. Everything under
-            // it collapses to one entry regardless of nesting.
-            if (!scanRootIsBulk)
-                return string.IsNullOrWhiteSpace(scanRootName) ? null : scanRootFull;
-
-            // Bulk scan: game root = immediate child of scanRoot on the path to exeFolder.
-            if (exeFolderFull.Equals(scanRootFull, StringComparison.OrdinalIgnoreCase))
-                return scanRootFull; // exe is directly in the bulk dir — unusual, fall back
-
-            string current = exeFolderFull;
-            while (true)
-            {
-                string? parent = Path.GetDirectoryName(current);
-                if (string.IsNullOrEmpty(parent)) return null;
-                string parentFull = parent.TrimEnd(Path.DirectorySeparatorChar);
-                if (parentFull.Equals(scanRootFull, StringComparison.OrdinalIgnoreCase))
-                    return current;
-                current = parentFull;
-            }
-        }
-
-        /// <summary>
-        /// Chooses the likely launch executable from a folder containing multiple
-        /// DOS executables. Filters out common utility/installer stems, then prefers
-        /// the exe whose basename matches the folder name, falling back to the largest file.
-        /// </summary>
-        private static class DosEntryPointPicker
-        {
-            // Common DOS install / utility executables that should not be treated as
-            // the main game entry point. Matched case-insensitively on the filename stem.
-            private static readonly HashSet<string> UtilityStems = new(StringComparer.OrdinalIgnoreCase)
-            {
-                "setup", "config", "configure",
-                "dos4gw", "cwsdpmi", "dpmi32vm", "pmodew", "pmode", "dos32a",
-                "deice", "readme", "view", "register", "order",
-                "sbpro", "sbconfig", "sbset", "ultramid", "ultrinit",
-                "help", "info", "runme", "unpack", "unzip", "arj",
-                // Launchers / wrappers commonly shipped alongside the actual game
-                "dosbox", "dosbox-x", "!start", "start", "launch", "autoexec",
-                "autodet", "detect", "test", "scan",
-                // Redistributables sometimes left in GOG install dirs
-                "vcredist", "vcredist_x86", "vcredist_x64", "dotnetfx", "directx", "dxsetup",
-            };
-
-            public static string Pick(string folder, List<string> exes)
-            {
-                // First: ask the curated DOS profile DB. If any file in the folder
-                // matches a known game's telltale, use that profile's preferredExe
-                // (when present in the candidate list). This is the Boxer-style
-                // path — for the ~30 hand-curated games in dos-profiles.json, the
-                // exe pick is decisive instead of heuristic.
-                try
-                {
-                    var scan = Services.Dos.DosImporter.Scan(folder);
-                    if (scan?.Profile?.PreferredExe != null)
-                    {
-                        var preferred = exes.FirstOrDefault(f =>
-                            string.Equals(Path.GetFileName(f), scan.Profile.PreferredExe,
-                                StringComparison.OrdinalIgnoreCase));
-                        if (preferred != null) return preferred;
-                    }
-                    // Even without a preferredExe, an exe that matches a profile
-                    // telltale is the right pick (e.g. Wolfenstein 3D's vswap.wl6
-                    // telltale won't appear here, but its WOLF3D.EXE is also a
-                    // telltale and would be in the candidate list).
-                    if (scan?.MainExePath != null)
-                    {
-                        var matched = exes.FirstOrDefault(f =>
-                            string.Equals(f, scan.MainExePath, StringComparison.OrdinalIgnoreCase));
-                        if (matched != null) return matched;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Trace.WriteLine($"[DosEntryPointPicker] profile scan failed, falling back: {ex.Message}");
-                }
-
-                var candidates = exes.Where(f => !IsUtility(f)).ToList();
-                if (candidates.Count == 0) candidates = exes;
-
-                // Prefer exe whose stem matches the folder name.
-                string folderName = Path.GetFileName(folder);
-                var folderMatch = candidates.FirstOrDefault(f =>
-                    Path.GetFileNameWithoutExtension(f)
-                        .Equals(folderName, StringComparison.OrdinalIgnoreCase));
-                if (folderMatch != null) return folderMatch;
-
-                // Otherwise pick the largest file — main game binaries are almost
-                // always significantly larger than DPMI extenders or SB setup utilities.
-                return candidates
-                    .Select(f => (path: f, size: TryGetSize(f)))
-                    .OrderByDescending(t => t.size)
-                    .First().path;
-            }
-
-            public static bool IsUtility(string path)
-            {
-                string stem = Path.GetFileNameWithoutExtension(path);
-                if (UtilityStems.Contains(stem)) return true;
-                if (stem.StartsWith("uninst",  StringComparison.OrdinalIgnoreCase)) return true;
-                if (stem.StartsWith("install", StringComparison.OrdinalIgnoreCase)) return true;
-                // VESA-probe utilities shipped with mid-90s DOS games in VESA\<vendor>\*
-                if (stem.EndsWith("vesa", StringComparison.OrdinalIgnoreCase)) return true;
-                if (stem.StartsWith("vesa", StringComparison.OrdinalIgnoreCase)) return true;
-                return false;
-            }
-
-            public static long TryGetSize(string path)
-            {
-                try { return new FileInfo(path).Length; } catch { return 0; }
             }
         }
 
@@ -590,21 +277,7 @@ namespace Emutastic.Services
             // gets misclassified or skipped entirely.
             if (!string.IsNullOrEmpty(_activeHintedConsole) && _activeHintedConsole != "All Games")
             {
-                // For DOS zip/dosz drops, peek inside the archive: if a profile
-                // telltale matches an entry leaf name, pass the profile's title
-                // as the override so the library tile reads "DOOM" instead of
-                // whatever the zip filename was ("doom19s_shareware.zip" etc.).
-                string? overrideTitleFromProfile = null;
-                if (_activeHintedConsole == "DOS"
-                    && (ext.Equals(".zip", StringComparison.OrdinalIgnoreCase)
-                     || ext.Equals(".dosz", StringComparison.OrdinalIgnoreCase)))
-                {
-                    var archScan = Services.Dos.DosImporter.ScanArchive(romPath);
-                    if (archScan?.Profile != null && !string.IsNullOrWhiteSpace(archScan.Profile.Title))
-                        overrideTitleFromProfile = archScan.Profile.Title;
-                }
-
-                await ImportRomFileAsync(romPath, _activeHintedConsole, fileName, overrideTitle: overrideTitleFromProfile);
+                await ImportRomFileAsync(romPath, _activeHintedConsole, fileName);
                 return;
             }
 
@@ -619,18 +292,10 @@ namespace Emutastic.Services
                     return;
             }
 
-            // Handle zip / 7z / dosz files
-            if (ext.Equals(".zip",  StringComparison.OrdinalIgnoreCase) ||
-                ext.Equals(".7z",   StringComparison.OrdinalIgnoreCase) ||
-                ext.Equals(".dosz", StringComparison.OrdinalIgnoreCase))
+            // Handle zip / 7z files
+            if (ext.Equals(".zip", StringComparison.OrdinalIgnoreCase) ||
+                ext.Equals(".7z",  StringComparison.OrdinalIgnoreCase))
             {
-                // .dosz is unambiguously DOSBox Pure content — skip the peek and import as-is.
-                if (ext.Equals(".dosz", StringComparison.OrdinalIgnoreCase))
-                {
-                    await ImportRomFileAsync(romPath, "DOS", fileName);
-                    return;
-                }
-
                 // Peek inside to see if it contains a known ROM extension.
                 // Arcade ROMs (FBNeo) contain chip dumps with no standard ROM extension,
                 // so if nothing recognized is found inside we treat the archive as-is.
@@ -722,10 +387,8 @@ namespace Emutastic.Services
                 }
 
                 // Arcade and NeoGeo ROMs are multi-file chip dump archives — import the ZIP as-is.
-                // DOS zips are loaded directly by DOSBox Pure (auto-mounts as C:) — also as-is.
                 if (innerConsole.Equals("Arcade", StringComparison.OrdinalIgnoreCase) ||
-                    innerConsole.Equals("NeoGeo", StringComparison.OrdinalIgnoreCase) ||
-                    innerConsole.Equals("DOS",    StringComparison.OrdinalIgnoreCase))
+                    innerConsole.Equals("NeoGeo", StringComparison.OrdinalIgnoreCase))
                 {
                     await ImportRomFileAsync(romPath, innerConsole, fileName);
                     return;
@@ -1239,21 +902,6 @@ namespace Emutastic.Services
                     return string.Empty; // routes to Arcade via the caller
                 }
 
-                // DOS detection: .exe/.com/.bat inside = DOSBox Pure content.
-                // Checked after the recognized-ROM pass so a real ROM takes priority,
-                // but before falling back to Arcade.
-                bool hasDosExe = entries.Any(e =>
-                {
-                    string x = Path.GetExtension(e.Key ?? string.Empty);
-                    return x.Equals(".exe", StringComparison.OrdinalIgnoreCase)
-                        || x.Equals(".com", StringComparison.OrdinalIgnoreCase)
-                        || x.Equals(".bat", StringComparison.OrdinalIgnoreCase);
-                });
-                if (hasDosExe)
-                {
-                    ImportLog($"  → archive contains .exe/.com/.bat, routing to DOS");
-                    return "DOS";
-                }
 
                 ImportLog($"  → no ROM extension found, routing to Arcade");
                 return string.Empty;

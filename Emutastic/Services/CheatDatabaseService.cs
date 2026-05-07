@@ -52,7 +52,6 @@ namespace Emutastic.Services
             ["Atari - Jaguar"]                                  = "Jaguar",
             ["Coleco - ColecoVision"]                           = "ColecoVision",
             ["FBNeo - Arcade Games"]                            = "Arcade",
-            ["DOS"]                                             = "DOS",
         };
 
         /// <summary>Local root for the extracted cheat database.</summary>

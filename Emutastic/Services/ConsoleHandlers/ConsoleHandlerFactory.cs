@@ -17,7 +17,6 @@ namespace Emutastic.Services.ConsoleHandlers
             "Dreamcast"      => new DreamcastHandler(),
             "Vectrex"        => new VectrexHandler(),
             "CDi"            => new CdiHandler(),
-            "DOS"            => new DosHandler(),
             _                => new GenericHandler(console),
         };
     }

@@ -75,7 +75,6 @@ namespace Emutastic.Services
             ["same_cdi_libretro.dll"]         = new() { Level = CheatSupportLevel.NotSupported, FormatHint = "",                          Example = "" },
             ["geolith_libretro.dll"]          = new() { Level = CheatSupportLevel.NotSupported, FormatHint = "",                          Example = "" },
             ["fbneo_libretro.dll"]            = new() { Level = CheatSupportLevel.Unknown,      FormatHint = "",                          Example = "" },
-            ["dosbox_pure_libretro.dll"]      = new() { Level = CheatSupportLevel.NotSupported, FormatHint = "",                          Example = "" },
         };
 
         /// <summary>
