@@ -137,6 +137,45 @@ namespace Emutastic.Services.Dos
                 || ext.Equals(".bat", StringComparison.OrdinalIgnoreCase);
         }
 
+        // ── Utility / non-game executable stems ─────────────────────────────
+        // Files with these stems are emphatically NOT the game's main exe even
+        // though they're real executables in the folder. They're DPMI extenders,
+        // sound-card configurators, bundled DOSBox launchers, redistributables,
+        // etc. Filter them before the largest-file fallback picks the biggest
+        // unrelated binary (DOSBOX.EXE is often the largest file in a "GOG
+        // packaged for portability" distribution).
+        private static readonly HashSet<string> UtilityStems = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "setup", "config", "configure",
+            "dos4gw", "cwsdpmi", "dpmi32vm", "pmodew", "pmode", "dos32a",
+            "deice", "readme", "view", "register", "order",
+            "sbpro", "sbconfig", "sbset", "ultramid", "ultrinit",
+            "help", "info", "runme", "unpack", "unzip", "arj",
+            // Bundled DOSBox launchers shipped alongside the actual game —
+            // these are launchers for the game, not the game itself.
+            "dosbox", "dosbox-x", "!start", "start", "launch", "autoexec",
+            "autodet", "detect", "test", "scan",
+            // Redistributables sometimes left in GOG install dirs
+            "vcredist", "vcredist_x86", "vcredist_x64", "dotnetfx", "directx", "dxsetup",
+        };
+
+        /// <summary>
+        /// True when an executable filename is a known DOS-era or repackager
+        /// utility, NOT the game's main entry point. Used by the exe picker to
+        /// skip these when picking the largest binary in a folder.
+        /// </summary>
+        public static bool IsUtilityExe(string fileName)
+        {
+            string stem = Path.GetFileNameWithoutExtension(fileName);
+            if (UtilityStems.Contains(stem)) return true;
+            if (stem.StartsWith("uninst",  StringComparison.OrdinalIgnoreCase)) return true;
+            if (stem.StartsWith("install", StringComparison.OrdinalIgnoreCase)) return true;
+            // VESA-probe utilities shipped with mid-90s DOS games in VESA\<vendor>\*
+            if (stem.EndsWith("vesa",   StringComparison.OrdinalIgnoreCase)) return true;
+            if (stem.StartsWith("vesa", StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
         // ── CD-sized threshold ───────────────────────────────────────────────
         // Boxer's BXCDROMSizeThreshold (~100 MB). Folders >= this are treated as
         // CD-distribution layouts (mount as D:); below = floppy-distribution (A:).

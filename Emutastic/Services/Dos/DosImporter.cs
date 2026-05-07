@@ -231,21 +231,32 @@ namespace Emutastic.Services.Dos
 
         private static string? PickMainExe(List<string> allFiles, DosGameProfile? profile, string folderPath)
         {
-            // Filter to executables only, excluding utility/installer stems.
-            var execs = allFiles
+            // Step 1: every executable in the folder, including utilities — used
+            // for the profile's preferredExe lookup (a profile occasionally
+            // names what we'd otherwise filter, e.g. an exe stem also used by
+            // a sound configurator).
+            var allExecs = allFiles
                 .Where(f => DosImportPolicies.IsExecutableExtension(Path.GetExtension(f)))
                 .Where(f => !DosImportPolicies.InstallerRank(Path.GetFileName(f)).HasValue)
                 .ToList();
 
-            if (execs.Count == 0) return null;
+            if (allExecs.Count == 0) return null;
 
-            // Profile's preferredExe wins outright.
+            // Profile's preferredExe wins outright (skips the utility filter).
             if (profile?.PreferredExe != null)
             {
-                var match = execs.FirstOrDefault(f =>
+                var match = allExecs.FirstOrDefault(f =>
                     string.Equals(Path.GetFileName(f), profile.PreferredExe, StringComparison.OrdinalIgnoreCase));
                 if (match != null) return match;
             }
+
+            // Step 2: filter utilities (DOSBOX.EXE, DOS4GW.EXE, sound config
+            // tools, etc.) before the heuristic fallbacks. A common TDC/eXoDOS
+            // packaging ships a per-game DOSBOX.EXE that's BIGGER than the
+            // actual game binary — without this filter, largest-file picks the
+            // wrong thing and the tile gets labeled "Dosbox".
+            var execs = allExecs.Where(f => !DosImportPolicies.IsUtilityExe(Path.GetFileName(f))).ToList();
+            if (execs.Count == 0) execs = allExecs; // every exe was a "utility" — fall back to the unfiltered list
 
             // Folder-name match heuristic: prefer e.g. DOOM.EXE in a folder named "Doom".
             string folderLeaf = Path.GetFileName(folderPath);

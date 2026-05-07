@@ -317,10 +317,13 @@ namespace Emutastic.Services
                 if (exes.Count == 1)
                 {
                     string onlyExe = exes[0];
-                    bool isSubfolder = !string.Equals(folder, folderPath, StringComparison.OrdinalIgnoreCase);
-                    // Only apply override when we have a real game-title resolution;
-                    // at the top of a raw scan, onlyExe stands on its own.
-                    string? title = (isSubfolder && !string.IsNullOrWhiteSpace(gameTitle)) ? gameTitle : null;
+                    // Always prefer the resolved game title when we have one — even
+                    // for top-of-scan single-exe folders. Without this, a folder
+                    // like `King's Quest 1/dosbox.exe` (TDC packaging where the
+                    // bundled DOSBox launcher is the only exe at the top, real
+                    // game in a subfolder) would import with title "Dosbox"
+                    // because CleanTitle falls back to the exe stem.
+                    string? title = string.IsNullOrWhiteSpace(gameTitle) ? null : gameTitle;
                     folderPicks.Add((folder, onlyExe, title));
                     continue;
                 }
@@ -357,7 +360,19 @@ namespace Emutastic.Services
             foreach (var (_, picks) in bucketsByRoot)
             {
                 var nonUtil = picks.Where(p => !DosEntryPointPicker.IsUtility(p.exe)).ToList();
-                if (nonUtil.Count == 0) nonUtil = picks; // every pick is a utility — keep best of them
+
+                // Every candidate in this bucket is a utility (DOSBOX.EXE,
+                // setup.exe, dos4gw.exe, etc.). There's no actual game here
+                // to import — the folder ships only launcher chrome with no
+                // discoverable game binary. Skip every pick instead of
+                // promoting one of them as the "main exe" (which would land
+                // in the library as a "Dosbox" tile that does nothing useful).
+                if (nonUtil.Count == 0)
+                {
+                    foreach (var p in picks) skip.Add(p.exe);
+                    System.Diagnostics.Trace.WriteLine($"[Import] SKIPPED bucket {Path.GetFileName(picks[0].folder)} — only utility exes found ({string.Join(", ", picks.Select(p => Path.GetFileName(p.exe)))})");
+                    continue;
+                }
 
                 var chosen = nonUtil
                     .OrderBy(p => p.depth)
@@ -799,9 +814,25 @@ namespace Emutastic.Services
             // user's CopyToLibrary setting — the whole point of portable is that the USB
             // is self-contained, and a ROM living outside PortableData/ defeats that.
             // Logged as a warning when it overrides a user's explicit setting.
+            //
+            // Source-path-is-ephemeral force-copy: when the user drags a file/folder
+            // from inside a still-archived .rar / .7z / .zip viewer (WinRAR, 7-Zip,
+            // Windows Explorer's built-in zip browser), the OS-level drag-and-drop
+            // hands us a path inside the archiver's temp extraction directory:
+            //   WinRAR:  %TEMP%\Rar$DRa{pid}.{n}.rartemp\...
+            //   7-Zip:   %TEMP%\7zE{n}.tmp\...
+            //   Windows: %TEMP%\Temp{n}_{archive}.zip\...
+            // That folder gets garbage-collected the moment the archiver cleans up
+            // (close, reboot, periodic sweep), leaving the imported game pointing at
+            // a path that no longer exists. Always force-copy out of %TEMP% so the
+            // imported game survives the archiver's cleanup, regardless of the user's
+            // CopyToLibrary/portable settings.
+            bool sourceIsEphemeral = IsUnderSystemTemp(romPath);
             var libConfig = _configService?.GetLibraryConfiguration();
             bool portableForceCopy = AppPaths.IsPortable;
-            bool effectiveCopy = portableForceCopy || (libConfig is { CopyToLibrary: true } && !string.IsNullOrEmpty(libConfig.LibraryPath));
+            bool effectiveCopy = portableForceCopy
+                              || sourceIsEphemeral
+                              || (libConfig is { CopyToLibrary: true } && !string.IsNullOrEmpty(libConfig.LibraryPath));
 
             if (effectiveCopy)
             {
@@ -813,12 +844,20 @@ namespace Emutastic.Services
                         // Portable wins: route every import into [DataRoot]/Roms/{Console}/.
                         destDir = AppPaths.GetFolder("Roms", console);
                     }
-                    else
+                    else if (libConfig is { CopyToLibrary: true } && !string.IsNullOrEmpty(libConfig.LibraryPath))
                     {
-                        destDir = libConfig!.LibraryPath;
+                        destDir = libConfig.LibraryPath;
                         if (libConfig.OrganizeByConsole)
                             destDir = Path.Combine(destDir, console);
                         Directory.CreateDirectory(destDir);
+                    }
+                    else
+                    {
+                        // Ephemeral-source fallback: user didn't pick a library
+                        // path but we MUST move the file out of %TEMP% before the
+                        // archiver cleans up. Use the same DataRoot/Roms/{console}
+                        // path portable mode uses.
+                        destDir = AppPaths.GetFolder("Roms", console);
                     }
 
                     string destPath = Path.Combine(destDir, Path.GetFileName(romPath));
@@ -852,9 +891,17 @@ namespace Emutastic.Services
                         StatusChanged?.Invoke($"Skipped {fileName} — portable copy failed: {ex.Message}");
                         return;
                     }
+                    // Ephemeral source: same problem as portable — falling through imports a
+                    // path that will vanish when the archiver cleans up. Skip with a warning.
+                    if (sourceIsEphemeral)
+                    {
+                        ImportLog($"[{fileName}] EPHEMERAL COPY FAILED — {ex.Message} — skipping (source under %TEMP%)");
+                        StatusChanged?.Invoke($"Skipped {fileName} — extract the archive first, then re-import: {ex.Message}");
+                        return;
+                    }
                     ImportLog($"[{fileName}] COPY FAILED — {ex.Message}");
                     StatusChanged?.Invoke($"Copy failed for {fileName} — importing in-place");
-                    // Non-portable: fall through and import from the original location
+                    // Non-portable, non-ephemeral: safe to fall through and import from source.
                 }
             }
 
@@ -1391,6 +1438,29 @@ namespace Emutastic.Services
             // Unquoted: FILE name.bin BINARY
             string[] parts = fileLine.Split(' ', StringSplitOptions.RemoveEmptyEntries);
             return parts.Length >= 2 ? parts[1] : null;
+        }
+
+        /// <summary>
+        /// True when the path is under the OS temp directory — i.e. came from a
+        /// drag-and-drop out of WinRAR / 7-Zip / Windows zip browser, where the
+        /// archiver extracted to its own temp folder before the OS handed us the
+        /// path. Such paths are deleted by the archiver's cleanup, so the import
+        /// MUST copy the file to a permanent location before storing the path
+        /// in the DB.
+        /// </summary>
+        private static bool IsUnderSystemTemp(string path)
+        {
+            try
+            {
+                string full = Path.GetFullPath(path);
+                string temp = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar);
+                return full.StartsWith(temp + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                    || full.Equals(temp, StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         /// <summary>
