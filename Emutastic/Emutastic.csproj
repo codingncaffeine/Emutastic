@@ -27,6 +27,10 @@
     </Content>
   </ItemGroup>
   <ItemGroup>
+    <!-- DOS profile DB — embedded JSON resource consumed by DosProfileDatabase. -->
+    <EmbeddedResource Include="Resources\dos-profiles.json" />
+  </ItemGroup>
+  <ItemGroup>
     <Content Include="Cores\*.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

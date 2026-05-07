@@ -608,7 +608,7 @@ namespace Emutastic
 
                 if (romFiles.Length > 0)
                 {
-                    _importer.ImportFilesAsync(romFiles);
+                    _importer.ImportFilesAsync(romFiles, ResolveImportConsoleHint());
                 }
             }
             base.OnDrop(e);
@@ -952,8 +952,29 @@ namespace Emutastic
             };
             if (dialog.ShowDialog() == true)
             {
-                _importer.ImportFilesAsync(dialog.FileNames);
+                _importer.ImportFilesAsync(dialog.FileNames, ResolveImportConsoleHint());
             }
+        }
+
+        /// <summary>
+        /// Returns the user's currently-selected console as a hint for the importer,
+        /// or null when on a non-console view ("All Games", "Recent Games",
+        /// "Favorites", any user-collection, etc.).
+        ///
+        /// Source of truth is <c>_currentNavTag</c> (the actual active nav button),
+        /// not <c>_vm.SelectedConsole</c> — non-console navs (Recent / Favorites /
+        /// Collections) don't reset SelectedConsole, so it can stale-stick on the
+        /// last console the user visited and produce the wrong hint.
+        ///
+        /// Hint is also validated against <c>RomService.IsKnownConsoleTag</c> so a
+        /// future nav-tag change can't slip a non-console string through to the
+        /// importer (which would tag every dropped file with that bogus value).
+        /// </summary>
+        private string? ResolveImportConsoleHint()
+        {
+            string tag = _currentNavTag;
+            if (!Services.RomService.IsKnownConsoleTag(tag)) return null;
+            return tag;
         }
 
         private void SetStatus(string msg, bool autoClear = false)

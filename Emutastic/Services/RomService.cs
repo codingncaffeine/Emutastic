@@ -312,6 +312,16 @@ namespace Emutastic.Services
                 : "Unknown";
         }
 
+        /// <summary>
+        /// Returns true when <paramref name="tag"/> is a canonical console tag known
+        /// to the rest of the app (everything in <see cref="ManufacturerMap"/>).
+        /// Used to validate user-supplied import hints before they reach detection.
+        /// </summary>
+        public static bool IsKnownConsoleTag(string? tag)
+        {
+            return !string.IsNullOrEmpty(tag) && ManufacturerMap.ContainsKey(tag);
+        }
+
         // Box art aspect ratios (width / height) sourced from actual Libretro thumbnail repository.
         // Values below 1.0 = portrait, above 1.0 = landscape.
         private static readonly Dictionary<string, double> ConsoleBoxRatios = new()

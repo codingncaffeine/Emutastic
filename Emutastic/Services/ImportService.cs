@@ -51,8 +51,16 @@ namespace Emutastic.Services
 
         // ── Serial import queue (OpenEmu-style) ──────────────────────────
         // New imports are appended; a single background worker drains them in order.
-        private readonly Channel<List<string>> _importQueue =
-            Channel.CreateUnbounded<List<string>>(new UnboundedChannelOptions { SingleReader = true });
+        // Each queue item carries the user-selected console nav at the moment of
+        // drop. When non-null, that hint coerces the import to that console —
+        // sidesteps detection failures (especially for DOS, where filename-only
+        // detection is unreliable).
+        private readonly Channel<(List<string> Paths, string? HintedConsole)> _importQueue =
+            Channel.CreateUnbounded<(List<string>, string?)>(new UnboundedChannelOptions { SingleReader = true });
+
+        // Set per-batch by ProcessImportQueueAsync from the channel item; consulted
+        // by single-rom and folder import paths to override console detection.
+        private string? _activeHintedConsole;
         private Task? _importWorker;
         private readonly object _workerLock = new();
         public volatile bool IsImporting;
@@ -73,13 +81,35 @@ namespace Emutastic.Services
         /// Returns immediately — the actual work happens on a background worker.
         /// </summary>
         public void ImportFilesAsync(IEnumerable<string> filePaths)
+            => ImportFilesAsync(filePaths, hintedConsole: null);
+
+        /// <summary>
+        /// Variant that takes a user-selected console as a strong hint. When set,
+        /// detection is bypassed for the batch — every dropped file/folder is
+        /// imported as that console. Use case: user is on the DOS nav and drops
+        /// a folder; we trust the nav over fragile filename-based detection.
+        /// Pass null when called from "All Games" or any non-console nav.
+        /// </summary>
+        public void ImportFilesAsync(IEnumerable<string> filePaths, string? hintedConsole)
         {
             var paths = filePaths.ToList();
             if (paths.Count == 0) return;
 
+            // Defense-in-depth: even if a future caller forgets to filter, never
+            // let an unknown-console string poison the import. The UI layer
+            // already validates via RomService.IsKnownConsoleTag, but if we
+            // accept the hint here without re-checking we risk tagging files
+            // with nonsense (e.g. a user-collection name) that would never
+            // match a console handler later.
+            if (!string.IsNullOrEmpty(hintedConsole) && !RomService.IsKnownConsoleTag(hintedConsole))
+            {
+                System.Diagnostics.Trace.WriteLine($"[Import] Ignoring unknown hinted console '{hintedConsole}'.");
+                hintedConsole = null;
+            }
+
             lock (_workerLock)
             {
-                _importQueue.Writer.TryWrite(paths);
+                _importQueue.Writer.TryWrite((paths, hintedConsole));
 
                 if (_importWorker == null || _importWorker.IsCompleted)
                     _importWorker = Task.Run(ProcessImportQueueAsync);
@@ -106,7 +136,7 @@ namespace Emutastic.Services
             // The 200ms coalescing window lets rapid drag-and-drops merge into one drain.
             while (true)
             {
-                if (!_importQueue.Reader.TryRead(out var paths))
+                if (!_importQueue.Reader.TryRead(out var item))
                 {
                     // Nothing ready — wait up to 200ms for a new batch before exiting.
                     using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
@@ -121,6 +151,16 @@ namespace Emutastic.Services
                         break; // Timeout — no more batches, we're done
                     }
                 }
+
+                var paths = item.Paths;
+                _activeHintedConsole = item.HintedConsole;
+                if (!string.IsNullOrEmpty(_activeHintedConsole))
+                    System.Diagnostics.Trace.WriteLine($"[Import] Batch hinted console: {_activeHintedConsole}");
+
+                // Clear DOS scan cache from any prior batch — the new batch
+                // could touch the same paths but should re-walk because file
+                // contents may have changed (e.g. user just added a CD image).
+                Services.Dos.DosImporter.ResetBatchCache();
 
                 StatusChanged?.Invoke("Scanning files…");
 
@@ -201,6 +241,26 @@ namespace Emutastic.Services
                         }
                     }
                 }
+            }
+
+            // Console-nav hint short-circuit (non-DOS): user dropped a folder
+            // while on a specific console nav like "SNES" or "Saturn". Trust that
+            // — recursively flat-import every file as the hinted console, no
+            // per-file heuristic detection. DOS keeps the existing folder import
+            // path because PrepareFolderImport's job (multi-exe consolidation) is
+            // already DOS-specific.
+            if (!string.IsNullOrEmpty(_activeHintedConsole)
+                && _activeHintedConsole != "All Games"
+                && _activeHintedConsole != "DOS")
+            {
+                foreach (string file in Directory.EnumerateFiles(folderPath, "*", SearchOption.AllDirectories))
+                {
+                    if (!RomService.IsRomFile(file)) continue;
+                    await ImportRomFileAsync(file, _activeHintedConsole, Path.GetFileName(file));
+                    Interlocked.Increment(ref _progressCurrent);
+                    ProgressChanged?.Invoke(_progressCurrent, _progressTotal);
+                }
+                return;
             }
 
             var (filesToImport, dosOverrides) = PrepareFolderImport(folderPath);
@@ -357,8 +417,21 @@ namespace Emutastic.Services
             string name = Path.GetFileName(path);
             if (string.IsNullOrWhiteSpace(name)) return null;
 
-            // Prefer the curated DOS catalog's canonical title if the folder
-            // name matches a known entry. Falls back to the raw folder name.
+            // Curated profile DB gets first look — its title is authoritative for hits
+            // (e.g. user's folder is "doom19s" but the profile says "DOOM").
+            try
+            {
+                var scan = Services.Dos.DosImporter.Scan(path);
+                if (scan?.Profile != null && !string.IsNullOrWhiteSpace(scan.Profile.Title))
+                    return scan.Profile.Title;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[ResolveDosGameFolderName] profile scan failed: {ex.Message}");
+            }
+
+            // Fall back to the existing DosGameList catalog (filename-based fuzzy match)
+            // and finally the raw folder name.
             var entry = DosGameListService.Match(name);
             return entry?.Title ?? name;
         }
@@ -423,6 +496,37 @@ namespace Emutastic.Services
 
             public static string Pick(string folder, List<string> exes)
             {
+                // First: ask the curated DOS profile DB. If any file in the folder
+                // matches a known game's telltale, use that profile's preferredExe
+                // (when present in the candidate list). This is the Boxer-style
+                // path — for the ~30 hand-curated games in dos-profiles.json, the
+                // exe pick is decisive instead of heuristic.
+                try
+                {
+                    var scan = Services.Dos.DosImporter.Scan(folder);
+                    if (scan?.Profile?.PreferredExe != null)
+                    {
+                        var preferred = exes.FirstOrDefault(f =>
+                            string.Equals(Path.GetFileName(f), scan.Profile.PreferredExe,
+                                StringComparison.OrdinalIgnoreCase));
+                        if (preferred != null) return preferred;
+                    }
+                    // Even without a preferredExe, an exe that matches a profile
+                    // telltale is the right pick (e.g. Wolfenstein 3D's vswap.wl6
+                    // telltale won't appear here, but its WOLF3D.EXE is also a
+                    // telltale and would be in the candidate list).
+                    if (scan?.MainExePath != null)
+                    {
+                        var matched = exes.FirstOrDefault(f =>
+                            string.Equals(f, scan.MainExePath, StringComparison.OrdinalIgnoreCase));
+                        if (matched != null) return matched;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Trace.WriteLine($"[DosEntryPointPicker] profile scan failed, falling back: {ex.Message}");
+                }
+
                 var candidates = exes.Where(f => !IsUtility(f)).ToList();
                 if (candidates.Count == 0) candidates = exes;
 
@@ -463,6 +567,31 @@ namespace Emutastic.Services
         {
             string fileName = Path.GetFileName(romPath);
             string ext = Path.GetExtension(romPath);
+
+            // Console-nav hint short-circuit: when the user dropped this file
+            // while sitting on a specific console nav (e.g. DOS), trust that
+            // signal over fragile filename-based detection. Especially valuable
+            // for DOS where a bare .exe or generically-named folder otherwise
+            // gets misclassified or skipped entirely.
+            if (!string.IsNullOrEmpty(_activeHintedConsole) && _activeHintedConsole != "All Games")
+            {
+                // For DOS zip/dosz drops, peek inside the archive: if a profile
+                // telltale matches an entry leaf name, pass the profile's title
+                // as the override so the library tile reads "DOOM" instead of
+                // whatever the zip filename was ("doom19s_shareware.zip" etc.).
+                string? overrideTitleFromProfile = null;
+                if (_activeHintedConsole == "DOS"
+                    && (ext.Equals(".zip", StringComparison.OrdinalIgnoreCase)
+                     || ext.Equals(".dosz", StringComparison.OrdinalIgnoreCase)))
+                {
+                    var archScan = Services.Dos.DosImporter.ScanArchive(romPath);
+                    if (archScan?.Profile != null && !string.IsNullOrWhiteSpace(archScan.Profile.Title))
+                        overrideTitleFromProfile = archScan.Profile.Title;
+                }
+
+                await ImportRomFileAsync(romPath, _activeHintedConsole, fileName, overrideTitle: overrideTitleFromProfile);
+                return;
+            }
 
             // .bin paired with a .cue in the same folder — skip it; the .cue is the entry point.
             // Checks for ANY .cue in the folder, not just one with the same base name, so that
