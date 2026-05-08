@@ -1299,15 +1299,20 @@ namespace Emutastic.Views
                 Dispatcher.Invoke(() => StatusText.Text = "Loading game...");
 
                 // Launch-time backstop: if the DB stored a .zip/.7z RomPath (e.g. from
-                // pre-fix imports done while sitting on a console-specific nav) and the
-                // current core needs a real file, extract the inner ROM once and update
-                // the DB row so subsequent launches are fast. Skips Arcade/NeoGeo whose
-                // cores read the archive natively.
+                // pre-fix imports done while sitting on a console-specific nav), extract
+                // the inner ROM once and update the DB row so subsequent launches are
+                // fast. Skips Arcade/NeoGeo whose cores read the archive natively.
+                //
+                // Originally gated on need_fullpath=true, but FDS via Nestopia surfaced
+                // a need_fullpath=false counterexample: the core reads the zip bytes via
+                // the data buffer and rejects them because there's no FDS header. Some
+                // need_fullpath=false cores (Snes9x, FCEUmm) tolerate raw zip bytes
+                // internally; extraction is harmless for those (they get inner-ROM bytes
+                // either way) and makes the DB row correct.
                 string romToLoad = _game.RomPath;
                 string romExt = System.IO.Path.GetExtension(romToLoad);
                 if (Services.ZipRomExtractor.IsArchiveExtension(romExt)
-                    && Services.ZipRomExtractor.ConsoleNeedsExtraction(_game.Console)
-                    && _core.SystemInfo.need_fullpath)
+                    && Services.ZipRomExtractor.ConsoleNeedsExtraction(_game.Console))
                 {
                     System.Diagnostics.Trace.WriteLine($"Launch backstop: extracting {romToLoad} for {_game.Console}");
                     string? extracted = Services.ZipRomExtractor.ExtractSync(romToLoad, _game.Console);

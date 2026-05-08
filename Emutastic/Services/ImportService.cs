@@ -474,6 +474,29 @@ namespace Emutastic.Services
         private async Task ImportRomFileAsync(string romPath, string console, string fileName,
             string? overrideTitle = null)
         {
+            // ── Defensive extraction guard ──
+            // Anything reaching this method that's a .zip/.7z for a non-archive-native
+            // console (i.e. anything except Arcade/NeoGeo) gets extracted before being
+            // stored. This is belt-and-suspenders on top of the explicit extraction in
+            // ImportSingleRomAsync and the hint short-circuits — any future code path
+            // that calls this method with an archive path is automatically safe.
+            string entryExt = Path.GetExtension(romPath);
+            if (ZipRomExtractor.IsArchiveExtension(entryExt)
+                && ZipRomExtractor.ConsoleNeedsExtraction(console))
+            {
+                string? extracted = await ZipRomExtractor.ExtractAsync(romPath, console);
+                if (!string.IsNullOrEmpty(extracted) && System.IO.File.Exists(extracted))
+                {
+                    ImportLog($"[{fileName}] DEFENSIVE EXTRACT {romPath} → {extracted}");
+                    romPath = extracted;
+                    fileName = Path.GetFileName(extracted);
+                }
+                else
+                {
+                    ImportLog($"[{fileName}] WARN — defensive extract failed, importing as-is (may not launch)");
+                }
+            }
+
             // ── Copy to library folder if configured ──
             // Portable mode forces a copy into [DataRoot]/Roms/{Console}/ regardless of the
             // user's CopyToLibrary setting — the whole point of portable is that the USB
