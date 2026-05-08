@@ -825,6 +825,22 @@ namespace Emutastic.Services
             game.Id = (int)(long)idCmd.ExecuteScalar()!;
         }
 
+        /// <summary>
+        /// Updates the RomPath for a single game. Used when the launcher transparently
+        /// extracts a .zip whose path was stored as-is by the importer (pre-fix imports
+        /// via the console-nav hint short-circuit), so the next launch is fast.
+        /// </summary>
+        public void UpdateRomPath(int gameId, string newRomPath)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "UPDATE Games SET RomPath = $romPath WHERE Id = $id;";
+            cmd.Parameters.AddWithValue("$romPath", AppPaths.ToStoragePath(newRomPath));
+            cmd.Parameters.AddWithValue("$id", gameId);
+            cmd.ExecuteNonQuery();
+        }
+
         public bool RomPathExists(string romPath)
         {
             using var connection = new SqliteConnection(_connectionString);

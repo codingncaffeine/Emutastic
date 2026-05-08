@@ -1297,7 +1297,35 @@ namespace Emutastic.Views
                 System.Diagnostics.Trace.WriteLine($"Core init OK — need_fullpath={_core.SystemInfo.need_fullpath}");
 
                 Dispatcher.Invoke(() => StatusText.Text = "Loading game...");
-                bool loaded = _core.LoadGame(_game.RomPath);
+
+                // Launch-time backstop: if the DB stored a .zip/.7z RomPath (e.g. from
+                // pre-fix imports done while sitting on a console-specific nav) and the
+                // current core needs a real file, extract the inner ROM once and update
+                // the DB row so subsequent launches are fast. Skips Arcade/NeoGeo whose
+                // cores read the archive natively.
+                string romToLoad = _game.RomPath;
+                string romExt = System.IO.Path.GetExtension(romToLoad);
+                if (Services.ZipRomExtractor.IsArchiveExtension(romExt)
+                    && Services.ZipRomExtractor.ConsoleNeedsExtraction(_game.Console)
+                    && _core.SystemInfo.need_fullpath)
+                {
+                    System.Diagnostics.Trace.WriteLine($"Launch backstop: extracting {romToLoad} for {_game.Console}");
+                    string? extracted = Services.ZipRomExtractor.ExtractSync(romToLoad, _game.Console);
+                    if (!string.IsNullOrEmpty(extracted) && File.Exists(extracted))
+                    {
+                        romToLoad = extracted;
+                        _game.RomPath = extracted;
+                        try { _db?.UpdateRomPath(_game.Id, extracted); }
+                        catch (Exception ex)
+                        { System.Diagnostics.Trace.WriteLine($"UpdateRomPath failed: {ex.Message}"); }
+                    }
+                    else
+                    {
+                        System.Diagnostics.Trace.WriteLine("Launch backstop: extraction failed; passing original path to core");
+                    }
+                }
+
+                bool loaded = _core.LoadGame(romToLoad);
                 System.Diagnostics.Trace.WriteLine($"LoadGame: {loaded}");
 
                 if (!loaded)

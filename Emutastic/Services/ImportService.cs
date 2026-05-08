@@ -248,7 +248,8 @@ namespace Emutastic.Services
                 foreach (string file in Directory.EnumerateFiles(folderPath, "*", SearchOption.AllDirectories))
                 {
                     if (!RomService.IsRomFile(file)) continue;
-                    await ImportRomFileAsync(file, _activeHintedConsole, Path.GetFileName(file));
+                    string pathToImport = await ResolveImportPathAsync(file, _activeHintedConsole);
+                    await ImportRomFileAsync(pathToImport, _activeHintedConsole, Path.GetFileName(pathToImport));
                     Interlocked.Increment(ref _progressCurrent);
                     ProgressChanged?.Invoke(_progressCurrent, _progressTotal);
                 }
@@ -277,7 +278,8 @@ namespace Emutastic.Services
             // gets misclassified or skipped entirely.
             if (!string.IsNullOrEmpty(_activeHintedConsole) && _activeHintedConsole != "All Games")
             {
-                await ImportRomFileAsync(romPath, _activeHintedConsole, fileName);
+                string resolved = await ResolveImportPathAsync(romPath, _activeHintedConsole);
+                await ImportRomFileAsync(resolved, _activeHintedConsole, Path.GetFileName(resolved));
                 return;
             }
 
@@ -941,6 +943,22 @@ namespace Emutastic.Services
                 System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
                 return Task.FromResult(false); // Default to extracting if we can't check
             }
+        }
+
+        /// <summary>
+        /// When the import flow uses the console-nav hint short-circuit, the file path
+        /// goes straight to the DB without per-file detection. That bypasses the zip
+        /// extract step in ImportSingleRomAsync. This helper restores that step: if
+        /// the path is an archive and the hinted console isn't archive-native, extract
+        /// to ExtractedRoms and return the inner ROM path. Otherwise returns the input.
+        /// </summary>
+        private async Task<string> ResolveImportPathAsync(string romPath, string hintedConsole)
+        {
+            string ext = Path.GetExtension(romPath);
+            if (!ZipRomExtractor.IsArchiveExtension(ext)) return romPath;
+            if (!ZipRomExtractor.ConsoleNeedsExtraction(hintedConsole)) return romPath;
+            string? extracted = await ZipRomExtractor.ExtractAsync(romPath, hintedConsole);
+            return extracted ?? romPath;
         }
 
         private async Task<string?> ExtractZipRomAsync(string archivePath, string console)
