@@ -322,6 +322,10 @@
                                         Content="Edit Game Controls…"
                                         Style="{StaticResource OverlayMenuItemStyle}"
                                         Click="OverlayEditControls_Click"/>
+                                <Button x:Name="OverlayTurboBtn"
+                                        Content="Turbo Buttons…"
+                                        Style="{StaticResource OverlayMenuItemStyle}"
+                                        Click="OverlayTurbo_Click"/>
 <Button x:Name="OverlayFlipBtn"
                                         Content="Flip Display"
                                         Style="{StaticResource OverlayMenuItemStyle}"

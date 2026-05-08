@@ -122,6 +122,133 @@ namespace Emutastic.Views
         private const uint JOYPAD_R      = 11;
         private const uint JOYPAD_L2     = 12;
         private const uint JOYPAD_R2     = 13;
+        private const uint JOYPAD_L3     = 14;
+        private const uint JOYPAD_R3     = 15;
+
+        // Turbo / autofire: per-port set of button IDs to modulate.
+        // Modulation matches RetroArch defaults: period=6 frames, duty=3 → ~10Hz at 60fps.
+        // Counter is the existing _retroRunCallCount (incremented once per retro_run),
+        // which makes turbo timing scale correctly with fast-forward and non-60Hz cores.
+        private readonly HashSet<uint>[] _turboButtons =
+            { new(), new(), new(), new() };
+        private const long TurboPeriodFrames = 6;
+        private const long TurboDutyFrames   = 3;
+        // Buttons that are never turbo-able regardless of user choice.
+        private static readonly HashSet<uint> TurboBlacklist = new()
+        {
+            JOYPAD_SELECT, JOYPAD_START,
+            JOYPAD_UP, JOYPAD_DOWN, JOYPAD_LEFT, JOYPAD_RIGHT,
+            JOYPAD_L3, JOYPAD_R3,
+        };
+
+        // Per-port map of JOYPAD button id -> human label, populated from
+        // SET_INPUT_DESCRIPTORS at core init. Lets the turbo dialog show only the
+        // buttons the current core actually uses (e.g. NES = just B and A).
+        private readonly Dictionary<uint, string>[] _joypadDescriptors =
+            { new(), new(), new(), new() };
+        private bool _descriptorsReceived;
+
+        private void ParseInputDescriptors(IntPtr data)
+        {
+            if (data == IntPtr.Zero) return;
+            try
+            {
+                // RetroArch replaces wholesale on each call — cores re-send descriptors
+                // after device-type changes (e.g. Saturn 3D pad → digital pad shrinks
+                // the button set). Clear before re-populating.
+                for (int i = 0; i < _joypadDescriptors.Length; i++)
+                    _joypadDescriptors[i].Clear();
+                // struct retro_input_descriptor { uint port; uint device; uint index;
+                //                                 uint id; const char *description; }
+                // Terminated by an entry whose description pointer is NULL.
+                int stride = (4 * 4) + IntPtr.Size;
+                IntPtr p = data;
+                int safety = 0;
+                while (safety++ < 4096)
+                {
+                    IntPtr descPtr = Marshal.ReadIntPtr(p, 16);
+                    if (descPtr == IntPtr.Zero) break;
+                    uint port   = (uint)Marshal.ReadInt32(p, 0);
+                    uint device = (uint)Marshal.ReadInt32(p, 4);
+                    // index at +8 — not used for joypad digital buttons
+                    uint id     = (uint)Marshal.ReadInt32(p, 12);
+                    if (port < 4 && device == RETRO_DEVICE_JOYPAD && id < 16)
+                    {
+                        string label = Marshal.PtrToStringAnsi(descPtr) ?? "";
+                        if (!string.IsNullOrWhiteSpace(label))
+                            _joypadDescriptors[port][id] = label;
+                    }
+                    p = IntPtr.Add(p, stride);
+                }
+                _descriptorsReceived = true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine("ParseInputDescriptors: " + ex);
+            }
+        }
+
+        // Snapshot of available joypad buttons per port for the turbo dialog.
+        // Falls back to the standard 8 face/shoulder buttons if the core didn't
+        // declare descriptors. Blacklisted IDs (Start/Select/d-pad/L3/R3) are filtered
+        // by the dialog so they never appear regardless.
+        public IReadOnlyDictionary<uint, string> GetTurboableButtonsForPort(int port)
+        {
+            if (port < 0 || port >= 4) return new Dictionary<uint, string>();
+            // When the core has declared descriptors, treat them as authoritative for
+            // *every* port — including ports the core didn't populate. Otherwise a
+            // single-port NES would render phantom "Player 2/3/4" sections from the
+            // fallback list.
+            if (_descriptorsReceived)
+                return _joypadDescriptors[port];
+            // Fallback (no descriptors at all): canonical labels for the 8 turboable buttons.
+            return new Dictionary<uint, string>
+            {
+                { 0,  "B" }, { 1,  "Y" }, { 8,  "A" }, { 9,  "X" },
+                { 10, "L" }, { 11, "R" }, { 12, "L2" }, { 13, "R2" },
+            };
+        }
+
+        private void LoadTurboConfig()
+        {
+            if (_game == null) return;
+            for (int p = 0; p < _turboButtons.Length; p++)
+            {
+                _turboButtons[p].Clear();
+                string raw = _configService.GetValue($"turbo_p{p}_{_game.Id}", "");
+                if (string.IsNullOrWhiteSpace(raw)) continue;
+                foreach (var part in raw.Split(',', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    if (uint.TryParse(part.Trim(), out uint id) && id < 16 && !TurboBlacklist.Contains(id))
+                        _turboButtons[p].Add(id);
+                }
+            }
+        }
+
+        private void SaveTurboConfig()
+        {
+            if (_game == null) return;
+            for (int p = 0; p < _turboButtons.Length; p++)
+            {
+                string raw = string.Join(",", _turboButtons[p]);
+                _configService.SetValue($"turbo_p{p}_{_game.Id}", raw);
+            }
+        }
+
+        // Public bridge for TurboButtonsDialog — toggles save immediately on click,
+        // matching the cheats UX (no separate Save button).
+        public void SaveTurboConfigPublic() => SaveTurboConfig();
+
+        private bool TurboGate(uint port, uint id)
+        {
+            if (port >= 4) return true;
+            // Snapshot the reference; the dialog atomically swaps in a new HashSet
+            // when the user saves, so reading once gives a tear-free view even if
+            // the swap races with this read.
+            var set = _turboButtons[port];
+            if (set.Count == 0 || !set.Contains(id)) return true;
+            return (_retroRunCallCount % TurboPeriodFrames) < TurboDutyFrames;
+        }
 
         // Keyboard analog axis state — used when no controller is connected.
         // Values follow libretro convention: up/left = negative, down/right = positive.
@@ -1033,6 +1160,9 @@ namespace Emutastic.Views
                 // Restore saved shader preset for this game
                 RestoreShaderPreset();
 
+                // Load per-game turbo button assignments
+                LoadTurboConfig();
+
                 // Overlay: set core label and start hide timer
                 OverlayCoreLabel.Text = System.IO.Path.GetFileNameWithoutExtension(_core.CorePath);
 
@@ -1041,15 +1171,38 @@ namespace Emutastic.Views
                 if (Services.CheatSupport.Lookup(_core.CorePath).Level == Services.CheatSupportLevel.NotSupported)
                     OverlayCheatsBtn.Visibility = Visibility.Collapsed;
                 _overlayTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2.5) };
-                _overlayTimer.Tick += (_, _) => HideOverlay();
+                _overlayTimer.Tick += (_, _) =>
+                {
+                    // Don't auto-hide while any submenu the user might be reading is open.
+                    // The cog/cheats/save menus stay open until the user clicks elsewhere;
+                    // hiding the HUD out from under them was the main "disappears mid-use" bug.
+                    if (OverlayMenu.Visibility == Visibility.Visible
+                        || CheatsMenu.Visibility == Visibility.Visible
+                        || SaveMenu.Visibility == Visibility.Visible)
+                    {
+                        _overlayTimer?.Stop();
+                        _overlayTimer?.Start();
+                        return;
+                    }
+                    HideOverlay();
+                };
 
                 // Poll mouse position every 100ms — MouseMove doesn't fire over HwndHost
                 // (Win32 child windows swallow mouse messages before WPF sees them).
                 _mousePoller = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
                 _mousePoller.Tick += (_, _) =>
                 {
-                    var pos = Mouse.GetPosition(this);
-                    if (pos != _lastMousePos) { _lastMousePos = pos; ShowOverlay(); }
+                    // Catch & swallow: an exception here would otherwise take the timer
+                    // down and leave the overlay permanently hidden.
+                    try
+                    {
+                        var pos = Mouse.GetPosition(this);
+                        if (pos != _lastMousePos) { _lastMousePos = pos; ShowOverlay(); }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Trace.WriteLine("Mouse poller tick: " + ex);
+                    }
                 };
                 _mousePoller.Start();
 
@@ -2956,8 +3109,11 @@ namespace Emutastic.Views
                         }
                         return true;
 
-                    case RETRO_ENVIRONMENT_SET_AUDIO_CALLBACK:
                     case RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS:
+                        ParseInputDescriptors(data);
+                        return true;
+
+                    case RETRO_ENVIRONMENT_SET_AUDIO_CALLBACK:
                     case RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME:
                     case RETRO_ENVIRONMENT_GET_USERNAME:
                     case RETRO_ENVIRONMENT_GET_LANGUAGE:
@@ -3642,6 +3798,7 @@ namespace Emutastic.Views
                                 _ => false
                             };
                         }
+                        if (bp && !TurboGate(port, b)) bp = false;
                         if (bp) mask |= (short)(1 << (int)b);
                     }
                     return mask;
@@ -3667,6 +3824,7 @@ namespace Emutastic.Views
                     };
                 }
 
+                if (pressed && !TurboGate(port, id)) pressed = false;
                 return pressed ? (short)1 : (short)0;
             }
 
@@ -4970,6 +5128,12 @@ namespace Emutastic.Views
         {
             _overlayHiding = false; // cancel any in-flight hide
 
+            // Belt-and-suspenders: if the mouse poller stopped (it shouldn't, but if any
+            // exception in a Tick handler ever takes it down, the overlay would be locked
+            // hidden forever). Restart it whenever Show is called.
+            if (_mousePoller != null && !_mousePoller.IsEnabled)
+                _mousePoller.Start();
+
             // Overlay window path (Vulkan or GL): show HUD in a separate window above
             // the overlay so both the game and the HUD are visible simultaneously
             if ((_vulkanOverlayHwnd != IntPtr.Zero && _vulkanPresenting) || _glOverlayHwnd != IntPtr.Zero)
@@ -4981,12 +5145,20 @@ namespace Emutastic.Views
                     GameViewport.Children.Remove(OverlayHud);
                     _vulkanHudGrid!.Children.Add(OverlayHud);
                 }
+                // Always cancel any in-flight fade-out animation before re-showing,
+                // otherwise its Completed callback can race us back to Collapsed.
+                OverlayHud.BeginAnimation(OpacityProperty, null);
                 if (OverlayHud.Visibility != Visibility.Visible)
                 {
                     OverlayHud.Visibility = Visibility.Visible;
                     var fade = new System.Windows.Media.Animation.DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150));
                     OverlayHud.BeginAnimation(OpacityProperty, fade);
                 }
+                else
+                {
+                    OverlayHud.Opacity = 1.0; // ensure visible if a prior fade left it partial
+                }
+                OverlayHud.IsHitTestVisible = true;
                 RepositionVulkanHud();
                 _vulkanHudWindow!.Show();
                 // Ensure HUD window is above the Vulkan overlay
@@ -5000,14 +5172,18 @@ namespace Emutastic.Views
             else
             {
                 // Non-Vulkan path: show HUD in the main window
+                OverlayHud.BeginAnimation(OpacityProperty, null);
                 if (OverlayHud.Visibility != Visibility.Visible)
                 {
                     OverlayHud.Visibility = Visibility.Visible;
-                    // Clear any held fade-out animation before starting fade-in
-                    OverlayHud.BeginAnimation(OpacityProperty, null);
                     var fade = new System.Windows.Media.Animation.DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150));
                     OverlayHud.BeginAnimation(OpacityProperty, fade);
                 }
+                else
+                {
+                    OverlayHud.Opacity = 1.0;
+                }
+                OverlayHud.IsHitTestVisible = true;
             }
             _overlayTimer?.Stop();
             _overlayTimer?.Start();
@@ -5015,6 +5191,17 @@ namespace Emutastic.Views
 
         private void HideOverlay()
         {
+            // Defensive: never hide while a submenu is active.  The timer guard catches
+            // the common case, but other call-sites (and future ones) shouldn't have to
+            // remember this rule.
+            if (OverlayMenu.Visibility == Visibility.Visible
+                || CheatsMenu.Visibility == Visibility.Visible
+                || SaveMenu.Visibility == Visibility.Visible)
+            {
+                _overlayTimer?.Stop();
+                _overlayTimer?.Start();
+                return;
+            }
             _overlayHiding = true;
             _overlayTimer?.Stop();
             OverlayMenu.Visibility = Visibility.Collapsed;
@@ -5044,6 +5231,21 @@ namespace Emutastic.Views
                 ShowInTaskbar = false,
                 Content = _vulkanHudGrid,
                 Owner = this,
+                // Critical: don't steal focus from the emulator window.
+                ShowActivated = false,
+                Focusable = false,
+            };
+            // Apply WS_EX_NOACTIVATE so even clicks on HUD content don't activate the
+            // window — clicks on cog/cheats buttons would otherwise pull foreground off
+            // the Vulkan presentation hwnd, leaving the HUD wedged on some drivers.
+            _vulkanHudWindow.SourceInitialized += (_, _) =>
+            {
+                var hwnd = new System.Windows.Interop.WindowInteropHelper(_vulkanHudWindow!).Handle;
+                if (hwnd == IntPtr.Zero) return;
+                const int GWL_EXSTYLE = -20;
+                const int WS_EX_NOACTIVATE = 0x08000000;
+                long ex = GetWindowLongPtr(hwnd, GWL_EXSTYLE).ToInt64();
+                SetWindowLongPtr(hwnd, GWL_EXSTYLE, new IntPtr(ex | WS_EX_NOACTIVATE));
             };
         }
 
@@ -5562,6 +5764,14 @@ namespace Emutastic.Views
             win.ShowDialog();
             LoadKeyboardMappings();
             foreach (var c in _controllers) c?.ReloadInputConfiguration();
+            ResetOverlayTimer();
+        }
+
+        private void OverlayTurbo_Click(object sender, RoutedEventArgs e)
+        {
+            OverlayMenu.Visibility = Visibility.Collapsed;
+            var dlg = new TurboButtonsDialog(this, _turboButtons);
+            dlg.ShowDialog();
             ResetOverlayTimer();
         }
 
