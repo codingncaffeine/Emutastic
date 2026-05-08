@@ -75,6 +75,18 @@ namespace Emutastic.Services
         private readonly uint _playerNumber; // 0-based player/port index
         private volatile int _xInputIndex;   // which XInput slot to poll (can be overridden by config)
 
+        // Raw XInput wButtons bitmask from the most recent poll. Bypasses the per-
+        // console mapping table so callers (e.g. frontend chords like Disk Swap)
+        // can read physical button state without depending on whether the user has
+        // mapped it for this game.
+        private volatile ushort _lastRawButtons;
+
+        /// <summary>
+        /// Returns true if the given raw XInput button bit (e.g. XINPUT_GAMEPAD_LEFT_THUMB
+        /// = 0x0040) is currently held. Snapshot from the most recent XInput poll.
+        /// </summary>
+        public bool IsRawXInputButtonDown(ushort mask) => (_lastRawButtons & mask) != 0;
+
         public event Action<uint, bool>? ButtonChanged;
 
         // -------------------------------------------------------------------------
@@ -297,6 +309,7 @@ namespace Emutastic.Services
                 if (!wasConnected) _logger?.LogInformation("Controller connected");
 
                 var gamepad          = xinputState.Gamepad;
+                _lastRawButtons      = gamepad.wButtons;
                 _prevButtonStates    = (bool[])_buttonStates.Clone();
                 Array.Clear(_buttonStates, 0, _buttonStates.Length);
 

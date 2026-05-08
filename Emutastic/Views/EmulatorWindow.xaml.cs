@@ -456,6 +456,47 @@ namespace Emutastic.Views
         private DiskAddImageIndex_t? _diskAddImageIndex;
         private bool _diskControlAvailable = false;
 
+        // Frontend-side disk-swap action — always a CHORD (two inputs held together)
+        // so it never steals a gameplay button. Default chord is L3 + Start (L3 is
+        // rarely used in games and doesn't collide with Steam/Xbox guide overlays).
+        // User can rebind to any two keys or any two controller buttons via
+        // Preferences → Controls → "Disk Swap". Detected on EmuThread (rising edge).
+        // Stored as volatile int (Key cast to int) with -1 = unset. Avoids torn
+        // reads of the underlying Nullable<Key> struct when the UI thread writes
+        // a new binding while the EmuThread is reading.
+        private volatile int _diskSwapKeyA = -1;
+        private volatile int _diskSwapKeyB = -1;
+        private uint _diskSwapCtrlA = uint.MaxValue;
+        private uint _diskSwapCtrlB = uint.MaxValue;
+        private bool _diskSwapPrevHeld;
+        private volatile bool _diskSwapKeyAHeld;
+        private volatile bool _diskSwapKeyBHeld;
+        // Default controller chord when user has no binding: L3 (14) + Start (3).
+        private const uint DEFAULT_DISK_SWAP_CTRL_A = 14;
+        private const uint DEFAULT_DISK_SWAP_CTRL_B = 3;
+        private System.Windows.Threading.DispatcherTimer? _diskStatusRevertTimer;
+        private string? _diskStatusPrevText;
+        // Consoles whose cores typically register the disk control interface.
+        // Used to decide whether to show the Disk Swap row in Preferences.
+        // Cores verified to register the libretro disk-control interface (or, for
+        // FDS, to use the JOYPAD_L injection convention) against upstream source:
+        //   FDS    — Nestopia/Mesen/FCEUmm: JOYPAD_L injection (no env interface)
+        //   PS1    — Beetle PSX: env 58 EXT (or env 13 fallback) registered in retro_init
+        //   Saturn — Kronos (libretro/yabause kronos branch): env 13/58 registered, .m3u required for >1 disc
+        //   SegaCD — Genesis Plus GX: env 13, deregisters NULL when system_hw != MCD
+        //   Amiga  — PUAE: env 13/58 registered in retro_init
+        //
+        // Removed (cores DON'T register disk control upstream):
+        //   TurboGrafx16/PCECD/TG16 — Beetle PCE and Beetle PCE Fast both lack registration
+        //   3DO — Opera lacks any disk-control code; 3DO games are typically single-disc
+        private static readonly HashSet<string> DiskCapableConsoles =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                "FDS", "PS1", "Saturn", "SegaCD", "Amiga",
+            };
+        public static bool ConsoleSupportsDiskSwap(string console)
+            => !string.IsNullOrEmpty(console) && DiskCapableConsoles.Contains(console);
+
         // =========================================================================
         // Native crash diagnostics + NULL-pointer fixup via VEH
         // =========================================================================
@@ -1332,6 +1373,13 @@ namespace Emutastic.Views
 
                 bool loaded = _core.LoadGame(romToLoad);
                 System.Diagnostics.Trace.WriteLine($"LoadGame: {loaded}");
+                // Note: we deliberately do NOT call eject(true)→set_image_index(0)→eject(false)
+                // here. RetroArch doesn't either (`disk_control_interface.c` only invokes
+                // `set_initial_image` for resume-on-disc-N when a stored index file exists).
+                // Cores boot with disc 0 already inserted by retro_load_game. The earlier
+                // attempt was an FDS workaround, but FDS via Nestopia doesn't register the
+                // env interface anyway — its boot flow uses the `nestopia_fds_auto_insert`
+                // core option instead.
 
                 if (!loaded)
                 {
@@ -2635,9 +2683,18 @@ namespace Emutastic.Views
         // =========================================================================
         // Environment callback
         // =========================================================================
+        private static readonly HashSet<uint> _seenEnvCmds = new();
         private bool OnEnvironment(uint cmd, IntPtr data)
         {
             uint baseCmd = cmd & 0xFF;
+            // Log each unique env cmd once per session — gives a compact picture of
+            // what the core actually calls without flooding the log. Helps diagnose
+            // missing disk-control / unhandled-command bugs.
+            lock (_seenEnvCmds)
+            {
+                if (_seenEnvCmds.Add(cmd))
+                    System.Diagnostics.Trace.WriteLine($"[ENV-FIRST] cmd=0x{cmd:X} base={baseCmd} (decimal cmd={cmd})");
+            }
             bool _envDiag = _crashDiagActive && _runDiagFramesRemaining > 0;
             if (_envDiag)
                 System.Diagnostics.Trace.WriteLine($"[ENV] enter cmd={cmd} base={baseCmd} dataNull={data == IntPtr.Zero}");
@@ -2698,10 +2755,32 @@ namespace Emutastic.Views
                         return true;
                     }
 
-                    // Extended disc interface — acknowledge but not fully implemented
+                    // Extended disc interface — same first seven function pointers as
+                    // the legacy struct, so we can parse it as retro_disk_control_callback
+                    // and pick up the standard callbacks. Modern Nestopia uses ONLY the
+                    // EXT version for FDS — without this capture the in-game disk-swap
+                    // feature was inert (acknowledging the env call without grabbing the
+                    // function pointers means _diskControlAvailable stayed false).
                     case RETRO_ENVIRONMENT_SET_DISK_CONTROL_EXT_INTERFACE:
-                        System.Diagnostics.Trace.WriteLine("SET_DISK_CONTROL_EXT_INTERFACE acknowledged");
+                    {
+                        if (data == IntPtr.Zero) return false;
+                        var cb = Marshal.PtrToStructure<retro_disk_control_callback>(data);
+                        if (cb.set_eject_state != IntPtr.Zero)
+                            _diskSetEjectState = Marshal.GetDelegateForFunctionPointer<DiskSetEjectState_t>(cb.set_eject_state);
+                        if (cb.get_eject_state != IntPtr.Zero)
+                            _diskGetEjectState = Marshal.GetDelegateForFunctionPointer<DiskGetEjectState_t>(cb.get_eject_state);
+                        if (cb.get_image_index != IntPtr.Zero)
+                            _diskGetImageIndex = Marshal.GetDelegateForFunctionPointer<DiskGetImageIndex_t>(cb.get_image_index);
+                        if (cb.set_image_index != IntPtr.Zero)
+                            _diskSetImageIndex = Marshal.GetDelegateForFunctionPointer<DiskSetImageIndex_t>(cb.set_image_index);
+                        if (cb.get_num_images != IntPtr.Zero)
+                            _diskGetNumImages = Marshal.GetDelegateForFunctionPointer<DiskGetNumImages_t>(cb.get_num_images);
+                        if (cb.add_image_index != IntPtr.Zero)
+                            _diskAddImageIndex = Marshal.GetDelegateForFunctionPointer<DiskAddImageIndex_t>(cb.add_image_index);
+                        _diskControlAvailable = true;
+                        System.Diagnostics.Trace.WriteLine("Disc control EXT interface registered");
                         return true;
+                    }
 
                     // Report basic disc control version (0 = original spec)
                     case RETRO_ENVIRONMENT_GET_DISK_CONTROL_INTERFACE_VERSION:
@@ -3780,6 +3859,276 @@ namespace Emutastic.Views
         {
             if (_crashDiagActive && _runDiagFramesRemaining > 0)
                 System.Diagnostics.Trace.WriteLine($"[POLL] input_poll_cb runId={_retroRunCallCount}");
+            PollDiskSwap();
+            // Decrement the FDS L-injection counter once per polled frame so the
+            // simulated press lasts a fixed wall-clock duration regardless of how
+            // many id-queries the core makes in that frame.
+            if (_fdsSideChangeFrames > 0) _fdsSideChangeFrames--;
+
+            // Deferred disc-tray re-insert: countdown from set_image_index to the
+            // matching set_eject_state(false). When it hits zero, fire the insert.
+            if (_diskInsertPendingFrames > 0)
+            {
+                _diskInsertPendingFrames--;
+                if (_diskInsertPendingFrames == 0 && _diskSetEjectState != null)
+                {
+                    try
+                    {
+                        _diskSetEjectState.Invoke(false);
+                        System.Diagnostics.Trace.WriteLine("Disk swap: deferred insert fired (eject false)");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Trace.WriteLine($"Disk swap deferred insert failed: {ex.Message}");
+                    }
+                }
+            }
+        }
+
+        // Diagnostic state for disk-swap polling — log only on transitions to keep
+        // the log readable while still surfacing why the chord isn't firing.
+        private bool _diskDiagPrevCtrlA;
+        private bool _diskDiagPrevCtrlB;
+        private bool _diskDiagPrevKeyA;
+        private bool _diskDiagPrevKeyB;
+        private bool _diskDiagPrevControllerConnected;
+        private long _diskDiagLastHeartbeat;
+
+        // Detect disk-swap chord on the EmuThread. Two halves both required:
+        //   • Controller chord — defaults to L3 + Start when user has no binding,
+        //     otherwise the user-configured pair.
+        //   • Keyboard chord — only active when the user has bound both halves.
+        // Rising-edge so a held chord fires once. Always runs regardless of
+        // _diskControlAvailable — SwapToNextDisk shows a status message in the
+        // not-supported case, which is the user-facing signal that the chord
+        // registered but the core didn't expose disk control for this game.
+        // Map a libretro JOYPAD id (0-15) to the raw XInput wButtons bitmask. Returns
+        // 0 for ids that aren't a wButtons bit (triggers, analog directions, unknown).
+        // For mask=0 we fall back to ControllerManager.GetButtonState — that path
+        // works for L2/R2 trigger thresholds and analog directions, which DO populate
+        // _buttonStates regardless of mapping.
+        private static ushort LibretroIdToRawXInputMask(uint id) => id switch
+        {
+            0  => 0x2000, // B
+            1  => 0x8000, // Y
+            2  => 0x0020, // Back/Select
+            3  => 0x0010, // Start
+            4  => 0x0001, // DPad Up
+            5  => 0x0002, // DPad Down
+            6  => 0x0004, // DPad Left
+            7  => 0x0008, // DPad Right
+            8  => 0x1000, // A
+            9  => 0x4000, // X
+            10 => 0x0100, // Left Shoulder
+            11 => 0x0200, // Right Shoulder
+            14 => 0x0040, // Left Thumb (L3)
+            15 => 0x0080, // Right Thumb (R3)
+            _  => 0,      // 12/13 triggers, 16-23 analog dirs
+        };
+
+        private static bool IsChordHalfHeld(ControllerManager ctl, uint libretroId)
+        {
+            ushort mask = LibretroIdToRawXInputMask(libretroId);
+            if (mask != 0) return ctl.IsRawXInputButtonDown(mask);
+            // Fallback for triggers/analog dirs — these don't have wButtons bits
+            // but ControllerManager populates _buttonStates regardless of mapping
+            // for those specific ids (lines 332-335 in ControllerManager.cs).
+            return libretroId < 24 && ctl.GetButtonState(libretroId);
+        }
+
+        private void PollDiskSwap()
+        {
+            // Controller chord: user binding takes precedence; otherwise default L3+Start.
+            uint cA = _diskSwapCtrlA != uint.MaxValue ? _diskSwapCtrlA : DEFAULT_DISK_SWAP_CTRL_A;
+            uint cB = _diskSwapCtrlB != uint.MaxValue ? _diskSwapCtrlB : DEFAULT_DISK_SWAP_CTRL_B;
+            var ctl0 = _controllers[0];
+            bool connected = ctl0 != null && ctl0.IsConnected;
+            // Read raw XInput state so the chord works regardless of the per-console
+            // controller mapping. ControllerManager.GetButtonState reads the *mapped*
+            // libretro state, which is false for buttons the console doesn't use
+            // (e.g. NES/FDS doesn't map L3, so GetButtonState(14) is always false even
+            // when L3 is physically pressed).
+            bool ctrlA = connected && IsChordHalfHeld(ctl0!, cA);
+            bool ctrlB = connected && IsChordHalfHeld(ctl0!, cB);
+            bool ctrlChord = ctrlA && ctrlB;
+
+            // Keyboard chord — both halves must be bound.
+            bool keyChord = _diskSwapKeyA >= 0 && _diskSwapKeyB >= 0
+                            && _diskSwapKeyAHeld && _diskSwapKeyBHeld;
+
+            // ── Diagnostics ───────────────────────────────────────────────────
+            // Heartbeat once every ~5 seconds so we can confirm OnInputPoll is
+            // running at all. Without this, "no log" means either the chord
+            // didn't fire OR the entire polling code path is dead.
+            long now = _retroRunCallCount;
+            if (now - _diskDiagLastHeartbeat >= 300) // ~5s at 60fps
+            {
+                _diskDiagLastHeartbeat = now;
+                System.Diagnostics.Trace.WriteLine(
+                    $"[DiskDiag] poll alive runId={now} ctlConnected={connected} " +
+                    $"chord-bind cA={cA}(L3=14) cB={cB}(Start=3) " +
+                    $"key-bind kA={_diskSwapKeyA} kB={_diskSwapKeyB} " +
+                    $"current ctrlA={ctrlA} ctrlB={ctrlB} keyA={_diskSwapKeyAHeld} keyB={_diskSwapKeyBHeld} " +
+                    $"console={_game?.Console} diskCtrl={_diskControlAvailable}");
+            }
+
+            // Log every controller-state transition for the chord halves. If you press
+            // L3 alone you'll see "ctrlA edge=Down"; if nothing logs, the controller
+            // isn't reaching us OR the wrong button id is being polled.
+            if (connected != _diskDiagPrevControllerConnected)
+            {
+                System.Diagnostics.Trace.WriteLine($"[DiskDiag] controller[0] connected={connected}");
+                _diskDiagPrevControllerConnected = connected;
+            }
+            if (ctrlA != _diskDiagPrevCtrlA)
+            {
+                System.Diagnostics.Trace.WriteLine($"[DiskDiag] chord half A (id={cA}) edge={(ctrlA ? "Down" : "Up")}");
+                _diskDiagPrevCtrlA = ctrlA;
+            }
+            if (ctrlB != _diskDiagPrevCtrlB)
+            {
+                System.Diagnostics.Trace.WriteLine($"[DiskDiag] chord half B (id={cB}) edge={(ctrlB ? "Down" : "Up")}");
+                _diskDiagPrevCtrlB = ctrlB;
+            }
+            if (_diskSwapKeyAHeld != _diskDiagPrevKeyA)
+            {
+                System.Diagnostics.Trace.WriteLine($"[DiskDiag] key half A (key={_diskSwapKeyA}) edge={(_diskSwapKeyAHeld ? "Down" : "Up")}");
+                _diskDiagPrevKeyA = _diskSwapKeyAHeld;
+            }
+            if (_diskSwapKeyBHeld != _diskDiagPrevKeyB)
+            {
+                System.Diagnostics.Trace.WriteLine($"[DiskDiag] key half B (key={_diskSwapKeyB}) edge={(_diskSwapKeyBHeld ? "Down" : "Up")}");
+                _diskDiagPrevKeyB = _diskSwapKeyBHeld;
+            }
+
+            bool held = ctrlChord || keyChord;
+            if (held && !_diskSwapPrevHeld)
+            {
+                System.Diagnostics.Trace.WriteLine(
+                    $"[DiskDiag] CHORD RISING EDGE — calling SwapToNextDisk. " +
+                    $"ctrlChord={ctrlChord} keyChord={keyChord} diskControlAvailable={_diskControlAvailable}");
+                SwapToNextDisk();
+            }
+            _diskSwapPrevHeld = held;
+        }
+
+        // Show a transient disk-swap status message and auto-revert after 3 s.
+        // Called from EmuThread (SwapToNextDisk) — marshals to UI thread.
+        private void ShowDiskStatus(string message)
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    if (_diskStatusRevertTimer == null || !_diskStatusRevertTimer.IsEnabled)
+                        _diskStatusPrevText = StatusText.Text;
+                    StatusText.Text = message;
+
+                    _diskStatusRevertTimer ??= new System.Windows.Threading.DispatcherTimer
+                        { Interval = TimeSpan.FromSeconds(3) };
+                    _diskStatusRevertTimer.Tick -= DiskStatusRevertTick;
+                    _diskStatusRevertTimer.Tick += DiskStatusRevertTick;
+                    _diskStatusRevertTimer.Stop();
+                    _diskStatusRevertTimer.Start();
+                }
+                catch { }
+            }));
+        }
+
+        private void DiskStatusRevertTick(object? sender, EventArgs e)
+        {
+            try
+            {
+                _diskStatusRevertTimer?.Stop();
+                if (!string.IsNullOrEmpty(_diskStatusPrevText))
+                    StatusText.Text = _diskStatusPrevText!;
+                _diskStatusPrevText = null;
+            }
+            catch { }
+        }
+
+        // FDS / NES disk swap is done by injecting JOYPAD_L on port 0 (NES libretro
+        // cores convention: Nestopia, Mesen, FCEUmm all use this — none of them
+        // register the disk-control env interface). Counter is decremented per
+        // frame in OnInputPoll; OnInputState returns 1 for JOYPAD_L while > 0.
+        private int _fdsSideChangeFrames;
+
+        // Deferred disc-tray re-insert. After set_image_index, we wait this many
+        // frames before calling set_eject_state(false). Matches RetroArch's pattern
+        // (runloop.c "pending_disk_control_insert"). Decremented in OnInputPoll.
+        private int _diskInsertPendingFrames;
+
+        private void SwapToNextDisk()
+        {
+            // FDS-family fallback: cores in this family don't expose env-based disk
+            // control. Inject a JOYPAD_L press on port 0 for several frames — that's
+            // what the cores wire to "Disk Side Change".
+            if (!_diskControlAvailable
+                && string.Equals(_game?.Console, "FDS", StringComparison.OrdinalIgnoreCase))
+            {
+                _fdsSideChangeFrames = 6; // ~100ms at 60fps — long enough for the core to register
+                ShowDiskStatus("Disk: side change");
+                System.Diagnostics.Trace.WriteLine("Disk swap: injecting JOYPAD_L on port 0 (FDS side change)");
+                return;
+            }
+
+            // Always surface SOMETHING in the status bar so the user knows the
+            // chord registered and why nothing changed (if nothing did).
+            if (!_diskControlAvailable)
+            {
+                ShowDiskStatus("Disk swap: this core doesn't support disc switching");
+                return;
+            }
+            if (_diskGetNumImages == null || _diskSetImageIndex == null
+                || _diskSetEjectState == null)
+            {
+                ShowDiskStatus("Disk swap: core registered an incomplete disc interface");
+                return;
+            }
+
+            try
+            {
+                uint count = _diskGetNumImages.Invoke();
+                if (count <= 1)
+                {
+                    // Common case for CD-based games imported as a single .cue/.chd.
+                    // Tell the user how to fix it.
+                    string console = _game?.Console ?? "";
+                    bool isCd = console is "PS1" or "Saturn" or "SegaCD" or "Amiga"
+                                       or "TurboGrafx16" or "PCECD" or "TG16" or "3DO";
+                    ShowDiskStatus(isCd
+                        ? "Disk swap: only one disc loaded — put all discs in the same folder and re-import"
+                        : "Disk swap: this game has only one disc image");
+                    return;
+                }
+
+                uint cur = _diskGetImageIndex?.Invoke() ?? 0;
+                uint next = (cur + 1) % count;
+
+                // Mirror RetroArch's swap pattern (`disk_control_interface.c`
+                // `disk_control_set_index` → runloop frame counter at runloop.c:6741):
+                //   1) eject immediately
+                //   2) set_image_index immediately
+                //   3) defer set_eject_state(false) by ~100 frames (~1.67s @ 60fps)
+                //
+                // The deferred re-insert matters most for Beetle PSX, whose CD audio
+                // engine assumes the disc spun down between swap operations; an
+                // immediate re-insert can confuse it. Other cores (GenPlusGX-MCD,
+                // PicoDrive-MCD, PUAE, Kronos) tolerate either pattern, but we use
+                // RetroArch's timing for behavioral parity.
+                bool alreadyEjected = _diskGetEjectState?.Invoke() ?? false;
+                if (!alreadyEjected) _diskSetEjectState.Invoke(true);
+                _diskSetImageIndex.Invoke(next);
+                _diskInsertPendingFrames = 100;
+
+                System.Diagnostics.Trace.WriteLine($"Disk swap: {cur} -> {next} (of {count}) — insert deferred 100 frames");
+
+                ShowDiskStatus($"Disk {next + 1} / {count}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"SwapToNextDisk failed: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -3831,6 +4180,9 @@ namespace Emutastic.Views
                                 _ => false
                             };
                         }
+                        // FDS side-change injection (bitmask path).
+                        if (port == 0 && b == JOYPAD_L && _fdsSideChangeFrames > 0)
+                            bp = true;
                         if (bp && !TurboGate(port, b)) bp = false;
                         if (bp) mask |= (short)(1 << (int)b);
                     }
@@ -3838,6 +4190,11 @@ namespace Emutastic.Views
                 }
 
                 if (id >= 16) return 0;
+                // FDS side-change injection: the chord sets _fdsSideChangeFrames > 0
+                // and we report JOYPAD_L pressed on port 0 for that many frames.
+                // Nestopia/Mesen/FCEUmm all wire this to "Disk Side Change".
+                if (port == 0 && id == JOYPAD_L && _fdsSideChangeFrames > 0)
+                    return 1;
                 bool pressed = (isPort0 && id < (uint)_inputState.Length && _inputState[id])
                                || (ctrl?.GetButtonState(id) ?? false);
 
@@ -4328,15 +4685,55 @@ namespace Emutastic.Views
                 _inputConfig = p1Config.KeyboardMappings.Count > 0
                     ? p1Config
                     : _configService.GetInputConfiguration(_game.Console); // fallback for legacy saves
+                _diskSwapKeyA = _diskSwapKeyB = -1;
+                _diskSwapCtrlA = _diskSwapCtrlB = uint.MaxValue;
+                // Clear any stale held-state from a previous binding. Prevents a
+                // spurious fire on the next poll if a key flag was left true while
+                // the prefs dialog had focus (no KeyUp delivered to this window).
+                _diskSwapKeyAHeld = _diskSwapKeyBHeld = false;
+                _diskSwapPrevHeld = false;
                 foreach (var mapping in _inputConfig.KeyboardMappings)
                 {
+                    if (string.Equals(mapping.ButtonName, "Disk Swap", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Chord format: "KeyA+KeyB". Anything else (single key from a
+                        // pre-chord build) is ignored — user must rebind.
+                        var parts = (mapping.InputIdentifier ?? "").Split('+', 2);
+                        if (parts.Length == 2
+                            && Enum.TryParse<Key>(parts[0].Trim(), out var ka)
+                            && Enum.TryParse<Key>(parts[1].Trim(), out var kb))
+                        {
+                            _diskSwapKeyA = (int)ka;
+                            _diskSwapKeyB = (int)kb;
+                        }
+                        continue;
+                    }
                     if (Enum.TryParse<Key>(mapping.InputIdentifier, out var key))
                     {
                         uint id = GetLibretroButtonId(mapping.ButtonName, _game.Console);
                         if (id < 16) _keyboardMappings[key] = id;
                     }
                 }
-                System.Diagnostics.Trace.WriteLine($"Loaded {_keyboardMappings.Count} keyboard mappings");
+                foreach (var cm in _inputConfig.ControllerMappings)
+                {
+                    if (string.Equals(cm.ButtonName, "Disk Swap", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Chord format: "id1+id2".
+                        var parts = (cm.InputIdentifier ?? "").Split('+', 2);
+                        if (parts.Length == 2
+                            && uint.TryParse(parts[0].Trim(), out uint a) && a < 24
+                            && uint.TryParse(parts[1].Trim(), out uint b) && b < 24)
+                        {
+                            _diskSwapCtrlA = a;
+                            _diskSwapCtrlB = b;
+                        }
+                        break;
+                    }
+                }
+                System.Diagnostics.Trace.WriteLine(
+                    $"Loaded {_keyboardMappings.Count} keyboard mappings " +
+                    $"(disk swap key chord: {_diskSwapKeyA}+{_diskSwapKeyB}, " +
+                    $"ctrl chord: {_diskSwapCtrlA}+{_diskSwapCtrlB})");
             }
             catch (Exception ex)
             {
@@ -4753,6 +5150,11 @@ namespace Emutastic.Views
                 _inputState[id] = pressed;
                 return;
             }
+
+            // Disk Swap chord — track each half independently. EmuThread polls both
+            // flags and fires when both halves are simultaneously held.
+            if (_diskSwapKeyA >= 0 && (int)key == _diskSwapKeyA) _diskSwapKeyAHeld = pressed;
+            if (_diskSwapKeyB >= 0 && (int)key == _diskSwapKeyB) _diskSwapKeyBHeld = pressed;
 
             bool isAnalog = _consoleHandler.UsesAnalogStick;
 

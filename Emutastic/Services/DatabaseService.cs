@@ -841,6 +841,22 @@ namespace Emutastic.Services
             cmd.ExecuteNonQuery();
         }
 
+        /// <summary>
+        /// Returns the Game.Id for the row whose RomPath matches, or null if none.
+        /// Used by the importer's M3U bundler to find stale single-disc rows that
+        /// should be replaced when a multi-disc playlist is generated.
+        /// </summary>
+        public int? GetGameIdByRomPath(string romPath)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT Id FROM Games WHERE RomPath = $romPath LIMIT 1;";
+            cmd.Parameters.AddWithValue("$romPath", AppPaths.ToStoragePath(romPath));
+            var result = cmd.ExecuteScalar();
+            return result == null || result is DBNull ? (int?)null : Convert.ToInt32(result);
+        }
+
         public bool RomPathExists(string romPath)
         {
             using var connection = new SqliteConnection(_connectionString);
@@ -1811,6 +1827,10 @@ namespace Emutastic.Services
         public uint ControllerButtonId { get; set; }
         public string DisplayText { get; set; } = "";
         public bool IsSelected { get; set; }
+        // For chord mappings (e.g. "Disk Swap" = L3 + Start). Format: "A+B" where A
+        // and B are either two key names (keyboard) or two controller-button ids.
+        // Null/empty for single-input mappings.
+        public string? ChordIdentifier { get; set; }
     }
 
     public enum InputType { Keyboard, Controller }

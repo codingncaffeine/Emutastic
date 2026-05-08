@@ -43,6 +43,14 @@ namespace Emutastic.Views
         private List<MappingRow> _rows = new();
         private int _waitingRowIndex = -1;             // index into _rows, or -1
 
+        // Chord-capture state, used only for the "Disk Swap" row. The user presses
+        // the first input (stored here), then a second different input while still
+        // holding the first → both halves are committed as a chord. Any input event
+        // before the second press just updates the "first half" candidate.
+        private Key?  _chordFirstKey;
+        private uint? _chordFirstCtrl;
+        private string? _chordFirstDisplay;
+
         // After capturing an analog direction, ignore all further analog events for
         // this many milliseconds so the stick's return-to-center doesn't cascade.
         private static readonly TimeSpan AnalogCooldown = TimeSpan.FromMilliseconds(600);
@@ -207,6 +215,28 @@ namespace Emutastic.Views
                 }
             }
 
+            // Frontend-only Disk Swap action — added at the bottom for consoles whose
+            // cores expose the libretro disk control interface (FDS, PSX, Saturn,
+            // SegaCD, Amiga). Default trigger is Start+Select chord; this row lets the
+            // user bind a single key / controller button as an alternative.
+            if (EmulatorWindow.ConsoleSupportsDiskSwap(_currentConsole))
+            {
+                ButtonsPanel.Children.Add(new TextBlock
+                {
+                    Text  = "FRONTEND",
+                    Style = (Style)FindResource("GroupHeader"),
+                });
+                ButtonsPanel.Children.Add(new Rectangle
+                {
+                    Height = 1,
+                    Fill   = (SolidColorBrush)FindResource("BorderNormalBrush"),
+                    Margin = new Thickness(0, 0, 0, 6),
+                });
+                var diskRow = BuildMappingRow("Disk Swap");
+                ButtonsPanel.Children.Add(diskRow.grid);
+                _rows.Add(new MappingRow("Disk Swap", diskRow.box, diskRow.label));
+            }
+
             // Refresh display text on all rows
             RefreshAllRows();
         }
@@ -269,14 +299,16 @@ namespace Emutastic.Views
             var source = _isKeyboardMode ? config.KeyboardMappings : config.ControllerMappings;
             foreach (var m in source)
             {
+                bool isChord = !string.IsNullOrEmpty(m.InputIdentifier) && m.InputIdentifier.Contains('+');
                 _mappings[m.ButtonName] = new InputMapping
                 {
                     ConsoleName         = _currentConsole,
                     ButtonName          = m.ButtonName,
                     InputType           = _isKeyboardMode ? Services.InputType.Keyboard : Services.InputType.Controller,
-                    Key                 = _isKeyboardMode && Enum.TryParse<Key>(m.InputIdentifier, out var k) ? k : Key.None,
-                    ControllerButtonId  = !_isKeyboardMode && uint.TryParse(m.InputIdentifier, out var bid) ? bid : 0,
+                    Key                 = _isKeyboardMode && !isChord && Enum.TryParse<Key>(m.InputIdentifier, out var k) ? k : Key.None,
+                    ControllerButtonId  = !_isKeyboardMode && !isChord && uint.TryParse(m.InputIdentifier, out var bid) ? bid : 0,
                     DisplayText         = m.DisplayName,
+                    ChordIdentifier     = isChord ? m.InputIdentifier : null,
                 };
             }
 
@@ -294,12 +326,14 @@ namespace Emutastic.Views
             if (_isKeyboardMode)
             {
                 config.KeyboardMappings.Clear();
-                foreach (var m in _mappings.Values.Where(m => m.InputType == Services.InputType.Keyboard && m.Key != Key.None))
+                foreach (var m in _mappings.Values.Where(m => m.InputType == Services.InputType.Keyboard && (m.Key != Key.None || !string.IsNullOrEmpty(m.ChordIdentifier))))
                 {
                     config.KeyboardMappings.Add(new ButtonMapping
                     {
                         ButtonName      = m.ButtonName,
-                        InputIdentifier = m.Key.ToString(),
+                        InputIdentifier = !string.IsNullOrEmpty(m.ChordIdentifier)
+                            ? m.ChordIdentifier
+                            : m.Key.ToString(),
                         InputType       = Configuration.InputType.Keyboard,
                         DisplayName     = m.DisplayText,
                     });
@@ -313,7 +347,9 @@ namespace Emutastic.Views
                     config.ControllerMappings.Add(new ButtonMapping
                     {
                         ButtonName      = m.ButtonName,
-                        InputIdentifier = m.ControllerButtonId.ToString(),
+                        InputIdentifier = !string.IsNullOrEmpty(m.ChordIdentifier)
+                            ? m.ChordIdentifier
+                            : m.ControllerButtonId.ToString(),
                         InputType       = Configuration.InputType.Controller,
                         DisplayName     = m.DisplayText,
                     });
@@ -372,6 +408,9 @@ namespace Emutastic.Views
             int prev = _waitingRowIndex;
             _waitingRowIndex    = -1;
             _analogLastCapture  = DateTime.MinValue;
+            _chordFirstKey      = null;
+            _chordFirstCtrl     = null;
+            _chordFirstDisplay  = null;
             if (_controllerManager != null) _controllerManager.RawMode = false;
             if (prev >= 0 && prev < _rows.Count) RefreshRow(prev);
         }
@@ -427,10 +466,32 @@ namespace Emutastic.Views
             if (!_isKeyboardMode || _waitingRowIndex < 0) return;
 
             Key key = e.Key == Key.System ? e.SystemKey : e.Key;
-            if (key == Key.Escape) { StopWaiting(); return; }
+            if (key == Key.Escape) { _chordFirstKey = null; _chordFirstDisplay = null; StopWaiting(); return; }
 
             string display = KeyToDisplayString(key);
             string btnName = _rows[_waitingRowIndex].ButtonName;
+
+            // Disk Swap is captured as a CHORD: first press becomes the candidate
+            // first half, second different press commits both as "A+B".
+            if (string.Equals(btnName, "Disk Swap", StringComparison.OrdinalIgnoreCase))
+            {
+                if (_chordFirstKey == null)
+                {
+                    _chordFirstKey = key;
+                    _chordFirstDisplay = display;
+                    var row = _rows[_waitingRowIndex];
+                    row.BoxLabel.Text = $"{display} + …";
+                    return;
+                }
+                if (key == _chordFirstKey.Value) return; // ignore repeat of same key
+                CommitChordMapping(btnName,
+                    keyA: _chordFirstKey.Value, keyB: key,
+                    display: $"{_chordFirstDisplay} + {display}");
+                _chordFirstKey = null;
+                _chordFirstDisplay = null;
+                return;
+            }
+
             CommitMapping(btnName, display, key: key);
         }
 
@@ -452,11 +513,61 @@ namespace Emutastic.Views
                 string btnName = _rows[_waitingRowIndex].ButtonName;
                 string display = isAnalogDir ? AnalogDirToString(buttonId) : $"Button {buttonId}";
 
+                // Disk Swap is captured as a CHORD on controller too.
+                if (string.Equals(btnName, "Disk Swap", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (_chordFirstCtrl == null)
+                    {
+                        _chordFirstCtrl = buttonId;
+                        _chordFirstDisplay = display;
+                        var row = _rows[_waitingRowIndex];
+                        row.BoxLabel.Text = $"{display} + …";
+                        if (isAnalogDir) _analogLastCapture = DateTime.UtcNow;
+                        return;
+                    }
+                    if (buttonId == _chordFirstCtrl.Value) return; // ignore repeat
+                    CommitChordMapping(btnName,
+                        ctrlA: _chordFirstCtrl.Value, ctrlB: buttonId,
+                        display: $"{_chordFirstDisplay} + {display}");
+                    _chordFirstCtrl = null;
+                    _chordFirstDisplay = null;
+                    if (isAnalogDir) _analogLastCapture = DateTime.UtcNow;
+                    return;
+                }
+
                 CommitMapping(btnName, display, controllerId: buttonId);
 
                 if (isAnalogDir)
                     _analogLastCapture = DateTime.UtcNow;
             });
+        }
+
+        // Commit a two-input chord mapping. Stored in InputIdentifier as "A+B" so the
+        // existing config schema doesn't need a new field; runtime parsers split on '+'.
+        private void CommitChordMapping(string buttonName, string display,
+            Key keyA = Key.None, Key keyB = Key.None,
+            uint ctrlA = uint.MaxValue, uint ctrlB = uint.MaxValue)
+        {
+            // Re-use InputMapping shape: pack chord halves into the existing fields.
+            // SaveMappingsToConfig writes Key/ControllerButtonId; for chords we instead
+            // need a composite identifier — handled in a small special case there.
+            _mappings[buttonName] = new InputMapping
+            {
+                ConsoleName        = _currentConsole,
+                ButtonName         = buttonName,
+                InputType          = _isKeyboardMode ? Services.InputType.Keyboard : Services.InputType.Controller,
+                Key                = keyA, // first half (KeyB stored via ChordIdentifier below)
+                ControllerButtonId = ctrlA,
+                DisplayText        = display,
+                ChordIdentifier    = _isKeyboardMode
+                    ? $"{keyA}+{keyB}"
+                    : $"{ctrlA}+{ctrlB}",
+            };
+
+            int cur = _waitingRowIndex;
+            _waitingRowIndex = -1;
+            RefreshRow(cur);
+            // No auto-advance after Disk Swap — it's the last row.
         }
 
         private static string AnalogDirToString(uint buttonId) => buttonId switch

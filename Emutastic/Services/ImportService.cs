@@ -74,6 +74,11 @@ namespace Emutastic.Services
 
         // Per-folder cache for .bin archives: ask once per folder, apply to the rest.
         private readonly Dictionary<string, string> _folderBinConsole = new(StringComparer.OrdinalIgnoreCase);
+        // Files that the multi-disc bundler decided to fold into an .m3u — both
+        // ImportFolderAsync's loops and ImportSingleRomAsync skip these. Cleared
+        // between batches. Lives at class level so the same skip set covers files
+        // dropped individually and files inside a folder drop in the same batch.
+        private readonly HashSet<string> _batchSkipSet = new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
         /// Enqueues paths for import. If an import is already running the new batch
@@ -178,6 +183,15 @@ namespace Emutastic.Services
                 Interlocked.Add(ref _progressTotal, batchCount);
                 ProgressChanged?.Invoke(_progressCurrent, _progressTotal);
 
+                // Multi-disc pre-pass: detect (Disc N) / CDN groups across every file
+                // in this batch — folders and individual files alike — write .m3u
+                // playlists, populate the skip set, drop stale single-disc DB rows.
+                // Runs ONCE per batch so we get a single library entry per multi-disc
+                // game regardless of whether the user dragged a folder or selected
+                // the individual files in Explorer.
+                _batchSkipSet.Clear();
+                var generatedM3usToImport = await PrepareBatchBundlingAsync(paths);
+
                 // Process this batch.
                 foreach (string path in paths)
                 {
@@ -193,11 +207,136 @@ namespace Emutastic.Services
                     Interlocked.Increment(ref _progressCurrent);
                     ProgressChanged?.Invoke(_progressCurrent, _progressTotal);
                 }
+
+                // Some generated .m3us live in a folder that wasn't explicitly part
+                // of the batch (e.g. user dropped individual disc files from Explorer
+                // — the generated playlist sits next to them but no folder enum picked
+                // it up). Import those directly so the bundle reaches the library.
+                foreach (string m3u in generatedM3usToImport)
+                {
+                    if (_batchSkipSet.Contains(m3u)) continue;
+                    if (!File.Exists(m3u)) continue;
+                    await ImportSingleRomAsync(m3u);
+                }
+
+                _batchSkipSet.Clear();
             }
 
             ProgressChanged?.Invoke(_progressTotal, _progressTotal);
             IsImporting = false;
             ImportQueueDrained?.Invoke();
+        }
+
+        /// <summary>
+        /// Batch-level multi-disc detection. Expands every batch path (folders →
+        /// recursive file list), runs the bundler, writes .m3u playlists, populates
+        /// `_batchSkipSet` with files that should be hidden from the import loop,
+        /// removes any pre-existing library rows pointing at those files, and
+        /// returns the list of generated .m3u paths so they can be imported even
+        /// when the user dropped individual files (no folder enumeration to pick
+        /// the .m3u up).
+        /// </summary>
+        private Task<List<string>> PrepareBatchBundlingAsync(List<string> batchPaths)
+        {
+            return Task.Run(() =>
+            {
+                var generated = new List<string>();
+
+                // Gather every candidate ROM file across every batch path.
+                var candidates = new List<string>();
+                foreach (string p in batchPaths)
+                {
+                    try
+                    {
+                        if (Directory.Exists(p))
+                            candidates.AddRange(Directory.EnumerateFiles(p, "*", SearchOption.AllDirectories));
+                        else if (File.Exists(p))
+                            candidates.Add(p);
+                    }
+                    catch (Exception ex)
+                    {
+                        ImportLog($"[M3U] WARN scan failed for {p}: {ex.Message}");
+                    }
+                }
+                if (candidates.Count == 0) return generated;
+
+                // Auto-bundle disc-named groups.
+                var bundles = M3uBundler.FindBundles(candidates);
+                foreach (var bundle in bundles)
+                {
+                    try
+                    {
+                        string m3uPath = M3uBundler.WritePlaylist(bundle);
+                        generated.Add(m3uPath);
+                        if (!candidates.Contains(m3uPath, StringComparer.OrdinalIgnoreCase))
+                            candidates.Add(m3uPath);
+                        foreach (var disc in bundle.Discs)
+                            _batchSkipSet.Add(disc.Path);
+                        ImportLog($"[M3U] {bundle.BaseTitle} → {Path.GetFileName(m3uPath)} ({bundle.Discs.Count} discs)");
+                    }
+                    catch (Exception ex)
+                    {
+                        ImportLog($"[M3U] WARN failed to write playlist for {bundle.BaseTitle}: {ex.Message}");
+                    }
+                }
+
+                // Honor every .m3u in the candidate list (auto-generated OR user-
+                // authored): skip every disc file the playlist references.
+                foreach (string m3u in candidates)
+                {
+                    if (!Path.GetExtension(m3u).Equals(".m3u", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    int skipped = 0;
+                    foreach (string discPath in M3uBundler.GetReferencedAbsolutePaths(m3u))
+                    {
+                        if (_batchSkipSet.Add(discPath)) skipped++;
+                    }
+                    if (skipped > 0)
+                        ImportLog($"[M3U] {Path.GetFileName(m3u)} suppressed {skipped} referenced disc file(s) from import");
+                }
+
+                // Widen the skip set to include .bin siblings of every bundled .cue.
+                // Without this, a multi-disc set imported as cue/bin pairs leaves
+                // the .bin files exposed (the cue gets bundled, the bin's separate
+                // "skip-paired-with-cue" check is too late if the user is on a
+                // console-nav hint and short-circuits past it).
+                var binSiblings = new List<string>();
+                foreach (string p in _batchSkipSet)
+                {
+                    if (!Path.GetExtension(p).Equals(".cue", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    binSiblings.AddRange(M3uBundler.GetCueReferencedAbsolutePaths(p));
+                }
+                int binsAdded = 0;
+                foreach (string b in binSiblings)
+                {
+                    if (_batchSkipSet.Add(b)) binsAdded++;
+                }
+                if (binsAdded > 0)
+                    ImportLog($"[M3U] also suppressing {binsAdded} .bin sidecar(s) referenced by bundled .cue files");
+
+                // Stale-cleanup: drop any pre-existing library row whose RomPath
+                // points at a now-bundled disc file, so the user ends up with one
+                // entry per multi-disc game even when re-importing a folder that
+                // had been imported as separate single-disc rows previously.
+                int staleRemoved = 0;
+                foreach (string discPath in _batchSkipSet)
+                {
+                    int? oldId = _db.GetGameIdByRomPath(discPath);
+                    if (oldId.HasValue)
+                    {
+                        try { _db.DeleteGame(oldId.Value); staleRemoved++; }
+                        catch (Exception ex)
+                        {
+                            ImportLog($"[M3U] WARN failed to remove stale entry id={oldId.Value}: {ex.Message}");
+                        }
+                    }
+                }
+                if (staleRemoved > 0)
+                    ImportLog($"[M3U] removed {staleRemoved} stale single-disc library entr{(staleRemoved == 1 ? "y" : "ies")} replaced by playlist(s)");
+
+                return generated;
+            });
         }
 
         private async Task ImportFolderAsync(string folderPath)
@@ -238,6 +377,12 @@ namespace Emutastic.Services
                 }
             }
 
+            // Multi-disc bundling already happened at the batch level
+            // (PrepareBatchBundlingAsync). _batchSkipSet contains every disc file
+            // that should be skipped, plus generated .m3u paths exist on disk so
+            // EnumerateFiles will pick them up below.
+            var allFiles = Directory.EnumerateFiles(folderPath, "*", SearchOption.AllDirectories).ToList();
+
             // Console-nav hint short-circuit: user dropped a folder while on a
             // specific console nav (e.g. SNES). Trust that signal — recursively
             // flat-import every file as the hinted console, no per-file
@@ -245,9 +390,10 @@ namespace Emutastic.Services
             if (!string.IsNullOrEmpty(_activeHintedConsole)
                 && _activeHintedConsole != "All Games")
             {
-                foreach (string file in Directory.EnumerateFiles(folderPath, "*", SearchOption.AllDirectories))
+                foreach (string file in allFiles)
                 {
                     if (!RomService.IsRomFile(file)) continue;
+                    if (_batchSkipSet.Contains(file)) continue; // skip individual discs that were bundled
                     string pathToImport = await ResolveImportPathAsync(file, _activeHintedConsole);
                     await ImportRomFileAsync(pathToImport, _activeHintedConsole, Path.GetFileName(pathToImport));
                     Interlocked.Increment(ref _progressCurrent);
@@ -257,9 +403,10 @@ namespace Emutastic.Services
             }
 
             // No hint: per-file detection.
-            foreach (string file in Directory.EnumerateFiles(folderPath, "*", SearchOption.AllDirectories))
+            foreach (string file in allFiles)
             {
                 if (!RomService.IsRomFile(file)) continue;
+                if (_batchSkipSet.Contains(file)) continue; // skip individual discs that were bundled
                 await ImportSingleRomAsync(file);
                 Interlocked.Increment(ref _progressCurrent);
                 ProgressChanged?.Invoke(_progressCurrent, _progressTotal);
@@ -271,6 +418,34 @@ namespace Emutastic.Services
             string fileName = Path.GetFileName(romPath);
             string ext = Path.GetExtension(romPath);
 
+            // Skip files the batch-level multi-disc bundler folded into a .m3u.
+            // The .m3u is the single library entry; the individual disc files
+            // shouldn't import as their own games.
+            if (_batchSkipSet.Contains(romPath))
+            {
+                ImportLog($"[Skip] {Path.GetFileName(romPath)} — bundled into .m3u");
+                return;
+            }
+
+            // .bin paired with a .cue in the same folder — skip it; the .cue is the entry point.
+            // Checks for ANY .cue in the folder, not just one with the same base name, so that
+            // multi-track dumps (Track 01.bin, Track 02.bin, ...) are correctly skipped when
+            // only the .cue shares a different naming pattern.
+            //
+            // MUST run BEFORE the console-nav hint short-circuit. Otherwise users sitting on
+            // PS1/SegaCD/Saturn nav while importing a flat ROM folder end up with the .bin
+            // imported as a separate game alongside the .cue (since the hint forces import
+            // and the .bin filter never gets a chance to fire).
+            if (ext.Equals(".bin", StringComparison.OrdinalIgnoreCase))
+            {
+                string folder = Path.GetDirectoryName(romPath) ?? "";
+                if (Directory.EnumerateFiles(folder, "*.cue", SearchOption.TopDirectoryOnly).Any())
+                {
+                    ImportLog($"[Skip] {Path.GetFileName(romPath)} — paired with .cue in folder");
+                    return;
+                }
+            }
+
             // Console-nav hint short-circuit: when the user dropped this file
             // while sitting on a specific console nav (e.g. DOS), trust that
             // signal over fragile filename-based detection. Especially valuable
@@ -281,17 +456,6 @@ namespace Emutastic.Services
                 string resolved = await ResolveImportPathAsync(romPath, _activeHintedConsole);
                 await ImportRomFileAsync(resolved, _activeHintedConsole, Path.GetFileName(resolved));
                 return;
-            }
-
-            // .bin paired with a .cue in the same folder — skip it; the .cue is the entry point.
-            // Checks for ANY .cue in the folder, not just one with the same base name, so that
-            // multi-track dumps (Track 01.bin, Track 02.bin, ...) are correctly skipped when
-            // only the .cue shares a different naming pattern.
-            if (ext.Equals(".bin", StringComparison.OrdinalIgnoreCase))
-            {
-                string folder = Path.GetDirectoryName(romPath) ?? "";
-                if (Directory.EnumerateFiles(folder, "*.cue", SearchOption.TopDirectoryOnly).Any())
-                    return;
             }
 
             // Handle zip / 7z files
@@ -562,6 +726,13 @@ namespace Emutastic.Services
                         // For .cue files, also copy every .bin referenced inside
                         if (Path.GetExtension(romPath).Equals(".cue", StringComparison.OrdinalIgnoreCase))
                             await CopyCueBinsAsync(romPath, destDir);
+
+                        // For .m3u playlists, copy every disc file the playlist
+                        // references (and for .cue discs, the .bin files those reference).
+                        // Without this the library copy of the .m3u points at filenames
+                        // that exist only in the original folder and the game can't load.
+                        if (Path.GetExtension(romPath).Equals(".m3u", StringComparison.OrdinalIgnoreCase))
+                            await CopyM3uDiscsAsync(romPath, destDir);
 
                         romPath  = destPath;
                         fileName = Path.GetFileName(destPath);
@@ -1081,6 +1252,39 @@ namespace Emutastic.Services
                     StatusChanged?.Invoke($"Copying {fileName}… {pct}% ({copiedMb} / {totalMb} MB)");
                     lastUpdate = now;
                 }
+            }
+        }
+
+        /// <summary>
+        /// Parses an .m3u playlist and copies every referenced disc file (.cue/.chd/
+        /// .iso/.gdi/etc.) into destDir. For .cue entries, also copies the .bin files
+        /// those reference. Required when CopyToLibrary is on — otherwise the library
+        /// copy of the .m3u points at sibling filenames that don't exist there.
+        /// </summary>
+        private async Task CopyM3uDiscsAsync(string m3uPath, string destDir)
+        {
+            string? m3uDir = Path.GetDirectoryName(m3uPath);
+            if (m3uDir == null) return;
+
+            foreach (string rawLine in File.ReadAllLines(m3uPath))
+            {
+                string entry = rawLine.Trim();
+                if (string.IsNullOrEmpty(entry) || entry.StartsWith("#")) continue;
+                // Resolve relative to the m3u's directory.
+                string discSrc = Path.IsPathRooted(entry) ? entry : Path.Combine(m3uDir, entry);
+                if (!File.Exists(discSrc)) continue;
+
+                string discName = Path.GetFileName(discSrc);
+                string discDest = Path.Combine(destDir, discName);
+                if (!File.Exists(discDest))
+                {
+                    StatusChanged?.Invoke($"Copying {discName}…");
+                    await CopyFileAsync(discSrc, discDest);
+                }
+
+                // Cue entries pull their .bin tracks too.
+                if (Path.GetExtension(discSrc).Equals(".cue", StringComparison.OrdinalIgnoreCase))
+                    await CopyCueBinsAsync(discSrc, destDir);
             }
         }
 
