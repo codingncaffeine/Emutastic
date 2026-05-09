@@ -44,6 +44,12 @@ namespace Emutastic
             ApplyWindowsChrome();
             AllowDrop = true;
 
+            // GridView column-header clicks bubble up the visual tree as a
+            // routed Click event. ListView doesn't surface them as a normal
+            // event, so wire it manually with AddHandler.
+            GameListView.AddHandler(GridViewColumnHeader.ClickEvent,
+                new RoutedEventHandler(GameListColumnHeader_Click));
+
             // Everything else deferred to Loaded so the window appears immediately.
             Loaded += OnLoaded;
         }
@@ -975,6 +981,157 @@ namespace Emutastic
         private void SetStatus(string msg, bool autoClear = false)
             => _vm.SetStatus(msg, autoClear);
 
+        // ── List view (OpenEmu-style table) ──────────────────────────────────
+        // Double-click a row to launch (matches OpenEmu); single-click just selects.
+        private void GameListView_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton != MouseButton.Left) return;
+            if (GameListView.SelectedItem is not Game game) return;
+            _openDetailWindow?.Close();
+            _openDetailWindow = new GameDetailWindow(game) { Owner = this };
+            _openDetailWindow.Closed += (_, _) => { _openDetailWindow = null; };
+            _openDetailWindow.Show();
+        }
+
+        private void GameListView_RightClick(object sender, MouseButtonEventArgs e)
+        {
+            if (e.OriginalSource is not DependencyObject src) return;
+            // Walk up to the row container so we can read its DataContext (a Game).
+            var row = FindAncestor<ListViewItem>(src);
+            if (row?.DataContext is not Game game) return;
+            row.IsSelected = true;
+            bool isMultiSelect = GameListView.SelectedItems.Count > 1
+                              && GameListView.SelectedItems.Contains(game);
+            var menu = isMultiSelect
+                ? BuildMultiSelectContextMenu(GameListView.SelectedItems.OfType<Game>().ToList())
+                : BuildContextMenu(game);
+            menu.PlacementTarget = row;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+            menu.IsOpen = true;
+            e.Handled = true;
+        }
+
+        private static T? FindAncestor<T>(DependencyObject d) where T : DependencyObject
+        {
+            while (d != null)
+            {
+                if (d is T t) return t;
+                d = System.Windows.Media.VisualTreeHelper.GetParent(d);
+            }
+            return null;
+        }
+
+        // Column-header click → set sort. Single-column sort, click again toggles
+        // direction. Persisted via the config service so the user's choice
+        // survives across launches (matches OpenEmu's NSUserDefaults behavior).
+        private GridViewColumnHeader? _activeSortHeader;
+        private System.ComponentModel.ListSortDirection _activeSortDirection
+            = System.ComponentModel.ListSortDirection.Ascending;
+
+        private void GameListColumnHeader_Click(object sender, RoutedEventArgs e)
+        {
+            if (e.OriginalSource is not GridViewColumnHeader header) return;
+            if (header.Role == GridViewColumnHeaderRole.Padding) return;
+            string sortMember = HeaderToSortMember(header.Column?.Header as string ?? "");
+            if (string.IsNullOrEmpty(sortMember)) return;
+
+            // Same column clicked → flip direction; new column → reset to ascending.
+            var dir = (header == _activeSortHeader
+                       && _activeSortDirection == System.ComponentModel.ListSortDirection.Ascending)
+                ? System.ComponentModel.ListSortDirection.Descending
+                : System.ComponentModel.ListSortDirection.Ascending;
+            ApplyListSort(sortMember, dir, header);
+            App.Configuration?.SetValue("listSortColumn", sortMember);
+            App.Configuration?.SetValue("listSortDirection", dir.ToString());
+        }
+
+        private static string HeaderToSortMember(string headerLabel) => headerLabel switch
+        {
+            "Name"        => "Title",   // header label changed; Game.Title is the underlying property
+            "Title"       => "Title",   // legacy persisted value from prior builds
+            "Rating"      => "Rating",
+            "Last Played" => "LastPlayed",
+            "System"      => "Console",
+            _             => "",
+        };
+
+        private void ApplyListSort(string sortMember, System.ComponentModel.ListSortDirection dir,
+            GridViewColumnHeader? header)
+        {
+            // GameListView's ItemsSource is bound to the {StaticResource GameListSource}
+            // CollectionViewSource defined in XAML. GetDefaultView on that source
+            // returns its private view (NOT the default view shared with the grid),
+            // so sort descriptions added here only affect the list view.
+            var view = System.Windows.Data.CollectionViewSource.GetDefaultView(GameListView.ItemsSource);
+            if (view == null) return;
+            view.SortDescriptions.Clear();
+            view.SortDescriptions.Add(new System.ComponentModel.SortDescription(sortMember, dir));
+            view.Refresh();
+
+            // Update header chrome — clear tags on every header sibling (including
+            // the trailing padding header WPF inserts), then mark the clicked one.
+            if (header?.Parent is System.Windows.Controls.GridViewHeaderRowPresenter row)
+            {
+                int n = System.Windows.Media.VisualTreeHelper.GetChildrenCount(row);
+                for (int i = 0; i < n; i++)
+                {
+                    if (System.Windows.Media.VisualTreeHelper.GetChild(row, i) is GridViewColumnHeader h
+                        && h.Role != GridViewColumnHeaderRole.Padding)
+                        h.Tag = null;
+                }
+            }
+            if (header != null)
+                header.Tag = dir == System.ComponentModel.ListSortDirection.Ascending ? "SortAsc" : "SortDesc";
+            _activeSortHeader = header;
+            _activeSortDirection = dir;
+        }
+
+        // Restore persisted sort on first show of the list view. Defaults to
+        // Title ascending (matches OpenEmu's default).
+        private bool _listSortRestored;
+        private void RestoreListSort()
+        {
+            if (_listSortRestored) return;
+            string col = App.Configuration?.GetValue("listSortColumn", "Title") ?? "Title";
+            string dirStr = App.Configuration?.GetValue("listSortDirection", "Ascending") ?? "Ascending";
+            var dir = string.Equals(dirStr, "Descending", StringComparison.OrdinalIgnoreCase)
+                ? System.ComponentModel.ListSortDirection.Descending
+                : System.ComponentModel.ListSortDirection.Ascending;
+            GridViewColumnHeader? targetHeader = FindHeaderForColumn(col);
+            // If the header presenter isn't realized yet (first show), retry
+            // once at Background priority so layout completes first. Without
+            // this the chevron stays missing until the user clicks a header
+            // (the sort itself still applies via SortDescriptions).
+            if (targetHeader == null && !_listSortRestored)
+            {
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    targetHeader = FindHeaderForColumn(col);
+                    ApplyListSort(col, dir, targetHeader);
+                    _listSortRestored = true;
+                }), System.Windows.Threading.DispatcherPriority.Background);
+                return;
+            }
+            ApplyListSort(col, dir, targetHeader);
+            _listSortRestored = true;
+        }
+
+        private GridViewColumnHeader? FindHeaderForColumn(string sortMember)
+        {
+            var presenter = FindVisualChild<System.Windows.Controls.GridViewHeaderRowPresenter>(GameListView);
+            if (presenter == null) return null;
+            int n = System.Windows.Media.VisualTreeHelper.GetChildrenCount(presenter);
+            for (int i = 0; i < n; i++)
+            {
+                if (System.Windows.Media.VisualTreeHelper.GetChild(presenter, i) is GridViewColumnHeader h
+                    && h.Role != GridViewColumnHeaderRole.Padding
+                    && h.Column?.Header is string s
+                    && HeaderToSortMember(s) == sortMember)
+                    return h;
+            }
+            return null;
+        }
+
         // ── View toggle (grid / list) ──
         private void ViewToggle_Click(object sender, RoutedEventArgs e)
         {
@@ -1009,6 +1166,10 @@ namespace Emutastic
                 LibraryView.Visibility          = Visibility.Collapsed;
                 FavoritesGroupedView.Visibility = Visibility.Collapsed;
                 GameListView.Visibility         = Visibility.Visible;
+                // Restore the persisted sort once on first show — otherwise the
+                // list comes up unsorted (insertion order from the DB query).
+                Dispatcher.BeginInvoke(new Action(RestoreListSort),
+                    System.Windows.Threading.DispatcherPriority.Loaded);
                 return;
             }
 
@@ -1562,33 +1723,89 @@ namespace Emutastic
             }
             SaveStatesEmptyText.Visibility = Visibility.Collapsed;
 
-            // Group by console
-            var grouped = allStates.GroupBy(s => s.ConsoleName).OrderBy(g => g.Key);
+            // Group per game (OpenEmu pattern), then sort groups alphabetically.
+            // Within each group, newest state first.
+            var grouped = allStates
+                .GroupBy(s => new { s.GameId, s.GameTitle, s.ConsoleName })
+                .OrderBy(g => g.Key.GameTitle)
+                .ThenBy(g => g.Key.ConsoleName);
 
             foreach (var group in grouped)
             {
-                // Console header
-                var header = new TextBlock
-                {
-                    Text       = group.Key.Length > 0 ? group.Key : "Unknown Console",
-                    FontFamily = (System.Windows.Media.FontFamily)FindResource("PrimaryFont"),
-                    FontSize   = 13,
-                    FontWeight = FontWeights.SemiBold,
-                    Foreground = (System.Windows.Media.Brush)FindResource("TextSecondaryBrush"),
-                    Margin     = new Thickness(0, 16, 0, 8),
-                };
-                SaveStatesPanel.Children.Add(header);
+                SaveStatesPanel.Children.Add(BuildSaveStateGroupHeader(
+                    string.IsNullOrEmpty(group.Key.GameTitle) ? "Deleted Game" : group.Key.GameTitle,
+                    group.Key.ConsoleName));
 
-                // Card wrap panel for this console
-                var wrap = new WrapPanel { Orientation = Orientation.Horizontal };
-
+                // Card wrap panel for this game's states.
+                var wrap = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
                 foreach (var s in group.OrderByDescending(x => x.CreatedAt))
-                {
-                    var card = BuildSaveStateCard(s);
-                    wrap.Children.Add(card);
-                }
+                    wrap.Children.Add(BuildSaveStateCard(s));
                 SaveStatesPanel.Children.Add(wrap);
             }
+        }
+
+        // OpenEmu-style section header: full-width horizontal bar using the same
+        // engraved gradient as the top toolbar, with the game name on the left
+        // and the system name on the right (semibold left, secondary text right).
+        private FrameworkElement BuildSaveStateGroupHeader(string gameTitle, string consoleName)
+        {
+            var border = new Border
+            {
+                Background      = (System.Windows.Media.Brush)FindResource("ToolbarRaisedFillBrush"),
+                BorderBrush     = (System.Windows.Media.Brush)FindResource("ToolbarChiselBrush"),
+                BorderThickness = new Thickness(0, 1, 0, 1),
+                // Negative L/R margin extends past the SaveStatesView ScrollViewer's
+                // Padding="16" so the bar runs edge-to-edge like OpenEmu's section
+                // headers — no inset gap on either side.
+                Margin          = new Thickness(-16, 16, -16, 0),
+                Height          = 32,
+            };
+            var grid = new Grid { Margin = new Thickness(20, 0, 20, 0) };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            // Top inner highlight gives the same raised-edge feel as the toolbar buttons.
+            var topInner = new Border
+            {
+                BorderBrush     = (System.Windows.Media.Brush)FindResource("ToolbarTopHighlightBrush"),
+                BorderThickness = new Thickness(0, 1, 0, 0),
+            };
+            var name = new TextBlock
+            {
+                Text                = gameTitle,
+                FontFamily          = (System.Windows.Media.FontFamily)FindResource("PrimaryFont"),
+                FontSize            = 13,
+                FontWeight          = FontWeights.SemiBold,
+                Foreground          = (System.Windows.Media.Brush)FindResource("ToolbarRaisedTextBrush"),
+                VerticalAlignment   = VerticalAlignment.Center,
+                TextTrimming        = TextTrimming.CharacterEllipsis,
+                Effect              = new System.Windows.Media.Effects.DropShadowEffect
+                {
+                    BlurRadius  = 0,
+                    Direction   = 270,
+                    ShadowDepth = 1,
+                    Opacity     = 0.85,
+                    Color       = System.Windows.Media.Colors.Black,
+                },
+            };
+            var system = new TextBlock
+            {
+                Text                = consoleName,
+                FontFamily          = (System.Windows.Media.FontFamily)FindResource("PrimaryFont"),
+                FontSize            = 11,
+                Foreground          = (System.Windows.Media.Brush)FindResource("TextSecondaryBrush"),
+                VerticalAlignment   = VerticalAlignment.Center,
+                Margin              = new Thickness(8, 0, 0, 0),
+            };
+            Grid.SetColumn(name, 0);
+            Grid.SetColumn(system, 1);
+            grid.Children.Add(name);
+            grid.Children.Add(system);
+
+            var stack = new Grid();
+            stack.Children.Add(topInner);
+            stack.Children.Add(grid);
+            border.Child = stack;
+            return border;
         }
 
         private void PopulateFavoritesView()

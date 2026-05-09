@@ -4,9 +4,11 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Interop;
 using System.Windows.Media;
 using IoPath = System.IO.Path;
 using System.Windows.Shapes;
@@ -28,33 +30,81 @@ namespace Emutastic.Views
         /// <summary>Suppress preview updates during bulk load.</summary>
         private bool _loading;
 
+        /// <summary>
+        /// Id of the theme currently being edited (what LoadThemeColors loaded
+        /// from). Distinct from ThemeService.ActiveThemeId because the user can
+        /// switch the base-theme combo without applying. Null when the working
+        /// set came from an imported file that hasn't been saved yet.
+        /// </summary>
+        private string? _workingThemeId;
+
+        /// <summary>True if the user has unapplied color edits.</summary>
+        private bool _isDirty;
+
         public ThemeEditorWindow()
         {
             InitializeComponent();
             PopulateBaseThemeCombo();
             LoadFromActiveTheme();
+            SourceInitialized += (_, _) => ApplyDarkTitleBar();
+        }
+
+        [DllImport("dwmapi.dll", PreserveSig = true)]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+
+        private void ApplyDarkTitleBar()
+        {
+            if (new WindowInteropHelper(this).Handle is var hwnd && hwnd != IntPtr.Zero)
+            {
+                int value = 1;
+                DwmSetWindowAttribute(hwnd, 20, ref value, sizeof(int));
+            }
         }
 
         // ── Initialization ──────────────────────────────────────────────
 
         private void PopulateBaseThemeCombo()
         {
+            _loading = true;
+            BaseThemeCombo.Items.Clear();
             var themes = ThemeService.Instance.GetAvailableThemes();
             foreach (var (id, name) in themes)
             {
                 BaseThemeCombo.Items.Add(new ComboBoxItem { Content = name, Tag = id });
             }
 
-            // Select current active theme
+            // Try to select the active theme. If it isn't in the list (deleted,
+            // missing files, etc.) fall back to the first item so the combo is
+            // never in an unselected state on load.
+            if (!SelectComboById(ThemeService.Instance.ActiveThemeId)
+                && BaseThemeCombo.Items.Count > 0)
+            {
+                BaseThemeCombo.SelectedIndex = 0;
+            }
+            _loading = false;
+        }
+
+        /// <summary>
+        /// Selects the combo item whose Tag matches <paramref name="id"/>.
+        /// Returns true if a match was found. Sets <see cref="_loading"/> while
+        /// updating so the SelectionChanged handler doesn't reload colors.
+        /// </summary>
+        private bool SelectComboById(string? id)
+        {
+            if (string.IsNullOrEmpty(id)) return false;
             for (int i = 0; i < BaseThemeCombo.Items.Count; i++)
             {
                 if (BaseThemeCombo.Items[i] is ComboBoxItem item &&
-                    item.Tag is string id && id == ThemeService.Instance.ActiveThemeId)
+                    item.Tag is string tag && tag == id)
                 {
+                    bool prev = _loading;
+                    _loading = true;
                     BaseThemeCombo.SelectedIndex = i;
-                    break;
+                    _loading = prev;
+                    return true;
                 }
             }
+            return false;
         }
 
         private void LoadFromActiveTheme()
@@ -67,29 +117,21 @@ namespace Emutastic.Views
         {
             _loading = true;
 
-            // Get the color set for the selected base theme
-            var themes = new Dictionary<string, Func<ThemeColors>>
-            {
-                ["builtin.dark"] = ThemeService.GetDefaultColors,
-                ["builtin.light"] = () => GetThemeColorsByReflection("GetLightColors"),
-                ["builtin.oled"] = () => GetThemeColorsByReflection("GetOledColors"),
-                ["builtin.midnight"] = () => GetThemeColorsByReflection("GetMidnightColors"),
-            };
+            // Ask ThemeService for the canonical colors so custom themes are
+            // covered alongside builtins. Deep-clone via JSON so edits stay
+            // local to _editColors and don't mutate the cached registry entry
+            // (which would dirty the live theme even on Cancel).
+            var src = ThemeService.Instance.GetColorsForTheme(themeId)
+                      ?? ThemeService.GetDefaultColors();
+            _editColors = JsonSerializer.Deserialize<ThemeColors>(
+                              JsonSerializer.Serialize(src)) ?? src;
 
-            _editColors = themes.TryGetValue(themeId, out var factory)
-                ? factory()
-                : ThemeService.GetDefaultColors();
+            _workingThemeId = themeId;
+            _isDirty = false;
 
             BuildColorEditors();
             UpdatePreview();
             _loading = false;
-        }
-
-        private static ThemeColors GetThemeColorsByReflection(string methodName)
-        {
-            var method = typeof(ThemeService).GetMethod(methodName,
-                BindingFlags.NonPublic | BindingFlags.Static);
-            return method?.Invoke(null, null) as ThemeColors ?? ThemeService.GetDefaultColors();
         }
 
         // ── Color editor building ───────────────────────────────────────
@@ -279,6 +321,7 @@ namespace Emutastic.Views
             if (!IsValidHex(hex)) return;
 
             SetColorValue(token, hex);
+            _isDirty = true;
 
             // Update swatch
             if (_editors.TryGetValue(token, out var pair))
@@ -311,6 +354,7 @@ namespace Emutastic.Views
                 var c = dlg.Color;
                 var hex = $"#{c.R:X2}{c.G:X2}{c.B:X2}";
                 SetColorValue(token, hex);
+                _isDirty = true;
 
                 // Update UI
                 if (_editors.TryGetValue(token, out var pair))
@@ -424,51 +468,145 @@ namespace Emutastic.Views
         private void BaseThemeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_loading) return;
-            if (BaseThemeCombo.SelectedItem is ComboBoxItem item && item.Tag is string id)
+            if (BaseThemeCombo.SelectedItem is not ComboBoxItem item ||
+                item.Tag is not string id)
+                return;
+
+            // Confirm before discarding unsaved edits. If the user backs out,
+            // revert the combo to whatever was previously loaded so the UI and
+            // _editColors don't drift apart.
+            if (_isDirty)
             {
-                LoadThemeColors(id);
+                var result = MessageBox.Show(
+                    "You have unsaved color changes. Switch base theme and discard them?",
+                    "Theme Editor", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                if (result != MessageBoxResult.Yes)
+                {
+                    SelectComboById(_workingThemeId);
+                    return;
+                }
             }
+
+            LoadThemeColors(id);
         }
 
         // ── Bottom bar actions ──────────────────────────────────────────
 
         private void ApplyBtn_Click(object sender, RoutedEventArgs e)
         {
-            // Push current edit colors to ThemeService
-            ThemeService.Instance.ApplyEditedColors(_editColors);
+            string? typedName = ThemeNameBox?.Text?.Trim();
+            string activeId;
 
-            // Save the active theme ID to config
+            if (!string.IsNullOrWhiteSpace(typedName))
+            {
+                // Save as a new custom theme so it appears in the installed list
+                // immediately. Apply that saved theme so the active id matches
+                // the persisted one (no orphan "edited builtin" state).
+                var savedId = ThemeService.Instance.SaveCustomTheme(typedName, _editColors);
+                if (string.IsNullOrEmpty(savedId))
+                {
+                    MessageBox.Show("Could not save the theme. Try a different name.",
+                        "Theme Editor", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+                ThemeService.Instance.LoadAndApplyTheme(savedId);
+                activeId = savedId;
+            }
+            else
+            {
+                // No name typed.
+                // Use _workingThemeId (the theme we loaded from) instead of
+                // ActiveThemeId. They're usually the same, but the user can
+                // switch the base-theme combo and then Apply, in which case
+                // the loaded theme is what we should write back to.
+                string? workingId = _workingThemeId;
+
+                // Imported colors with no save target — require a name.
+                if (workingId == null)
+                {
+                    MessageBox.Show(
+                        "Enter a name for this imported theme before applying.",
+                        "Theme Editor", MessageBoxButton.OK, MessageBoxImage.Information);
+                    ThemeNameBox?.Focus();
+                    return;
+                }
+
+                if (workingId.StartsWith("custom.", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Saved custom theme: write edits through to its colors.json
+                    // so the on-disk file stays in sync, then re-apply by id so
+                    // ActiveThemeId keeps the proper "custom.<slug>" form
+                    // (ApplyEditedColors would overwrite it with the literal
+                    // "custom" sentinel and the next launch would fail to match).
+                    var existingName = ThemeService.Instance.GetAvailableThemes()
+                        .FirstOrDefault(t => t.Id == workingId).Name;
+                    if (!string.IsNullOrEmpty(existingName))
+                    {
+                        ThemeService.Instance.SaveCustomTheme(existingName, _editColors);
+                        ThemeService.Instance.LoadAndApplyTheme(workingId);
+                        activeId = workingId;
+                    }
+                    else
+                    {
+                        ThemeService.Instance.ApplyEditedColors(_editColors);
+                        activeId = ThemeService.Instance.ActiveThemeId;
+                    }
+                }
+                else
+                {
+                    // Editing a built-in without saving: apply in-memory only.
+                    ThemeService.Instance.ApplyEditedColors(_editColors);
+                    activeId = ThemeService.Instance.ActiveThemeId;
+                }
+            }
+
+            // Persist active theme id so the next launch picks it up.
             if (App.Configuration != null)
             {
                 var theme = App.Configuration.GetThemeConfiguration();
-                theme.ActiveThemeId = ThemeService.Instance.ActiveThemeId;
+                theme.ActiveThemeId = activeId;
                 App.Configuration.SetThemeConfiguration(theme);
                 _ = App.Configuration.SaveAsync();
             }
 
-            MessageBox.Show("Theme applied! Reopen windows to see full changes.",
-                "Theme Editor", MessageBoxButton.OK, MessageBoxImage.Information);
+            // Refresh combo so newly-saved custom themes appear, then sync
+            // the selection + working id to whatever was just applied. Clear
+            // the dirty flag and the name box so a follow-up Apply targets
+            // the saved theme by id.
+            PopulateBaseThemeCombo();
+            SelectComboById(activeId);
+            _workingThemeId = activeId;
+            _isDirty = false;
+            if (!string.IsNullOrWhiteSpace(typedName) && ThemeNameBox != null)
+                ThemeNameBox.Text = string.Empty;
+
+            string msg = string.IsNullOrWhiteSpace(typedName)
+                ? "Theme applied! Reopen windows to see full changes."
+                : $"Theme \"{typedName}\" saved and applied.\nIt now appears in Preferences → Theme → Installed Themes.";
+            MessageBox.Show(msg, "Theme Editor", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
         private void ResetBtn_Click(object sender, RoutedEventArgs e)
         {
-            var result = MessageBox.Show("Reset all colors to the Dark (Default) theme?",
+            // Reset to whichever theme is selected in the base-theme combo,
+            // falling back to the working id, then the active theme. Resolves
+            // the imported-but-not-yet-saved case (combo cleared, working id
+            // null) by going back to the live theme.
+            string targetId = (BaseThemeCombo.SelectedItem is ComboBoxItem item
+                               && item.Tag is string id)
+                ? id
+                : _workingThemeId ?? ThemeService.Instance.ActiveThemeId;
+
+            string targetName = ThemeService.Instance.GetAvailableThemes()
+                .FirstOrDefault(t => t.Id == targetId).Name ?? targetId;
+
+            var result = MessageBox.Show(
+                $"Discard unsaved changes and reset all colors to \"{targetName}\"?",
                 "Reset Theme", MessageBoxButton.YesNo, MessageBoxImage.Question);
             if (result == MessageBoxResult.Yes)
             {
-                LoadThemeColors("builtin.dark");
-
-                // Also select Dark in the base combo
-                for (int i = 0; i < BaseThemeCombo.Items.Count; i++)
-                {
-                    if (BaseThemeCombo.Items[i] is ComboBoxItem item && item.Tag is string id && id == "builtin.dark")
-                    {
-                        _loading = true;
-                        BaseThemeCombo.SelectedIndex = i;
-                        _loading = false;
-                        break;
-                    }
-                }
+                LoadThemeColors(targetId);
+                SelectComboById(targetId);
             }
         }
 
@@ -577,12 +715,22 @@ namespace Emutastic.Views
                     return;
                 }
 
-                // Merge imported colors into edit state
+                // Merge imported colors into edit state. Clear the combo
+                // selection and working id so the user has to name this theme
+                // before Apply will save it (otherwise a stray Apply would
+                // overwrite whatever custom theme happened to be active).
                 _loading = true;
                 _editColors = imported;
+                _workingThemeId = null;
+                _isDirty = true;
+                BaseThemeCombo.SelectedIndex = -1;
                 BuildColorEditors();
                 UpdatePreview();
                 _loading = false;
+
+                MessageBox.Show(
+                    "Imported colors loaded into the editor. Type a name and click Apply to save it as a new theme.",
+                    "Theme Editor", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
             {

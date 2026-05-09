@@ -38,6 +38,112 @@
                 <Setter Property="VerticalContentAlignment" Value="Center"/>
                 <Setter Property="CaretBrush" Value="{DynamicResource TextPrimaryBrush}"/>
             </Style>
+
+            <!-- Theme-aware ComboBox + ComboBoxItem.
+                 The default WPF ComboBox ControlTemplate hard-codes Aero / Luna
+                 system colors for the toggle arrow, popup background, and item
+                 highlights. When the active theme is dark, the popup ends up
+                 with white-on-white items that are unreadable. Override the
+                 templates so every painted surface resolves through theme tokens. -->
+            <Style x:Key="ThemedComboBoxItem" TargetType="ComboBoxItem">
+                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+                <Setter Property="Padding" Value="10,6"/>
+                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ComboBoxItem">
+                            <Border x:Name="bg"
+                                    Background="{DynamicResource BgQuaternaryBrush}"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsHighlighted" Value="True">
+                                    <Setter TargetName="bg" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                    <Setter Property="Foreground" Value="White"/>
+                                </Trigger>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter TargetName="bg" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                    <Setter Property="Foreground" Value="White"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style x:Key="ThemedComboBox" TargetType="ComboBox">
+                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+                <Setter Property="Background" Value="{DynamicResource BgQuaternaryBrush}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource BorderNormalBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="Padding" Value="8,4"/>
+                <Setter Property="ItemContainerStyle" Value="{StaticResource ThemedComboBoxItem}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ComboBox">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="22"/>
+                                </Grid.ColumnDefinitions>
+                                <Border x:Name="border" Grid.ColumnSpan="2"
+                                        Background="{TemplateBinding Background}"
+                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                        BorderThickness="{TemplateBinding BorderThickness}"
+                                        CornerRadius="4"/>
+                                <ToggleButton Grid.ColumnSpan="2"
+                                              Focusable="False"
+                                              ClickMode="Press"
+                                              IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                                              Background="Transparent"
+                                              BorderThickness="0">
+                                    <ToggleButton.Template>
+                                        <ControlTemplate TargetType="ToggleButton">
+                                            <Border Background="Transparent"/>
+                                        </ControlTemplate>
+                                    </ToggleButton.Template>
+                                </ToggleButton>
+                                <ContentPresenter Grid.Column="0"
+                                                  Margin="{TemplateBinding Padding}"
+                                                  Content="{TemplateBinding SelectionBoxItem}"
+                                                  ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                                  VerticalAlignment="Center"
+                                                  HorizontalAlignment="Left"
+                                                  IsHitTestVisible="False"/>
+                                <Path Grid.Column="1"
+                                      x:Name="arrow"
+                                      Data="M 0 0 L 8 0 L 4 5 Z"
+                                      Fill="{DynamicResource TextSecondaryBrush}"
+                                      IsHitTestVisible="False"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                <Popup Grid.ColumnSpan="2"
+                                       Placement="Bottom"
+                                       IsOpen="{TemplateBinding IsDropDownOpen}"
+                                       AllowsTransparency="True"
+                                       Focusable="False"
+                                       PopupAnimation="Slide">
+                                    <Border Background="{DynamicResource BgQuaternaryBrush}"
+                                            BorderBrush="{DynamicResource BorderNormalBrush}"
+                                            BorderThickness="1"
+                                            MinWidth="{TemplateBinding ActualWidth}"
+                                            MaxHeight="{TemplateBinding MaxDropDownHeight}">
+                                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                            <ItemsPresenter/>
+                                        </ScrollViewer>
+                                    </Border>
+                                </Popup>
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="border" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
         </ResourceDictionary>
     </Window.Resources>
 
@@ -58,12 +164,22 @@
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                     <TextBlock Text="Base:" FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"
                                VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <ComboBox x:Name="BaseThemeCombo" Width="160"
-                              Background="{DynamicResource BgQuaternaryBrush}"
-                              Foreground="{DynamicResource TextPrimaryBrush}"
-                              BorderBrush="{DynamicResource BorderNormalBrush}"
+                    <ComboBox x:Name="BaseThemeCombo" Width="180"
+                              Style="{StaticResource ThemedComboBox}"
                               FontSize="12"
-                              SelectionChanged="BaseThemeCombo_SelectionChanged"/>
+                              SelectionChanged="BaseThemeCombo_SelectionChanged">
+                        <!-- Implicit style scoped to this ComboBox's resources.
+                             Without this, any ComboBoxItem instantiated in code-behind
+                             (which BaseThemeCombo.Items.Add does) bypasses the parent
+                             ItemContainerStyle and falls back to the default WPF
+                             template — system colors leak through and the original
+                             white-on-white readability bug returns. The keyless style
+                             applies to every ComboBoxItem in this combo, generated
+                             OR explicit. -->
+                        <ComboBox.Resources>
+                            <Style TargetType="ComboBoxItem" BasedOn="{StaticResource ThemedComboBoxItem}"/>
+                        </ComboBox.Resources>
+                    </ComboBox>
                 </StackPanel>
             </Grid>
         </Border>
@@ -193,7 +309,22 @@
                             BorderBrush="{DynamicResource BorderNormalBrush}"
                             BorderThickness="1" Cursor="Hand"
                             Click="ResetBtn_Click"/>
-                    <Button x:Name="ApplyBtn" Content="Apply"
+                    <!-- Name field for the user's custom theme. When blank, Apply
+                         only updates the in-memory active colors (won't write to
+                         disk); when populated, Apply also saves a new card to
+                         "Installed Themes" without an export/import round-trip. -->
+                    <TextBlock Text="Name:" FontSize="12"
+                               Foreground="{DynamicResource TextSecondaryBrush}"
+                               VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBox x:Name="ThemeNameBox" Width="180" Height="28" FontSize="12"
+                             Background="{DynamicResource BgQuaternaryBrush}"
+                             Foreground="{DynamicResource TextPrimaryBrush}"
+                             BorderBrush="{DynamicResource BorderNormalBrush}"
+                             BorderThickness="1"
+                             VerticalContentAlignment="Center"
+                             CaretBrush="{DynamicResource TextPrimaryBrush}"
+                             Padding="6,0" Margin="0,0,8,0"/>
+                    <Button x:Name="ApplyBtn" Content="Save &amp; Apply"
                             Padding="14,6" FontSize="12"
                             Background="{DynamicResource AccentBrush}"
                             Foreground="White"

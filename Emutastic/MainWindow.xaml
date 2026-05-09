@@ -64,6 +64,129 @@
              Approximates OpenEmu's selected-control blue. -->
         <SolidColorBrush x:Key="ToolbarPressedTextBrush"  Color="#FF3D8ADE"/>
 
+        <!-- Private view of Games used ONLY by GameListView so its sort
+             descriptions don't bleed into the grid view (which uses the default
+             view of the same collection). The Source binding stays live so VM
+             updates (nav between consoles, refresh, etc.) keep flowing through. -->
+        <CollectionViewSource x:Key="GameListSource" Source="{Binding Games}"/>
+
+        <!-- ── List view (OpenEmu-style table) ───────────────────────────────
+             Converters used by the GameListView columns. Re-uses the engraved
+             gradient brushes above for column headers so the list view's chrome
+             matches the top toolbar visually. -->
+        <converters:ConsoleTagToIconConverter        x:Key="ConsoleTagToIcon"/>
+        <converters:RatingToStarsConverter           x:Key="RatingToStars"/>
+        <converters:RatingToFilledStarsConverter     x:Key="RatingToFilledStars"/>
+        <converters:LastPlayedToMediumDateConverter  x:Key="LastPlayedMedium"/>
+        <converters:ZeroToBlankConverter             x:Key="ZeroToBlank"/>
+
+        <!-- Alternating row backgrounds — black/grey per the OpenEmu look. -->
+        <SolidColorBrush x:Key="ListRowEvenBrush" Color="#FF161616"/>
+        <SolidColorBrush x:Key="ListRowOddBrush"  Color="#FF1E1E1E"/>
+
+        <!-- Column header: same engraved gradient as the top toolbar. Includes
+             a sort-direction chevron rendered via two TextBlocks toggled by
+             attached properties on the header (set in code-behind on click). -->
+        <Style x:Key="ListColumnHeaderStyle" TargetType="GridViewColumnHeader">
+            <Setter Property="Foreground" Value="{StaticResource ToolbarRaisedTextBrush}"/>
+            <Setter Property="FontFamily" Value="{StaticResource PrimaryFont}"/>
+            <Setter Property="FontSize"   Value="11"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor"     Value="Hand"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="GridViewColumnHeader">
+                        <Border x:Name="outerBorder"
+                                Background="{StaticResource ToolbarRaisedFillBrush}"
+                                BorderBrush="{StaticResource ToolbarChiselBrush}"
+                                BorderThickness="0,1,1,1">
+                            <Grid>
+                                <Border BorderBrush="{StaticResource ToolbarTopHighlightBrush}" BorderThickness="0,1,0,0"/>
+                                <Grid Margin="{TemplateBinding Padding}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <ContentPresenter Grid.Column="0"
+                                                      VerticalAlignment="Center"
+                                                      HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                      RecognizesAccessKey="True">
+                                        <ContentPresenter.Effect>
+                                            <DropShadowEffect BlurRadius="0" Direction="270" ShadowDepth="1" Opacity="0.85" Color="#000000"/>
+                                        </ContentPresenter.Effect>
+                                    </ContentPresenter>
+                                    <TextBlock x:Name="sortGlyph"
+                                               Grid.Column="1"
+                                               Margin="6,0,0,0"
+                                               FontSize="9"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource ToolbarPressedTextBrush}"
+                                               Visibility="Collapsed"
+                                               Text="▲"/>
+                                </Grid>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="outerBorder" Property="Background" Value="{StaticResource ToolbarHoverFillBrush}"/>
+                            </Trigger>
+                            <!-- Active sort column: tagged with attached properties
+                                 by the sort handler in code-behind. -->
+                            <Trigger Property="Tag" Value="SortAsc">
+                                <Setter TargetName="sortGlyph" Property="Visibility" Value="Visible"/>
+                                <Setter TargetName="sortGlyph" Property="Text" Value="▲"/>
+                                <Setter TargetName="outerBorder" Property="Background" Value="{StaticResource ToolbarPressedFillBrush}"/>
+                                <Setter Property="Foreground" Value="{StaticResource ToolbarPressedTextBrush}"/>
+                            </Trigger>
+                            <Trigger Property="Tag" Value="SortDesc">
+                                <Setter TargetName="sortGlyph" Property="Visibility" Value="Visible"/>
+                                <Setter TargetName="sortGlyph" Property="Text" Value="▼"/>
+                                <Setter TargetName="outerBorder" Property="Background" Value="{StaticResource ToolbarPressedFillBrush}"/>
+                                <Setter Property="Foreground" Value="{StaticResource ToolbarPressedTextBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Row container with alternating backgrounds + selection accent. -->
+        <Style x:Key="ListRowItemStyle" TargetType="ListViewItem">
+            <Setter Property="Background" Value="{StaticResource ListRowEvenBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListViewItem">
+                        <Border x:Name="rowBg"
+                                Background="{TemplateBinding Background}"
+                                Padding="0">
+                            <GridViewRowPresenter Columns="{TemplateBinding GridView.ColumnCollection}"
+                                                  Content="{TemplateBinding Content}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="ItemsControl.AlternationIndex" Value="1">
+                                <Setter TargetName="rowBg" Property="Background" Value="{StaticResource ListRowOddBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="rowBg" Property="Background" Value="#FF2A2A2A"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="rowBg" Property="Background" Value="#FF2D5A8C"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- The three segmented-tab styles (Library / Save States / Screenshots)
              share the same engraved-metallic recipe; only the corner-radius and
              outer border thickness differ to chain them visually. -->
@@ -1156,6 +1279,29 @@
                                                                   Color="Black"/>
                                             </TextBlock.Effect>
                                         </TextBlock>
+                                        <!-- Star rating below the title, centered. Same two-layer
+                                             technique as the list view: 5 dim-grey "engraved" stars
+                                             with a 1px dark drop shadow underneath, the first N
+                                             white stars overlaid on top. Always visible — unrated
+                                             games show 5 indented empty slots. -->
+                                        <Grid HorizontalAlignment="Center"
+                                              Margin="0,3,0,0">
+                                            <TextBlock Text="★★★★★"
+                                                       FontFamily="Segoe UI Symbol"
+                                                       FontSize="11"
+                                                       Foreground="#FF2A2A2A">
+                                                <TextBlock.Effect>
+                                                    <DropShadowEffect Color="Black" Direction="270"
+                                                                      ShadowDepth="1" BlurRadius="0"
+                                                                      Opacity="0.95"/>
+                                                </TextBlock.Effect>
+                                            </TextBlock>
+                                            <TextBlock Text="{Binding Rating, Converter={StaticResource RatingToFilledStars}}"
+                                                       FontFamily="Segoe UI Symbol"
+                                                       FontSize="11"
+                                                       Foreground="White"
+                                                       HorizontalAlignment="Left"/>
+                                        </Grid>
                                     </StackPanel>
                                 </Border>
                             </DataTemplate>
@@ -1299,89 +1445,105 @@
                         </StackPanel>
                     </ScrollViewer>
 
-                    <!-- Game list (list view) — sibling of LibraryView, NOT inside it.
-                         Uses a virtualized ListBox so large libraries don't stall on first render. -->
-                    <ListBox x:Name="GameListView"
-                             ItemsSource="{Binding Games}"
-                             Visibility="Collapsed"
-                             SelectionMode="Extended"
-                             VirtualizingPanel.IsVirtualizing="True"
-                             VirtualizingPanel.VirtualizationMode="Recycling"
-                             VirtualizingPanel.ScrollUnit="Item"
-                             ScrollViewer.CanContentScroll="True"
-                             ScrollViewer.VerticalScrollBarVisibility="Auto"
-                             Background="Transparent"
-                             BorderThickness="0"
-                             Padding="{DynamicResource LibraryGridPadding}"
-                             PreviewMouseWheel="GameListView_PreviewMouseWheel">
-                        <ListBox.ItemContainerStyle>
-                            <Style TargetType="ListBoxItem">
-                                <Setter Property="Padding" Value="0"/>
-                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                <Setter Property="Template">
-                                    <Setter.Value>
-                                        <ControlTemplate TargetType="ListBoxItem">
-                                            <ContentPresenter/>
-                                        </ControlTemplate>
-                                    </Setter.Value>
-                                </Setter>
-                            </Style>
-                        </ListBox.ItemContainerStyle>
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <Border Padding="8,6"
-                                        Cursor="Hand"
-                                        MouseLeftButtonDown="GameCard_Click"
-                                        MouseRightButtonUp="GameCard_RightClick">
-                                    <Border.Style>
-                                        <Style TargetType="Border">
-                                            <Style.Triggers>
-                                                <Trigger Property="IsMouseOver" Value="True">
-                                                    <Setter Property="Background" Value="{DynamicResource BgTertiaryBrush}"/>
-                                                </Trigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </Border.Style>
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="48"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-                                        <!-- Thumbnail: colored background only when no cover art (same as grid view) -->
-                                        <Border Grid.Column="0"
-                                                Width="44" Height="44"
-                                                CornerRadius="4"
-                                                ClipToBounds="True">
-                                            <Grid>
-                                                <Border Visibility="{Binding DisplayArtPath, Converter={StaticResource NullToVisibility}}">
-                                                    <Border.Background>
-                                                        <SolidColorBrush Color="{Binding BackgroundColor, Converter={StaticResource StringToColor}}"/>
-                                                    </Border.Background>
-                                                </Border>
-                                                <Image Source="{Binding DisplayArtPath, Converter={StaticResource PathToImage}}"
-                                                       Stretch="UniformToFill"
-                                                       Visibility="{Binding DisplayArtPath, Converter={StaticResource NotNullToVisibility}}"/>
-                                            </Grid>
-                                        </Border>
-                                        <StackPanel Grid.Column="1"
-                                                    VerticalAlignment="Center"
-                                                    Margin="10,0,0,0">
+                    <!-- Game list (OpenEmu-style table view) — sibling of LibraryView, NOT inside it.
+                         5 columns, no thumbnail, sortable column headers using the
+                         same engraved gradient as the top toolbar. AlternationCount=2
+                         drives the row striping via ListRowItemStyle. -->
+                    <ListView x:Name="GameListView"
+                              ItemsSource="{Binding Source={StaticResource GameListSource}}"
+                              Visibility="Collapsed"
+                              SelectionMode="Extended"
+                              AlternationCount="2"
+                              VirtualizingPanel.IsVirtualizing="True"
+                              VirtualizingPanel.VirtualizationMode="Recycling"
+                              VirtualizingPanel.ScrollUnit="Item"
+                              ScrollViewer.CanContentScroll="True"
+                              ScrollViewer.VerticalScrollBarVisibility="Auto"
+                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                              Background="Transparent"
+                              BorderThickness="0"
+                              ItemContainerStyle="{StaticResource ListRowItemStyle}"
+                              MouseDoubleClick="GameListView_MouseDoubleClick"
+                              MouseRightButtonUp="GameListView_RightClick"
+                              PreviewMouseWheel="GameListView_PreviewMouseWheel">
+                        <ListView.View>
+                            <GridView ColumnHeaderContainerStyle="{StaticResource ListColumnHeaderStyle}">
+                                <GridViewColumn x:Name="ListColTitle" Header="Name" Width="380"
+                                                HeaderContainerStyle="{StaticResource ListColumnHeaderStyle}">
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
                                             <TextBlock Text="{Binding Title}"
                                                        FontFamily="{StaticResource PrimaryFont}"
-                                                       FontSize="13"
-                                                       FontWeight="SemiBold"
-                                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
-                                            <TextBlock Text="{Binding Console}"
+                                                       FontSize="11"
+                                                       VerticalAlignment="Center"
+                                                       Padding="10,5"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                                <GridViewColumn x:Name="ListColRating" Header="Rating" Width="90"
+                                                HeaderContainerStyle="{StaticResource ListColumnHeaderStyle}">
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <!-- Two layers using the SAME glyph (★) so they align
+                                                 perfectly even though stars aren't monospace:
+                                                 - Bottom: 5 dim-grey stars with a 1px dark drop
+                                                   shadow that sells a "concave / indented" feel
+                                                 - Top:    only the first N stars in white, left-
+                                                   aligned, so positions past N show the grey ones
+                                                   underneath -->
+                                            <Grid HorizontalAlignment="Left" Margin="10,5">
+                                                <TextBlock Text="★★★★★"
+                                                           FontFamily="Segoe UI Symbol"
+                                                           FontSize="11"
+                                                           VerticalAlignment="Center"
+                                                           Foreground="#FF2A2A2A">
+                                                    <TextBlock.Effect>
+                                                        <DropShadowEffect Color="Black" Direction="270"
+                                                                          ShadowDepth="1" BlurRadius="0"
+                                                                          Opacity="0.95"/>
+                                                    </TextBlock.Effect>
+                                                </TextBlock>
+                                                <TextBlock Text="{Binding Rating, Converter={StaticResource RatingToFilledStars}}"
+                                                           FontFamily="Segoe UI Symbol"
+                                                           FontSize="11"
+                                                           VerticalAlignment="Center"
+                                                           Foreground="White"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                                <GridViewColumn x:Name="ListColLastPlayed" Header="Last Played" Width="120"
+                                                HeaderContainerStyle="{StaticResource ListColumnHeaderStyle}">
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding LastPlayed, Converter={StaticResource LastPlayedMedium}}"
                                                        FontFamily="{StaticResource PrimaryFont}"
                                                        FontSize="11"
-                                                       Foreground="{DynamicResource TextMutedBrush}"
-                                                       Margin="0,2,0,0"/>
-                                        </StackPanel>
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
+                                                       VerticalAlignment="Center"
+                                                       Padding="10,5"/>
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                                <GridViewColumn x:Name="ListColSystem" Header="System" Width="160"
+                                                HeaderContainerStyle="{StaticResource ListColumnHeaderStyle}">
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal" Margin="10,3" VerticalAlignment="Center">
+                                                <Image Source="{Binding Console, Converter={StaticResource ConsoleTagToIcon}}"
+                                                       Width="16" Height="16" Margin="0,0,8,0"
+                                                       RenderOptions.BitmapScalingMode="HighQuality"/>
+                                                <TextBlock Text="{Binding Console}"
+                                                           FontFamily="{StaticResource PrimaryFont}"
+                                                           FontSize="11"
+                                                           VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
 
                     <!-- Empty state — sits above both views, visible only when library is empty -->
                     <StackPanel HorizontalAlignment="Center"

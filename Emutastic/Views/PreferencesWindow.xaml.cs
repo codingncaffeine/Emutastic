@@ -95,6 +95,10 @@ namespace Emutastic.Views
             if (_controllerManager != null)
                 _controllerManager.ButtonChanged += OnControllerButtonChanged;
 
+            // Refresh the Theme tab live when the user saves a custom theme
+            // from the Theme Editor — no close/reopen of Preferences required.
+            Services.ThemeService.Instance.ThemesChanged += OnThemesChanged;
+
             Closed += (_, _) =>
             {
                 _controllerPollTimer?.Stop();
@@ -103,6 +107,7 @@ namespace Emutastic.Views
                     _controllerManager.RawMode = false;
                     _controllerManager.ButtonChanged -= OnControllerButtonChanged;
                 }
+                Services.ThemeService.Instance.ThemesChanged -= OnThemesChanged;
                 // Tear down the pause effect preview runner so its
                 // CompositionTarget.Rendering subscription doesn't outlive the window.
                 try { _pauseEffectPreviewRunner?.Dispose(); _pauseEffectPreviewRunner = null; } catch { }
@@ -110,6 +115,16 @@ namespace Emutastic.Views
                 SaveSnapSettings();
                 SaveAchievementsSettings();
             };
+        }
+
+        private void OnThemesChanged(object? sender, EventArgs e)
+        {
+            // ThemeService might fire from any thread (file IO inside SaveCustomTheme).
+            // Marshal back to the dispatcher before touching XAML elements.
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try { LoadThemeSettings(); } catch { }
+            }));
         }
 
         public PreferencesWindow(DatabaseService db, ControllerManager controllerManager)

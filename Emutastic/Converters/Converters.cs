@@ -228,4 +228,121 @@ namespace Emutastic.Converters
         public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)
             => throw new NotImplementedException();
     }
+
+    // ── List view (OpenEmu-style) cell formatters ────────────────────────────
+
+    /// <summary>
+    /// Game.Console string ("PS1", "SNES", …) → pack URI of the small system
+    /// icon shown in the System column. Mirrors PreferencesWindow's mapping so
+    /// nav sidebar, controls picker, and list view stay visually consistent.
+    /// </summary>
+    public class ConsoleTagToIconConverter : IValueConverter
+    {
+        public object? Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            if (value is not string tag || string.IsNullOrEmpty(tag)) return null;
+            string? uri = tag switch
+            {
+                "Atari2600"    => "pack://application:,,,/Assets/system_icons/atari2600.jpg",
+                "Atari7800"    => "pack://application:,,,/Assets/system_icons/atari7800.jpg",
+                "Jaguar"       => "pack://application:,,,/Assets/system_icons/systemicons1_13.jpg",
+                "NES"          => "pack://application:,,,/Assets/system_icons/nes_icon.jpg",
+                "FDS"          => "pack://application:,,,/Assets/system_icons/famicon disk system.jpg",
+                "SNES"         => "pack://application:,,,/Assets/system_icons/snes.jpg",
+                "N64"          => "pack://application:,,,/Assets/system_icons/n64.jpg",
+                "GameCube"     => "pack://application:,,,/Assets/system_icons/gamecube.jpg",
+                "GB"           => "pack://application:,,,/Assets/system_icons/gameboy.jpg",
+                "GBC"          => "pack://application:,,,/Assets/system_icons/gameboy.jpg",
+                "GBA"          => "pack://application:,,,/Assets/system_icons/gba.jpg",
+                "3DS"          => "pack://application:,,,/Assets/system_icons/3ds_icon.jpg",
+                "NDS"          => "pack://application:,,,/Assets/system_icons/nds.jpg",
+                "VirtualBoy"   => "pack://application:,,,/Assets/system_icons/virtualboy.jpg",
+                "SMS"          => "pack://application:,,,/Assets/system_icons/sms.jpg",
+                "Genesis"      => "pack://application:,,,/Assets/system_icons/genesis.jpg",
+                "SegaCD"       => "pack://application:,,,/Assets/system_icons/genesis.jpg",
+                "Sega32X"      => "pack://application:,,,/Assets/system_icons/32x.jpg",
+                "Saturn"       => "pack://application:,,,/Assets/system_icons/saturn.jpg",
+                "GameGear"     => "pack://application:,,,/Assets/system_icons/sms.jpg",
+                "SG1000"       => "pack://application:,,,/Assets/system_icons/sms.jpg",
+                "Dreamcast"    => "pack://application:,,,/Assets/system_icons/dreamcast.jpg",
+                "PS1"          => "pack://application:,,,/Assets/system_icons/ps1.jpg",
+                "PSP"          => "pack://application:,,,/Assets/system_icons/psp.jpg",
+                "TG16"         => "pack://application:,,,/Assets/system_icons/TG16.jpg",
+                "TGCD"         => "pack://application:,,,/Assets/system_icons/TG16.jpg",
+                "NeoGeo"       => "pack://application:,,,/Assets/system_icons/neogeo.jpg",
+                "NGP"          => "pack://application:,,,/Assets/system_icons/neo geo pocket.jpg",
+                "NGPC"         => "pack://application:,,,/Assets/system_icons/neo geo pocket.jpg",
+                "3DO"          => "pack://application:,,,/Assets/system_icons/3d0.jpg",
+                "CDi"          => "pack://application:,,,/Assets/system_icons/cdi_icon.jpg",
+                "ColecoVision" => "pack://application:,,,/Assets/system_icons/coleco.jpg",
+                "Vectrex"      => "pack://application:,,,/Assets/system_icons/vectrex.jpg",
+                _              => null,
+            };
+            if (uri == null) return null;
+            try { return new BitmapImage(new Uri(uri, UriKind.Absolute)); } catch { return null; }
+        }
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+            => throw new NotImplementedException();
+    }
+
+    /// <summary>
+    /// Rating int (0–5) → 5-glyph star string with filled (★) / empty (☆) stars.
+    /// </summary>
+    public class RatingToStarsConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            int r = value is int n ? Math.Clamp(n, 0, 5) : 0;
+            return new string('★', r) + new string('☆', 5 - r);
+        }
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+            => throw new NotImplementedException();
+    }
+
+    /// <summary>
+    /// Rating int (0–5) → string of N filled '★' glyphs only (no trailing
+    /// empties). Used for the white-overlay layer when the rating cell is
+    /// rendered as two stacked TextBlocks (concave-grey empties below, white
+    /// filled stars on top — the empty layer shows through past the Nth star).
+    /// </summary>
+    public class RatingToFilledStarsConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            int r = value is int n ? Math.Clamp(n, 0, 5) : 0;
+            return new string('★', r);
+        }
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+            => throw new NotImplementedException();
+    }
+
+    /// <summary>
+    /// DateTime? → medium-format date ("Mar 5, 2024") or empty string when null.
+    /// Matches OpenEmu's NSDateFormatter dateStyle = .medium.
+    /// </summary>
+    public class LastPlayedToMediumDateConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            if (value is DateTime dt) return dt.ToString("MMM d, yyyy", culture);
+            return string.Empty;
+        }
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+            => throw new NotImplementedException();
+    }
+
+    /// <summary>
+    /// Integer → string, with 0 rendered as blank. Mirrors OpenEmu's behavior
+    /// of leaving Play Count / Save State Count empty when the value is zero.
+    /// </summary>
+    public class ZeroToBlankConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            if (value is int n && n != 0) return n.ToString("N0", culture);
+            return string.Empty;
+        }
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+            => throw new NotImplementedException();
+    }
 }

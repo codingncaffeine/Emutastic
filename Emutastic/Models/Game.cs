@@ -98,7 +98,18 @@ namespace Emutastic.Models
         public int PlayCount { get; set; }
         public int SaveCount { get; set; }
         public bool IsFavorite { get; set; }
-        public int Rating { get; set; }
+        private int _rating;
+        public int Rating
+        {
+            get => _rating;
+            set
+            {
+                if (_rating == value) return;
+                _rating = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(RatingStars));
+            }
+        }
         public string Collection { get; set; } = "";
         public DateTime? LastPlayed { get; set; }
         public int ArtworkAttempts { get; set; }

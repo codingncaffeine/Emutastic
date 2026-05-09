@@ -258,6 +258,7 @@ namespace Emutastic.Services
 
                 zip.ExtractToDirectory(destDir, overwriteFiles: true);
                 ScanInstalledThemes();
+                ThemesChanged?.Invoke(this, EventArgs.Empty);
                 return manifest.Id;
             }
             catch
@@ -304,6 +305,63 @@ namespace Emutastic.Services
             }
         }
 
+        /// <summary>
+        /// Fired whenever the installed-themes registry changes (a custom theme
+        /// is saved, an .emutheme is imported, or an installed theme is removed).
+        /// PreferencesWindow subscribes to refresh its "Installed Themes" panel
+        /// without requiring a close/reopen round-trip.
+        /// </summary>
+        public event EventHandler? ThemesChanged;
+
+        /// <summary>
+        /// Save a user-named custom theme directly into the Themes folder so it
+        /// shows up in the installed-themes panel without an export/import
+        /// round-trip. Returns the new theme id, or null on failure.
+        /// </summary>
+        public string? SaveCustomTheme(string name, ThemeColors colors)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(name)) return null;
+                string trimmed = name.Trim();
+                // Build a stable id from the name.
+                string slug = string.Join("-",
+                    trimmed.ToLowerInvariant()
+                           .Split(Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries))
+                    .Replace(' ', '-');
+                if (string.IsNullOrEmpty(slug)) return null;
+                string id = $"custom.{slug}";
+
+                Directory.CreateDirectory(ThemesFolder);
+                var destDir = Path.Combine(ThemesFolder, id);
+                Directory.CreateDirectory(destDir);
+
+                var manifest = new ThemeManifest
+                {
+                    Id          = id,
+                    Name        = trimmed,
+                    Author      = Environment.UserName,
+                    Version     = "1.0.0",
+                    Description = "Custom theme created with Emutastic Theme Editor",
+                    ApiVersion  = 1,
+                };
+
+                var jsonOpts = new JsonSerializerOptions { WriteIndented = true };
+                File.WriteAllText(Path.Combine(destDir, "theme.json"),
+                    JsonSerializer.Serialize(manifest, jsonOpts));
+                File.WriteAllText(Path.Combine(destDir, "colors.json"),
+                    JsonSerializer.Serialize(colors, jsonOpts));
+
+                ScanInstalledThemes();
+                ThemesChanged?.Invoke(this, EventArgs.Empty);
+                return id;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         /// <summary>Removes an installed community theme.</summary>
         public bool UninstallTheme(string themeId)
         {
@@ -314,6 +372,7 @@ namespace Emutastic.Services
             {
                 Directory.Delete(dir, true);
                 _builtinThemes.Remove(themeId);
+                ThemesChanged?.Invoke(this, EventArgs.Empty);
                 return true;
             }
             catch { return false; }
