@@ -103,6 +103,9 @@ namespace Emutastic.Views
                     _controllerManager.RawMode = false;
                     _controllerManager.ButtonChanged -= OnControllerButtonChanged;
                 }
+                // Tear down the pause effect preview runner so its
+                // CompositionTarget.Rendering subscription doesn't outlive the window.
+                try { _pauseEffectPreviewRunner?.Dispose(); _pauseEffectPreviewRunner = null; } catch { }
                 // Save any pending credential changes on close
                 SaveSnapSettings();
                 SaveAchievementsSettings();
@@ -3318,6 +3321,7 @@ namespace Emutastic.Views
             ThemeCombo.SelectedIndex = selectedIdx;
 
             PopulateInstalledThemes();
+            PopulatePauseEffectsCombo();
 
             // Background image — show absolute path so the user can see exactly which
             // file is referenced; storage form may be relative under DataRoot.
@@ -3406,6 +3410,93 @@ namespace Emutastic.Views
         {
             if (BgOpacityValueLabel != null)
                 BgOpacityValueLabel.Text = $"{(int)BgOpacitySlider.Value}%";
+        }
+
+        // ── Pause effect picker ───────────────────────────────────────────────
+        private Views.PauseEffects.PauseEffectRunner? _pauseEffectPreviewRunner;
+
+        private void PopulatePauseEffectsCombo()
+        {
+            if (PauseEffectCombo == null) return;
+            // Avoid the SelectionChanged handler firing while we initialize.
+            PauseEffectCombo.SelectionChanged -= PauseEffectCombo_SelectionChanged;
+            PauseEffectCombo.Items.Clear();
+            foreach (var entry in Views.PauseEffects.PauseEffectRegistry.All)
+            {
+                PauseEffectCombo.Items.Add(new System.Windows.Controls.ComboBoxItem
+                {
+                    Content = entry.DisplayName,
+                    Tag     = entry.Id,
+                });
+            }
+            string savedId = _configService.GetValue("pauseEffect",
+                Views.PauseEffects.PauseEffectRegistry.NoneId);
+            for (int i = 0; i < PauseEffectCombo.Items.Count; i++)
+            {
+                if (PauseEffectCombo.Items[i] is System.Windows.Controls.ComboBoxItem cbi
+                    && string.Equals((string?)cbi.Tag, savedId, System.StringComparison.OrdinalIgnoreCase))
+                {
+                    PauseEffectCombo.SelectedIndex = i;
+                    break;
+                }
+            }
+            if (PauseEffectCombo.SelectedIndex < 0) PauseEffectCombo.SelectedIndex = 0;
+
+            double savedIntensity = _configService.GetValue("pauseEffectIntensity", 1.0);
+            int sliderVal = (int)System.Math.Round(savedIntensity * 100.0);
+            if (sliderVal < 50) sliderVal = 50;
+            if (sliderVal > 200) sliderVal = 200;
+            PauseEffectIntensitySlider.Value = sliderVal;
+            PauseEffectIntensityValueLabel.Text = $"{sliderVal}%";
+
+            PauseEffectCombo.SelectionChanged += PauseEffectCombo_SelectionChanged;
+            RestartPauseEffectPreview();
+        }
+
+        private void PauseEffectCombo_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+        {
+            if (PauseEffectCombo?.SelectedItem is not System.Windows.Controls.ComboBoxItem cbi) return;
+            string id = (string?)cbi.Tag ?? Views.PauseEffects.PauseEffectRegistry.NoneId;
+            _configService.SetValue("pauseEffect", id);
+            RestartPauseEffectPreview();
+        }
+
+        private void PauseEffectIntensitySlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (PauseEffectIntensityValueLabel == null) return;
+            int pct = (int)PauseEffectIntensitySlider.Value;
+            PauseEffectIntensityValueLabel.Text = $"{pct}%";
+            _configService.SetValue("pauseEffectIntensity", pct / 100.0);
+            RestartPauseEffectPreview();
+        }
+
+        private void RestartPauseEffectPreview()
+        {
+            if (PauseEffectPreview == null) return;
+            try
+            {
+                _pauseEffectPreviewRunner ??= new Views.PauseEffects.PauseEffectRunner(PauseEffectPreview);
+                _pauseEffectPreviewRunner.Stop();
+                if (PauseEffectCombo?.SelectedItem is not System.Windows.Controls.ComboBoxItem cbi) return;
+                string id = (string?)cbi.Tag ?? Views.PauseEffects.PauseEffectRegistry.NoneId;
+                if (string.Equals(id, Views.PauseEffects.PauseEffectRegistry.NoneId,
+                                  System.StringComparison.OrdinalIgnoreCase))
+                {
+                    PauseEffectPreview.Visibility = System.Windows.Visibility.Collapsed;
+                    return;
+                }
+                PauseEffectPreview.Visibility = System.Windows.Visibility.Visible;
+                double intensity = PauseEffectIntensitySlider.Value / 100.0;
+                var instance = Views.PauseEffects.PauseEffectRegistry.Create(id);
+                if (instance is Views.PauseEffects.IPauseEffect vec)
+                    _pauseEffectPreviewRunner.Start(vec, intensity);
+                else if (instance is Views.PauseEffects.IPixelPauseEffect pix)
+                    _pauseEffectPreviewRunner.Start(pix, intensity);
+            }
+            catch (System.Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"PauseEffect preview failed: {ex.Message}");
+            }
         }
 
         private void BgZoomSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)

@@ -864,15 +864,27 @@ namespace Emutastic.Views
 
         private IntPtr OverlayWndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
         {
-            const uint WM_KEYDOWN   = 0x0100;
-            const uint WM_KEYUP     = 0x0101;
+            const uint WM_KEYDOWN    = 0x0100;
+            const uint WM_KEYUP      = 0x0101;
             const uint WM_SYSKEYDOWN = 0x0104;
-            const uint WM_SYSKEYUP  = 0x0105;
+            const uint WM_SYSKEYUP   = 0x0105;
+            const uint WM_RBUTTONDOWN = 0x0204;
 
             if (msg == WM_KEYDOWN || msg == WM_KEYUP || msg == WM_SYSKEYDOWN || msg == WM_SYSKEYUP)
             {
                 // Forward key messages to the WPF window
                 PostMessage(_wpfHwnd, msg, wParam, lParam);
+            }
+            else if (msg == WM_RBUTTONDOWN && _isPaused)
+            {
+                // Right-click on the overlay-hwnd present surface (Vulkan/GL consoles)
+                // doesn't reach WPF — the child window swallows it. Forward to the UI
+                // thread so paused right-clicks cycle the pause effect just like they
+                // do on software-rendered consoles.
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try { CyclePauseEffect(); } catch { }
+                }));
             }
 
             return CallWindowProc(_overlayOldWndProc, hWnd, msg, wParam, lParam);
@@ -5038,8 +5050,55 @@ namespace Emutastic.Views
 
         private void GameScreen_RightDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
+            // While paused, right-click rotates the pause-screen effect to the next
+            // one in the catalog (round-robin, skipping "None"). Lets the user flip
+            // through animations without re-opening Preferences. Doesn't fire during
+            // gameplay so it can't interfere with in-game mouse-right semantics
+            // (DOSBox / SAME CDi / MAME mouse-driven cores).
+            if (_isPaused)
+            {
+                CyclePauseEffect();
+                e.Handled = true;
+                return;
+            }
             if (_consoleHandler is Services.ConsoleHandlers.DosHandler && _mouseCaptured)
                 _rightMousePressed = true;
+        }
+
+        // Rotate to the next pause effect in the registry, skipping "None".
+        // Persists the new selection so the next pause picks the same one.
+        private void CyclePauseEffect()
+        {
+            var all = Views.PauseEffects.PauseEffectRegistry.All;
+            // Build the "real" list (excluding the None sentinel).
+            var rotation = new System.Collections.Generic.List<Views.PauseEffects.PauseEffectRegistry.Entry>();
+            foreach (var e in all)
+            {
+                if (!string.Equals(e.Id, Views.PauseEffects.PauseEffectRegistry.NoneId,
+                                   StringComparison.OrdinalIgnoreCase))
+                    rotation.Add(e);
+            }
+            if (rotation.Count == 0) return;
+
+            string currentId = _configService.GetValue("pauseEffect",
+                Views.PauseEffects.PauseEffectRegistry.NoneId);
+            int idx = rotation.FindIndex(e =>
+                string.Equals(e.Id, currentId, StringComparison.OrdinalIgnoreCase));
+            int nextIdx = idx < 0 ? 0 : (idx + 1) % rotation.Count;
+            string nextId = rotation[nextIdx].Id;
+
+            _configService.SetValue("pauseEffect", nextId);
+
+            // Restart the active effect immediately so the user sees the new one.
+            // IMPORTANT: do NOT null the runner here. The runner uses an internal
+            // _stopGen counter to invalidate the FadeOut.Completed callback that
+            // its previous Stop() scheduled. If we null the runner and create a
+            // new one, the OLD runner's still-pending Completed closure captured
+            // the OLD _stopGen and that counter never changes — so 250ms later
+            // it fires and clears + collapses the shared host element, hiding
+            // the new effect that just started. Reusing the runner means
+            // Start()'s built-in Stop+gen-bump correctly cancels the pending fade.
+            StartPauseEffect();
         }
 
         private void GameScreen_RightUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
@@ -5647,8 +5706,13 @@ namespace Emutastic.Views
             {
                 if (!_overlayHiding) return;
                 OverlayHud.Visibility = Visibility.Collapsed;
-                // Vulkan path: hide the HUD window
-                if (_vulkanHudWindow != null && _vulkanHudWindow.IsVisible)
+                // Vulkan path: hide the HUD window — but only if nothing else is
+                // using it. The pause effect (which gets reparented into the same
+                // _vulkanHudGrid on Vulkan consoles) needs the window to stay
+                // visible while the game is paused, otherwise hiding the HUD pill
+                // also hides the screensaver.
+                if (_vulkanHudWindow != null && _vulkanHudWindow.IsVisible
+                    && !IsPauseEffectActive())
                     _vulkanHudWindow.Hide();
             };
             OverlayHud.BeginAnimation(OpacityProperty, fade);
@@ -5841,12 +5905,83 @@ namespace Emutastic.Views
             _achievementToastTimer.Start();
         }
 
+        private Views.PauseEffects.PauseEffectRunner? _pauseEffectRunner;
+
+        // True when the user is paused AND has a non-None pause effect configured.
+        // Used by HideOverlay to keep the Vulkan transparent overlay window
+        // visible (since the pause effect lives inside it on Vulkan consoles).
+        private bool IsPauseEffectActive()
+        {
+            if (!_isPaused) return false;
+            string id = _configService.GetValue("pauseEffect",
+                Views.PauseEffects.PauseEffectRegistry.NoneId);
+            return !string.Equals(id, Views.PauseEffects.PauseEffectRegistry.NoneId,
+                                  StringComparison.OrdinalIgnoreCase);
+        }
+
         private void TogglePause()
         {
             _isPaused = !_isPaused;
             OverlayPauseIcon.Kind = _isPaused
                 ? MaterialDesignThemes.Wpf.PackIconKind.Play
                 : MaterialDesignThemes.Wpf.PackIconKind.Pause;
+            if (_isPaused) StartPauseEffect();
+            else           StopPauseEffect();
+        }
+
+        private void StartPauseEffect()
+        {
+            try
+            {
+                string id = _configService.GetValue("pauseEffect",
+                    Views.PauseEffects.PauseEffectRegistry.NoneId);
+                double intensity = _configService.GetValue("pauseEffectIntensity", 1.0);
+                if (string.Equals(id, Views.PauseEffects.PauseEffectRegistry.NoneId,
+                                  StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                // Mirror the OverlayHud reparenting trick: on Vulkan/GL overlay paths,
+                // the HwndHost child window obscures any WPF content in the same parent
+                // window. Move PauseEffect into the transparent overlay window so it
+                // composites above the present hwnd.
+                if ((_vulkanOverlayHwnd != IntPtr.Zero && _vulkanPresenting) || _glOverlayHwnd != IntPtr.Zero)
+                {
+                    EnsureVulkanHudWindow();
+                    if (PauseEffect.Parent is System.Windows.Controls.Panel currentParent
+                        && currentParent != _vulkanHudGrid)
+                    {
+                        currentParent.Children.Remove(PauseEffect);
+                        _vulkanHudGrid!.Children.Add(PauseEffect);
+                    }
+                    _vulkanHudWindow!.Show();
+                }
+
+                var instance = Views.PauseEffects.PauseEffectRegistry.Create(id);
+                _pauseEffectRunner ??= new Views.PauseEffects.PauseEffectRunner(PauseEffect);
+                if (instance is Views.PauseEffects.IPauseEffect vector)
+                    _pauseEffectRunner.Start(vector, intensity);
+                else if (instance is Views.PauseEffects.IPixelPauseEffect pixel)
+                    _pauseEffectRunner.Start(pixel, intensity);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"StartPauseEffect failed: {ex.Message}");
+            }
+        }
+
+        private void StopPauseEffect()
+        {
+            try { _pauseEffectRunner?.Stop(); } catch { }
+            // If the HUD pill is collapsed too, the Vulkan overlay window has
+            // nothing left to show — hide it. (Mirrors HideOverlay's logic but
+            // fires when pause ends rather than when the HUD timer expires.)
+            try
+            {
+                if (_vulkanHudWindow != null && _vulkanHudWindow.IsVisible
+                    && OverlayHud.Visibility != Visibility.Visible)
+                    _vulkanHudWindow.Hide();
+            }
+            catch { }
         }
 
         private void OverlayPower_Click(object sender, RoutedEventArgs e)   => Close();
@@ -6682,6 +6817,10 @@ namespace Emutastic.Views
             // This must happen before the Task.Run cleanup — native interop in cleanup can throw
             // and skip anything that comes after it.
             SaveWindowSize();
+
+            // Tear down the pause effect runner — releases its CompositionTarget.Rendering
+            // subscription so it doesn't tick against the closing visual tree.
+            try { _pauseEffectRunner?.Dispose(); _pauseEffectRunner = null; } catch { }
 
             System.Diagnostics.Trace.WriteLine("EmulatorWindow closing — deferring cleanup to background");
 

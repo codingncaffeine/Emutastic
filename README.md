@@ -94,6 +94,8 @@ Place BIOS files in `%AppData%\Emutastic\System\` (or `PortableData\System\` nex
 
 Drag and drop ROMs onto the library or use **Import ROMs**. The app detects the console from file extension, cleans the title, and hashes the ROM. For ambiguous formats (`.chd`, `.iso`, `.cue`, `.bin`), a SHA1 lookup against DAT files is attempted first — if no match, a console picker is shown.
 
+**Multi-disc games** (Final Fantasy VII, Metal Gear Solid, etc.) are auto-bundled into a single library entry — drop a folder containing the disc files (`.cue`/`.bin` or `.chd`) and Emutastic writes an `.m3u` playlist alongside them so the game shows up once, not three times. Hand-authored `.m3u` files in the folder are honored as-is.
+
 **Important:** Download DAT files in **Preferences → Cores / Extras** before importing. Without them, disc images and some cartridge ROMs may be assigned to the wrong system during import.
 
 ---
@@ -122,6 +124,15 @@ Earn achievements while playing via [RetroAchievements](https://retroachievement
 </details>
 
 - **Core Options** — Per-core settings (internal resolution, graphics plugins, etc.) in **Preferences → Core Options**
+
+<details>
+<summary><strong>Disk Swapping (FDS, PS1, Saturn, Sega CD, Amiga)</strong></summary>
+
+Press **L3 + Start** in-game to flip between discs/sides on systems that need it. Rebindable to any two-button chord (controller or keyboard) in **Preferences → Controls → Disk Swap**. The status bar shows the new disc number on each swap.
+
+Multi-disc games are auto-bundled at import time — see the [ROM Import](#rom-import) section. See the [wiki page](https://github.com/codingncaffeine/Emutastic/wiki/Disk-Swapping) for per-console specifics and troubleshooting.
+
+</details>
 
 ---
 
