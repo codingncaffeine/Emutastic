@@ -1723,22 +1723,43 @@ namespace Emutastic
             }
             SaveStatesEmptyText.Visibility = Visibility.Collapsed;
 
-            // Group per game (OpenEmu pattern), then sort groups alphabetically.
-            // Within each group, newest state first.
+            // Group per game (OpenEmu pattern). Key on RomHash when present so
+            // states for the same physical ROM collapse into one section even if
+            // the underlying GameId got reassigned (re-import, DB rebuild) or
+            // the stored GameTitle drifted. Falls back to a normalized
+            // title+console pair for legacy states with no hash.
+            static string GroupKey(Models.SaveState s) =>
+                !string.IsNullOrEmpty(s.RomHash)
+                    ? "hash:" + s.RomHash.ToLowerInvariant()
+                    : "title:" + (s.GameTitle ?? "").Trim().ToLowerInvariant()
+                        + "|" + (s.ConsoleName ?? "").Trim().ToLowerInvariant();
+
             var grouped = allStates
-                .GroupBy(s => new { s.GameId, s.GameTitle, s.ConsoleName })
-                .OrderBy(g => g.Key.GameTitle)
-                .ThenBy(g => g.Key.ConsoleName);
+                .GroupBy(GroupKey)
+                .Select(g => new
+                {
+                    Title   = g.Select(x => x.GameTitle).FirstOrDefault(t => !string.IsNullOrEmpty(t)) ?? "",
+                    Console = g.Select(x => x.ConsoleName).FirstOrDefault(c => !string.IsNullOrEmpty(c)) ?? "",
+                    States  = g.OrderByDescending(x => x.CreatedAt).ToList(),
+                })
+                .OrderBy(g => g.Title)
+                .ThenBy(g => g.Console);
 
             foreach (var group in grouped)
             {
                 SaveStatesPanel.Children.Add(BuildSaveStateGroupHeader(
-                    string.IsNullOrEmpty(group.Key.GameTitle) ? "Deleted Game" : group.Key.GameTitle,
-                    group.Key.ConsoleName));
+                    string.IsNullOrEmpty(group.Title) ? "Deleted Game" : group.Title,
+                    group.Console));
 
-                // Card wrap panel for this game's states.
-                var wrap = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
-                foreach (var s in group.OrderByDescending(x => x.CreatedAt))
+                // Card wrap panel for this game's states. Horizontal margin
+                // matches the gap between sidebar/scrollbar and card area now
+                // that the ScrollViewer's left/right padding was removed.
+                var wrap = new WrapPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Margin      = new Thickness(16, 8, 16, 0),
+                };
+                foreach (var s in group.States)
                     wrap.Children.Add(BuildSaveStateCard(s));
                 SaveStatesPanel.Children.Add(wrap);
             }
@@ -1754,10 +1775,10 @@ namespace Emutastic
                 Background      = (System.Windows.Media.Brush)FindResource("ToolbarRaisedFillBrush"),
                 BorderBrush     = (System.Windows.Media.Brush)FindResource("ToolbarChiselBrush"),
                 BorderThickness = new Thickness(0, 1, 0, 1),
-                // Negative L/R margin extends past the SaveStatesView ScrollViewer's
-                // Padding="16" so the bar runs edge-to-edge like OpenEmu's section
-                // headers — no inset gap on either side.
-                Margin          = new Thickness(-16, 16, -16, 0),
+                // The SaveStatesView ScrollViewer uses vertical-only padding so
+                // this bar can run edge-to-edge from the sidebar to the
+                // scrollbar without negative-margin tricks.
+                Margin          = new Thickness(0, 16, 0, 0),
                 Height          = 32,
             };
             var grid = new Grid { Margin = new Thickness(20, 0, 20, 0) };

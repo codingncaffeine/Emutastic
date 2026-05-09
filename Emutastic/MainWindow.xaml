@@ -1616,12 +1616,15 @@
                     </ScrollViewer>
 
                     <!-- Save States view -->
+                    <!-- Vertical-only padding so the per-game header bar can run
+                         edge-to-edge (sidebar to scrollbar) without negative-margin
+                         hacks; cards and empty text get their own horizontal inset. -->
                     <ScrollViewer x:Name="SaveStatesView"
                                   Grid.Row="1"
                                   Visibility="Collapsed"
                                   Style="{StaticResource MinimalScrollViewer}"
                                   VerticalScrollBarVisibility="Auto"
-                                  Padding="16">
+                                  Padding="0,16,0,16">
                         <StackPanel>
                             <TextBlock x:Name="SaveStatesEmptyText"
                                        Text="No save states yet. Press F5 or the Save State button while in a game."
