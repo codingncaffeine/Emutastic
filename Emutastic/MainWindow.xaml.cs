@@ -693,24 +693,19 @@ namespace Emutastic
             if (navBtn != null)
                 SelectNavButton(navBtn);
 
-            // Toggle between favorites grouped view and normal library grid
+            // Toggle between favorites grouped view and normal library grid.
+            // ApplyCurrentViewMode() is the single source of truth for the four
+            // possible content panels (FavoritesGroupedView / GameGridView /
+            // LibraryView / GameListView) — same logic lives in ViewToggle_Click
+            // so navigation never desyncs from the user's grid/list choice.
             if (tag == "Favorites")
             {
-                FavoritesGroupedView.Visibility = Visibility.Visible;
-                GameGridView.Visibility = Visibility.Collapsed;
-                LibraryView.Visibility = Visibility.Collapsed;
+                ApplyCurrentViewMode(forceFavorites: true);
                 PopulateFavoritesView();
             }
             else
             {
-                FavoritesGroupedView.Visibility = Visibility.Collapsed;
-                // Re-apply the IsGroupedView bindings that we broke by setting Visibility directly
-                GameGridView.SetBinding(VisibilityProperty,
-                    new System.Windows.Data.Binding("IsGroupedView")
-                    { Converter = (System.Windows.Data.IValueConverter)FindResource("InverseBoolToVisibility") });
-                LibraryView.SetBinding(VisibilityProperty,
-                    new System.Windows.Data.Binding("IsGroupedView")
-                    { Converter = (System.Windows.Data.IValueConverter)FindResource("BoolToVisibility") });
+                ApplyCurrentViewMode(forceFavorites: false);
             }
 
             // Save scroll position for the view we're leaving, restore for the one we're entering
@@ -987,40 +982,60 @@ namespace Emutastic
             bool listActive = clicked.Tag?.ToString() == "List";
             ViewGrid.IsChecked = !listActive;
             ViewList.IsChecked = listActive;
+            ApplyCurrentViewMode(forceFavorites: _vm.IsShowingFavorites);
+        }
 
-            // List view: show list, hide both grid views.
-            // Grid view: restore visibility to IsGroupedView binding state.
-            GameListView.Visibility = listActive ? Visibility.Visible : Visibility.Collapsed;
-            if (!listActive)
+        /// <summary>
+        /// Single source of truth for which content panel is visible. Reads the
+        /// current grid/list toggle state plus whether the user is on the
+        /// favorites view, then sets visibility on every panel that competes for
+        /// the same screen real estate. Called from both <see cref="ViewToggle_Click"/>
+        /// and <see cref="OnNavigated"/> so navigating between sections (e.g.
+        /// All Games → Recently Added) can never leave the grid AND list views
+        /// rendered simultaneously.
+        /// </summary>
+        private void ApplyCurrentViewMode(bool forceFavorites)
+        {
+            bool listActive = ViewList?.IsChecked == true;
+
+            if (listActive)
             {
-                if (_vm.IsShowingFavorites)
-                {
-                    // Favorites uses its own grouped panel, not the binding-driven views
-                    FavoritesGroupedView.Visibility = Visibility.Visible;
-                    GameGridView.Visibility = Visibility.Collapsed;
-                    LibraryView.Visibility = Visibility.Collapsed;
-                }
-                else
-                {
-                    // Restore binding-driven visibility for the two grid views.
-                    GameGridView.SetBinding(VisibilityProperty,
-                        new System.Windows.Data.Binding("IsGroupedView")
-                        {
-                            Converter = (System.Windows.Data.IValueConverter)FindResource("InverseBoolToVisibility")
-                        });
-                    LibraryView.SetBinding(VisibilityProperty,
-                        new System.Windows.Data.Binding("IsGroupedView")
-                        {
-                            Converter = (System.Windows.Data.IValueConverter)FindResource("BoolToVisibility")
-                        });
-                }
-            }
-            else
-            {
-                GameGridView.Visibility = Visibility.Collapsed;
-                LibraryView.Visibility  = Visibility.Collapsed;
+                // List always wins — the two grid views and the favorites grouped
+                // panel must all be hidden. Strip any IsGroupedView bindings off
+                // the grid views or they'd flip themselves Visible later.
+                System.Windows.Data.BindingOperations.ClearBinding(GameGridView, VisibilityProperty);
+                System.Windows.Data.BindingOperations.ClearBinding(LibraryView, VisibilityProperty);
+                GameGridView.Visibility         = Visibility.Collapsed;
+                LibraryView.Visibility          = Visibility.Collapsed;
                 FavoritesGroupedView.Visibility = Visibility.Collapsed;
+                GameListView.Visibility         = Visibility.Visible;
+                return;
             }
+
+            // Grid mode — list panel must be hidden.
+            GameListView.Visibility = Visibility.Collapsed;
+
+            if (forceFavorites)
+            {
+                // Favorites uses its own grouped panel; the IsGroupedView-bound
+                // grid views must yield.
+                System.Windows.Data.BindingOperations.ClearBinding(GameGridView, VisibilityProperty);
+                System.Windows.Data.BindingOperations.ClearBinding(LibraryView, VisibilityProperty);
+                FavoritesGroupedView.Visibility = Visibility.Visible;
+                GameGridView.Visibility         = Visibility.Collapsed;
+                LibraryView.Visibility          = Visibility.Collapsed;
+                return;
+            }
+
+            // Normal grid — restore IsGroupedView bindings (one of GameGridView /
+            // LibraryView is visible at a time depending on grouped state).
+            FavoritesGroupedView.Visibility = Visibility.Collapsed;
+            GameGridView.SetBinding(VisibilityProperty,
+                new System.Windows.Data.Binding("IsGroupedView")
+                { Converter = (System.Windows.Data.IValueConverter)FindResource("InverseBoolToVisibility") });
+            LibraryView.SetBinding(VisibilityProperty,
+                new System.Windows.Data.Binding("IsGroupedView")
+                { Converter = (System.Windows.Data.IValueConverter)FindResource("BoolToVisibility") });
         }
 
         private void BoxArtToggle_Click(object sender, RoutedEventArgs e)
