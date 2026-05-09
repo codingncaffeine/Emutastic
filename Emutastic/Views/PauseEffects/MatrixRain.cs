@@ -30,10 +30,14 @@ namespace Emutastic.Views.PauseEffects
         private readonly Typeface _face = new(new FontFamily("Consolas"),
             FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
         private readonly Brush _bright;
-        private readonly Brush _trail;
-        // FormattedText is heavy (font shaping, etc). At ~80 cols × 15 visible
+        private readonly Brush[] _trailBrushes; // pre-baked per opacity bucket
+        private const int TrailBuckets = 8;
+        // FormattedText is heavy (font shaping, etc.). At ~80 cols × 15 visible
         // glyphs × 60Hz that's 72k allocs/sec without caching. Reuse per (char,
-        // brush) since we only have two brushes and a small glyph alphabet.
+        // brush) — keyed by (char << 4) | brush_bucket. Avoids PushOpacity, which
+        // is the real cost: each push creates a composition layer and the
+        // bucketed-brush approach renders the FormattedText with alpha already
+        // baked in, eliminating ~76k push/pops per second.
         private readonly System.Collections.Generic.Dictionary<int, FormattedText> _glyphCache = new();
         // Half-width katakana — visually closest to the film's column glyphs.
         // Mixed with digits and basic Latin for texture.
@@ -50,9 +54,18 @@ namespace Emutastic.Views.PauseEffects
         public MatrixRain()
         {
             _bright = new SolidColorBrush(Color.FromArgb(0xFF, 0xC8, 0xFF, 0xC8));
-            _trail  = new SolidColorBrush(Color.FromArgb(0xFF, 0x36, 0xC0, 0x42));
             _bright.Freeze();
-            _trail.Freeze();
+            _trailBrushes = new Brush[TrailBuckets];
+            // Trail color = dim green, alpha varies per bucket (bucket 0 ≈ invisible,
+            // bucket TrailBuckets-1 ≈ near-head). Pre-frozen so DrawText doesn't pay
+            // brush-construction or composition-layer cost per glyph.
+            for (int i = 0; i < TrailBuckets; i++)
+            {
+                byte a = (byte)((i + 1) * 0xFF / TrailBuckets);
+                var b = new SolidColorBrush(Color.FromArgb(a, 0x36, 0xC0, 0x42));
+                b.Freeze();
+                _trailBrushes[i] = b;
+            }
         }
 
         public void Init(Size canvasSize, double intensity)
@@ -102,9 +115,23 @@ namespace Emutastic.Views.PauseEffects
                     double y = col.Head - j * GlyphSize;
                     if (y < -GlyphSize || y > _canvas.Height) continue;
                     bool isHead = j == 0;
-                    double opacity = isHead ? 1.0 : (1.0 - (double)j / col.Length) * 0.9;
-                    var brush = isHead ? _bright : _trail;
-                    int key = (col.Chars[j] << 1) | (isHead ? 1 : 0);
+                    Brush brush;
+                    int brushBucket; // baked into the cache key so we don't reuse a head ft for a trail position
+                    if (isHead)
+                    {
+                        brush = _bright;
+                        brushBucket = TrailBuckets; // unique bucket id for the head
+                    }
+                    else
+                    {
+                        // Map row index (j) into a trail bucket. Higher j = older glyph = lower bucket.
+                        double t = 1.0 - (double)j / col.Length; // 0 at tail, ~1 near head
+                        int bk = (int)(t * 0.9 * TrailBuckets); // 0.9 so trail never quite matches head brightness
+                        if (bk < 0) bk = 0; else if (bk >= TrailBuckets) bk = TrailBuckets - 1;
+                        brushBucket = bk;
+                        brush = _trailBrushes[bk];
+                    }
+                    int key = (col.Chars[j] << 4) | brushBucket;
                     if (!_glyphCache.TryGetValue(key, out var ft))
                     {
                         ft = new FormattedText(
@@ -114,9 +141,10 @@ namespace Emutastic.Views.PauseEffects
                             _face, GlyphSize, brush, 1.0);
                         _glyphCache[key] = ft;
                     }
-                    dc.PushOpacity(opacity);
+                    // No PushOpacity — alpha is already baked into the brush. Cuts
+                    // ~76k composition-layer push/pops per second (the source of the
+                    // jitter on this effect).
                     dc.DrawText(ft, new Point(col.X, y));
-                    dc.Pop();
                 }
             }
         }
