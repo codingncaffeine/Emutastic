@@ -601,8 +601,20 @@
                             <TextBlock Text="SYSTEM" Style="{StaticResource PrefLabel}" Margin="0,0,0,4"/>
                             <ComboBox x:Name="SystemComboBox"
                                       Style="{StaticResource PrefComboBox}"
-                                      DisplayMemberPath="Name"
-                                      SelectionChanged="SystemComboBox_SelectionChanged"/>
+                                      SelectionChanged="SystemComboBox_SelectionChanged">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal">
+                                            <Image Source="{Binding IconPath}"
+                                                   Width="20" Height="20"
+                                                   Margin="0,0,8,0"
+                                                   RenderOptions.BitmapScalingMode="HighQuality"/>
+                                            <TextBlock Text="{Binding Name}"
+                                                       VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
 
                             <TextBlock Text="PLAYER" Style="{StaticResource PrefLabel}"/>
                             <ComboBox x:Name="PlayerComboBox"
