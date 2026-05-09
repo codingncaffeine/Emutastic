@@ -379,6 +379,13 @@ namespace Emutastic.Views
         private byte[]? _pendingLoadData = null;
         private string _pendingLoadName  = "";
         private string? _pendingLoadStatePath = null;  // load on startup if set
+        // Frame counter for the startup-state retry loop. Some cores (Beetle PSX,
+        // PCSX-ReARMed, Saturn) report retro_serialize_size differently during
+        // BIOS boot vs. once the game is running, so retro_unserialize fails on
+        // the first frame and would leave the user stuck in BIOS. We retry each
+        // frame until success or this cap (~10s @60fps).
+        private int _loadStateAttempts = 0;
+        private const int MaxLoadStateAttempts = 600;
         // Cheats — loaded once per game from disk, applied after retro_load_game and after every state load.
         private System.Collections.Generic.List<Models.Cheat> _cheats = new();
         private bool _cheatsApplied = false;
@@ -1691,16 +1698,29 @@ namespace Emutastic.Views
                 // between retro_run calls (after the first frame). Calling retro_unserialize before
                 // any retro_run has executed is not safe — the core may not be at a consistent
                 // checkpoint yet (mupen64plus starts its own EmuThread during retro_load_game).
-                if (_pendingLoadStatePath != null && File.Exists(_pendingLoadStatePath))
+                if (_pendingLoadStatePath != null)
                 {
-                    try
+                    if (File.Exists(_pendingLoadStatePath))
                     {
-                        _pendingLoadData  = File.ReadAllBytes(_pendingLoadStatePath);
-                        _pendingLoadName  = Path.GetFileNameWithoutExtension(_pendingLoadStatePath);
-                        _loadStatePending = true;
-                        System.Diagnostics.Trace.WriteLine($"Queued pending state load: {_pendingLoadStatePath}");
+                        try
+                        {
+                            _pendingLoadData  = File.ReadAllBytes(_pendingLoadStatePath);
+                            _pendingLoadName  = Path.GetFileNameWithoutExtension(_pendingLoadStatePath);
+                            _loadStatePending = true;
+                            System.Diagnostics.Trace.WriteLine($"Queued pending state load: {_pendingLoadStatePath}");
+                        }
+                        catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Pending load read failed: {ex.Message}"); }
                     }
-                    catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Pending load read failed: {ex.Message}"); }
+                    else
+                    {
+                        // Surface this loudly — if a save state's .state file went missing
+                        // (Defender quarantine, accidental delete, etc.), the launch
+                        // silently used to fall through to a fresh BIOS boot. Now it shows.
+                        string missing = _pendingLoadStatePath;
+                        System.Diagnostics.Trace.WriteLine($"Pending load skipped — file not found: {missing}");
+                        _transientMsg    = $"Save state file missing: {Path.GetFileName(missing)}";
+                        _transientExpiry = DateTime.Now.AddSeconds(6);
+                    }
                     _pendingLoadStatePath = null;
                 }
 
@@ -3252,6 +3272,19 @@ namespace Emutastic.Views
                     case RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS:
                         if ((cmd & 0x10000) != 0)
                             return _consoleHandler.AllowHwSharedContext;
+                        // Acknowledge variable-size save states by OR-ing
+                        // RETRO_SERIALIZATION_QUIRK_FRONT_VARIABLE_SIZE (1<<3)
+                        // into the core's flags. Beetle PSX gates
+                        // `enable_variable_serialization_size` on this — without
+                        // the ack the core reports a stub serialize_size that
+                        // never matches a real on-disc state, so resuming from
+                        // a save state silently fails and BIOS boots instead.
+                        if (data != IntPtr.Zero)
+                        {
+                            const ulong FRONT_VARIABLE_SIZE = 1UL << 3;
+                            ulong coreFlags = (ulong)Marshal.ReadInt64(data);
+                            Marshal.WriteInt64(data, (long)(coreFlags | FRONT_VARIABLE_SIZE));
+                        }
                         return true;
 
                     case RETRO_ENVIRONMENT_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE:
@@ -5354,13 +5387,19 @@ namespace Emutastic.Views
 
                 File.WriteAllBytes(statePath, data);
 
-                // Screenshot — HW cores pre-capture pixels on emu thread; SW cores capture from bitmap on UI thread below.
-                if (!isHw || (screenshotPixels != null && ssWidth > 0 && ssHeight > 0))
+                // Screenshot — try in order:
+                //  1. HW cores: pre-captured _hwFlippedBuffer pixels (readback path)
+                //  2. SW cores: WPF WriteableBitmap _bitmap (the source-of-truth frame)
+                //  3. Fallback for either path when (1)/(2) is empty: RenderTargetBitmap
+                //     of the GameScreen control on the UI thread. Works whenever the
+                //     core renders into the WPF visual tree (i.e. not a native Vulkan/GL
+                //     overlay window). Beats silently saving no PNG.
+                BitmapSource? bmp = null;
+                try
                 {
-                    try
+                    if (isHw)
                     {
-                        BitmapSource bmp;
-                        if (isHw)
+                        if (screenshotPixels != null && ssWidth > 0 && ssHeight > 0)
                         {
                             bmp = BitmapSource.Create((int)ssWidth, (int)ssHeight,
                                 96, 96, PixelFormats.Bgra32, null, screenshotPixels,
@@ -5368,77 +5407,116 @@ namespace Emutastic.Views
                         }
                         else
                         {
-                            // Software core: capture from WPF WriteableBitmap on UI thread
-                            byte[]? swPixels = null;
-                            int swW = 0, swH = 0, swStride = 0;
-                            Dispatcher.Invoke(() =>
-                            {
-                                if (_bitmap != null)
-                                {
-                                    swW = _bitmap.PixelWidth; swH = _bitmap.PixelHeight;
-                                    swStride = _bitmap.BackBufferStride; // actual stride (Bgr565 = swW*2, not swW*4)
-                                    swPixels = new byte[swH * swStride];
-                                    _bitmap.CopyPixels(swPixels, swStride, 0);
-                                }
-                            });
-                            if (swPixels != null && swW > 0)
-                            {
-                                if (_pixelFormat == RETRO_PIXEL_FORMAT_XRGB8888)
-                                {
-                                    // Bgr32 raw data: bytes are [B, G, R, X] where X=0.
-                                    // Set X→0xFF so BitmapSource.Create(Bgra32) gets fully opaque alpha.
-                                    for (int i = 3; i < swPixels.Length; i += 4)
-                                        swPixels[i] = 0xFF;
-                                }
-                                else if (_pixelFormat == RETRO_PIXEL_FORMAT_RGB565)
-                                {
-                                    // Convert Bgr565 → Bgra32.
-                                    // Must index by row×stride+col×2 because stride ≠ swW*2 in general.
-                                    var bgra = new byte[swW * swH * 4];
-                                    for (int y = 0; y < swH; y++)
-                                    for (int x = 0; x < swW; x++)
-                                    {
-                                        int    src = y * swStride + x * 2;
-                                        ushort px  = (ushort)(swPixels[src] | (swPixels[src + 1] << 8));
-                                        int    dst = (y * swW + x) * 4;
-                                        bgra[dst + 0] = (byte)((px & 0x1F)        * 255 / 31);
-                                        bgra[dst + 1] = (byte)(((px >> 5) & 0x3F) * 255 / 63);
-                                        bgra[dst + 2] = (byte)((px >> 11)          * 255 / 31);
-                                        bgra[dst + 3] = 0xFF;
-                                    }
-                                    swPixels = bgra; swStride = swW * 4;
-                                }
-                                bmp = BitmapSource.Create(swW, swH, 96, 96, PixelFormats.Bgra32, null, swPixels, swStride);
-                            }
-                            else
-                            {
-                                pngPath = "";
-                                bmp = null!;
-                            }
-                        }
-
-                        if (bmp != null)
-                        {
-                            // Rotate screenshot to match display orientation (vertical arcade games etc.)
-                            if (coreRotation != 0)
-                            {
-                                double angle = ((-(int)coreRotation * 90.0) % 360 + 360) % 360;
-                                bmp = new TransformedBitmap(bmp, new RotateTransform(angle));
-                            }
-                            bmp.Freeze();
-                            using var fs = new FileStream(pngPath, FileMode.Create);
-                            var enc = new PngBitmapEncoder();
-                            enc.Frames.Add(BitmapFrame.Create(bmp));
-                            enc.Save(fs);
+                            System.Diagnostics.Trace.WriteLine(
+                                $"Screenshot HW path skipped — readback empty (buf={screenshotPixels?.Length ?? 0}, {ssWidth}x{ssHeight}). Trying GameScreen fallback.");
                         }
                     }
-                    catch (Exception ex)
+                    else
                     {
-                        System.Diagnostics.Trace.WriteLine($"Screenshot failed: {ex.Message}");
+                        // Software core: capture from WPF WriteableBitmap on UI thread
+                        byte[]? swPixels = null;
+                        int swW = 0, swH = 0, swStride = 0;
+                        Dispatcher.Invoke(() =>
+                        {
+                            if (_bitmap != null)
+                            {
+                                swW = _bitmap.PixelWidth; swH = _bitmap.PixelHeight;
+                                swStride = _bitmap.BackBufferStride; // actual stride (Bgr565 = swW*2, not swW*4)
+                                swPixels = new byte[swH * swStride];
+                                _bitmap.CopyPixels(swPixels, swStride, 0);
+                            }
+                        });
+                        if (swPixels != null && swW > 0)
+                        {
+                            if (_pixelFormat == RETRO_PIXEL_FORMAT_XRGB8888)
+                            {
+                                // Bgr32 raw data: bytes are [B, G, R, X] where X=0.
+                                // Set X→0xFF so BitmapSource.Create(Bgra32) gets fully opaque alpha.
+                                for (int i = 3; i < swPixels.Length; i += 4)
+                                    swPixels[i] = 0xFF;
+                            }
+                            else if (_pixelFormat == RETRO_PIXEL_FORMAT_RGB565)
+                            {
+                                // Convert Bgr565 → Bgra32.
+                                // Must index by row×stride+col×2 because stride ≠ swW*2 in general.
+                                var bgra = new byte[swW * swH * 4];
+                                for (int y = 0; y < swH; y++)
+                                for (int x = 0; x < swW; x++)
+                                {
+                                    int    src = y * swStride + x * 2;
+                                    ushort px  = (ushort)(swPixels[src] | (swPixels[src + 1] << 8));
+                                    int    dst = (y * swW + x) * 4;
+                                    bgra[dst + 0] = (byte)((px & 0x1F)        * 255 / 31);
+                                    bgra[dst + 1] = (byte)(((px >> 5) & 0x3F) * 255 / 63);
+                                    bgra[dst + 2] = (byte)((px >> 11)          * 255 / 31);
+                                    bgra[dst + 3] = 0xFF;
+                                }
+                                swPixels = bgra; swStride = swW * 4;
+                            }
+                            bmp = BitmapSource.Create(swW, swH, 96, 96, PixelFormats.Bgra32, null, swPixels, swStride);
+                        }
+                        else
+                        {
+                            System.Diagnostics.Trace.WriteLine(
+                                $"Screenshot SW path skipped — _bitmap unavailable (pixels={swPixels?.Length ?? 0}, {swW}x{swH}). Trying GameScreen fallback.");
+                        }
+                    }
+
+                    // Fallback: RenderTargetBitmap of the GameScreen Image control.
+                    if (bmp == null)
+                    {
+                        Dispatcher.Invoke(() =>
+                        {
+                            try
+                            {
+                                int w = (int)Math.Round(GameScreen.ActualWidth);
+                                int h = (int)Math.Round(GameScreen.ActualHeight);
+                                if (w > 0 && h > 0)
+                                {
+                                    var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+                                    rtb.Render(GameScreen);
+                                    rtb.Freeze();
+                                    bmp = rtb;
+                                }
+                                else
+                                {
+                                    System.Diagnostics.Trace.WriteLine(
+                                        $"Screenshot fallback skipped — GameScreen size {w}x{h}");
+                                }
+                            }
+                            catch (Exception fbEx)
+                            {
+                                System.Diagnostics.Trace.WriteLine($"Screenshot fallback failed: {fbEx.Message}");
+                            }
+                        });
+                    }
+
+                    if (bmp != null)
+                    {
+                        // Rotate screenshot to match display orientation (vertical arcade games etc.)
+                        if (coreRotation != 0)
+                        {
+                            double angle = ((-(int)coreRotation * 90.0) % 360 + 360) % 360;
+                            bmp = new TransformedBitmap(bmp, new RotateTransform(angle));
+                        }
+                        if (bmp.CanFreeze && !bmp.IsFrozen) bmp.Freeze();
+                        using var fs = new FileStream(pngPath, FileMode.Create);
+                        var enc = new PngBitmapEncoder();
+                        enc.Frames.Add(BitmapFrame.Create(bmp));
+                        enc.Save(fs);
+                        System.Diagnostics.Trace.WriteLine($"Screenshot saved: {pngPath}");
+                    }
+                    else
+                    {
+                        System.Diagnostics.Trace.WriteLine($"Screenshot not saved — every capture path returned empty for {safeName}");
                         pngPath = "";
                     }
                 }
-                else pngPath = "";
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Trace.WriteLine($"Screenshot failed: {ex.Message}");
+                    pngPath = "";
+                }
                 var meta = new
                 {
                     Name        = name,
@@ -5512,15 +5590,36 @@ namespace Emutastic.Views
         /// <summary>Called on the emu thread between retro_run calls.</summary>
         private void ExecuteLoadOnEmuThread()
         {
-            _loadStatePending = false;
             byte[]? data = _pendingLoadData;
             string   name = _pendingLoadName;
-            _pendingLoadData = null;
 
-            if (data == null) return;
+            if (data == null)
+            {
+                _loadStatePending  = false;
+                _loadStateAttempts = 0;
+                return;
+            }
+
             bool ok = _core?.LoadState(data) ?? false;
+
+            // Retry across frames if the core hasn't reached a state where
+            // retro_unserialize will accept this snapshot yet (typically PSX
+            // cores during BIOS boot — serialize_size doesn't stabilize for
+            // dozens of frames). Bail with an error after ~10 seconds.
+            if (!ok && _loadStateAttempts < MaxLoadStateAttempts)
+            {
+                _loadStateAttempts++;
+                return;
+            }
+
+            _loadStatePending  = false;
+            _loadStateAttempts = 0;
+            _pendingLoadData   = null;
+
             _transientMsg    = ok ? $"Loaded: {name}" : $"Failed to load: {name}";
             _transientExpiry = DateTime.Now.AddSeconds(3);
+            System.Diagnostics.Trace.WriteLine(
+                $"[LoadState] {(ok ? "succeeded" : "gave up")} after {(ok ? _loadStateAttempts : MaxLoadStateAttempts)} attempts: {name}");
 
             // Some cores wipe their cheat table on state load — re-apply so codes survive.
             // Snapshot the list before iterating to avoid racing the UI thread, which can
