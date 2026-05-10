@@ -849,6 +849,29 @@ namespace Emutastic.Services
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void retro_vulkan_destroy_device_t();
 
+        // Negotiation v2: the frontend supplies a wrapper that the core invokes
+        // instead of calling vkCreateDevice directly. This lets the core build
+        // its own VkDeviceCreateInfo (with all the extensions, features, and
+        // pNext chain it needs — Beetle PSX HW asks for descriptor indexing,
+        // 8/16-bit storage, float16-int8, fragmentStoresAndAtomics, etc.) and
+        // hand it to the frontend's wrapper, which forwards verbatim to
+        // vkCreateDevice. Without this path (calling the legacy create_device
+        // with our zeroed feature struct), the device misses entry points the
+        // core later dispatches against, producing IP=0 NULL-call AVs.
+        // VkResult create_device_wrapper(VkPhysicalDevice gpu, void* opaque,
+        //   const VkDeviceCreateInfo* create_info, VkDevice* device)
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        public delegate int retro_vulkan_create_device_wrapper_t(
+            IntPtr gpu, IntPtr opaque, IntPtr createInfo, out IntPtr device);
+
+        // create_device2(context, instance, gpu, surface, get_instance_proc_addr,
+        //   create_device_wrapper, opaque) → bool
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        public delegate bool retro_vulkan_create_device2_t(
+            IntPtr context, IntPtr instance, IntPtr gpu, IntPtr surface,
+            IntPtr get_instance_proc_addr,
+            IntPtr create_device_wrapper, IntPtr opaque);
+
         // set_image(handle, &retro_vulkan_image, num_semaphores, semaphores, src_queue_family)
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void retro_vulkan_set_image_t(

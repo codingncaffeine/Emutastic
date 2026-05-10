@@ -54,15 +54,33 @@ namespace Emutastic.Configuration
         public bool LoadCheatsAutomatically { get; set; } = false;
 
         /// <summary>
-        /// AMD/Intel GPU compatibility for GameCube (Dolphin libretro).
-        /// When true, the core renders directly to FBO 0 instead of our
-        /// managed FBO. Fixes a class of viewport/scaling bugs on AMD GL
-        /// drivers at the cost of disabling the in-game GL overlay (cog
-        /// menu, save/load, cheats panel) for GameCube. Default off —
-        /// existing NVIDIA users keep the overlay; AMD/Intel users
-        /// affected by the bottom-left rendering bug enable this.
+        /// AMD/Intel GPU compatibility for ALL OpenGL hardware cores
+        /// (GameCube/Dolphin, PSX/Beetle PSX HW, Dreamcast/Flycast, etc.).
+        /// When true, those cores render directly to FBO 0 instead of our
+        /// managed FBO — fixes the bottom-left / partial-window rendering
+        /// bug AMD and Intel GL drivers exhibit when binding non-zero FBOs.
+        /// Cost: disables the direct-GPU-present overlay path for affected
+        /// cores, falling back to the slower glReadPixels readback. NVIDIA
+        /// users leave this off and keep the fast direct-present path.
+        /// </summary>
+        public bool AmdIntelGpuCompatibility { get; set; } = false;
+
+        /// <summary>
+        /// Legacy GameCube-only compatibility flag, kept so saved configs
+        /// from older builds don't lose the user's preference. On load,
+        /// EmulatorConfiguration.ResolveAmdIntelCompat() OR-s this into
+        /// the new AmdIntelGpuCompatibility flag. Don't read this field
+        /// directly from console handlers — use the new flag.
         /// </summary>
         public bool GameCubeUseDefaultFramebuffer { get; set; } = false;
+
+        /// <summary>
+        /// Returns true if the AMD/Intel GPU compatibility mode should be
+        /// active for HW OpenGL cores. Honors both the new generic flag
+        /// and the legacy GameCube-only flag for back-compat.
+        /// </summary>
+        public bool ResolveAmdIntelCompat()
+            => AmdIntelGpuCompatibility || GameCubeUseDefaultFramebuffer;
     }
 
     // User preferences

@@ -51,7 +51,15 @@ namespace Emutastic.Services
             { "GameGear",    new[] { "genesis_plus_gx_libretro.dll"    }},
             { "SG1000",      new[] { "genesis_plus_gx_libretro.dll"    }},
             { "Dreamcast",   new[] { "flycast_libretro.dll"             }},
-            { "PS1",         new[] { "mednafen_psx_libretro.dll",
+            // Default PS1 core is Beetle PSX HW — the hardware-accelerated
+            // sibling of mednafen_psx that supports internal-resolution
+            // upscaling, PGXP, and texture filtering via Vulkan or OpenGL.
+            // The SW Mednafen PSX is kept as fallback for users who prefer
+            // pixel-accurate native rendering. Swanstation (DuckStation-derived)
+            // and PCSX-ReARMed are alternatives the user can opt into.
+            { "PS1",         new[] { "mednafen_psx_hw_libretro.dll",
+                                     "mednafen_psx_libretro.dll",
+                                     "swanstation_libretro.dll",
                                      "pcsx_rearmed_libretro.dll"        }},
             { "PSP",         new[] { "ppsspp_libretro.dll"             }},
             { "TG16",        new[] { "mednafen_pce_libretro.dll",

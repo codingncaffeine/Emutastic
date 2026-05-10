@@ -80,6 +80,17 @@ namespace Emutastic.Services
         // ── Negotiation ─────────────────────────────────────────────────────────
         private retro_hw_render_context_negotiation_interface_vulkan _negotiation;
         private retro_vulkan_create_device_t? _coreCreateDevice;
+        private retro_vulkan_create_device2_t? _coreCreateDevice2;
+        // Kept-alive wrapper delegate so it doesn't get GC'd while the core
+        // is calling back into us during create_device2.
+        private retro_vulkan_create_device_wrapper_t? _createDeviceWrapper;
+        // Cached vkCreateDevice fp resolved via the loader's vkGetInstanceProcAddr
+        // so the wrapper doesn't have to re-look-it-up on every call.
+        private IntPtr _vkCreateDeviceFn;
+        // vkGetDeviceProcAddr fp written into the negotiation-result context so
+        // the core can resolve device-level functions through the same loader
+        // chain we used during creation.
+        private IntPtr _vkGetDeviceProcAddrFn;
         private retro_vulkan_destroy_device_t? _coreDestroyDevice;
         private bool _coreOwnsDevice; // true when core created the device via create_device
 
@@ -178,8 +189,17 @@ namespace Emutastic.Services
                     IntPtr createDevicePtr = Marshal.ReadIntPtr(negotiationPtr, 8 + IntPtr.Size);
                     IntPtr destroyDevicePtr = Marshal.ReadIntPtr(negotiationPtr, 8 + IntPtr.Size * 2);
 
+                    // Negotiation v2 layout adds two slots after destroy_device:
+                    //   [+3*ptr] create_instance     (we let the loader create the instance)
+                    //   [+4*ptr] create_device2      (used by Beetle PSX HW)
+                    IntPtr createDevice2Ptr = IntPtr.Zero;
+                    if (ifaceVersion >= 2)
+                    {
+                        createDevice2Ptr = Marshal.ReadIntPtr(negotiationPtr, 8 + IntPtr.Size * 4);
+                    }
+
                     System.Diagnostics.Trace.WriteLine(
-                        $"[Vulkan] Negotiation ptrs: appInfo=0x{getAppInfoPtr:X} createDev=0x{createDevicePtr:X} destroyDev=0x{destroyDevicePtr:X}");
+                        $"[Vulkan] Negotiation ptrs: appInfo=0x{getAppInfoPtr:X} createDev=0x{createDevicePtr:X} destroyDev=0x{destroyDevicePtr:X} createDev2=0x{createDevice2Ptr:X}");
 
                     _negotiation = new retro_hw_render_context_negotiation_interface_vulkan
                     {
@@ -192,6 +212,8 @@ namespace Emutastic.Services
                         _coreCreateDevice = Marshal.GetDelegateForFunctionPointer<retro_vulkan_create_device_t>(createDevicePtr);
                     if (destroyDevicePtr.ToInt64() > 0x10000)
                         _coreDestroyDevice = Marshal.GetDelegateForFunctionPointer<retro_vulkan_destroy_device_t>(destroyDevicePtr);
+                    if (createDevice2Ptr.ToInt64() > 0x10000)
+                        _coreCreateDevice2 = Marshal.GetDelegateForFunctionPointer<retro_vulkan_create_device2_t>(createDevice2Ptr);
                 }
                 else
                 {
@@ -227,68 +249,93 @@ namespace Emutastic.Services
                     }
                 }
 
-                // 4. Let the core create the VkDevice via create_device callback.
-                // create_device ptr must be a valid code address (> 0x10000).
-                if (_coreCreateDevice != null)
+                // 4. Let the core create the VkDevice. Prefer create_device2 when
+                // the core advertises negotiation v2+ — it lets the core build
+                // its own VkDeviceCreateInfo (with the extensions, features, and
+                // pNext chain it actually needs) and hands it to our wrapper to
+                // forward verbatim. The legacy create_device path forced the
+                // frontend to guess at extensions/features and stripped pNext,
+                // which broke Beetle PSX HW (it requires descriptor indexing,
+                // 8/16-bit storage, float16-int8, etc. — running without these
+                // produced NULL-IP crashes inside the core's render thread).
+                if (_coreCreateDevice2 != null || _coreCreateDevice != null)
                 {
-                    IntPtr createDevPtr = Marshal.ReadIntPtr(negotiationPtr, 8 + IntPtr.Size);
-                    bool createDevValid = createDevPtr.ToInt64() > 0x10000;
-                    System.Diagnostics.Trace.WriteLine($"[Vulkan] create_device ptr=0x{createDevPtr:X} valid={createDevValid}");
+                    // Get the real vkGetInstanceProcAddr from the Vulkan loader DLL.
+                    IntPtr vulkanDll = GetModuleHandle("vulkan-1.dll");
+                    IntPtr realGipa = GetProcAddress(vulkanDll, "vkGetInstanceProcAddr");
+                    System.Diagnostics.Trace.WriteLine($"[Vulkan] gipa=0x{realGipa:X} (from vulkan-1.dll=0x{vulkanDll:X})");
 
-                    if (createDevValid)
+                    // Cache vkCreateDevice and vkGetDeviceProcAddr — the wrapper
+                    // calls vkCreateDevice; the core needs vkGetDeviceProcAddr
+                    // returned in the context struct so it can resolve device
+                    // entry points through the same loader chain.
+                    _vkCreateDeviceFn       = vkGetInstanceProcAddr(_instance, "vkCreateDevice");
+                    _vkGetDeviceProcAddrFn  = vkGetInstanceProcAddr(_instance, "vkGetDeviceProcAddr");
+
+                    _vulkanContextPtr = Marshal.AllocHGlobal(Marshal.SizeOf<retro_vulkan_context>());
+                    Marshal.StructureToPtr(new retro_vulkan_context { gpu = _physicalDevice.Handle },
+                        _vulkanContextPtr, false);
+
+                    bool ok = false;
+
+                    if (_coreCreateDevice2 != null)
                     {
-                        // Get the real vkGetInstanceProcAddr from the Vulkan loader DLL
-                        IntPtr vulkanDll = GetModuleHandle("vulkan-1.dll");
-                        IntPtr realGipa = GetProcAddress(vulkanDll, "vkGetInstanceProcAddr");
-                        System.Diagnostics.Trace.WriteLine($"[Vulkan] gipa=0x{realGipa:X} (from vulkan-1.dll=0x{vulkanDll:X})");
+                        // v2 path: provide our wrapper, let the core decide the
+                        // device create info, and forward it through unchanged.
+                        _createDeviceWrapper = CreateDeviceWrapper;
+                        IntPtr wrapperPtr = Marshal.GetFunctionPointerForDelegate(_createDeviceWrapper);
 
-                        // VkImage is now read directly from retro_vulkan_image.create_info.image
-                        // so no gipa/gdpa interception is needed
+                        System.Diagnostics.Trace.WriteLine("[Vulkan] Calling core create_device2 (v2 path)...");
+                        ok = _coreCreateDevice2(
+                            _vulkanContextPtr,
+                            _instance.Handle, _physicalDevice.Handle,
+                            _surface.Handle, realGipa,
+                            wrapperPtr, IntPtr.Zero);
+                        if (!ok)
+                            System.Diagnostics.Trace.WriteLine("[Vulkan] create_device2 returned false — falling back to legacy create_device");
+                    }
 
-                        _vulkanContextPtr = Marshal.AllocHGlobal(Marshal.SizeOf<retro_vulkan_context>());
-                        Marshal.StructureToPtr(new retro_vulkan_context { gpu = _physicalDevice.Handle },
-                            _vulkanContextPtr, false);
-
-                        // Pass a zeroed VkPhysicalDeviceFeatures — core may dereference without null check
-                        const int VkPhysicalDeviceFeaturesSize = 220; // 55 VkBool32s
+                    // Legacy path — only used when create_device2 isn't advertised
+                    // or the v2 call refused. Pass a zeroed feature struct and
+                    // the swapchain extension; the core will fill in its own.
+                    if (!ok && _coreCreateDevice != null)
+                    {
+                        const int VkPhysicalDeviceFeaturesSize = 220;
                         IntPtr featuresPtr = Marshal.AllocHGlobal(VkPhysicalDeviceFeaturesSize);
                         for (int i = 0; i < VkPhysicalDeviceFeaturesSize / 8; i++)
                             Marshal.WriteInt64(featuresPtr, i * 8, 0);
-                        Marshal.WriteInt32(featuresPtr, 216, 0); // last 4 bytes
+                        Marshal.WriteInt32(featuresPtr, 216, 0);
 
-                        // Pass VK_KHR_swapchain as required device extension for direct presentation
                         IntPtr swapExtName = Marshal.StringToHGlobalAnsi("VK_KHR_swapchain");
                         IntPtr reqExtArray = Marshal.AllocHGlobal(IntPtr.Size);
                         Marshal.WriteIntPtr(reqExtArray, swapExtName);
 
-                        System.Diagnostics.Trace.WriteLine("[Vulkan] Calling core create_device...");
-                        bool ok = _coreCreateDevice(
+                        System.Diagnostics.Trace.WriteLine("[Vulkan] Calling core create_device (legacy v1 path)...");
+                        ok = _coreCreateDevice(
                             _vulkanContextPtr,
                             _instance.Handle, _physicalDevice.Handle,
-                            _surface.Handle, realGipa,  // Pass surface so core can verify present support
+                            _surface.Handle, realGipa,
                             reqExtArray, 1, IntPtr.Zero, 0, featuresPtr);
                         Marshal.FreeHGlobal(featuresPtr);
                         Marshal.FreeHGlobal(swapExtName);
                         Marshal.FreeHGlobal(reqExtArray);
+                    }
 
-                        if (ok)
-                        {
-                            var resultCtx = Marshal.PtrToStructure<retro_vulkan_context>(_vulkanContextPtr);
-                            _device = new VkDevice { Handle = resultCtx.device };
-                            _queue = new VkQueue { Handle = resultCtx.queue };
-                            _queueFamilyIndex = resultCtx.queue_family_index;
-                            _coreOwnsDevice = true;
-                            System.Diagnostics.Trace.WriteLine(
-                                $"[Vulkan] Core created device=0x{resultCtx.device:X} queue=0x{resultCtx.queue:X} queueFamily={resultCtx.queue_family_index}");
-                        }
-                        else
-                        {
-                            System.Diagnostics.Trace.WriteLine("[Vulkan] Core create_device returned false, creating ourselves");
-                        }
+                    if (ok)
+                    {
+                        var resultCtx = Marshal.PtrToStructure<retro_vulkan_context>(_vulkanContextPtr);
+                        _device = new VkDevice { Handle = resultCtx.device };
+                        _queue = new VkQueue { Handle = resultCtx.queue };
+                        _queueFamilyIndex = resultCtx.queue_family_index;
+                        _coreOwnsDevice = true;
+                        System.Diagnostics.Trace.WriteLine(
+                            $"[Vulkan] Core created device=0x{resultCtx.device:X} queue=0x{resultCtx.queue:X} queueFamily={resultCtx.queue_family_index}");
                     }
                     else
                     {
-                        _coreCreateDevice = null; // invalid pointer, don't use
+                        System.Diagnostics.Trace.WriteLine("[Vulkan] Core device creation failed — frontend will create one");
+                        _coreCreateDevice  = null;
+                        _coreCreateDevice2 = null;
                     }
                 }
 
@@ -730,6 +777,62 @@ namespace Emutastic.Services
         private void OnSetSignalSemaphore(IntPtr handle, IntPtr semaphore)
         {
             // We don't present to a swapchain, so signal semaphores are unused
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // create_device2 wrapper. The core builds a VkDeviceCreateInfo with the
+        // exact extensions, features, and pNext chain it wants (parallel-psx
+        // requests descriptor indexing, 8/16-bit storage, float16-int8,
+        // fragmentStoresAndAtomics, external_memory_host on supported GPUs,
+        // etc.) and hands it to us here. We forward verbatim to vkCreateDevice
+        // through the loader-resolved fp — DO NOT modify createInfo, or the
+        // core's later vkCmd* dispatches will hit NULL function pointers.
+        // ─────────────────────────────────────────────────────────────────────
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate int vkCreateDeviceDelegate(
+            IntPtr physicalDevice, IntPtr createInfo, IntPtr allocator, out IntPtr device);
+
+        private int CreateDeviceWrapper(IntPtr gpu, IntPtr opaque, IntPtr createInfo, out IntPtr device)
+        {
+            device = IntPtr.Zero;
+            try
+            {
+                if (_vkCreateDeviceFn == IntPtr.Zero || createInfo == IntPtr.Zero)
+                {
+                    System.Diagnostics.Trace.WriteLine(
+                        $"[Vulkan] CreateDeviceWrapper: missing fp ({_vkCreateDeviceFn != IntPtr.Zero}) or createInfo ({createInfo != IntPtr.Zero})");
+                    return -1; // VK_ERROR_INITIALIZATION_FAILED
+                }
+
+                // Log the requested extensions so we can confirm the core is
+                // getting what it asked for.
+                int extCount       = Marshal.ReadInt32(createInfo, 32);
+                IntPtr extNamesPtr = Marshal.ReadIntPtr(createInfo, 40);
+                if (extCount > 0 && extNamesPtr != IntPtr.Zero)
+                {
+                    var names = new System.Text.StringBuilder();
+                    for (int i = 0; i < extCount; i++)
+                    {
+                        IntPtr namePtr = Marshal.ReadIntPtr(extNamesPtr, i * IntPtr.Size);
+                        string? n = Marshal.PtrToStringAnsi(namePtr);
+                        if (i > 0) names.Append(", ");
+                        names.Append(n);
+                    }
+                    System.Diagnostics.Trace.WriteLine(
+                        $"[Vulkan] core requests {extCount} device extensions: {names}");
+                }
+
+                var fn = Marshal.GetDelegateForFunctionPointer<vkCreateDeviceDelegate>(_vkCreateDeviceFn);
+                int result = fn(gpu, createInfo, IntPtr.Zero, out device);
+                System.Diagnostics.Trace.WriteLine(
+                    $"[Vulkan] vkCreateDevice (wrapper) result={result} device=0x{device:X}");
+                return result;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[Vulkan] CreateDeviceWrapper threw: {ex.Message}");
+                return -1;
+            }
         }
 
         // =====================================================================

@@ -35,6 +35,7 @@ namespace Emutastic.Views
         private uint _videoWidth;
         private uint _videoHeight;
         private uint _lastFrameWidth;   // actual OnVideoRefresh dimensions (all paths, for recording)
+        private int  _vidSizeTraceCount; // first N OnVideoRefresh calls + every size change get logged
         private uint _lastFrameHeight;
         // Reused frame buffer — avoids Large Object Heap allocation every frame.
         // Resized only when the core changes resolution.
@@ -395,6 +396,29 @@ namespace Emutastic.Views
         // We refuse the startup-state load and let the BIOS boot normally
         // instead of presenting a deceptively "loaded" but frozen game.
         private bool _coreSingleSessionStates = false;
+
+        // Number of retro_run iterations to drive AFTER context_reset before
+        // attempting the first retro_unserialize. Beetle PSX HW (and probably
+        // any HW renderer that defers VRAM uploads through gl_context_reset's
+        // queue drain) wedges if unserialize fires before the pipeline is
+        // warm: GPU_RestoreStateP3 queues a 1MB VRAM blob, the queue never
+        // drains, the CPU stalls waiting on a GPU IRQ that never asserts,
+        // and the game appears "loaded" but frozen on the saved frame. Known
+        // upstream issues: libretro/beetle-psx-libretro #297, #423, #443,
+        // #445 (FF8-specific), #604. Workaround documented across all those
+        // threads: run frames first, THEN unserialize.
+        private int _loadStateWarmup = 0;
+        private const int LoadStateWarmupFrames = 60;
+        // Diagnostic counters so the post-load freeze pattern is visible in
+        // the log: how many retro_run calls we've issued, how many video
+        // frames the core actually delivered, and the wall-clock instant
+        // unserialize fired so we can compute the silence gap afterwards.
+        private long _retroRunCalls;
+        private long _videoFramesSeen;
+        private long _retroRunCallsAtLoad;
+        private long _videoFramesSeenAtLoad;
+        private DateTime _loadStateAt;
+        private bool _loadStateDiagActive;
         // Cheats — loaded once per game from disk, applied after retro_load_game and after every state load.
         private System.Collections.Generic.List<Models.Cheat> _cheats = new();
         private bool _cheatsApplied = false;
@@ -2079,8 +2103,14 @@ namespace Emutastic.Views
                 {
                     DrainKeyboardQueue();
                     _core?.Run();
-                    // Apply startup state after the first retro_run — core is now at a safe checkpoint.
-                    if (_loadStatePending) ExecuteLoadOnEmuThread();
+                    // Don't drive the state-load warmup during prefill: prefill
+                    // runs retro_run back-to-back at GPU speed (no 60fps audio
+                    // gate), so 60 prefill iterations is ~100ms of wall clock
+                    // — not enough time for HW renderers to drain their
+                    // deferred-upload queues. Defer all unserialize attempts
+                    // until the main run loop, where each retro_run is paced
+                    // at the game's framerate and 60 iterations = 1 second of
+                    // real warmup (Beetle PSX HW state-load workaround).
                     if (_glHwndOwned) { MSG m; while (PeekMessage(out m, IntPtr.Zero, 0, 0, PM_REMOVE)) DispatchMessage(ref m); }
                 }
                 _audioPlayer?.BeginPlayback();
@@ -2149,9 +2179,29 @@ namespace Emutastic.Views
                             catch (Exception raEx) { System.Diagnostics.Trace.WriteLine($"[RA] DoFrame error: {raEx.Message}"); }
                         }
 
+                        System.Threading.Interlocked.Increment(ref _retroRunCalls);
+
                         // Pending save/load — executed between retro_run calls for thread safety.
                         if (_saveStatePending) ExecuteSaveOnEmuThread();
                         if (_loadStatePending) ExecuteLoadOnEmuThread();
+
+                        // Post-load freeze diagnostic: every ~60 retro_runs after
+                        // a state load, log how many video frames the core has
+                        // produced. If retro_run keeps being called but the
+                        // video frame counter doesn't advance, the core has
+                        // wedged inside the loaded-state's CPU loop (the
+                        // documented Beetle PSX HW symptom).
+                        if (_loadStateDiagActive)
+                        {
+                            long runsSince   = _retroRunCalls - _retroRunCallsAtLoad;
+                            long framesSince = _videoFramesSeen - _videoFramesSeenAtLoad;
+                            if (runsSince % 60 == 0 && runsSince > 0 && runsSince <= 360)
+                            {
+                                System.Diagnostics.Trace.WriteLine(
+                                    $"[LoadState diag] +{(DateTime.Now - _loadStateAt).TotalMilliseconds:F0}ms: retro_runs={runsSince} videoFrames={framesSince}");
+                                if (runsSince >= 360) _loadStateDiagActive = false;
+                            }
+                        }
                         if (_cheatsApplyPending) ExecuteCheatsApplyOnEmuThread();
                     }
                     catch (AccessViolationException ex)
@@ -2571,10 +2621,27 @@ namespace Emutastic.Views
                 _hwFlippedHeight = h;
                 _hwVideoPending  = true;
                 uint capturedW = w, capturedH = h;
+                // Snapshot the buffer REFERENCE so the dispatcher invoke uses
+                // the buffer that existed at queue time. The readback path can
+                // reallocate _hwFlippedBuffer as resolution changes per frame
+                // (Beetle PSX HW alternates 2048×1920 ↔ 5120×3824 etc. while
+                // booting / changing display modes). Without this snapshot the
+                // closure late-binds to the field and ends up copying from a
+                // smaller buffer than capturedW×capturedH expects → throws
+                // "argument out of range" and the frame is dropped — most
+                // upscaled frames vanish, the bitmap goes stale.
+                byte[] capturedBuffer = _hwFlippedBuffer;
+                int    capturedBytes  = (int)(capturedW * capturedH * 4);
                 Dispatcher.BeginInvoke(() =>
                 {
                     try
                     {
+                        if (capturedBuffer == null || capturedBuffer.Length < capturedBytes)
+                        {
+                            System.Diagnostics.Trace.WriteLine(
+                                $"HW video UI: buffer size mismatch (have {capturedBuffer?.Length ?? 0}, need {capturedBytes}) — frame dropped");
+                            return;
+                        }
                         if (_bitmap == null || _videoWidth != capturedW || _videoHeight != capturedH || _bitmap.Format != PixelFormats.Bgra32)
                         {
                             _videoWidth = capturedW; _videoHeight = capturedH;
@@ -2582,9 +2649,10 @@ namespace Emutastic.Views
                             GameScreen.Source = _bitmap;
                             UpdateDisplayAspectRatio(capturedW, capturedH, _core?.AvInfo.geometry.aspect_ratio ?? 0f);
                             UpdateShaderScreenHeight(capturedH);
+                            ApplyGameScreenScalingMode(capturedW, capturedH);
                         }
                         _bitmap.Lock();
-                        Marshal.Copy(_hwFlippedBuffer, 0, _bitmap.BackBuffer, (int)(capturedW * capturedH * 4));
+                        Marshal.Copy(capturedBuffer, 0, _bitmap.BackBuffer, capturedBytes);
                         _bitmap.AddDirtyRect(new Int32Rect(0, 0, (int)capturedW, (int)capturedH));
                         _bitmap.Unlock();
                     }
@@ -2692,10 +2760,27 @@ namespace Emutastic.Views
                 _hwFlippedHeight = h;
                 _hwVideoPending  = true;
                 uint capturedW = w, capturedH = h;
+                // Snapshot the buffer REFERENCE so the dispatcher invoke uses
+                // the buffer that existed at queue time. The readback path can
+                // reallocate _hwFlippedBuffer as resolution changes per frame
+                // (Beetle PSX HW alternates 2048×1920 ↔ 5120×3824 etc. while
+                // booting / changing display modes). Without this snapshot the
+                // closure late-binds to the field and ends up copying from a
+                // smaller buffer than capturedW×capturedH expects → throws
+                // "argument out of range" and the frame is dropped — most
+                // upscaled frames vanish, the bitmap goes stale.
+                byte[] capturedBuffer = _hwFlippedBuffer;
+                int    capturedBytes  = (int)(capturedW * capturedH * 4);
                 Dispatcher.BeginInvoke(() =>
                 {
                     try
                     {
+                        if (capturedBuffer == null || capturedBuffer.Length < capturedBytes)
+                        {
+                            System.Diagnostics.Trace.WriteLine(
+                                $"HW video UI: buffer size mismatch (have {capturedBuffer?.Length ?? 0}, need {capturedBytes}) — frame dropped");
+                            return;
+                        }
                         if (_bitmap == null || _videoWidth != capturedW || _videoHeight != capturedH || _bitmap.Format != PixelFormats.Bgra32)
                         {
                             _videoWidth = capturedW; _videoHeight = capturedH;
@@ -2703,9 +2788,10 @@ namespace Emutastic.Views
                             GameScreen.Source = _bitmap;
                             UpdateDisplayAspectRatio(capturedW, capturedH, _core?.AvInfo.geometry.aspect_ratio ?? 0f);
                             UpdateShaderScreenHeight(capturedH);
+                            ApplyGameScreenScalingMode(capturedW, capturedH);
                         }
                         _bitmap.Lock();
-                        Marshal.Copy(_hwFlippedBuffer, 0, _bitmap.BackBuffer, (int)(capturedW * capturedH * 4));
+                        Marshal.Copy(capturedBuffer, 0, _bitmap.BackBuffer, capturedBytes);
                         _bitmap.AddDirtyRect(new Int32Rect(0, 0, (int)capturedW, (int)capturedH));
                         _bitmap.Unlock();
                     }
@@ -2714,6 +2800,30 @@ namespace Emutastic.Views
                 }, DispatcherPriority.Render);
             }
             catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"ReadBackFromCurrentContext: {ex.Message}"); }
+        }
+
+        /// <summary>
+        /// Picks the right WPF BitmapScalingMode for the source frame size.
+        /// NearestNeighbor preserves crisp pixel-art when the source is
+        /// at-or-below native resolution and the Image upscales it. But when
+        /// the source is HW-upscaled (Beetle PSX HW @ 8×, ParaLLEl-RDP @ 4×,
+        /// etc.) the Image is downsampling — and NearestNeighbor downsampling
+        /// throws away most of the high-frequency detail, defeating the
+        /// upscale. HighQuality (Fant filter) downsamples properly.
+        /// Threshold of ~960×720 catches anything past 1.5× native PS1 res.
+        /// </summary>
+        private void ApplyGameScreenScalingMode(uint w, uint h)
+        {
+            const long UpscaleArea = 960L * 720L;
+            var mode = (long)w * (long)h > UpscaleArea
+                ? BitmapScalingMode.HighQuality
+                : BitmapScalingMode.NearestNeighbor;
+            if (RenderOptions.GetBitmapScalingMode(GameScreen) != mode)
+            {
+                RenderOptions.SetBitmapScalingMode(GameScreen, mode);
+                System.Diagnostics.Trace.WriteLine(
+                    $"[VID] GameScreen scaling = {mode} (source {w}x{h})");
+            }
         }
 
         // =========================================================================
@@ -3615,6 +3725,16 @@ namespace Emutastic.Views
         {
             if (_crashDiagActive && (_runDiagFramesRemaining > 17 || width != _lastFrameWidth || height != _lastFrameHeight))
                 System.Diagnostics.Trace.WriteLine($"[VID] refresh {width}x{height} pitch={(ulong)pitch} dataNull={data == IntPtr.Zero} runId={_retroRunCallCount}");
+            // Always trace the first few frames and any size change so we can
+            // see what dimensions the core is pushing — needed to diagnose
+            // "8x internal resolution looks like 1x" issues for HW cores.
+            if (_vidSizeTraceCount < 3 || width != _lastFrameWidth || height != _lastFrameHeight)
+            {
+                System.Diagnostics.Trace.WriteLine(
+                    $"[VID] frame {_vidSizeTraceCount}: {width}x{height} pitch={(ulong)pitch} hwActive={_hwRenderActive} vk={_isVulkanHwRender}");
+                _vidSizeTraceCount++;
+            }
+            _videoFramesSeen++;
             // Track last frame dimensions for recording (all paths including Vulkan swapchain)
             if (width > 0 && height > 0) { _lastFrameWidth = width; _lastFrameHeight = height; }
 
@@ -3657,6 +3777,7 @@ namespace Emutastic.Views
                                     GameScreen.Source = _bitmap;
                                     UpdateDisplayAspectRatio(capturedW, capturedH, _core?.AvInfo.geometry.aspect_ratio ?? 0f);
                                     UpdateShaderScreenHeight(capturedH);
+                                    ApplyGameScreenScalingMode(capturedW, capturedH);
                                 }
                                 _bitmap.Lock();
                                 Marshal.Copy(pixels, 0, _bitmap.BackBuffer, (int)(capturedW * capturedH * 4));
@@ -3855,6 +3976,7 @@ namespace Emutastic.Views
                             GameScreen.Source = _bitmap;
                             UpdateDisplayAspectRatio(w, h, _core?.AvInfo.geometry.aspect_ratio ?? 0f);
                             UpdateShaderScreenHeight(h);
+                            ApplyGameScreenScalingMode(w, h);
                             if (diagC) System.Diagnostics.Trace.WriteLine($"[UI-VID] bitmap recreated");
                         }
                         _bitmap.Lock();
@@ -5718,6 +5840,7 @@ namespace Emutastic.Views
             {
                 _loadStatePending  = false;
                 _loadStateAttempts = 0;
+                _loadStateWarmup   = 0;
                 return;
             }
 
@@ -5739,6 +5862,23 @@ namespace Emutastic.Views
                 return;
             }
 
+            // Warmup: drive the core through N retro_run frames after
+            // context_reset before attempting unserialize. Required for HW
+            // renderers (Beetle PSX HW especially) that defer VRAM uploads
+            // through context_reset's queue drain — without warm frames the
+            // post-load CPU stalls waiting on a GPU IRQ that never fires and
+            // the game appears frozen on the saved frame.
+            if (_loadStateWarmup < LoadStateWarmupFrames)
+            {
+                if (_loadStateWarmup == 0)
+                    System.Diagnostics.Trace.WriteLine(
+                        $"[LoadState] warmup begin (need {LoadStateWarmupFrames} retro_runs at main-loop pace)");
+                _loadStateWarmup++;
+                return;
+            }
+
+            System.Diagnostics.Trace.WriteLine(
+                $"[LoadState] warmup complete after {_loadStateWarmup} retro_runs, calling retro_unserialize ({data.Length} bytes)");
             bool ok = _core?.LoadState(data) ?? false;
 
             // Retry across frames if the core hasn't reached a state where
@@ -5753,12 +5893,70 @@ namespace Emutastic.Views
 
             _loadStatePending  = false;
             _loadStateAttempts = 0;
+            _loadStateWarmup   = 0;
             _pendingLoadData   = null;
+
+            // After successful unserialize, re-prime the controller port-device
+            // assignments for all four ports. Beetle PSX HW's FrontIO rebuilds
+            // its device pointers during state restore and the libretro input-
+            // device assignment can dangle, leaving input dead even though
+            // emulation appears alive. Cheap to do unconditionally.
+            if (ok && _core != null)
+            {
+                try
+                {
+                    for (uint port = 0; port < 4; port++)
+                        _core.SetControllerPortDevice(port, 1 /* RETRO_DEVICE_JOYPAD */);
+                    System.Diagnostics.Trace.WriteLine("[LoadState] re-primed controller ports post-unserialize");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Trace.WriteLine($"[LoadState] port re-prime failed: {ex.Message}");
+                }
+            }
+
+            // Re-seat the disc post-unserialize for disc-streaming cores. Beetle
+            // PSX HW's CDC loses its disc handle during state restore (upstream
+            // issue #297) — any subsequent disc read stalls forever, so games
+            // that stream constantly (FF8 across field/battle/FMV) appear to
+            // load but freeze on the first access. The recovery is the same
+            // pattern as a manual disk-swap: eject the tray, set the current
+            // image index, then DEFER the re-insert (eject false) by ~100
+            // frames so the CDC audio engine spins down properly. An
+            // immediate re-insert is what was happening before and confuses
+            // the Beetle PSX CDC just like an undelayed swap does.
+            if (ok && _diskSetEjectState != null && _diskSetImageIndex != null
+                   && _diskGetImageIndex != null)
+            {
+                try
+                {
+                    uint cur = _diskGetImageIndex();
+                    _diskSetEjectState(true);
+                    _diskSetImageIndex(cur);
+                    _diskInsertPendingFrames = 100;
+                    System.Diagnostics.Trace.WriteLine(
+                        $"[LoadState] re-seated disc index {cur} post-unserialize (insert deferred 100 frames)");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Trace.WriteLine($"[LoadState] disc re-seat failed: {ex.Message}");
+                }
+            }
 
             _transientMsg    = ok ? $"Loaded: {name}" : $"Failed to load: {name}";
             _transientExpiry = DateTime.Now.AddSeconds(3);
             System.Diagnostics.Trace.WriteLine(
                 $"[LoadState] {(ok ? "succeeded" : "gave up")} after {(ok ? _loadStateAttempts : MaxLoadStateAttempts)} attempts: {name}");
+
+            // Activate the post-load freeze diagnostic so the run loop can
+            // log retro_run vs video-frame counts every ~1s after this point.
+            if (ok)
+            {
+                _loadStateAt           = DateTime.Now;
+                _retroRunCallsAtLoad   = _retroRunCalls;
+                _videoFramesSeenAtLoad = _videoFramesSeen;
+                _loadStateDiagActive   = true;
+            }
 
             // Some cores wipe their cheat table on state load — re-apply so codes survive.
             // Snapshot the list before iterating to avoid racing the UI thread, which can

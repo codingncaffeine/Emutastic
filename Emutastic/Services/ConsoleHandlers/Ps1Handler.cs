@@ -1,0 +1,74 @@
+using System.Collections.Generic;
+
+namespace Emutastic.Services.ConsoleHandlers
+{
+    /// <summary>
+    /// Handler for PlayStation 1 (Beetle PSX HW by default).
+    /// Beetle PSX HW negotiates Vulkan via SET_HW_RENDER. Without a non-software
+    /// context the HW core falls back to its built-in software renderer and the
+    /// internal-resolution / PGXP / texture-filter options become no-ops.
+    /// </summary>
+    public class Ps1Handler : ConsoleHandlerBase
+    {
+        public override string ConsoleName => "PS1";
+        public override bool UsesAnalogStick => true;
+
+        // Request OpenGL Core context for Beetle PSX HW. The Vulkan path was
+        // tried first but Beetle PSX HW's v1 create_device hands back a device
+        // missing the features parallel-psx later dispatches against, producing
+        // NULL-IP AVs in the render thread. OpenGL has a much simpler init
+        // contract (context_reset gets a current GL context; the core renders
+        // through it directly) and our OpenGL plumbing is mature from N64,
+        // Dolphin, and 3DS. If the user has the SW mednafen_psx_libretro
+        // selected instead, the core ignores HW context negotiation entirely
+        // and runs as software — nothing to harm there.
+        public override int PreferredHwContext => 3; // RETRO_HW_CONTEXT_OPENGL_CORE
+
+        // Use the GL overlay window for direct GPU→GPU presentation. Without
+        // this, OnVideoRefresh falls through to the readback-via-glReadPixels
+        // path that ships ~78 MB per frame across PCIe at 8× internal
+        // resolution (5120×3824×4 bytes), then Marshal-copies it into a WPF
+        // WriteableBitmap on the UI thread — frame-dropping pipeline even on
+        // top-tier hardware. With overlay = true the core's FBO blits directly
+        // to a native HWND backbuffer via glBlitFramebuffer + SwapBuffers and
+        // the WPF compositor never touches the upscaled image. Same pipeline
+        // GameCube Dolphin uses (and Dreamcast Flycast).
+        // Falls back to the readback path when the AMD/Intel compatibility
+        // toggle is on, since that mode renders directly to FBO 0 and the
+        // overlay path needs a separate FBO to blit from.
+        public override bool UseGLOverlay => !UseDefaultFramebuffer;
+
+        // AMD/Intel GL drivers misbehave when binding non-zero FBOs (the same
+        // bottom-left rendering bug Dolphin hits) — when the user has opted
+        // into the global compatibility mode, render directly to FBO 0.
+        public override bool UseDefaultFramebuffer =>
+            App.Configuration?.GetEmulatorConfiguration().ResolveAmdIntelCompat() ?? false;
+
+        public override Dictionary<string, string> GetDefaultCoreOptions() => new()
+        {
+            // Force the OpenGL HW renderer to match our negotiated GL context.
+            // `hardware` would let the core pick either backend; pinning to
+            // `hardware_gl` avoids the core silently selecting Vulkan and
+            // failing back to software when our context isn't compatible.
+            ["beetle_psx_hw_renderer"] = "hardware_gl",
+            // Disable the software framebuffer override. With software_fb
+            // enabled (the core's default!) Beetle PSX HW still runs the HW
+            // upscaler but copies the SW framebuffer at native resolution
+            // back over the displayed image — every internal-resolution
+            // setting silently becomes a no-op. Disabling it lets the HW
+            // pipeline actually drive the display, which is the whole point
+            // of using the HW core in the first place.
+            ["beetle_psx_hw_renderer_software_fb"] = "disabled",
+            // Sync CD access — the async path loses the CDC's disc handle on
+            // retro_unserialize (Beetle PSX HW issue #297), causing every
+            // disc-streaming game (FF8 notably) to freeze on the first read
+            // after load. sync survives state restore reliably.
+            ["beetle_psx_hw_cd_access_method"] = "sync",
+            // Visual fidelity options (internal_resolution, PGXP, filter,
+            // dither, MSAA, depth) are intentionally left at the core's
+            // native-PSX defaults — output looks like real hardware out of
+            // the box. Users who want upscaling/PGXP turn those on per-game
+            // in core options.
+        };
+    }
+}

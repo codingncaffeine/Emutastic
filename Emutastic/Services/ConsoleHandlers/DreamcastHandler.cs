@@ -59,7 +59,15 @@ namespace Emutastic.Services.ConsoleHandlers
         public override int PreferredHwContext => 3;  // RETRO_HW_CONTEXT_OPENGL_CORE
         public override bool AllowHwSharedContext => false;
         public override bool UseEmbeddedWindow => false;
-        public override bool UseGLOverlay => true;
+
+        // AMD/Intel GL drivers misbehave when Flycast binds a non-zero FBO
+        // (same class of bug Dolphin hits). When the user has opted into the
+        // global AMD/Intel compatibility toggle, render to FBO 0 instead and
+        // disable the overlay path (the overlay needs a separate FBO to blit
+        // from). NVIDIA users keep the fast direct-present path.
+        public override bool UseDefaultFramebuffer =>
+            App.Configuration?.GetEmulatorConfiguration().ResolveAmdIntelCompat() ?? false;
+        public override bool UseGLOverlay => !UseDefaultFramebuffer;
 
         public override string ResolveSystemDirectory(string defaultDir, string coreDllDir)
         {

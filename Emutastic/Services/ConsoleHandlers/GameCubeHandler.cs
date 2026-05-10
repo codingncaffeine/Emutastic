@@ -167,7 +167,7 @@ namespace Emutastic.Services.ConsoleHandlers
         public override bool UseGLOverlay => !UseDefaultFramebuffer;
 
         public override bool UseDefaultFramebuffer =>
-            App.Configuration?.GetEmulatorConfiguration().GameCubeUseDefaultFramebuffer ?? false;
+            App.Configuration?.GetEmulatorConfiguration().ResolveAmdIntelCompat() ?? false;
 
         // Use the DLL's parent directory as the system directory so that
         // dolphin-emu\Sys\ can be placed alongside dolphin_libretro.dll.

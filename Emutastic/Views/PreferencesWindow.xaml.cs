@@ -2956,26 +2956,34 @@ namespace Emutastic.Views
             };
             var compatStack = new StackPanel();
 
-            // ── GameCube: render to default framebuffer (AMD/Intel compat) ──
+            // ── AMD/Intel GPU compatibility (covers all OpenGL HW cores) ──
             var emuConfig = _configService.GetEmulatorConfiguration();
             var gcCheck = new CheckBox
             {
-                Content    = "GameCube: render to default framebuffer (AMD/Intel GPU compatibility)",
+                Content    = "AMD/Intel GPU compatibility (all hardware-rendered cores)",
                 Foreground = _brushText,
                 FontSize   = 13,
-                IsChecked  = emuConfig.GameCubeUseDefaultFramebuffer,
+                IsChecked  = emuConfig.ResolveAmdIntelCompat(),
                 Cursor     = System.Windows.Input.Cursors.Hand,
             };
             var gcDesc = new TextBlock
             {
-                Text         = "Fixes a video rendering issue where GameCube games render only in part of the window on AMD/Intel GPU drivers. Cost: the in-game GL overlay (cog menu, save/load slots, cheats panel) is disabled while this is on. NVIDIA users should leave this off.",
+                Text         = "Fixes a video rendering bug AMD and Intel GPU drivers exhibit with hardware-rendered cores (GameCube, PSX HW, Dreamcast) where the game renders only in part of the window. Cost: the in-game GL overlay (cog menu, save/load slots, cheats panel) is disabled and presentation falls back to a slower readback path while this is on. NVIDIA users should leave this off.",
                 FontSize     = 11,
                 Foreground   = _brushTextMuted,
                 TextWrapping = TextWrapping.Wrap,
                 Margin       = new Thickness(22, 4, 0, 0),
             };
-            gcCheck.Checked   += (_, _) => SaveCompatToggle(c => c.GameCubeUseDefaultFramebuffer = true);
-            gcCheck.Unchecked += (_, _) => SaveCompatToggle(c => c.GameCubeUseDefaultFramebuffer = false);
+            gcCheck.Checked   += (_, _) => SaveCompatToggle(c =>
+            {
+                c.AmdIntelGpuCompatibility    = true;
+                c.GameCubeUseDefaultFramebuffer = false; // legacy field — clear it so ResolveAmdIntelCompat is sourced from the new one only
+            });
+            gcCheck.Unchecked += (_, _) => SaveCompatToggle(c =>
+            {
+                c.AmdIntelGpuCompatibility    = false;
+                c.GameCubeUseDefaultFramebuffer = false;
+            });
 
             compatStack.Children.Add(gcCheck);
             compatStack.Children.Add(gcDesc);
