@@ -56,12 +56,11 @@ jobs:
         shell: pwsh
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
         env:
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-        with:
-          name: Emutastic ${{ github.ref_name }}
-          draft: true
-          prerelease: false
-          generate_release_notes: true
-          files: ${{ env.ZIP_NAME }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" "$env:ZIP_NAME" `
+            --title "Emutastic ${{ github.ref_name }}" `
+            --draft `
+            --generate-notes
+        shell: pwsh

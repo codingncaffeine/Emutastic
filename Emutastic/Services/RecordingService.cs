@@ -77,6 +77,14 @@ namespace Emutastic.Services
         /// </summary>
         public static string? FindFfmpeg()
         {
+            // v1.4.6: ffmpeg.exe moved from .exe folder to [DataRoot]/Native/ so
+            // it survives across version upgrades and UAC-restricted installs.
+            string nativeDir = AppPaths.GetNativeFolder();
+            string nativePath = Path.Combine(nativeDir, "ffmpeg.exe");
+            if (File.Exists(nativePath)) return nativePath;
+
+            // Fall back to the legacy .exe-folder location for users running a
+            // build that hasn't completed migration yet (shouldn't happen post-1.4.6).
             string appDir = AppDomain.CurrentDomain.BaseDirectory;
             string local = Path.Combine(appDir, "ffmpeg.exe");
             if (File.Exists(local)) return local;

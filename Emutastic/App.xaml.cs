@@ -73,6 +73,14 @@ namespace Emutastic
             // pre-existing cores from the old location on first launch with the new code.
             MigratePortableCoresIfNeeded();
 
+            // v1.4.6: SDL3.dll, ffmpeg.exe, and DATs/ moved out of the .exe folder and
+            // under [DataRoot] so they survive UAC-restricted installs (Program Files)
+            // and version upgrades where the user extracts the new release into a fresh
+            // folder. Install the SDL3 resolver BEFORE migration so a partially-moved
+            // state can still resolve the legacy copy.
+            InstallSdl3Resolver();
+            MigrateNativeAssetsIfNeeded();
+
             try
             {
 
@@ -298,6 +306,148 @@ namespace Emutastic
             catch (Exception ex)
             {
                 System.Diagnostics.Trace.WriteLine($"Portable cores migration failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Routes [DllImport("SDL3.dll")] calls in ControllerManager to the persistent
+        /// [DataRoot]/Native/ location. Returns IntPtr.Zero (i.e. defers to the default
+        /// Windows loader) when the file isn't there yet — so legacy installs with
+        /// SDL3.dll still sitting next to the .exe keep working until migration moves it.
+        /// </summary>
+        private static void InstallSdl3Resolver()
+        {
+            try
+            {
+                System.Runtime.InteropServices.NativeLibrary.SetDllImportResolver(
+                    typeof(App).Assembly,
+                    (name, _, _) =>
+                    {
+                        if (!name.Equals("SDL3.dll", StringComparison.OrdinalIgnoreCase)
+                         && !name.Equals("SDL3",     StringComparison.OrdinalIgnoreCase))
+                            return IntPtr.Zero;
+
+                        string path = Path.Combine(AppPaths.GetNativeFolder(), "SDL3.dll");
+                        if (File.Exists(path)
+                            && System.Runtime.InteropServices.NativeLibrary.TryLoad(path, out var h))
+                            return h;
+                        return IntPtr.Zero;
+                    });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"SDL3 resolver install failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Moves SDL3.dll, ffmpeg.exe, and the DATs/ folder from the legacy .exe
+        /// location into [DataRoot]/Native/ and [DataRoot]/DATs/. Also checks the
+        /// UAC VirtualStore mirror in case Windows redirected a previous download
+        /// silently. Idempotent — does nothing once the new layout is populated.
+        /// </summary>
+        private static void MigrateNativeAssetsIfNeeded()
+        {
+            try
+            {
+                string nativeDir = AppPaths.GetNativeFolder();
+                string datsDir   = AppPaths.GetDatsFolder();
+                string exeDir    = AppPaths.GetExeFolder();
+
+                // Candidate legacy locations to scan, in order of preference:
+                //   1. The .exe folder itself (most installs).
+                //   2. The UAC VirtualStore mirror — Windows silently redirects writes
+                //      to %LOCALAPPDATA%\VirtualStore\<exepath> when the user lacks
+                //      write access to the install dir (Program Files, etc.).
+                string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                string virtualStore = string.Empty;
+                try
+                {
+                    string root = Path.GetPathRoot(exeDir) ?? "";
+                    if (!string.IsNullOrEmpty(root))
+                    {
+                        string relative = exeDir.Substring(root.Length);
+                        virtualStore = Path.Combine(localAppData, "VirtualStore", relative);
+                    }
+                }
+                catch { }
+
+                string[] sources = string.IsNullOrEmpty(virtualStore)
+                    ? new[] { exeDir }
+                    : new[] { exeDir, virtualStore };
+
+                MigrateSingleFile("SDL3.dll",  sources, nativeDir);
+                MigrateSingleFile("ffmpeg.exe", sources, nativeDir);
+                MigrateDatFolder(sources, datsDir);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"Native assets migration failed: {ex.Message}");
+            }
+        }
+
+        private static void MigrateSingleFile(string fileName, string[] sourceDirs, string destDir)
+        {
+            string destPath = Path.Combine(destDir, fileName);
+            if (File.Exists(destPath)) return;
+
+            foreach (string src in sourceDirs)
+            {
+                if (string.IsNullOrEmpty(src)) continue;
+                string srcPath = Path.Combine(src, fileName);
+                if (!File.Exists(srcPath)) continue;
+                // Same path on both sides — nothing to do (covers the case where the
+                // user is non-portable but DataRoot resolved to the .exe folder).
+                if (string.Equals(Path.GetFullPath(srcPath),
+                                  Path.GetFullPath(destPath),
+                                  StringComparison.OrdinalIgnoreCase)) return;
+                try
+                {
+                    File.Move(srcPath, destPath);
+                    System.Diagnostics.Trace.WriteLine($"Migrated {fileName}: {srcPath} → {destPath}");
+                    return;
+                }
+                catch
+                {
+                    try
+                    {
+                        File.Copy(srcPath, destPath, overwrite: false);
+                        System.Diagnostics.Trace.WriteLine($"Copied {fileName} (source read-only): {srcPath} → {destPath}");
+                        return;
+                    }
+                    catch (Exception ex2)
+                    {
+                        System.Diagnostics.Trace.WriteLine($"Migrate {fileName} from {src} failed: {ex2.Message}");
+                    }
+                }
+            }
+        }
+
+        private static void MigrateDatFolder(string[] sourceDirs, string destDir)
+        {
+            foreach (string src in sourceDirs)
+            {
+                if (string.IsNullOrEmpty(src)) continue;
+                string srcDats = Path.Combine(src, "DATs");
+                if (!Directory.Exists(srcDats)) continue;
+                if (string.Equals(Path.GetFullPath(srcDats),
+                                  Path.GetFullPath(destDir),
+                                  StringComparison.OrdinalIgnoreCase)) return;
+
+                int moved = 0;
+                foreach (string dat in Directory.EnumerateFiles(srcDats, "*.dat", SearchOption.TopDirectoryOnly))
+                {
+                    string destPath = Path.Combine(destDir, Path.GetFileName(dat));
+                    if (File.Exists(destPath)) continue;
+                    try { File.Move(dat, destPath); moved++; }
+                    catch
+                    {
+                        try { File.Copy(dat, destPath, overwrite: false); moved++; }
+                        catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Migrate DAT {Path.GetFileName(dat)} failed: {ex.Message}"); }
+                    }
+                }
+                if (moved > 0)
+                    System.Diagnostics.Trace.WriteLine($"Migrated {moved} DAT file(s) from {srcDats} → {destDir}");
             }
         }
 

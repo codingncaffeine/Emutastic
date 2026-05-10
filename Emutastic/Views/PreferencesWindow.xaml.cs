@@ -2413,8 +2413,10 @@ namespace Emutastic.Views
 
         private void BuildExtrasSection()
         {
-            string baseDir  = AppDomain.CurrentDomain.BaseDirectory;
-            string datsDir  = System.IO.Path.Combine(baseDir, "DATs");
+            // v1.4.6: native assets (SDL3.dll, ffmpeg.exe) and DATs/ live under
+            // [DataRoot] now (was [exe]). Path is portable-mode aware via AppPaths.
+            string nativeDir = AppPaths.GetNativeFolder();
+            string datsDir   = AppPaths.GetDatsFolder();
 
             // ── Section header ──
             CoresListPanel.Children.Add(new Rectangle
@@ -2442,7 +2444,7 @@ namespace Emutastic.Views
             var extrasStack = new StackPanel();
 
             // ── SDL3.dll row ──
-            string sdl3Path     = System.IO.Path.Combine(baseDir, "SDL3.dll");
+            string sdl3Path     = System.IO.Path.Combine(nativeDir, "SDL3.dll");
             bool   sdl3Present  = System.IO.File.Exists(sdl3Path);
 
             var sdl3StatusText  = new TextBlock { FontSize = 10, Foreground = _brushTextMuted, Visibility = Visibility.Collapsed };
@@ -2512,7 +2514,7 @@ namespace Emutastic.Views
                 isLast: false));
 
             // ── ffmpeg.exe row ──
-            string ffmpegPath     = System.IO.Path.Combine(baseDir, "ffmpeg.exe");
+            string ffmpegPath     = System.IO.Path.Combine(nativeDir, "ffmpeg.exe");
             bool   ffmpegPresent  = System.IO.File.Exists(ffmpegPath);
 
             var ffmpegStatusText  = new TextBlock { FontSize = 10, Foreground = _brushTextMuted, Visibility = Visibility.Collapsed };

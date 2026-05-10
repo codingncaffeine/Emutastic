@@ -8,6 +8,7 @@
         xmlns:vwp="clr-namespace:WpfToolkit.Controls;assembly=VirtualizingWrapPanel"
         mc:Ignorable="d"
         Title="Emutastic"
+        Icon="pack://application:,,,/Assets/emutastic-logo.ico"
         Height="720" Width="1100"
         MinHeight="500" MinWidth="800"
         Background="Transparent"

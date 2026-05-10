@@ -6,7 +6,7 @@ using System.Xml;
 namespace Emutastic.Services
 {
     /// <summary>
-    /// Loads Redump/No-Intro DAT files from [exe]\DATs\ and provides hash-based
+    /// Loads Redump/No-Intro DAT files from [DataRoot]/DATs/ and provides hash-based
     /// game identification.  DAT files must be in standard Redump/No-Intro XML format
     /// and named after their console tag (e.g. Saturn.dat, SegaCD.dat, PS1.dat, TGCD.dat).
     ///
@@ -30,7 +30,7 @@ namespace Emutastic.Services
 
         public DatMatchService()
         {
-            _datsFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "DATs");
+            _datsFolder = AppPaths.GetDatsFolder();
         }
 
         /// <summary>

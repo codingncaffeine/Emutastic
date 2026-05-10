@@ -158,6 +158,50 @@ namespace Emutastic
         }
 
         /// <summary>
+        /// Folder that holds user-downloaded native assets that aren't bundled in
+        /// the release zip — currently SDL3.dll and ffmpeg.exe. Always under
+        /// [DataRoot]/Native/ so the files survive both UAC-restricted install
+        /// locations (Program Files etc.) and version upgrades where the user
+        /// extracts a new release zip into a fresh folder. In portable mode this
+        /// resolves to [exe]/PortableData/Native/ so the entire portable bundle
+        /// stays self-contained.
+        /// </summary>
+        public static string GetNativeFolder()
+        {
+            string folder = Path.Combine(DataRoot, "Native");
+            Directory.CreateDirectory(folder);
+            return folder;
+        }
+
+        /// <summary>
+        /// Folder that holds DAT files used for CHD/Redump SHA1 lookup during
+        /// import. Same persistence rationale as GetNativeFolder.
+        /// </summary>
+        public static string GetDatsFolder()
+        {
+            string folder = Path.Combine(DataRoot, "DATs");
+            Directory.CreateDirectory(folder);
+            return folder;
+        }
+
+        /// <summary>
+        /// Returns the .exe folder regardless of portable mode — used by the
+        /// native-assets migration to locate any pre-existing SDL3.dll, ffmpeg.exe,
+        /// or DATs/ that legacy installs left next to the .exe.
+        /// </summary>
+        public static string GetExeFolder()
+        {
+            try
+            {
+                string? exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
+                return !string.IsNullOrEmpty(exePath)
+                    ? Path.GetDirectoryName(exePath)!
+                    : AppContext.BaseDirectory;
+            }
+            catch { return AppContext.BaseDirectory; }
+        }
+
+        /// <summary>
         /// In portable mode, returns the path to the .exe folder so we can find
         /// pre-existing Cores/ that shipped with the install (for migration). Null otherwise.
         /// </summary>

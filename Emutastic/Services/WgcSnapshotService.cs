@@ -59,7 +59,7 @@ namespace Emutastic.Services
                         adapter: null!,
                         DriverType.Hardware,
                         DeviceCreationFlags.BgraSupport,
-                        null,
+                        null!,
                         out device,
                         out context).Failure)
                     return null;
