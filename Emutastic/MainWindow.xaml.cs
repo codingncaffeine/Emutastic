@@ -60,6 +60,22 @@ namespace Emutastic
 
             // ── Phase 1: synchronous, fast — window becomes interactive immediately ──
             _db          = new DatabaseService();   // schema init (CREATE TABLE / indexes)
+            // Live-refresh the Save States tab when a state is added/deleted/renamed
+            // anywhere (EmulatorWindow during play, context-menu rename/delete,
+            // startup orphan-discovery). Static event so events fired by
+            // EmulatorWindow's separate DatabaseService instance still reach us.
+            // Marshal to UI; only repopulate when the tab is currently visible
+            // to avoid wasted work.
+            DatabaseService.SaveStatesChanged += (_, _) =>
+            {
+                System.Diagnostics.Trace.WriteLine("[SaveStatesView] event received, marshaling to UI");
+                Dispatcher.BeginInvoke(() =>
+                {
+                    bool visible = SaveStatesView != null && SaveStatesView.Visibility == Visibility.Visible;
+                    System.Diagnostics.Trace.WriteLine($"[SaveStatesView] UI handler — visible={visible}");
+                    if (visible) PopulateSaveStatesView();
+                });
+            };
             _artwork     = new ArtworkService();
             _coreManager = new CoreManager(App.Configuration!);
             _importer    = new ImportService(_db, _coreManager, App.Configuration);
@@ -2221,8 +2237,18 @@ namespace Emutastic
                 { Owner = this };
                 if (dlg.ShowDialog() != true) return;
 
+                // Delete all sidecars next to the .state. Derive the .png and
+                // .json paths from the .state filename so we still clean up
+                // orphaned files even if the DB row's ScreenshotPath is empty
+                // (capture failed at save time, legacy rows, etc.).
                 try { if (File.Exists(s.StatePath))      File.Delete(s.StatePath);      } catch { }
                 try { if (File.Exists(s.ScreenshotPath)) File.Delete(s.ScreenshotPath); } catch { }
+                try
+                {
+                    string p = Path.ChangeExtension(s.StatePath, ".png");
+                    if (File.Exists(p)) File.Delete(p);
+                }
+                catch { }
                 try
                 {
                     string j = Path.ChangeExtension(s.StatePath, ".json");
@@ -2260,8 +2286,15 @@ namespace Emutastic
 
             try
             {
+                // Match the launch sequence used by GameDetailWindows: free the
+                // previous run's core DLL BEFORE LoadLibrary so the refcount
+                // actually reaches zero and the DLL globals reset. Without this
+                // the second N64 launch in a session crashes ("Failed to
+                // initialize core") because mupen64plus-next leaves stale
+                // Vulkan state behind that breaks retro_init on relaunch.
+                Views.EmulatorWindow.FreeStaleDll();
                 var core = new Services.LibretroCore(corePath);
-                var emu  = new EmulatorWindow(game, core, s.StatePath) { Owner = this };
+                var emu  = new Views.EmulatorWindow(game, core, s.StatePath) { Owner = this };
                 emu.Show();
             }
             catch (Exception ex)

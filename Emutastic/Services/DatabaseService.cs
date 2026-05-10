@@ -1561,54 +1561,80 @@ namespace Emutastic.Services
             return ReadSingleGame(reader);
         }
 
+        /// <summary>
+        /// Fires when a save state is inserted, deleted, renamed, or rediscovered.
+        /// MainWindow's Save States tab subscribes so it can live-refresh while
+        /// open — without this the user has to nav away and back to see a state
+        /// they just made. Raised on whichever thread mutates the table; the
+        /// subscriber must marshal to the UI thread before touching UI.
+        /// Static so subscribers receive events from any DatabaseService
+        /// instance — EmulatorWindow constructs its own DatabaseService for
+        /// per-game work, separate from MainWindow's instance.
+        /// </summary>
+        public static event EventHandler? SaveStatesChanged;
+
         public int InsertSaveState(SaveState s)
         {
-            using var connection = new SqliteConnection(_connectionString);
-            connection.Open();
-            var cmd = connection.CreateCommand();
-            cmd.CommandText = @"
-                INSERT INTO SaveStates (GameId, Slot, FilePath, Screenshot, CreatedAt, Name, GameTitle, ConsoleName, CoreName, RomHash)
-                VALUES ($gameId, 0, $filePath, $screenshot, $createdAt, $name, $gameTitle, $consoleName, $coreName, $romHash);";
-            cmd.Parameters.AddWithValue("$gameId",      s.GameId);
-            cmd.Parameters.AddWithValue("$filePath",    AppPaths.ToStoragePath(s.StatePath));
-            cmd.Parameters.AddWithValue("$screenshot",  AppPaths.ToStoragePath(s.ScreenshotPath ?? ""));
-            cmd.Parameters.AddWithValue("$createdAt",   s.CreatedAt.ToString("o"));
-            cmd.Parameters.AddWithValue("$name",        s.Name);
-            cmd.Parameters.AddWithValue("$gameTitle",   s.GameTitle);
-            cmd.Parameters.AddWithValue("$consoleName", s.ConsoleName);
-            cmd.Parameters.AddWithValue("$coreName",    s.CoreName);
-            cmd.Parameters.AddWithValue("$romHash",     s.RomHash);
-            cmd.ExecuteNonQuery();
+            int newId;
+            using (var connection = new SqliteConnection(_connectionString))
+            {
+                connection.Open();
+                var cmd = connection.CreateCommand();
+                cmd.CommandText = @"
+                    INSERT INTO SaveStates (GameId, Slot, FilePath, Screenshot, CreatedAt, Name, GameTitle, ConsoleName, CoreName, RomHash)
+                    VALUES ($gameId, 0, $filePath, $screenshot, $createdAt, $name, $gameTitle, $consoleName, $coreName, $romHash);";
+                cmd.Parameters.AddWithValue("$gameId",      s.GameId);
+                cmd.Parameters.AddWithValue("$filePath",    AppPaths.ToStoragePath(s.StatePath));
+                cmd.Parameters.AddWithValue("$screenshot",  AppPaths.ToStoragePath(s.ScreenshotPath ?? ""));
+                cmd.Parameters.AddWithValue("$createdAt",   s.CreatedAt.ToString("o"));
+                cmd.Parameters.AddWithValue("$name",        s.Name);
+                cmd.Parameters.AddWithValue("$gameTitle",   s.GameTitle);
+                cmd.Parameters.AddWithValue("$consoleName", s.ConsoleName);
+                cmd.Parameters.AddWithValue("$coreName",    s.CoreName);
+                cmd.Parameters.AddWithValue("$romHash",     s.RomHash);
+                cmd.ExecuteNonQuery();
 
-            var idCmd = connection.CreateCommand();
-            idCmd.CommandText = "SELECT last_insert_rowid();";
-            return (int)(long)idCmd.ExecuteScalar()!;
+                var idCmd = connection.CreateCommand();
+                idCmd.CommandText = "SELECT last_insert_rowid();";
+                newId = (int)(long)idCmd.ExecuteScalar()!;
+            }
+            System.Diagnostics.Trace.WriteLine("[DB] SaveStatesChanged fired");
+            SaveStatesChanged?.Invoke(this, EventArgs.Empty);
+            return newId;
         }
 
         public void DeleteSaveState(int id)
         {
-            using var connection = new SqliteConnection(_connectionString);
-            connection.Open();
-            var cmd = connection.CreateCommand();
-            cmd.CommandText = "DELETE FROM SaveStates WHERE Id = $id;";
-            cmd.Parameters.AddWithValue("$id", id);
-            cmd.ExecuteNonQuery();
+            using (var connection = new SqliteConnection(_connectionString))
+            {
+                connection.Open();
+                var cmd = connection.CreateCommand();
+                cmd.CommandText = "DELETE FROM SaveStates WHERE Id = $id;";
+                cmd.Parameters.AddWithValue("$id", id);
+                cmd.ExecuteNonQuery();
+            }
+            System.Diagnostics.Trace.WriteLine("[DB] SaveStatesChanged fired");
+            SaveStatesChanged?.Invoke(this, EventArgs.Empty);
         }
 
         public void UpdateSaveStateName(int id, string newName, string newStatePath, string newScreenshotPath)
         {
-            using var connection = new SqliteConnection(_connectionString);
-            connection.Open();
-            var cmd = connection.CreateCommand();
-            cmd.CommandText = @"
-                UPDATE SaveStates
-                SET Name = $name, FilePath = $filePath, Screenshot = $screenshot
-                WHERE Id = $id;";
-            cmd.Parameters.AddWithValue("$name",       newName);
-            cmd.Parameters.AddWithValue("$filePath",   AppPaths.ToStoragePath(newStatePath));
-            cmd.Parameters.AddWithValue("$screenshot", AppPaths.ToStoragePath(newScreenshotPath ?? ""));
-            cmd.Parameters.AddWithValue("$id",         id);
-            cmd.ExecuteNonQuery();
+            using (var connection = new SqliteConnection(_connectionString))
+            {
+                connection.Open();
+                var cmd = connection.CreateCommand();
+                cmd.CommandText = @"
+                    UPDATE SaveStates
+                    SET Name = $name, FilePath = $filePath, Screenshot = $screenshot
+                    WHERE Id = $id;";
+                cmd.Parameters.AddWithValue("$name",       newName);
+                cmd.Parameters.AddWithValue("$filePath",   AppPaths.ToStoragePath(newStatePath));
+                cmd.Parameters.AddWithValue("$screenshot", AppPaths.ToStoragePath(newScreenshotPath ?? ""));
+                cmd.Parameters.AddWithValue("$id",         id);
+                cmd.ExecuteNonQuery();
+            }
+            System.Diagnostics.Trace.WriteLine("[DB] SaveStatesChanged fired");
+            SaveStatesChanged?.Invoke(this, EventArgs.Empty);
         }
 
         public List<SaveState> GetSaveStatesByGame(int gameId)

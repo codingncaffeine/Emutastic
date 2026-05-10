@@ -725,6 +725,80 @@ namespace Emutastic.Views
         [DllImport("user32.dll")]   private static extern IntPtr GetDC(IntPtr hwnd);
         [DllImport("user32.dll")]   private static extern int    ReleaseDC(IntPtr hwnd, IntPtr hdc);
         [DllImport("user32.dll")]   private static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+        [DllImport("user32.dll")]   private static extern bool   PrintWindow(IntPtr hwnd, IntPtr hdcBlt, uint nFlags);
+        [DllImport("gdi32.dll")]    private static extern IntPtr CreateCompatibleDC(IntPtr hdc);
+        [DllImport("gdi32.dll")]    private static extern IntPtr CreateCompatibleBitmap(IntPtr hdc, int w, int h);
+        [DllImport("gdi32.dll")]    private static extern IntPtr SelectObject(IntPtr hdc, IntPtr h);
+        [DllImport("gdi32.dll")]    private static extern bool   DeleteObject(IntPtr h);
+        [DllImport("gdi32.dll")]    private static extern bool   DeleteDC(IntPtr hdc);
+        [DllImport("gdi32.dll")]    private static extern int    GetDIBits(IntPtr hdc, IntPtr hbm, uint start, uint cLines, IntPtr lpvBits, ref BITMAPINFO bmi, uint usage);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct BITMAPINFOHEADER { public int biSize; public int biWidth, biHeight; public ushort biPlanes, biBitCount; public uint biCompression, biSizeImage; public int biXPelsPerMeter, biYPelsPerMeter; public uint biClrUsed, biClrImportant; }
+        [StructLayout(LayoutKind.Sequential)]
+        private struct BITMAPINFO { public BITMAPINFOHEADER bmiHeader; [MarshalAs(UnmanagedType.ByValArray, SizeConst = 1024)] public byte[] bmiColors; }
+
+        /// <summary>
+        /// Capture an HWND's client area to a BGRA32 BitmapSource via PrintWindow
+        /// with PW_RENDERFULLCONTENT. Works for many overlay surfaces (incl. some
+        /// DXGI/Vulkan compositions) when DWM compositing is enabled. Returns null
+        /// if the call fails or the window is zero-size.
+        /// </summary>
+        private static BitmapSource? CaptureWindowToBitmap(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero) return null;
+            if (!GetClientRect(hwnd, out var rc)) return null;
+            int w = rc.Right - rc.Left, h = rc.Bottom - rc.Top;
+            if (w <= 0 || h <= 0) return null;
+
+            const uint PW_RENDERFULLCONTENT = 0x02;
+            IntPtr screenDC = IntPtr.Zero, memDC = IntPtr.Zero, hbm = IntPtr.Zero, oldObj = IntPtr.Zero;
+            try
+            {
+                screenDC = GetDC(IntPtr.Zero);
+                memDC    = CreateCompatibleDC(screenDC);
+                hbm      = CreateCompatibleBitmap(screenDC, w, h);
+                oldObj   = SelectObject(memDC, hbm);
+
+                if (!PrintWindow(hwnd, memDC, PW_RENDERFULLCONTENT))
+                    return null;
+
+                var bmi = new BITMAPINFO
+                {
+                    bmiHeader = new BITMAPINFOHEADER
+                    {
+                        biSize        = Marshal.SizeOf<BITMAPINFOHEADER>(),
+                        biWidth       = w,
+                        biHeight      = -h,           // top-down
+                        biPlanes      = 1,
+                        biBitCount    = 32,
+                        biCompression = 0,            // BI_RGB
+                    },
+                    bmiColors = new byte[1024],
+                };
+                int stride = w * 4;
+                byte[] pixels = new byte[stride * h];
+                var pin = GCHandle.Alloc(pixels, GCHandleType.Pinned);
+                try
+                {
+                    if (GetDIBits(memDC, hbm, 0, (uint)h, pin.AddrOfPinnedObject(), ref bmi, 0) == 0)
+                        return null;
+                }
+                finally { pin.Free(); }
+
+                var bmp = BitmapSource.Create(w, h, 96, 96, PixelFormats.Bgra32, null, pixels, stride);
+                bmp.Freeze();
+                return bmp;
+            }
+            catch { return null; }
+            finally
+            {
+                if (oldObj   != IntPtr.Zero) SelectObject(memDC, oldObj);
+                if (hbm      != IntPtr.Zero) DeleteObject(hbm);
+                if (memDC    != IntPtr.Zero) DeleteDC(memDC);
+                if (screenDC != IntPtr.Zero) ReleaseDC(IntPtr.Zero, screenDC);
+            }
+        }
         [DllImport("gdi32.dll")]    private static extern int    ChoosePixelFormat(IntPtr hdc, ref PIXELFORMATDESCRIPTOR pfd);
         [DllImport("gdi32.dll")]    private static extern bool   SetPixelFormat(IntPtr hdc, int fmt, ref PIXELFORMATDESCRIPTOR pfd);
         [DllImport("gdi32.dll")]    private static extern bool   DescribePixelFormat(IntPtr hdc, int iPixelFormat, uint nBytes, ref PIXELFORMATDESCRIPTOR ppfd);
@@ -5462,8 +5536,36 @@ namespace Emutastic.Views
                         }
                     }
 
-                    // Fallback: RenderTargetBitmap of the GameScreen Image control.
-                    if (bmp == null)
+                    // Fallback chain when the primary capture path returned nothing:
+                    //  1. If a native overlay HWND is active (N64 Vulkan, Dreamcast
+                    //     Flycast, etc.), try Windows.Graphics.Capture first —
+                    //     compositor-level grab that works for Vulkan/DXGI surfaces.
+                    //  2. PrintWindow with PW_RENDERFULLCONTENT as a backup — it
+                    //     captures cleared backing for Vulkan most of the time,
+                    //     but works for some GL overlays (confirmed for Flycast
+                    //     Dreamcast in earlier testing).
+                    //  3. RenderTargetBitmap of the WPF GameScreen for cores that
+                    //     render through the WPF visual tree.
+                    IntPtr overlayHwnd = _vulkanOverlayHwnd != IntPtr.Zero
+                                            ? _vulkanOverlayHwnd
+                                            : _glOverlayHwnd;
+                    if (bmp == null && overlayHwnd != IntPtr.Zero)
+                    {
+                        bmp = Emutastic.Services.WgcSnapshotService.Capture(overlayHwnd);
+                        System.Diagnostics.Trace.WriteLine(
+                            bmp != null
+                                ? $"Screenshot via WGC on overlay 0x{overlayHwnd:X}"
+                                : $"Screenshot WGC failed for overlay 0x{overlayHwnd:X} — trying PrintWindow");
+                    }
+                    if (bmp == null && overlayHwnd != IntPtr.Zero)
+                    {
+                        bmp = CaptureWindowToBitmap(overlayHwnd);
+                        System.Diagnostics.Trace.WriteLine(
+                            bmp != null
+                                ? $"Screenshot via PrintWindow on overlay 0x{overlayHwnd:X}"
+                                : $"Screenshot PrintWindow also failed for overlay 0x{overlayHwnd:X}");
+                    }
+                    if (bmp == null && overlayHwnd == IntPtr.Zero)
                     {
                         Dispatcher.Invoke(() =>
                         {
