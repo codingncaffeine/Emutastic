@@ -38,8 +38,13 @@ namespace Emutastic.Services
                                      "picodrive_libretro.dll"           }},
             { "SegaCD",      new[] { "genesis_plus_gx_libretro.dll"    }},
             { "Sega32X",     new[] { "picodrive_libretro.dll"           }},
-            { "Saturn",      new[] { "kronos_libretro.dll",
-                                     "mednafen_saturn_libretro.dll",
+            // Default Saturn core is Beetle (mednafen_saturn) — its save states
+            // round-trip across launches, unlike Kronos which sets the libretro
+            // SINGLE_SESSION quirk and silently invalidates states on app exit.
+            // Kronos kept as an alternative for users who need its OpenGL HW
+            // upscaling or its Panzer Dragoon Saga / VF3tb fixes.
+            { "Saturn",      new[] { "mednafen_saturn_libretro.dll",
+                                     "kronos_libretro.dll",
                                      "yabause_libretro.dll"             }},
             { "SMS",         new[] { "genesis_plus_gx_libretro.dll",
                                      "picodrive_libretro.dll"           }},

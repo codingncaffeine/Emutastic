@@ -380,12 +380,21 @@ namespace Emutastic.Views
         private string _pendingLoadName  = "";
         private string? _pendingLoadStatePath = null;  // load on startup if set
         // Frame counter for the startup-state retry loop. Some cores (Beetle PSX,
-        // PCSX-ReARMed, Saturn) report retro_serialize_size differently during
-        // BIOS boot vs. once the game is running, so retro_unserialize fails on
-        // the first frame and would leave the user stuck in BIOS. We retry each
-        // frame until success or this cap (~10s @60fps).
+        // PCSX-ReARMed) report retro_serialize_size differently during BIOS boot
+        // vs. once the game is running, so retro_unserialize fails on the first
+        // frame. We retry each frame until success or this cap (~10s @60fps).
         private int _loadStateAttempts = 0;
         private const int MaxLoadStateAttempts = 600;
+
+        // Set by the SET_SERIALIZATION_QUIRKS env handler when the core declares
+        // RETRO_SERIALIZATION_QUIRK_SINGLE_SESSION (1 << 4). Cores with this flag
+        // (Kronos Saturn, DOSBox Pure, others) document that retro_unserialize
+        // is only valid within the same process where retro_serialize was called
+        // — restoring across launches looks successful but the core's internal
+        // threads/dynarec caches are in inconsistent state and the game freezes.
+        // We refuse the startup-state load and let the BIOS boot normally
+        // instead of presenting a deceptively "loaded" but frozen game.
+        private bool _coreSingleSessionStates = false;
         // Cheats — loaded once per game from disk, applied after retro_load_game and after every state load.
         private System.Collections.Generic.List<Models.Cheat> _cheats = new();
         private bool _cheatsApplied = false;
@@ -3346,17 +3355,27 @@ namespace Emutastic.Views
                     case RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS:
                         if ((cmd & 0x10000) != 0)
                             return _consoleHandler.AllowHwSharedContext;
-                        // Acknowledge variable-size save states by OR-ing
-                        // RETRO_SERIALIZATION_QUIRK_FRONT_VARIABLE_SIZE (1<<3)
-                        // into the core's flags. Beetle PSX gates
-                        // `enable_variable_serialization_size` on this — without
-                        // the ack the core reports a stub serialize_size that
-                        // never matches a real on-disc state, so resuming from
-                        // a save state silently fails and BIOS boots instead.
+                        // Read the core's quirk flags, then OR in our own ack.
+                        //  - SINGLE_SESSION (1<<4): core's states only valid in
+                        //    the same process — Kronos Saturn, DOSBox Pure, etc.
+                        //    We refuse cross-launch restore for these instead of
+                        //    shipping a frozen-but-"loaded" game.
+                        //  - FRONT_VARIABLE_SIZE (1<<3): tell the core we accept
+                        //    variable-size states. Beetle PSX gates
+                        //    `enable_variable_serialization_size` on this; without
+                        //    the ack it reports a stub serialize_size that no
+                        //    real saved state ever matches.
                         if (data != IntPtr.Zero)
                         {
+                            const ulong SINGLE_SESSION      = 1UL << 4;
                             const ulong FRONT_VARIABLE_SIZE = 1UL << 3;
                             ulong coreFlags = (ulong)Marshal.ReadInt64(data);
+                            if ((coreFlags & SINGLE_SESSION) != 0)
+                            {
+                                _coreSingleSessionStates = true;
+                                System.Diagnostics.Trace.WriteLine(
+                                    $"[Quirks] Core declares SINGLE_SESSION (flags=0x{coreFlags:X16}) — startup state load disabled");
+                            }
                             Marshal.WriteInt64(data, (long)(coreFlags | FRONT_VARIABLE_SIZE));
                         }
                         return true;
@@ -5699,6 +5718,24 @@ namespace Emutastic.Views
             {
                 _loadStatePending  = false;
                 _loadStateAttempts = 0;
+                return;
+            }
+
+            // Refuse cross-session restore on cores that declared
+            // RETRO_SERIALIZATION_QUIRK_SINGLE_SESSION. Those cores document
+            // that retro_unserialize is not valid across launches; the call
+            // returns true but the loaded game freezes. Better to let the
+            // game boot normally with a clear message than ship a frozen one.
+            if (_coreSingleSessionStates)
+            {
+                System.Diagnostics.Trace.WriteLine(
+                    $"[LoadState] skipped — core declares SINGLE_SESSION quirk: {name}");
+                _transientMsg    = "This core doesn't support resuming save states across launches.";
+                _transientExpiry = DateTime.Now.AddSeconds(6);
+                _loadStatePending  = false;
+                _loadStateAttempts = 0;
+                _pendingLoadData   = null;
+                Dispatcher.BeginInvoke(() => LoadPickerPanel.Visibility = Visibility.Collapsed);
                 return;
             }
 
