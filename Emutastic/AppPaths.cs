@@ -9,9 +9,11 @@ namespace Emutastic
     /// (database, saves, snaps, artwork, etc.) lives under DataRoot,
     /// which can be redirected by the user to any folder.
     ///
-    /// Portable mode: if a file named "portable.txt" sits next to the .exe,
-    /// both config AND data root are forced to [exe]\PortableData\, and the
-    /// AppData location is never touched. Toggle is purely opt-in.
+    /// Portable mode (two triggers, both opt-in):
+    ///   1. Drop a file named "portable.txt" next to the .exe
+    ///   2. Pass --portable on the command line
+    /// When portable mode is on, both config AND data root are forced to
+    /// [exe]\PortableData\, and the AppData location is never touched.
     /// </summary>
     public static class AppPaths
     {
@@ -29,15 +31,21 @@ namespace Emutastic
         public static bool IsPortable => _portable;
 
         /// <summary>
-        /// Detects portable mode by looking for "portable.txt" next to the running .exe.
-        /// MUST be called once at the very start of App.OnStartup, before
-        /// JsonConfigurationService is constructed. Drop a zero-byte portable.txt next
-        /// to the .exe to enable; remove it to revert to AppData behavior.
+        /// Detects portable mode. MUST be called once at the very start of
+        /// App.OnStartup, before JsonConfigurationService is constructed.
+        /// Triggers (either one activates):
+        ///   1. A file named "portable.txt" next to the running .exe.
+        ///   2. The --portable command-line argument (case-insensitive).
         /// </summary>
-        public static void DetectPortableMode()
+        /// <param name="args">Process command-line args, typically e.Args from
+        /// App.OnStartup. Pass null/empty to check only for the marker file.</param>
+        public static void DetectPortableMode(string[]? args = null)
         {
             try
             {
+                bool cliPortable = args != null && Array.Exists(args,
+                    a => string.Equals(a, "--portable", StringComparison.OrdinalIgnoreCase));
+
                 // MainModule path beats AppContext.BaseDirectory because the latter points
                 // at the extraction temp dir for single-file published apps (.NET 8) — the
                 // user's portable.txt sits next to the .exe, not in the extraction dir.
@@ -46,7 +54,9 @@ namespace Emutastic
                     ? Path.GetDirectoryName(exePath)!
                     : AppContext.BaseDirectory;
                 string marker = Path.Combine(exeDir, "portable.txt");
-                if (File.Exists(marker))
+                bool markerPresent = File.Exists(marker);
+
+                if (cliPortable || markerPresent)
                 {
                     _portable = true;
                     _portableRoot = Path.Combine(exeDir, "PortableData");

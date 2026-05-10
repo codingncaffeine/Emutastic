@@ -186,7 +186,13 @@ namespace Emutastic.Converters
 
     public class ConsoleToArtHeightConverter : IMultiValueConverter
     {
-        // values[0] = Console (string), values[1] = CardWidth (double, from parent ActualWidth),
+        // values[0] = Console (string), values[1] = CardWidth (double, the parent Border's
+        //             Width DP — i.e. the LibraryCardWidth resource value, NOT ActualWidth.
+        //             Binding to ActualWidth caused art-height to be computed against a
+        //             stale/zero value during VirtualizingWrapPanel recycling on H/V
+        //             spacing changes, and ClipToBounds on the art Border then sliced the
+        //             image. Stable Width input keeps both inner and outer Border heights
+        //             derived from the same constant.),
         // values[2] = IsMixedView (bool) — when true, use uniform height so mixed-console
         //             views don't clip taller box art
         private const double MixedViewRatio = 0.73; // DVD keepcase — most common shape

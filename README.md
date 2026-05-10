@@ -151,7 +151,7 @@ DATs\           (No-Intro / Redump DATs — downloadable in-app)
 
 ### Portable mode
 
-Drop an empty `portable.txt` next to `Emutastic.exe` and **everything** lives in `PortableData\` beside the .exe — config, library database, save states, battery saves, screenshots, recordings, artwork, BIOS files, libretro cores, and any ROMs you import. Move the install folder to a USB stick and run it on any Windows PC; library paths are stored relative to `PortableData\` so drive-letter changes (E:→F:) don't break anything. ROM imports are auto-copied into `PortableData\Roms\<Console>\` so they travel with the USB without setting up a separate library folder. See **[Portable Mode](https://github.com/codingncaffeine/Emutastic/wiki/Portable-Mode)** in the wiki for the full on-disk layout, caveats, and how to revert.
+Drop an empty `portable.txt` next to `Emutastic.exe` **or** launch with the `--portable` command-line flag, and **everything** lives in `PortableData\` beside the .exe — config, library database, save states, battery saves, screenshots, recordings, artwork, BIOS files, libretro cores, and any ROMs you import. Move the install folder to a USB stick and run it on any Windows PC; library paths are stored relative to `PortableData\` so drive-letter changes (E:→F:) don't break anything. ROM imports are auto-copied into `PortableData\Roms\<Console>\` so they travel with the USB without setting up a separate library folder. See **[Portable Mode](https://github.com/codingncaffeine/Emutastic/wiki/Portable-Mode)** in the wiki for the full on-disk layout, caveats, and how to revert.
 
 ---
 
@@ -174,7 +174,7 @@ Requires Visual Studio 2022+ with **.NET desktop development** workload.
 ```
 git clone <repo>
 cd Emutastic
-dotnet build
+dotnet build .\Emutastic.sln -c Release
 ```
 
 ---

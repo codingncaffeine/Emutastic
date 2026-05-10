@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 
 namespace Emutastic.Services
@@ -149,6 +150,39 @@ namespace Emutastic.Services
         /// <summary>Returns null for unambiguous extensions; returns the candidate list for ambiguous ones.</summary>
         public static string[]? GetAmbiguousCandidates(string ext)
             => AmbiguousExtensions.TryGetValue(ext, out string[]? c) ? c : null;
+
+        /// <summary>
+        /// All file extensions that could plausibly belong to <paramref name="console"/>.
+        /// Includes unambiguous extensions (e.g. .sfc → SNES), ambiguous shared
+        /// extensions where this console is one of the candidates (e.g. .cue lists
+        /// PS1 / Saturn / SegaCD / etc.), AND archive extensions (.zip / .7z) for
+        /// every non-archive-native console — zipped ROMs are the standard
+        /// distribution format and the import pipeline classifies them by their
+        /// inner contents, not by the .zip extension itself. Used by the
+        /// per-console "Refresh Library" action to scope the rescan to candidate
+        /// files instead of importing everything in the folder.
+        /// </summary>
+        public static IEnumerable<string> GetExtensionsForConsole(string console)
+        {
+            foreach (var kvp in ExtensionMap)
+                if (string.Equals(kvp.Value, console, StringComparison.OrdinalIgnoreCase))
+                    yield return kvp.Key;
+            foreach (var kvp in AmbiguousExtensions)
+                if (kvp.Value.Any(c => string.Equals(c, console, StringComparison.OrdinalIgnoreCase)))
+                    yield return kvp.Key;
+            // Archive formats — refresh-side filter for any console. Importer
+            // peeks inside and classifies by inner ROM, then dedupes by hash,
+            // so non-{console} archives in the same folder produce zero new
+            // {console} games (the count below is per-console-filtered).
+            // For Arcade itself, .zip/.7z are already in ExtensionMap, so the
+            // dedup of yielded values via the consumer's HashSet absorbs the
+            // overlap.
+            if (!string.Equals(console, "Arcade", StringComparison.OrdinalIgnoreCase))
+            {
+                yield return ".zip";
+                yield return ".7z";
+            }
+        }
 
         public static string DetectConsole(string filePath)
         {

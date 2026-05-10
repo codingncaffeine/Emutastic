@@ -52,6 +52,7 @@ namespace Emutastic.Services
                     Manufacturer    TEXT,
                     Year            INTEGER,
                     RomPath         TEXT NOT NULL,
+                    OriginalSourcePath TEXT DEFAULT '',
                     RomHash         TEXT,
                     CoverArtPath    TEXT,
                     BackgroundColor TEXT DEFAULT '#1F1F21',
@@ -157,6 +158,7 @@ namespace Emutastic.Services
             TryAddColumn(connection, "Games", "Publisher", "TEXT DEFAULT ''");
             TryAddColumn(connection, "Games", "Genre", "TEXT DEFAULT ''");
             TryAddColumn(connection, "Games", "Description", "TEXT DEFAULT ''");
+            TryAddColumn(connection, "Games", "OriginalSourcePath", "TEXT DEFAULT ''");
 
             TryAddColumn(connection, "SaveStates", "Name",        "TEXT NOT NULL DEFAULT ''");
             TryAddColumn(connection, "SaveStates", "GameTitle",   "TEXT NOT NULL DEFAULT ''");
@@ -789,12 +791,12 @@ namespace Emutastic.Services
             var cmd = connection.CreateCommand();
             cmd.CommandText = @"
                 INSERT OR IGNORE INTO Games
-                    (Title, Console, Manufacturer, Year, RomPath, RomHash,
+                    (Title, Console, Manufacturer, Year, RomPath, OriginalSourcePath, RomHash,
                      CoverArtPath, BoxArt3DPath, ScreenScraperArtPath,
                      BackgroundColor, AccentColor, Rating, Collection, DateAdded,
                      Developer, Publisher, Genre, Description)
                 VALUES
-                    ($title, $console, $manufacturer, $year, $romPath, $romHash,
+                    ($title, $console, $manufacturer, $year, $romPath, $origSourcePath, $romHash,
                      $coverArt, $boxArt3D, $ssArt,
                      $bgColor, $accentColor, 0, '', $dateAdded,
                      $developer, $publisher, $genre, $description);";
@@ -807,6 +809,7 @@ namespace Emutastic.Services
             // is portable across drive-letter changes (USB on PC1=E:, PC2=F:). Paths outside
             // DataRoot pass through unchanged.
             cmd.Parameters.AddWithValue("$romPath", AppPaths.ToStoragePath(game.RomPath));
+            cmd.Parameters.AddWithValue("$origSourcePath", AppPaths.ToStoragePath(game.OriginalSourcePath ?? ""));
             cmd.Parameters.AddWithValue("$romHash", game.RomHash ?? "");
             cmd.Parameters.AddWithValue("$coverArt", AppPaths.ToStoragePath(game.CoverArtPath ?? ""));
             cmd.Parameters.AddWithValue("$boxArt3D", AppPaths.ToStoragePath(game.BoxArt3DPath ?? ""));
@@ -1450,7 +1453,7 @@ namespace Emutastic.Services
         /// </summary>
         private sealed class OrdinalMap
         {
-            public readonly int Id, Title, Console, Manufacturer, Year, RomPath, RomHash,
+            public readonly int Id, Title, Console, Manufacturer, Year, RomPath, OriginalSourcePath, RomHash,
                 CoverArtPath, BackgroundColor, AccentColor, PlayCount, SaveCount,
                 IsFavorite, Rating, Collection, LastPlayed, BoxArt3DPath,
                 ScreenScraperArtPath, ArtworkAttempts,
@@ -1464,6 +1467,7 @@ namespace Emutastic.Services
                 Manufacturer = TryOrd(reader, "Manufacturer");
                 Year     = TryOrd(reader, "Year");
                 RomPath  = TryOrd(reader, "RomPath");
+                OriginalSourcePath = TryOrd(reader, "OriginalSourcePath");
                 RomHash  = TryOrd(reader, "RomHash");
                 CoverArtPath    = TryOrd(reader, "CoverArtPath");
                 BackgroundColor = TryOrd(reader, "BackgroundColor");
@@ -1500,6 +1504,7 @@ namespace Emutastic.Services
                 // survives drive-letter changes). Resolve back to absolute on read so the rest
                 // of the app sees fully-qualified paths.
                 RomPath         = AppPaths.FromStoragePath(GetStr(reader, o.RomPath)),
+                OriginalSourcePath = AppPaths.FromStoragePath(GetStr(reader, o.OriginalSourcePath)),
                 RomHash         = GetStr(reader, o.RomHash),
                 CoverArtPath    = AppPaths.FromStoragePath(GetStr(reader, o.CoverArtPath)),
                 BackgroundColor = GetStr(reader, o.BackgroundColor, "#1F1F21"),

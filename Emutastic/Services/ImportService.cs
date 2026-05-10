@@ -572,7 +572,12 @@ namespace Emutastic.Services
                 }
 
                 ImportLog($"[{fileName}] RomPathExists={_db.RomPathExists(extractedPath)} → calling ImportRomFileAsync as {innerConsole}");
-                await ImportRomFileAsync(extractedPath, innerConsole, Path.GetFileName(extractedPath));
+                // Pass the pre-extraction archive path as originalSourcePath so
+                // Refresh Library knows where the user's actual collection lives
+                // (the extracted file's parent is under [DataRoot]\ExtractedRoms\
+                // which doesn't reflect where the user keeps their zips).
+                await ImportRomFileAsync(extractedPath, innerConsole, Path.GetFileName(extractedPath),
+                    originalSourcePath: romPath);
                 return;
             }
 
@@ -636,8 +641,14 @@ namespace Emutastic.Services
         }
 
         private async Task ImportRomFileAsync(string romPath, string console, string fileName,
-            string? overrideTitle = null)
+            string? overrideTitle = null, string? originalSourcePath = null)
         {
+            // Capture the user's original selection BEFORE any defensive
+            // extraction reassigns romPath. This is what the per-console
+            // Refresh Library action keys off — the actual on-disk location
+            // of the user's collection, not the post-extraction file.
+            string sourcePath = originalSourcePath ?? romPath;
+
             // ── Defensive extraction guard ──
             // Anything reaching this method that's a .zip/.7z for a non-archive-native
             // console (i.e. anything except Arcade/NeoGeo) gets extracted before being
@@ -787,6 +798,7 @@ namespace Emutastic.Services
                 Console = console,
                 Manufacturer = manufacturer,
                 RomPath = romPath,
+                OriginalSourcePath = sourcePath,
                 RomHash = string.Empty,
                 BackgroundColor = colors.bg,
                 AccentColor = colors.accent,

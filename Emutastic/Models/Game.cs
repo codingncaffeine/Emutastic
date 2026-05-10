@@ -23,6 +23,14 @@ namespace Emutastic.Models
         public string Manufacturer { get; set; } = "";
         public int Year { get; set; }
         public string RomPath { get; set; } = "";
+        // Path to the file the user actually selected at import time, before
+        // any zip/7z extraction. For bare ROMs this matches RomPath. For
+        // archive imports it points at the original archive in the user's
+        // collection while RomPath points at the extracted file under
+        // [DataRoot]\ExtractedRoms\. Used internally by Refresh Library so
+        // a flat folder of zipped ROMs can be rescanned for new entries —
+        // not surfaced in the UI.
+        public string OriginalSourcePath { get; set; } = "";
         public string RomHash { get; set; } = "";
 
         private string _coverArtPath = "";

@@ -63,9 +63,10 @@ namespace Emutastic
             }
 
             // Portable mode: must detect BEFORE config loads so the config service
-            // routes to PortableData instead of %AppData%. Drop a portable.txt next
-            // to the .exe to opt in.
-            AppPaths.DetectPortableMode();
+            // routes to PortableData instead of %AppData%. Two triggers, either
+            // one activates: drop a portable.txt next to the .exe, OR pass
+            // --portable on the command line.
+            AppPaths.DetectPortableMode(e.Args);
 
             // Portable mode v2 (v1.3.3): cores moved from [exe]/Cores/ → [DataRoot]/Cores/
             // so the entire portable experience sits inside PortableData/. Migrate any

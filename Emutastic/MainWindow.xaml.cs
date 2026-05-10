@@ -952,9 +952,28 @@ namespace Emutastic
                     }
 
                     int count = _db.GetGameCountForConsole(console);
-                    if (count == 0) return;
 
                     var menu = new ContextMenu();
+
+                    // Refresh Library — always available, even for empty consoles.
+                    // Rescans the configured library folder so ROMs dropped in
+                    // outside Emutastic show up without a full re-import.
+                    var refreshItem = new MenuItem { Header = "🔄  Refresh Library" };
+                    refreshItem.Click += (_, _) => RefreshLibraryFolder(console);
+                    menu.Items.Add(refreshItem);
+
+                    if (count == 0)
+                    {
+                        // Empty console: just the refresh action — no "remove all" or
+                        // artwork-fetch options to show.
+                        menu.PlacementTarget = consoleBtn;
+                        menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+                        menu.IsOpen = true;
+                        return;
+                    }
+
+                    menu.Items.Add(new Separator());
+
                     var item = new MenuItem
                     {
                         Header = $"🗑  Remove all {displayName} games ({count})"
@@ -1061,6 +1080,120 @@ namespace Emutastic
             {
                 _importer.ImportFilesAsync(dialog.FileNames, ResolveImportConsoleHint());
             }
+        }
+
+        /// <summary>
+        /// Refresh ONE console's library: rescan the folders that currently
+        /// contain that console's existing games, picking up new ROMs the
+        /// user dropped in alongside them. Filters by the console's own
+        /// extension set so a single "all ROMs in one folder" layout doesn't
+        /// drag every other console's files through the importer when the
+        /// user just wants SNES updated.
+        /// Reuses the standard import pipeline for scan/progress status; adds
+        /// a one-shot drain override that swaps "Import complete" for
+        /// "Refresh complete — added N new {console} games" so users know
+        /// whether the rescan actually found anything.
+        /// </summary>
+        private void RefreshLibraryFolder(string console)
+        {
+            // Parent dirs of THIS console's already-imported games. Prefer
+            // OriginalSourcePath when present — for zipped imports RomPath
+            // points at the post-extraction file under [DataRoot]\ExtractedRoms\
+            // which is internal storage, not the user's actual collection
+            // folder. Fall back to RomPath's directory for legacy entries
+            // imported before source-path tracking.
+            var scanDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var game in _db.GetAllGames())
+            {
+                if (!string.Equals(game.Console, console, StringComparison.OrdinalIgnoreCase)) continue;
+                string source = !string.IsNullOrEmpty(game.OriginalSourcePath)
+                    ? game.OriginalSourcePath
+                    : game.RomPath;
+                if (string.IsNullOrEmpty(source)) continue;
+                try
+                {
+                    string? dir = Path.GetDirectoryName(source);
+                    if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+                        scanDirs.Add(dir);
+                }
+                catch { /* malformed path — skip */ }
+            }
+
+            if (scanDirs.Count == 0)
+            {
+                MessageBox.Show(
+                    $"Nothing to refresh — no {console} games' folders could be located on disk.",
+                    "Refresh Library", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            // Console-specific extension set so a flat all-roms-in-one-folder
+            // layout doesn't pull every console through the importer.
+            var consoleExts = new HashSet<string>(
+                Services.RomService.GetExtensionsForConsole(console),
+                StringComparer.OrdinalIgnoreCase);
+            if (consoleExts.Count == 0)
+            {
+                MessageBox.Show(
+                    $"No file extensions are registered for {console}, so nothing can be refreshed.",
+                    "Refresh Library", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            // Enumerate candidate files (recursive — handles per-game
+            // subfolders like .../FF7/Disc1.cue layouts).
+            var candidates = new List<string>();
+            foreach (var dir in scanDirs)
+            {
+                try
+                {
+                    foreach (var path in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories))
+                    {
+                        if (consoleExts.Contains(Path.GetExtension(path)))
+                            candidates.Add(path);
+                    }
+                }
+                catch { /* dir may have moved — skip */ }
+            }
+
+            if (candidates.Count == 0)
+            {
+                MessageBox.Show(
+                    $"Nothing to refresh — no {console} candidate files found in your existing {console} folders.",
+                    "Refresh Library", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            // Per-console count, not total — a zipped folder may contain ROMs
+            // for multiple consoles and the importer classifies by inner
+            // contents. When the user clicked Refresh on SNES, only count
+            // SNES games added so the message stays truthful.
+            int sameConsoleBefore = _db.GetAllGames().Count(g =>
+                string.Equals(g.Console, console, StringComparison.OrdinalIgnoreCase));
+
+            Action? onDrained = null;
+            onDrained = () =>
+            {
+                if (_importer != null) _importer.ImportQueueDrained -= onDrained;
+                Dispatcher.BeginInvoke(() =>
+                {
+                    int sameConsoleAfter = _db.GetAllGames().Count(g =>
+                        string.Equals(g.Console, console, StringComparison.OrdinalIgnoreCase));
+                    int added = Math.Max(0, sameConsoleAfter - sameConsoleBefore);
+                    string msg = added switch
+                    {
+                        0 => $"Refresh complete — no new {console} ROMs found.",
+                        1 => $"Refresh complete — added 1 new {console} game.",
+                        _ => $"Refresh complete — added {added} new {console} games.",
+                    };
+                    SetStatus(msg, autoClear: true);
+                });
+            };
+            _importer.ImportQueueDrained += onDrained;
+
+            // Hand the importer a pre-filtered file list (not folders) so it
+            // doesn't enumerate-then-import unrelated extensions itself.
+            _importer.ImportFilesAsync(candidates);
         }
 
         /// <summary>

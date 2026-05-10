@@ -1377,7 +1377,7 @@
                                             <Border.Height>
                                                 <MultiBinding Converter="{StaticResource ConsoleToArtHeight}">
                                                     <Binding Path="Console"/>
-                                                    <Binding Path="ActualWidth"
+                                                    <Binding Path="Width"
                                                              RelativeSource="{RelativeSource AncestorType=Border, AncestorLevel=1}"/>
                                                     <Binding Path="DataContext.IsMixedView"
                                                              RelativeSource="{RelativeSource AncestorType=ListBox}"/>
@@ -1533,7 +1533,7 @@
                                                                     <Border.Height>
                                                                         <MultiBinding Converter="{StaticResource ConsoleToArtHeight}">
                                                                             <Binding Path="Console"/>
-                                                                            <Binding Path="ActualWidth"
+                                                                            <Binding Path="Width"
                                                                                      RelativeSource="{RelativeSource AncestorType=Border, AncestorLevel=1}"/>
                                                                         </MultiBinding>
                                                                     </Border.Height>

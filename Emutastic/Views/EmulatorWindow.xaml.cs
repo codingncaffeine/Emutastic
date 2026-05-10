@@ -35,7 +35,6 @@ namespace Emutastic.Views
         private uint _videoWidth;
         private uint _videoHeight;
         private uint _lastFrameWidth;   // actual OnVideoRefresh dimensions (all paths, for recording)
-        private int  _vidSizeTraceCount; // first N OnVideoRefresh calls + every size change get logged
         private uint _lastFrameHeight;
         // Reused frame buffer — avoids Large Object Heap allocation every frame.
         // Resized only when the core changes resolution.
@@ -439,16 +438,6 @@ namespace Emutastic.Views
         // threads: run frames first, THEN unserialize.
         private int _loadStateWarmup = 0;
         private const int LoadStateWarmupFrames = 60;
-        // Diagnostic counters so the post-load freeze pattern is visible in
-        // the log: how many retro_run calls we've issued, how many video
-        // frames the core actually delivered, and the wall-clock instant
-        // unserialize fired so we can compute the silence gap afterwards.
-        private long _retroRunCalls;
-        private long _videoFramesSeen;
-        private long _retroRunCallsAtLoad;
-        private long _videoFramesSeenAtLoad;
-        private DateTime _loadStateAt;
-        private bool _loadStateDiagActive;
         // Cheats — loaded once per game from disk, applied after retro_load_game and after every state load.
         private System.Collections.Generic.List<Models.Cheat> _cheats = new();
         private bool _cheatsApplied = false;
@@ -2210,29 +2199,9 @@ namespace Emutastic.Views
                             catch (Exception raEx) { System.Diagnostics.Trace.WriteLine($"[RA] DoFrame error: {raEx.Message}"); }
                         }
 
-                        System.Threading.Interlocked.Increment(ref _retroRunCalls);
-
                         // Pending save/load — executed between retro_run calls for thread safety.
                         if (_saveStatePending) ExecuteSaveOnEmuThread();
                         if (_loadStatePending) ExecuteLoadOnEmuThread();
-
-                        // Post-load freeze diagnostic: every ~60 retro_runs after
-                        // a state load, log how many video frames the core has
-                        // produced. If retro_run keeps being called but the
-                        // video frame counter doesn't advance, the core has
-                        // wedged inside the loaded-state's CPU loop (the
-                        // documented Beetle PSX HW symptom).
-                        if (_loadStateDiagActive)
-                        {
-                            long runsSince   = _retroRunCalls - _retroRunCallsAtLoad;
-                            long framesSince = _videoFramesSeen - _videoFramesSeenAtLoad;
-                            if (runsSince % 60 == 0 && runsSince > 0 && runsSince <= 360)
-                            {
-                                System.Diagnostics.Trace.WriteLine(
-                                    $"[LoadState diag] +{(DateTime.Now - _loadStateAt).TotalMilliseconds:F0}ms: retro_runs={runsSince} videoFrames={framesSince}");
-                                if (runsSince >= 360) _loadStateDiagActive = false;
-                            }
-                        }
                         if (_cheatsApplyPending) ExecuteCheatsApplyOnEmuThread();
                     }
                     catch (AccessViolationException ex)
@@ -3756,16 +3725,6 @@ namespace Emutastic.Views
         {
             if (_crashDiagActive && (_runDiagFramesRemaining > 17 || width != _lastFrameWidth || height != _lastFrameHeight))
                 System.Diagnostics.Trace.WriteLine($"[VID] refresh {width}x{height} pitch={(ulong)pitch} dataNull={data == IntPtr.Zero} runId={_retroRunCallCount}");
-            // Always trace the first few frames and any size change so we can
-            // see what dimensions the core is pushing — needed to diagnose
-            // "8x internal resolution looks like 1x" issues for HW cores.
-            if (_vidSizeTraceCount < 3 || width != _lastFrameWidth || height != _lastFrameHeight)
-            {
-                System.Diagnostics.Trace.WriteLine(
-                    $"[VID] frame {_vidSizeTraceCount}: {width}x{height} pitch={(ulong)pitch} hwActive={_hwRenderActive} vk={_isVulkanHwRender}");
-                _vidSizeTraceCount++;
-            }
-            _videoFramesSeen++;
             // Track last frame dimensions for recording (all paths including Vulkan swapchain)
             if (width > 0 && height > 0) { _lastFrameWidth = width; _lastFrameHeight = height; }
 
@@ -5930,15 +5889,10 @@ namespace Emutastic.Views
             // the game appears frozen on the saved frame.
             if (_loadStateWarmup < LoadStateWarmupFrames)
             {
-                if (_loadStateWarmup == 0)
-                    System.Diagnostics.Trace.WriteLine(
-                        $"[LoadState] warmup begin (need {LoadStateWarmupFrames} retro_runs at main-loop pace)");
                 _loadStateWarmup++;
                 return;
             }
 
-            System.Diagnostics.Trace.WriteLine(
-                $"[LoadState] warmup complete after {_loadStateWarmup} retro_runs, calling retro_unserialize ({data.Length} bytes)");
             bool ok = _core?.LoadState(data) ?? false;
 
             // Retry across frames if the core hasn't reached a state where
@@ -6008,16 +5962,6 @@ namespace Emutastic.Views
             _transientExpiry = DateTime.Now.AddSeconds(3);
             System.Diagnostics.Trace.WriteLine(
                 $"[LoadState] {(ok ? "succeeded" : "gave up")} after {(ok ? _loadStateAttempts : MaxLoadStateAttempts)} attempts: {name}");
-
-            // Activate the post-load freeze diagnostic so the run loop can
-            // log retro_run vs video-frame counts every ~1s after this point.
-            if (ok)
-            {
-                _loadStateAt           = DateTime.Now;
-                _retroRunCallsAtLoad   = _retroRunCalls;
-                _videoFramesSeenAtLoad = _videoFramesSeen;
-                _loadStateDiagActive   = true;
-            }
 
             // Some cores wipe their cheat table on state load — re-apply so codes survive.
             // Snapshot the list before iterating to avoid racing the UI thread, which can
