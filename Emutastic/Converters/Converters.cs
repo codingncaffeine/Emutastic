@@ -214,7 +214,16 @@ namespace Emutastic.Converters
     /// </summary>
     public class ConsoleToCardHeightConverter : IMultiValueConverter
     {
-        private const double TitleArea = 40.0; // 12pt title + margin + breathing room
+        // Caption area below the art: title TextBlock (Margin top 8 +
+        // MaxHeight 34 = 42) plus the star-rating Grid (Margin top 3 + ~14
+        // glyph height = 17), with a few extra px of breathing room. With
+        // the prior 40 px budget, two-line titles caused the StackPanel to
+        // overflow downward and the next row's card painted over the
+        // previous row's caption, which the user perceived as the box art
+        // getting cut off — most visible at small CardSize (148-170, where
+        // more titles wrap to 2 lines) and small Spacing (4-8, where rows
+        // have no gap to absorb the overflow).
+        private const double TitleArea = 64.0;
 
         private static readonly ConsoleToArtHeightConverter _artHeight = new();
 

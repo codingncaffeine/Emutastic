@@ -746,6 +746,7 @@ namespace Emutastic
             }
 
             UpdateBoxArtToggleVisibility();
+            UpdateSpacingControl(tag, isConsoleView);
 
             // Show per-console game count badge
             if (navBtn != null && isConsoleView)
@@ -759,6 +760,95 @@ namespace Emutastic
                 _vm.ToolbarTitle = name;
             }
         }
+
+        // ── Per-console card spacing (toolbar slider) ─────────────────────────
+
+        /// <summary>"H" or "V" — which axis the toolbar slider currently drives.</summary>
+        private string _spacingAxis = "H";
+        /// <summary>Suppress slider ValueChanged side-effects while we programmatically reload its value on navigation.</summary>
+        private bool _spacingControlSuppressEvents;
+
+        /// <summary>Show/hide the toolbar spacing control on navigation and load the active console's values.</summary>
+        private void UpdateSpacingControl(string tag, bool isConsoleView)
+        {
+            if (SpacingControlPanel == null) return;
+            SpacingControlPanel.Visibility = isConsoleView ? Visibility.Visible : Visibility.Collapsed;
+            if (!isConsoleView) return;
+
+            var (h, v) = GetPerConsoleSpacing(tag);
+            ApplyCardSpacing(h, v);
+            ReloadSpacingSliderValue(h, v);
+        }
+
+        /// <summary>Tap the H/V cap to flip the slider's active axis.</summary>
+        private void SpacingHVToggle_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            _spacingAxis = _spacingAxis == "H" ? "V" : "H";
+            SpacingHVLabel.Text = _spacingAxis;
+            // Reload the slider to show the OTHER axis's current value for this console.
+            var (h, v) = GetPerConsoleSpacing(_currentNavTag);
+            ReloadSpacingSliderValue(h, v);
+        }
+
+        /// <summary>Slider drag writes the new value back to per-console config for the active axis.</summary>
+        private void SpacingSliderToolbar_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_spacingControlSuppressEvents) return;
+            if (!IsConsoleTag(_currentNavTag)) return;
+
+            var (h, v) = GetPerConsoleSpacing(_currentNavTag);
+            int newVal = (int)Math.Round(e.NewValue);
+            if (_spacingAxis == "H") h = newVal;
+            else                     v = newVal;
+
+            // Persist
+            var theme = App.Configuration?.GetThemeConfiguration();
+            if (theme != null)
+            {
+                theme.PerConsoleSpacing[_currentNavTag] = $"{h},{v}";
+                App.Configuration!.SetThemeConfiguration(theme);
+                _ = App.Configuration.SaveAsync();
+            }
+
+            ApplyCardSpacing(h, v);
+        }
+
+        /// <summary>Read per-console (H, V) from config, falling back to the global CardSpacing for both axes.</summary>
+        private (int H, int V) GetPerConsoleSpacing(string console)
+        {
+            var theme = App.Configuration?.GetThemeConfiguration();
+            int fallback = Math.Clamp(theme?.CardSpacing ?? 20, 4, 96);
+            if (theme == null || string.IsNullOrEmpty(console)) return (fallback, fallback);
+            if (theme.PerConsoleSpacing != null
+                && theme.PerConsoleSpacing.TryGetValue(console, out var raw)
+                && raw.Split(',') is var parts && parts.Length == 2
+                && int.TryParse(parts[0], out int h) && int.TryParse(parts[1], out int v))
+            {
+                return (Math.Clamp(h, 4, 96), Math.Clamp(v, 4, 96));
+            }
+            return (fallback, fallback);
+        }
+
+        /// <summary>Push the H/V values into the LibraryCardMargin resource so the grid re-lays-out.</summary>
+        private void ApplyCardSpacing(int h, int v)
+        {
+            Application.Current.Resources["LibraryCardMargin"] = new Thickness(0, 0, h, v);
+        }
+
+        /// <summary>Reload the slider's displayed value from per-console state without re-firing ValueChanged.</summary>
+        private void ReloadSpacingSliderValue(int h, int v)
+        {
+            if (SpacingSliderToolbar == null) return;
+            _spacingControlSuppressEvents = true;
+            SpacingSliderToolbar.Value = _spacingAxis == "H" ? h : v;
+            _spacingControlSuppressEvents = false;
+        }
+
+        private static bool IsConsoleTag(string tag)
+            => !string.IsNullOrEmpty(tag)
+               && tag != "All Games" && tag != "Recent"
+               && tag != "Favorites" && tag != "RecentlyAdded"
+               && !tag.StartsWith("Collection:");
 
         private Button? FindSidebarButton(string tag)
         {

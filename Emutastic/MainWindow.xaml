@@ -987,6 +987,157 @@
                                     </ToggleButton>
                                 </StackPanel>
                             </Border>
+
+                            <!-- Per-console spacing control: fused H/V toggle + slider.
+                                 The H/V cap on the left toggles which axis the slider drives;
+                                 each library remembers its own horizontal and vertical card
+                                 spacing. Visible only when browsing a single-console library
+                                 (hidden in Recent / Favorites / All Games / Collection views,
+                                 where per-console spacing doesn't apply). -->
+                            <Border x:Name="SpacingControlPanel"
+                                    Visibility="Collapsed"
+                                    Margin="8,0,0,0"
+                                    Background="{StaticResource ToolbarRaisedFillBrush}"
+                                    BorderBrush="{StaticResource ToolbarChiselBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="6"
+                                    Height="26">
+                                <Grid Width="118">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="22"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Border x:Name="SpacingHVCap"
+                                            Grid.Column="0"
+                                            Background="Transparent"
+                                            BorderThickness="0,0,1,0"
+                                            BorderBrush="{StaticResource ToolbarChiselBrush}"
+                                            Cursor="Hand"
+                                            MouseLeftButtonDown="SpacingHVToggle_Click"
+                                            ToolTip="Click to toggle Horizontal / Vertical spacing">
+                                        <TextBlock x:Name="SpacingHVLabel"
+                                                   Text="H"
+                                                   FontSize="10"
+                                                   FontWeight="SemiBold"
+                                                   FontFamily="{StaticResource PrimaryFont}"
+                                                   Foreground="{StaticResource ToolbarRaisedTextBrush}"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center">
+                                            <TextBlock.Effect>
+                                                <DropShadowEffect BlurRadius="0" Direction="270" ShadowDepth="1" Opacity="0.85" Color="#000000"/>
+                                            </TextBlock.Effect>
+                                        </TextBlock>
+                                    </Border>
+                                    <Slider x:Name="SpacingSliderToolbar"
+                                            Grid.Column="1"
+                                            Minimum="4"
+                                            Maximum="96"
+                                            Value="20"
+                                            Margin="6,0,8,0"
+                                            VerticalAlignment="Center"
+                                            IsMoveToPointEnabled="True"
+                                            ToolTip="Drag to adjust spacing for this library"
+                                            ValueChanged="SpacingSliderToolbar_ValueChanged">
+                                        <Slider.Resources>
+                                            <!-- Themed thumb: small raised disc with a soft
+                                                 highlight gradient on top and a shadow beneath.
+                                                 Colors resolve through the active theme so a
+                                                 light theme gets a light disc, dark theme dark. -->
+                                            <Style x:Key="ToolbarSliderThumb" TargetType="Thumb">
+                                                <Setter Property="Width"  Value="14"/>
+                                                <Setter Property="Height" Value="14"/>
+                                                <Setter Property="Cursor" Value="Hand"/>
+                                                <Setter Property="OverridesDefaultStyle" Value="True"/>
+                                                <Setter Property="Template">
+                                                    <Setter.Value>
+                                                        <ControlTemplate TargetType="Thumb">
+                                                            <Grid>
+                                                                <Ellipse x:Name="dropShadow"
+                                                                         Margin="0,1,0,-1"
+                                                                         Fill="#66000000"
+                                                                         Opacity="0.6"/>
+                                                                <Ellipse x:Name="thumbBody"
+                                                                         Stroke="{DynamicResource BorderNormalBrush}"
+                                                                         StrokeThickness="1">
+                                                                    <Ellipse.Fill>
+                                                                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                                                            <GradientStop Offset="0.0" Color="{DynamicResource AccentHoverColor}"/>
+                                                                            <GradientStop Offset="0.55" Color="{DynamicResource AccentColor}"/>
+                                                                            <GradientStop Offset="1.0" Color="{DynamicResource AccentPressedColor}"/>
+                                                                        </LinearGradientBrush>
+                                                                    </Ellipse.Fill>
+                                                                </Ellipse>
+                                                                <!-- Specular highlight on the top half for the 3D pop. -->
+                                                                <Ellipse Width="9" Height="5"
+                                                                         VerticalAlignment="Top"
+                                                                         Margin="0,2,0,0">
+                                                                    <Ellipse.Fill>
+                                                                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                                                            <GradientStop Offset="0.0" Color="#80FFFFFF"/>
+                                                                            <GradientStop Offset="1.0" Color="#00FFFFFF"/>
+                                                                        </LinearGradientBrush>
+                                                                    </Ellipse.Fill>
+                                                                </Ellipse>
+                                                            </Grid>
+                                                            <ControlTemplate.Triggers>
+                                                                <Trigger Property="IsMouseOver" Value="True">
+                                                                    <Setter TargetName="thumbBody" Property="StrokeThickness" Value="2"/>
+                                                                </Trigger>
+                                                                <Trigger Property="IsDragging" Value="True">
+                                                                    <Setter TargetName="thumbBody" Property="StrokeThickness" Value="2"/>
+                                                                    <Setter TargetName="dropShadow" Property="Opacity" Value="0.85"/>
+                                                                </Trigger>
+                                                            </ControlTemplate.Triggers>
+                                                        </ControlTemplate>
+                                                    </Setter.Value>
+                                                </Setter>
+                                            </Style>
+                                            <!-- Invisible repeat buttons on either side of the
+                                                 thumb so the track itself is a clean pill. -->
+                                            <Style x:Key="ToolbarSliderRepeat" TargetType="RepeatButton">
+                                                <Setter Property="OverridesDefaultStyle" Value="True"/>
+                                                <Setter Property="IsTabStop" Value="False"/>
+                                                <Setter Property="Focusable" Value="False"/>
+                                                <Setter Property="Template">
+                                                    <Setter.Value>
+                                                        <ControlTemplate TargetType="RepeatButton">
+                                                            <Border Background="Transparent"/>
+                                                        </ControlTemplate>
+                                                    </Setter.Value>
+                                                </Setter>
+                                            </Style>
+                                        </Slider.Resources>
+                                        <Slider.Template>
+                                            <ControlTemplate TargetType="Slider">
+                                                <Grid VerticalAlignment="Center">
+                                                    <!-- Dark recessed track pill. Inner color
+                                                         comes from a theme brush so it tracks
+                                                         palette changes automatically. -->
+                                                    <Border Height="4"
+                                                            CornerRadius="2"
+                                                            Background="{DynamicResource BgQuaternaryBrush}"
+                                                            BorderBrush="{DynamicResource BorderSubtleBrush}"
+                                                            BorderThickness="1"
+                                                            VerticalAlignment="Center"/>
+                                                    <Track x:Name="PART_Track">
+                                                        <Track.DecreaseRepeatButton>
+                                                            <RepeatButton Command="Slider.DecreaseLarge"
+                                                                          Style="{StaticResource ToolbarSliderRepeat}"/>
+                                                        </Track.DecreaseRepeatButton>
+                                                        <Track.IncreaseRepeatButton>
+                                                            <RepeatButton Command="Slider.IncreaseLarge"
+                                                                          Style="{StaticResource ToolbarSliderRepeat}"/>
+                                                        </Track.IncreaseRepeatButton>
+                                                        <Track.Thumb>
+                                                            <Thumb Style="{StaticResource ToolbarSliderThumb}"/>
+                                                        </Track.Thumb>
+                                                    </Track>
+                                                </Grid>
+                                            </ControlTemplate>
+                                        </Slider.Template>
+                                    </Slider>
+                                </Grid>
+                            </Border>
                             </StackPanel>
 
                             <!-- CENTER: Library / Save States nav, truly centered.
@@ -1410,6 +1561,7 @@
                                                                                    Visibility="{Binding DisplayArtPath, Converter={StaticResource NullToVisibility}}"/>
                                                                         <Image Source="{Binding DisplayArtPath, Converter={StaticResource PathToImage}}"
                                                                                Stretch="Uniform"
+                                                                               VerticalAlignment="Bottom"
                                                                                Visibility="{Binding DisplayArtPath, Converter={StaticResource NotNullToVisibility}}"/>
                                                                         <TextBlock Text="♥" FontSize="14" Foreground="{DynamicResource FavoriteHeartBrush}"
                                                                                    VerticalAlignment="Top" HorizontalAlignment="Right" Margin="0,8,8,0"

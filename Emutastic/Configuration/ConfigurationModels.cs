@@ -136,8 +136,18 @@ namespace Emutastic.Configuration
     {
         /// <summary>Grid edge padding in pixels. Clamped 8–64 by the UI.</summary>
         public int GridPadding { get; set; } = 28;
-        /// <summary>Right + bottom gap between game cards in pixels. Clamped 4–48 by the UI.</summary>
+        /// <summary>Right + bottom gap between game cards in pixels — used as the
+        /// fallback when a console hasn't been individually tuned via the
+        /// toolbar slider. Clamped 4–48 by the UI.</summary>
         public int CardSpacing { get; set; } = 20;
+        /// <summary>
+        /// Per-console card-spacing override. Key = console id ("PS1", "SNES",
+        /// etc.), value = "H,V" pixel pair (e.g. "32,12"). When the user is
+        /// browsing a console listed here, MainWindow ignores CardSpacing and
+        /// applies these values to LibraryCardMargin. Edited from the toolbar's
+        /// H/V slider.
+        /// </summary>
+        public Dictionary<string, string> PerConsoleSpacing { get; set; } = new();
         /// <summary>Width of each game card in pixels. Clamped 148–280 by the UI.</summary>
         public int CardWidth { get; set; } = 148;
         /// <summary>
