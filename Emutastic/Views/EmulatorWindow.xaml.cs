@@ -380,6 +380,36 @@ namespace Emutastic.Views
         private byte[]? _pendingLoadData = null;
         private string _pendingLoadName  = "";
         private string? _pendingLoadStatePath = null;  // load on startup if set
+        // CoreName captured from the .state's JSON sidecar at queue time so
+        // ExecuteLoadOnEmuThread can refuse cross-core loads. Save state byte
+        // formats are NOT portable between cores for the same system (e.g.
+        // a Beetle PSX HW state can't be loaded on Beetle PSX SW or
+        // Swanstation, even though all three play PSX games). retro_unserialize
+        // returns true on the bytes that parse but the loaded state is
+        // incoherent and the game wedges. Comparing CoreName at load time
+        // prevents the freeze with a clear status-bar message.
+        private string _pendingLoadSavedCoreName = "";
+
+        /// <summary>
+        /// Read the CoreName from a save state's JSON sidecar (FinalizeSave
+        /// writes one alongside every .state file). Returns empty string if
+        /// the sidecar is missing/unreadable — callers should treat empty as
+        /// "unknown, allow the load" since we don't want to block legacy
+        /// states made before sidecars existed.
+        /// </summary>
+        private static string ReadSavedCoreName(string statePath)
+        {
+            try
+            {
+                string json = Path.ChangeExtension(statePath, ".json");
+                if (!File.Exists(json)) return "";
+                using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(json));
+                if (doc.RootElement.TryGetProperty("CoreName", out var cn))
+                    return cn.GetString() ?? "";
+            }
+            catch { }
+            return "";
+        }
         // Frame counter for the startup-state retry loop. Some cores (Beetle PSX,
         // PCSX-ReARMed) report retro_serialize_size differently during BIOS boot
         // vs. once the game is running, so retro_unserialize fails on the first
@@ -1811,10 +1841,11 @@ namespace Emutastic.Views
                     {
                         try
                         {
-                            _pendingLoadData  = File.ReadAllBytes(_pendingLoadStatePath);
-                            _pendingLoadName  = Path.GetFileNameWithoutExtension(_pendingLoadStatePath);
-                            _loadStatePending = true;
-                            System.Diagnostics.Trace.WriteLine($"Queued pending state load: {_pendingLoadStatePath}");
+                            _pendingLoadData         = File.ReadAllBytes(_pendingLoadStatePath);
+                            _pendingLoadName         = Path.GetFileNameWithoutExtension(_pendingLoadStatePath);
+                            _pendingLoadSavedCoreName = ReadSavedCoreName(_pendingLoadStatePath);
+                            _loadStatePending        = true;
+                            System.Diagnostics.Trace.WriteLine($"Queued pending state load: {_pendingLoadStatePath} (saved core='{_pendingLoadSavedCoreName}')");
                         }
                         catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Pending load read failed: {ex.Message}"); }
                     }
@@ -5820,9 +5851,10 @@ namespace Emutastic.Views
         {
             try
             {
-                _pendingLoadData  = File.ReadAllBytes(statePath);
-                _pendingLoadName  = name;
-                _loadStatePending = true;
+                _pendingLoadData         = File.ReadAllBytes(statePath);
+                _pendingLoadName         = name;
+                _pendingLoadSavedCoreName = ReadSavedCoreName(statePath);
+                _loadStatePending        = true;
             }
             catch (Exception ex)
             {
@@ -5838,9 +5870,10 @@ namespace Emutastic.Views
 
             if (data == null)
             {
-                _loadStatePending  = false;
-                _loadStateAttempts = 0;
-                _loadStateWarmup   = 0;
+                _loadStatePending         = false;
+                _loadStateAttempts        = 0;
+                _loadStateWarmup          = 0;
+                _pendingLoadSavedCoreName = "";
                 return;
             }
 
@@ -5855,9 +5888,36 @@ namespace Emutastic.Views
                     $"[LoadState] skipped — core declares SINGLE_SESSION quirk: {name}");
                 _transientMsg    = "This core doesn't support resuming save states across launches.";
                 _transientExpiry = DateTime.Now.AddSeconds(6);
-                _loadStatePending  = false;
-                _loadStateAttempts = 0;
-                _pendingLoadData   = null;
+                _loadStatePending         = false;
+                _loadStateAttempts        = 0;
+                _pendingLoadData          = null;
+                _pendingLoadSavedCoreName = "";
+                Dispatcher.BeginInvoke(() => LoadPickerPanel.Visibility = Visibility.Collapsed);
+                return;
+            }
+
+            // Refuse cross-core loads. Save state byte formats are NOT portable
+            // between cores for the same system (Beetle PSX HW state can't be
+            // loaded on Beetle PSX SW; a Genesis Plus GX state can't be loaded
+            // on PicoDrive; etc.). retro_unserialize returns true for the
+            // bytes that parse, but the loaded state is incoherent and the
+            // game wedges with no way to recover. Empty saved-core means the
+            // sidecar was missing — let those legacy states through (we can't
+            // know what made them, and we don't want to break old saves).
+            string activeCore = _core?.CoreName ?? "";
+            if (!string.IsNullOrEmpty(_pendingLoadSavedCoreName)
+                && !string.IsNullOrEmpty(activeCore)
+                && !string.Equals(_pendingLoadSavedCoreName, activeCore, StringComparison.OrdinalIgnoreCase))
+            {
+                System.Diagnostics.Trace.WriteLine(
+                    $"[LoadState] refused — state was made on '{_pendingLoadSavedCoreName}' but active core is '{activeCore}': {name}");
+                _transientMsg    = $"Save state was made with {_pendingLoadSavedCoreName}; current core is {activeCore}. Switch the per-game core or make a fresh state.";
+                _transientExpiry = DateTime.Now.AddSeconds(8);
+                _loadStatePending         = false;
+                _loadStateAttempts        = 0;
+                _loadStateWarmup          = 0;
+                _pendingLoadData          = null;
+                _pendingLoadSavedCoreName = "";
                 Dispatcher.BeginInvoke(() => LoadPickerPanel.Visibility = Visibility.Collapsed);
                 return;
             }
@@ -5891,10 +5951,11 @@ namespace Emutastic.Views
                 return;
             }
 
-            _loadStatePending  = false;
-            _loadStateAttempts = 0;
-            _loadStateWarmup   = 0;
-            _pendingLoadData   = null;
+            _loadStatePending         = false;
+            _loadStateAttempts        = 0;
+            _loadStateWarmup          = 0;
+            _pendingLoadData          = null;
+            _pendingLoadSavedCoreName = "";
 
             // After successful unserialize, re-prime the controller port-device
             // assignments for all four ports. Beetle PSX HW's FrontIO rebuilds
