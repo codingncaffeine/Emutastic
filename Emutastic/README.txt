@@ -60,11 +60,17 @@ PORTABLE MODE
 Run Emutastic from a USB stick, take it between PCs, sync the whole
 folder — everything Emutastic needs lives inside the install folder.
 
-  1. Create an empty file named  portable.txt  in the same folder as
-     Emutastic.exe.
-  2. Launch Emutastic.
+Either trigger works (both opt-in):
 
-That's it. From then on, ALL data lives in a  PortableData  subfolder
+  1. Create an empty file named  portable.txt  in the same folder as
+     Emutastic.exe, then launch.
+  OR
+  2. Launch Emutastic with the  --portable  command-line flag:
+       Emutastic.exe --portable
+     Useful for desktop shortcuts when you don't want to leave a
+     marker file in the folder.
+
+From then on, ALL data lives in a  PortableData  subfolder
 right next to the .exe — that includes the library database, configs,
 save states, battery saves, screenshots, recordings, artwork, BIOS
 files, libretro cores, and ROMs you import. Nothing is written to

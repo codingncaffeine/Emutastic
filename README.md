@@ -15,8 +15,9 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 - Windows 10/11 x64
 - [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/8.0)
 - [Visual C++ Redistributable 2015–2022 (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe) — required by most libretro cores
-- libretro core `.dll` files in the `Cores\` folder (downloadable in-app)
-- `SDL3.dll` (x64) next to the executable — for controller name detection ([download](https://github.com/libsdl-org/SDL/releases))
+- libretro core `.dll` files (downloadable in-app — Preferences → Cores)
+- `SDL3.dll` (x64) for controller name detection (downloadable in-app — Preferences → Extras)
+- Optional: `ffmpeg.exe` for video recording, DAT files for ROM identification (also in Preferences → Extras)
 
 > **Windows SmartScreen:** Emutastic is not code-signed. Click **"More info"** then **"Run anyway"** on first launch.
 
@@ -25,7 +26,7 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 ## Supported Systems
 
 <details>
-<summary><strong>34 systems across 11 manufacturers</strong></summary>
+<summary><strong>34 systems across 11 manufacturers</strong> (click to expand)</summary>
 
 | System | Tag | Core (priority order) | BIOS |
 |---|---|---|---|
@@ -34,8 +35,8 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 | SNES | SNES | snes9x → bsnes | No |
 | Nintendo 64 | N64 | parallel_n64 → mupen64plus_next | No |
 | GameCube | GameCube | dolphin | No |
-| Game Boy | GB | mgba → gambatte | No |
-| Game Boy Color | GBC | mgba → gambatte | No |
+| Game Boy | GB | mgba → gambatte → sameboy | No |
+| Game Boy Color | GBC | mgba → gambatte → sameboy | No |
 | Game Boy Advance | GBA | mgba | Optional |
 | Nintendo 3DS | 3DS | azahar | No |
 | Nintendo DS | NDS | desmume → melonds | No |
@@ -43,16 +44,17 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 | Genesis / Mega Drive | Genesis | genesis_plus_gx → picodrive | No |
 | Sega CD / Mega CD | SegaCD | genesis_plus_gx | Region BIOS |
 | Sega 32X | Sega32X | picodrive | No |
-| Sega Saturn | Saturn | kronos → mednafen_saturn → yabause | Region BIOS |
+| Sega Saturn | Saturn | mednafen_saturn → kronos → yabause | Region BIOS |
 | Master System | SMS | genesis_plus_gx → picodrive | No |
 | Game Gear | GameGear | genesis_plus_gx | No |
 | SG-1000 | SG1000 | genesis_plus_gx | No |
 | Dreamcast | Dreamcast | flycast | No |
-| PlayStation | PS1 | mednafen_psx → pcsx_rearmed | Region BIOS |
+| PlayStation | PS1 | mednafen_psx_hw → mednafen_psx | Region BIOS |
 | PSP | PSP | ppsspp | No |
 | TurboGrafx-16 | TG16 | mednafen_pce → mednafen_pce_fast | No |
 | TurboGrafx-CD | TGCD | mednafen_pce → mednafen_pce_fast | `syscard3.pce` |
-| Neo Geo Pocket / Color | NGP | mednafen_ngp | No |
+| Neo Geo Pocket | NGP | mednafen_ngp | No |
+| Neo Geo Pocket Color | NGPC | mednafen_ngp | No |
 | Neo Geo | NeoGeo | geolith | `neogeo.zip` + `aes.zip` |
 | Arcade | Arcade | fbneo | No |
 | Atari 2600 | Atari2600 | stella | No |
@@ -139,14 +141,17 @@ Multi-disc games are auto-bundled at import time — see the [ROM Import](#rom-i
 ## Folder Layout
 
 ```
-Emutastic.exe / SDL3.dll / rcheevos.dll
-Cores\          (core DLLs — downloadable in-app)
-DATs\           (No-Intro / Redump DATs — downloadable in-app)
+Emutastic.exe / rcheevos.dll / .NET runtime DLLs
 ```
 
 ```
-%AppData%\Emutastic\
-    library.db / System\ / saves\ / screenshots\
+%AppData%\Emutastic\          (or your custom data folder)
+    library.db
+    Native\                   (SDL3.dll, ffmpeg.exe — downloadable in-app)
+    DATs\                     (No-Intro / Redump DATs — downloadable in-app)
+    Cores\                    (libretro core DLLs — downloadable in-app)
+    System\                   (BIOS files)
+    Save States\ / BatterySaves\ / Screenshots\ / Recordings\ / Artwork\ / ...
 ```
 
 ### Portable mode
@@ -208,7 +213,6 @@ Emulation is handled by libretro cores maintained by their upstream authors. Emu
 | Nestopia UE | Nestopia UE team |
 | Opera | libretro team (3DO) |
 | ParaLLEl-N64 | libretro team (Themaister and contributors) |
-| PCSX-ReARMed | notaz |
 | Picodrive | notaz |
 | PPSSPP | Henrik Rydgård and contributors |
 | ProSystem | Greg Stanton (upstream) / libretro maintenance |
