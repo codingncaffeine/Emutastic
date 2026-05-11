@@ -39,6 +39,166 @@ namespace Emutastic.Services
         /// <summary>Posts an action to the UI thread (non-blocking).</summary>
         private void OnUI(Action action) => _uiContext.Post(_ => action(), null);
 
+        /// <summary>
+        /// Re-fetches metadata (Developer, Publisher, Genre, Description, Year) for
+        /// every game on the given console that currently has any of those fields
+        /// empty. Skips games that already have full metadata so re-runs are cheap.
+        ///
+        /// Triggered by Refresh Library so users who already imported their arcade
+        /// library before the arcade-metadata pipeline shipped can fill in the gap
+        /// without deleting + re-importing everything. Reports progress via the
+        /// optional `progress` callback (called on the UI thread).
+        /// </summary>
+        public async Task RefreshConsoleMetadataAsync(string console, Action<string>? status = null, CancellationToken cancel = default)
+        {
+            if (string.IsNullOrWhiteSpace(console)) return;
+
+            // Log to import_debug.log so we can see what this is doing when
+            // running from a non-debugger release exe.
+            string logPath = Path.Combine(AppPaths.DataRoot, "import_debug.log");
+            void Log(string msg)
+            {
+                try { File.AppendAllText(logPath, $"{DateTime.Now:HH:mm:ss.fff}  [RefreshMeta] {msg}\n"); }
+                catch { }
+            }
+
+            Log($"START console={console}");
+
+            var allConsoleGames = _db.GetAllGames()
+                .Where(g => string.Equals(g.Console, console, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            var games = allConsoleGames
+                .Where(g => string.IsNullOrWhiteSpace(g.Developer)
+                         || string.IsNullOrWhiteSpace(g.Genre)
+                         || string.IsNullOrWhiteSpace(g.Description)
+                         || g.Year == 0)
+                .ToList();
+
+            Log($"console total={allConsoleGames.Count}, missing-meta={games.Count}");
+            if (games.Count == 0) { Log("EXIT — nothing to do"); return; }
+
+            // Determine which network source is the current primary so the
+            // status banner reflects it. SS is primary if the user has it
+            // configured AND hasn't already burned through their daily quota.
+            string SourceLabel()
+            {
+                var snap = App.Configuration?.GetSnapConfiguration();
+                bool ssAvailable = snap is { ScreenScraperEnabled: true }
+                                && !string.IsNullOrWhiteSpace(snap.ScreenScraperUser)
+                                && !ScreenScraperService.QuotaExhausted;
+                return ssAvailable ? "ScreenScraper" : "ArcadeDatabase";
+            }
+
+            // Pre-compute the "already done" tail of the status line so users see
+            // they're picking up where they left off rather than starting over.
+            // missing-meta count is the work LEFT; library total - missing = done.
+            int alreadyDone = allConsoleGames.Count - games.Count;
+            string resumeSuffix = alreadyDone > 0
+                ? $" ({alreadyDone} of {allConsoleGames.Count} already complete)"
+                : "";
+
+            bool quotaAnnounced = false;
+            void Emit(int done, int total, string? currentTitle = null)
+            {
+                if (status == null) return;
+                bool exhausted = ScreenScraperService.QuotaExhausted;
+                string source = SourceLabel();
+                int pct = total > 0 ? (done * 100) / total : 0;
+                // Truncate long arcade titles so the banner stays one line.
+                string titleSuffix = string.IsNullOrEmpty(currentTitle)
+                    ? ""
+                    : $" — {Truncate(currentTitle!, 60)}";
+                string text;
+                if (exhausted && !quotaAnnounced)
+                {
+                    // First iteration after quota transitions to exhausted —
+                    // call it out explicitly so the user sees the source switch.
+                    text = $"ScreenScraper quota reached — switched to ArcadeDatabase ({done}/{total}, {pct}% {console}{titleSuffix}){resumeSuffix}";
+                    quotaAnnounced = true;
+                }
+                else
+                {
+                    text = $"Refreshing {console} via {source} — {done + 1}/{total} remaining ({pct}%){titleSuffix}{resumeSuffix}";
+                }
+                OnUI(() => status(text));
+            }
+
+            static string Truncate(string s, int max) =>
+                s.Length <= max ? s : s.Substring(0, max - 1) + "…";
+
+            // Initial banner before the first fetch — show the upcoming title
+            // so the user sees an immediate, specific signal.
+            Emit(0, games.Count, games[0].Title);
+
+            // Parallelize using the user's SS account thread allowance. Free accounts
+            // get 1; paid tiers get more (the user's account = 6 at the time of writing).
+            // For unauthenticated runs we still parallelize at degree=4 against ADB —
+            // ADB advises a single connection per IP but tolerates a small burst,
+            // and the rest of the run is bottlenecked by HTTP latency anyway.
+            int parallelism = Math.Max(1, ScreenScraperService.CurrentMaxThreads);
+            // If SS isn't the active source (no credentials or quota burned), cap
+            // parallelism lower so we don't hammer ADB.
+            var snap = App.Configuration?.GetSnapConfiguration();
+            bool ssActive = snap is { ScreenScraperEnabled: true }
+                         && !string.IsNullOrWhiteSpace(snap.ScreenScraperUser)
+                         && !ScreenScraperService.QuotaExhausted;
+            if (!ssActive) parallelism = Math.Min(parallelism, 4);
+            Log($"parallelism={parallelism}, ssActive={ssActive}");
+
+            int done = 0;
+            int filledAny = 0;
+            try
+            {
+                await Parallel.ForEachAsync(
+                    games,
+                    new ParallelOptions
+                    {
+                        MaxDegreeOfParallelism = parallelism,
+                        CancellationToken = cancel,
+                    },
+                    async (game, ct) =>
+                    {
+                        if (ct.IsCancellationRequested) return;
+                        try
+                        {
+                            var (_, _, metadata) = await _artwork.FetchArtworkAsync(
+                                game.RomHash ?? "", game.RomPath, game.Console);
+                            bool got = metadata != null && (
+                                !string.IsNullOrWhiteSpace(metadata.Developer)
+                                || !string.IsNullOrWhiteSpace(metadata.Genre)
+                                || !string.IsNullOrWhiteSpace(metadata.Description)
+                                || !string.IsNullOrWhiteSpace(metadata.ReleaseDate));
+                            if (got)
+                            {
+                                ApplyMetadata(game, metadata);
+                                OnUI(() => _vm.RefreshGame(game));
+                                Interlocked.Increment(ref filledAny);
+                            }
+                            int captured = Interlocked.Increment(ref done);
+                            Log($"[{captured}/{games.Count}] {game.Title} (rom='{Path.GetFileNameWithoutExtension(game.RomPath)}') got-meta={got}");
+                            // Emit after each game completes — title shown is the
+                            // most recent one to finish (which is more useful than
+                            // showing whichever is currently-in-flight when 6 are
+                            // running concurrently).
+                            Emit(captured, games.Count, game.Title);
+                        }
+                        catch (Exception ex)
+                        {
+                            int captured = Interlocked.Increment(ref done);
+                            Log($"[{captured}/{games.Count}] {game.Title} EXCEPTION: {ex.Message}");
+                            Emit(captured, games.Count, game.Title);
+                        }
+                    });
+            }
+            catch (OperationCanceledException)
+            {
+                Log($"CANCELLED at {done}/{games.Count}, {filledAny} filled");
+                if (status != null) OnUI(() => status($"Metadata refresh stopped — {done}/{games.Count} processed. Click Refresh Library again to resume."));
+                return;
+            }
+            Log($"DONE — {filledAny}/{games.Count} games got metadata, quotaExhausted={ScreenScraperService.QuotaExhausted}");
+        }
+
         /// <summary>Persists OpenVGDB metadata from an ArtworkResult onto a Game + DB.</summary>
         private void ApplyMetadata(Game game, ArtworkResult? metadata)
         {
@@ -57,6 +217,19 @@ namespace Emutastic.Services
                 game.Description = metadata.Description;
                 _db.UpdateMetadata(game.Id, metadata.Developer, metadata.Publisher,
                     metadata.Genre, metadata.Description);
+            }
+            // Year: ReleaseDate may be a bare 4-digit year ("1996") or a full
+            // date ("1996-04-19"). Take the first 4 digits if they parse as int.
+            // Don't clobber a non-zero year already set on the game (e.g. seeded
+            // from the FBNeo DAT during import).
+            if (!string.IsNullOrWhiteSpace(metadata.ReleaseDate) && game.Year == 0)
+            {
+                string head = metadata.ReleaseDate.Length >= 4 ? metadata.ReleaseDate[..4] : metadata.ReleaseDate;
+                if (int.TryParse(head, out int year) && year >= 1970 && year <= 2100)
+                {
+                    game.Year = year;
+                    _db.UpdateYear(game.Id, year);
+                }
             }
         }
 

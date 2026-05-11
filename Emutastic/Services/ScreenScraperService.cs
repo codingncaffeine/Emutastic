@@ -29,6 +29,19 @@ namespace Emutastic.Services
         private static System.Threading.SemaphoreSlim _throttle = new(1, 1);
         private static int _currentMaxThreads = 1;
 
+        // Session-sticky flag: once SS returns a quota-exhausted response, every
+        // subsequent call returns null immediately so callers fall through to
+        // their fallback path (e.g. ArcadeDatabase) instead of burning more
+        // round-trips that we already know will fail. Resets on app restart.
+        private static volatile bool _quotaExhausted;
+
+        /// <summary>
+        /// True when a previous SS call returned a quota-exhausted response
+        /// (HTTP 423/430 or "API closed" / "maxrequestsreached" body marker).
+        /// Callers can use this to short-circuit straight to a fallback source.
+        /// </summary>
+        public static bool QuotaExhausted => _quotaExhausted;
+
         /// <summary>
         /// Sets the maximum concurrent ScreenScraper API requests based on the user's account tier.
         /// </summary>
@@ -484,6 +497,167 @@ namespace Emutastic.Services
                 return null;
             }
         }
+
+        /// <summary>Metadata fields parsed from a ScreenScraper jeuInfos response.</summary>
+        public record SsMetadata(
+            string? Title,
+            string? Year,
+            string? Developer,
+            string? Publisher,
+            string? Genre,
+            string? Description);
+
+        /// <summary>
+        /// Fetches game metadata (year, developer, publisher, genre, synopsis)
+        /// for a ROM from screenscraper.fr. Reuses the same jeuInfos.php endpoint
+        /// the art-fetch path already calls — no extra API surface. Returns null
+        /// if credentials are missing, the console isn't supported, or no match
+        /// was found across the romnom candidates.
+        /// </summary>
+        public async Task<SsMetadata?> FetchMetadataAsync(
+            string username, string password,
+            string console, string romHash, string romPath)
+        {
+            if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
+                return null;
+            if (!SystemIds.TryGetValue(console, out int systemId))
+                return null;
+            // Session-sticky quota guard — once exhausted, every subsequent call
+            // short-circuits so the caller's fallback path (ADB) takes over.
+            if (_quotaExhausted) return null;
+
+            try
+            {
+                string auth = $"devid={Uri.EscapeDataString(DevId)}&devpassword={Uri.EscapeDataString(DevPass)}" +
+                              $"&softname={Uri.EscapeDataString(SoftName)}&output=json" +
+                              $"&ssid={Uri.EscapeDataString(username)}&sspassword={Uri.EscapeDataString(password)}";
+                string md5Part = string.IsNullOrWhiteSpace(romHash)
+                    ? ""
+                    : $"&md5={romHash.ToUpperInvariant()}";
+
+                foreach (string candidate in BuildRomNomCandidates(console, romPath))
+                {
+                    string romName = Uri.EscapeDataString(candidate);
+                    string url = $"{BaseUrl}jeuInfos.php?{auth}&systemeid={systemId}{md5Part}&romnom={romName}";
+
+                    var response = await ThrottledGetAsync(url);
+                    int statusCode = (int)response.StatusCode;
+
+                    // Quota markers — match what FetchBoxArt3DAsync checks.
+                    if (statusCode == 430 || statusCode == 423)
+                    {
+                        _quotaExhausted = true;
+                        System.Diagnostics.Debug.WriteLine($"[ScreenScraper] Quota exceeded (HTTP {statusCode}) — switching to fallback");
+                        return null;
+                    }
+
+                    string json = await response.Content.ReadAsStringAsync();
+                    if (json.Contains("API closed", StringComparison.OrdinalIgnoreCase) ||
+                        json.Contains("maxrequestsreached", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _quotaExhausted = true;
+                        System.Diagnostics.Debug.WriteLine($"[ScreenScraper] Quota exceeded (body marker) — switching to fallback");
+                        return null;
+                    }
+
+                    if (!response.IsSuccessStatusCode) continue;
+
+                    var parsed = ExtractMetadata(json);
+                    if (parsed != null) return parsed;
+                }
+                return null;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ScreenScraper] FetchMetadata failed: {ex.Message}");
+                return null;
+            }
+        }
+
+        private static SsMetadata? ExtractMetadata(string json)
+        {
+            try
+            {
+                var doc = JsonNode.Parse(json);
+                var jeu = doc?["response"]?["jeu"];
+                if (jeu == null) return null;
+
+                // SS returns regional name arrays: prefer us → wor → ss → first available.
+                string? title = PickRegional(jeu["noms"]?.AsArray(), "text", new[] { "us", "wor", "ss", "eu", "jp" });
+
+                // Dates same structure as names.
+                string? year = PickRegional(jeu["dates"]?.AsArray(), "text", new[] { "us", "wor", "ss", "eu", "jp" });
+                // Strip to just the year if it's a full date like "1996-04-19"
+                if (!string.IsNullOrEmpty(year) && year.Length >= 4 && int.TryParse(year[..4], out _))
+                    year = year[..4];
+
+                string? developer = jeu["developpeur"]?["text"]?.GetValue<string>();
+                string? publisher = jeu["editeur"]?["text"]?.GetValue<string>();
+
+                // Genre is an array of {noms: [{langue, text}]}. Pick first genre, prefer English.
+                string? genre = null;
+                var genres = jeu["genres"]?.AsArray();
+                if (genres != null && genres.Count > 0)
+                {
+                    var firstGenre = genres[0];
+                    genre = PickRegional(firstGenre?["noms"]?.AsArray(), "text", new[] { "en", "us", "wor" }, langField: "langue");
+                }
+
+                // Synopsis: array of {langue, text}. Prefer English.
+                string? description = PickRegional(jeu["synopsis"]?.AsArray(), "text", new[] { "en", "us", "wor" }, langField: "langue");
+
+                // If nothing useful came back, treat as no-match.
+                if (string.IsNullOrWhiteSpace(title)
+                    && string.IsNullOrWhiteSpace(year)
+                    && string.IsNullOrWhiteSpace(developer)
+                    && string.IsNullOrWhiteSpace(publisher)
+                    && string.IsNullOrWhiteSpace(genre)
+                    && string.IsNullOrWhiteSpace(description))
+                    return null;
+
+                return new SsMetadata(
+                    NullIfEmpty(title),
+                    NullIfEmpty(year),
+                    NullIfEmpty(developer),
+                    NullIfEmpty(publisher),
+                    NullIfEmpty(genre),
+                    NullIfEmpty(description));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ScreenScraper] ExtractMetadata failed: {ex.Message}");
+                return null;
+            }
+        }
+
+        // Helper: walk a regional-array of objects, prefer entries whose region
+        // field matches one of the preferred values, return the requested
+        // text field. Falls back to the first available entry's text.
+        private static string? PickRegional(JsonArray? arr, string textField, string[] preferred, string langField = "region")
+        {
+            if (arr == null || arr.Count == 0) return null;
+            foreach (string pref in preferred)
+            {
+                foreach (var entry in arr)
+                {
+                    string? regionValue = entry?[langField]?.GetValue<string>();
+                    if (string.Equals(regionValue, pref, StringComparison.OrdinalIgnoreCase))
+                    {
+                        string? text = entry?[textField]?.GetValue<string>();
+                        if (!string.IsNullOrWhiteSpace(text)) return text;
+                    }
+                }
+            }
+            // No regional match — return the first non-empty text.
+            foreach (var entry in arr)
+            {
+                string? text = entry?[textField]?.GetValue<string>();
+                if (!string.IsNullOrWhiteSpace(text)) return text;
+            }
+            return null;
+        }
+
+        private static string? NullIfEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
 
         private static string? ExtractBoxArt2DUrl(string json)
         {

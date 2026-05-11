@@ -178,16 +178,25 @@
                         </Border>
                     </WrapPanel>
 
-                    <!-- Description -->
-                    <TextBlock x:Name="GameDescription"
-                               FontFamily="{StaticResource PrimaryFont}"
-                               FontSize="12"
-                               Foreground="{DynamicResource TextSecondaryBrush}"
-                               TextWrapping="Wrap"
-                               MaxHeight="54"
-                               Margin="0,4,0,0"
-                               LineHeight="18"
-                               Visibility="Collapsed"/>
+                    <!-- Description. Wrapped in a ScrollViewer so rich arcade
+                         synopses (which can be many paragraphs from arcade-history)
+                         scroll inside the card instead of pushing the rest of the
+                         layout downward. MaxHeight bounds the visible region; the
+                         scrollbar appears only when content overflows. -->
+                    <ScrollViewer x:Name="GameDescriptionScroll"
+                                  Style="{StaticResource MinimalScrollViewer}"
+                                  MaxHeight="72"
+                                  Margin="0,4,0,0"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  Visibility="Collapsed">
+                        <TextBlock x:Name="GameDescription"
+                                   FontFamily="{StaticResource PrimaryFont}"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   TextWrapping="Wrap"
+                                   LineHeight="18"/>
+                    </ScrollViewer>
 
                     <!-- Stats row -->
                     <Grid Margin="0,18,0,0">

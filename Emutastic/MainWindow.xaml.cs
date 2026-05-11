@@ -169,6 +169,12 @@ namespace Emutastic
             _ = _artworkFetch.RetryMissingArtworkAsync();
             _ = _artworkFetch.BackfillMetadataAsync();
 
+            // Auto-resume any in-progress arcade/neogeo metadata refresh that
+            // didn't finish in a previous session (e.g. user closed the app
+            // mid-pass, or cancelled via the banner click). The same banner +
+            // click-to-stop UX applies. No-op when fully populated.
+            AutoResumeArcadeMetadataRefresh();
+
             // Discover save states on disk that aren't in the database.
             // Quick check — only scans if the DB has fewer states than what's on disk.
             _ = Task.Run(() =>
@@ -224,14 +230,166 @@ namespace Emutastic
         private void BannerBorder_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
             // Banner is clickable only when surfacing a notification (not during
-            // an import). Open Preferences → Cores so the user can act on it.
+            // an import). Two click behaviors depending on what the banner is
+            // currently showing:
+            //   - A metadata refresh in progress → click STOPS the refresh. State
+            //     is naturally resumable (filter skips already-filled games on
+            //     the next Refresh Library click), so users can come back later.
+            //   - Anything else (core-updates notification) → open Preferences →
+            //     Cores so they can act on it.
             if (!_vm.IsNotification) return;
+
+            if (_metadataRefreshCts != null && !_metadataRefreshCts.IsCancellationRequested)
+            {
+                _metadataRefreshCts.Cancel();
+                return;
+            }
+
             _vm.IsNotification = false;
             _vm.NotificationText = "";
             InitializeControllerManager();
             var prefs = new Views.PreferencesWindow(_db, _controllerManager!, App.Configuration!) { Owner = this };
             prefs.OpenSection("Cores");
             prefs.ShowDialog();
+        }
+
+        // Cancellation source for the currently-running metadata refresh, if any.
+        // Null when no refresh is in flight; cancelled when the user clicks the
+        // banner during a refresh. Tracked here so any caller (Refresh Library,
+        // startup auto-resume) can share the same cancel-via-banner UX.
+        private CancellationTokenSource? _metadataRefreshCts;
+
+        /// <summary>
+        /// Kicks off (or resumes) a background metadata refresh for the given
+        /// console using ArtworkFetchService. Surfaces progress in the notification
+        /// banner and makes the banner clickable to cancel. Idempotent — if a
+        /// refresh is already running, no-op.
+        /// </summary>
+        private void StartMetadataRefresh(string console)
+        {
+            if (_metadataRefreshCts != null && !_metadataRefreshCts.IsCancellationRequested)
+                return; // already running
+
+            var cts = new CancellationTokenSource();
+            _metadataRefreshCts = cts;
+
+            _ = Task.Run(async () =>
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    _vm.NotificationText = $"Refreshing {console} metadata… (click to stop)";
+                    _vm.IsNotification   = true;
+                });
+                try
+                {
+                    await _artworkFetch.RefreshConsoleMetadataAsync(console, msg =>
+                    {
+                        _vm.NotificationText = msg + " (click to stop)";
+                        _vm.IsNotification   = true;
+                    }, cts.Token);
+
+                    Dispatcher.BeginInvoke(() =>
+                    {
+                        if (!cts.IsCancellationRequested)
+                            _vm.NotificationText = $"Refresh complete — metadata pass finished for {console}.";
+                        _vm.IsNotification = true;
+                        _ = Task.Delay(5000).ContinueWith(_ =>
+                            Dispatcher.BeginInvoke(() =>
+                            {
+                                _vm.IsNotification   = false;
+                                _vm.NotificationText = "";
+                            }));
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Dispatcher.BeginInvoke(() =>
+                    {
+                        _vm.NotificationText = $"Metadata refresh failed: {ex.Message}";
+                        _vm.IsNotification   = true;
+                        _ = Task.Delay(5000).ContinueWith(_ =>
+                            Dispatcher.BeginInvoke(() =>
+                            {
+                                _vm.IsNotification   = false;
+                                _vm.NotificationText = "";
+                            }));
+                    });
+                }
+                finally
+                {
+                    if (ReferenceEquals(_metadataRefreshCts, cts))
+                        _metadataRefreshCts = null;
+                }
+            });
+        }
+
+        /// <summary>
+        /// At startup, scan Arcade + Neo Geo libraries for games with incomplete
+        /// metadata and silently kick off a resume. Processes both consoles in
+        /// sequence under a single cancellation token so clicking the banner
+        /// stops the whole pass. No-op if both libraries are already fully populated.
+        /// </summary>
+        private void AutoResumeArcadeMetadataRefresh()
+        {
+            try
+            {
+                var consolesNeedingMeta = new[] { "Arcade", "NeoGeo" }
+                    .Where(c => _db.GetAllGames().Any(g =>
+                        string.Equals(g.Console, c, StringComparison.OrdinalIgnoreCase)
+                        && (string.IsNullOrWhiteSpace(g.Developer)
+                            || string.IsNullOrWhiteSpace(g.Genre)
+                            || string.IsNullOrWhiteSpace(g.Description)
+                            || g.Year == 0)))
+                    .ToList();
+
+                if (consolesNeedingMeta.Count == 0) return;
+                if (_metadataRefreshCts != null && !_metadataRefreshCts.IsCancellationRequested) return;
+
+                var cts = new CancellationTokenSource();
+                _metadataRefreshCts = cts;
+
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        foreach (string console in consolesNeedingMeta)
+                        {
+                            if (cts.IsCancellationRequested) break;
+                            Dispatcher.Invoke(() =>
+                            {
+                                _vm.NotificationText = $"Resuming {console} metadata refresh… (click to stop)";
+                                _vm.IsNotification   = true;
+                            });
+                            await _artworkFetch.RefreshConsoleMetadataAsync(console, msg =>
+                            {
+                                _vm.NotificationText = msg + " (click to stop)";
+                                _vm.IsNotification   = true;
+                            }, cts.Token);
+                        }
+                        Dispatcher.BeginInvoke(() =>
+                        {
+                            if (!cts.IsCancellationRequested)
+                                _vm.NotificationText = "Metadata refresh complete.";
+                            _vm.IsNotification = true;
+                            _ = Task.Delay(5000).ContinueWith(_ =>
+                                Dispatcher.BeginInvoke(() =>
+                                {
+                                    _vm.IsNotification   = false;
+                                    _vm.NotificationText = "";
+                                }));
+                        });
+                    }
+                    finally
+                    {
+                        if (ReferenceEquals(_metadataRefreshCts, cts))
+                            _metadataRefreshCts = null;
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[AutoResume] {ex.Message}");
+            }
         }
 
         private void InitializeControllerManager()
@@ -1180,13 +1338,18 @@ namespace Emutastic
                     int sameConsoleAfter = _db.GetAllGames().Count(g =>
                         string.Equals(g.Console, console, StringComparison.OrdinalIgnoreCase));
                     int added = Math.Max(0, sameConsoleAfter - sameConsoleBefore);
-                    string msg = added switch
+                    string addedMsg = added switch
                     {
-                        0 => $"Refresh complete — no new {console} ROMs found.",
-                        1 => $"Refresh complete — added 1 new {console} game.",
-                        _ => $"Refresh complete — added {added} new {console} games.",
+                        0 => $"Refresh — no new {console} ROMs.",
+                        1 => $"Refresh — added 1 new {console} game.",
+                        _ => $"Refresh — added {added} new {console} games.",
                     };
-                    SetStatus(msg, autoClear: true);
+                    SetStatus(addedMsg);
+
+                    // Metadata pass: backfill missing fields for existing entries on
+                    // this console. The user clicked Refresh expecting their library
+                    // to be refreshed — that means metadata too, not just new files.
+                    StartMetadataRefresh(console);
                 });
             };
             _importer.ImportQueueDrained += onDrained;

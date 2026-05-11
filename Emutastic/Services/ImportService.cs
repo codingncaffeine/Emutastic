@@ -789,6 +789,32 @@ namespace Emutastic.Services
                 if (datTitle != null) title = datTitle;
             }
 
+            // Arcade (FBNeo): short MAME-style filenames map to full descriptions
+            // via the FBNeo DAT (e.g. "mslug" → "Metal Slug - Super Vehicle-001",
+            // "kof98" → "The King of Fighters '98 - The Slugfest…"). The DAT also
+            // carries year + manufacturer per game, so we pull those at the same
+            // time and seed Year/Developer fields on the Game before insert —
+            // detail card shows them immediately, no waiting on the network. Genre
+            // and description require the network metadata pass below (SS or ADB).
+            //
+            // Requires the user to have downloaded the Arcade (FBNeo) DAT via
+            // Preferences → Cores / Extras.
+            int seededYear = 0;
+            string seededDeveloper = "";
+            if (console == "Arcade" && overrideTitle == null)
+            {
+                string romName = Path.GetFileNameWithoutExtension(romPath);
+                var datMeta = _datMatcher.LookupArcadeMeta(romName);
+                if (datMeta != null)
+                {
+                    title = datMeta.Title;
+                    if (!string.IsNullOrWhiteSpace(datMeta.Year) && int.TryParse(datMeta.Year, out int y))
+                        seededYear = y;
+                    if (!string.IsNullOrWhiteSpace(datMeta.Manufacturer))
+                        seededDeveloper = datMeta.Manufacturer;
+                }
+            }
+
             var colors = RomService.GetConsoleColors(console);
 
             var game = new Game
@@ -801,6 +827,8 @@ namespace Emutastic.Services
                 RomHash = string.Empty,
                 BackgroundColor = colors.bg,
                 AccentColor = colors.accent,
+                Year = seededYear,
+                Developer = seededDeveloper,
             };
 
             // Insert immediately so it appears in the library without waiting for hash/artwork
@@ -890,6 +918,7 @@ namespace Emutastic.Services
 
                         if (metadata != null && !string.IsNullOrWhiteSpace(metadata.Title))
                             game.Title = metadata.Title;
+                        PersistMetadataFields(game, metadata);
 
                         GameImported?.Invoke(game);
                     }
@@ -897,10 +926,16 @@ namespace Emutastic.Services
                     {
                         if (metadata != null && !string.IsNullOrWhiteSpace(metadata.Title))
                             game.Title = metadata.Title;
+                        PersistMetadataFields(game, metadata);
                         GameImported?.Invoke(game);
                     }
                     else
                     {
+                        // No artwork but ArtworkResult may still carry SS/ADB
+                        // arcade metadata — persist those fields before falling
+                        // through to the attempt counter. Otherwise arcade
+                        // imports without cover art lose their Genre / Description.
+                        PersistMetadataFields(game, metadata);
                         _db.IncrementArtworkAttempts(game.Id);
                     }
                 }
@@ -1118,6 +1153,37 @@ namespace Emutastic.Services
                 ImportLog($"[{Path.GetFileName(archivePath)}] EXCEPTION: {ex.Message}");
                 StatusChanged?.Invoke($"Could not open archive {Path.GetFileName(archivePath)}: {ex.Message}");
                 return string.Empty;
+            }
+        }
+
+        /// <summary>
+        /// Persists Developer/Publisher/Genre/Description (and Year via ReleaseDate)
+        /// from an ArtworkResult onto the Game + DB. Mirrors
+        /// ArtworkFetchService.ApplyMetadata so fresh imports (which go through
+        /// ImportRomFileAsync, not ArtworkFetchService) actually persist the
+        /// fields the network sources returned, not just the title.
+        /// </summary>
+        private void PersistMetadataFields(Game game, ArtworkResult? metadata)
+        {
+            if (metadata == null) return;
+            if (!string.IsNullOrWhiteSpace(metadata.Developer)
+                || !string.IsNullOrWhiteSpace(metadata.Genre))
+            {
+                game.Developer   = metadata.Developer;
+                game.Publisher   = metadata.Publisher;
+                game.Genre       = metadata.Genre;
+                game.Description = metadata.Description;
+                _db.UpdateMetadata(game.Id, metadata.Developer, metadata.Publisher,
+                    metadata.Genre, metadata.Description);
+            }
+            if (!string.IsNullOrWhiteSpace(metadata.ReleaseDate) && game.Year == 0)
+            {
+                string head = metadata.ReleaseDate.Length >= 4 ? metadata.ReleaseDate[..4] : metadata.ReleaseDate;
+                if (int.TryParse(head, out int year) && year >= 1970 && year <= 2100)
+                {
+                    game.Year = year;
+                    _db.UpdateYear(game.Id, year);
+                }
             }
         }
 

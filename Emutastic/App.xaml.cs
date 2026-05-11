@@ -76,10 +76,14 @@ namespace Emutastic
             // v1.4.6: SDL3.dll, ffmpeg.exe, and DATs/ moved out of the .exe folder and
             // under [DataRoot] so they survive UAC-restricted installs (Program Files)
             // and version upgrades where the user extracts the new release into a fresh
-            // folder. Install the SDL3 resolver BEFORE migration so a partially-moved
-            // state can still resolve the legacy copy.
+            // folder. Install the resolver here (early) so SDL3 P/Invokes work regardless
+            // of where the .dll ends up.
+            //
+            // Migration itself runs AFTER config load — see below — so it sees the user's
+            // final DataRoot (custom data directory applied) instead of relocating things
+            // to the default %AppData% path that would then be stranded when the custom
+            // root is applied a moment later.
             InstallSdl3Resolver();
-            MigrateNativeAssetsIfNeeded();
 
             try
             {
@@ -128,6 +132,13 @@ namespace Emutastic
 
                 // Load config before showing the window so saved bounds are available.
                 await InitializeConfigurationAsync();
+
+                // Native-assets migration runs HERE (after config load) so it sees the
+                // user's final DataRoot — including any custom data directory applied by
+                // InitializeConfigurationAsync via AppPaths.SetCustomRoot. Earlier we ran
+                // this before config and it stranded assets at the default %AppData% path
+                // whenever a user had a custom data directory configured.
+                MigrateNativeAssetsIfNeeded();
 
                 Logger?.LogInformation("Creating main window...");
                 var mainWindow = new MainWindow();
@@ -341,10 +352,24 @@ namespace Emutastic
         }
 
         /// <summary>
-        /// Moves SDL3.dll, ffmpeg.exe, and the DATs/ folder from the legacy .exe
-        /// location into [DataRoot]/Native/ and [DataRoot]/DATs/. Also checks the
-        /// UAC VirtualStore mirror in case Windows redirected a previous download
-        /// silently. Idempotent — does nothing once the new layout is populated.
+        /// Moves SDL3.dll, ffmpeg.exe, and the DATs/ folder into [DataRoot]/Native/
+        /// and [DataRoot]/DATs/ from any of several plausible historical locations:
+        ///
+        ///   1. The .exe folder itself (legacy pre-v1.4.6 installs that kept
+        ///      SDL3.dll, ffmpeg.exe, and DATs/ next to the .exe).
+        ///   2. The UAC VirtualStore mirror — Windows silently redirects writes
+        ///      to %LOCALAPPDATA%\VirtualStore\&lt;exepath&gt; when the user lacks
+        ///      write access to the install dir (Program Files, etc.).
+        ///   3. The default %AppData%\Emutastic\ DataRoot — covers the user who
+        ///      downloaded DATs/SDL3/ffmpeg while DataRoot was the default and then
+        ///      later set CustomDataDirectory to a different folder.
+        ///   4. The [exe]\PortableData\ folder — covers the user who used portable
+        ///      mode at some point and has since dropped portable.txt.
+        ///
+        /// Runs AFTER InitializeConfigurationAsync so AppPaths.GetNativeFolder()
+        /// and GetDatsFolder() reflect the user's final DataRoot (custom dir
+        /// applied). Idempotent — does nothing once the destination is populated
+        /// and skips self-copies when a source path equals the destination.
         /// </summary>
         private static void MigrateNativeAssetsIfNeeded()
         {
@@ -354,11 +379,7 @@ namespace Emutastic
                 string datsDir   = AppPaths.GetDatsFolder();
                 string exeDir    = AppPaths.GetExeFolder();
 
-                // Candidate legacy locations to scan, in order of preference:
-                //   1. The .exe folder itself (most installs).
-                //   2. The UAC VirtualStore mirror — Windows silently redirects writes
-                //      to %LOCALAPPDATA%\VirtualStore\<exepath> when the user lacks
-                //      write access to the install dir (Program Files, etc.).
+                // UAC VirtualStore mirror path for [exe] writes.
                 string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
                 string virtualStore = string.Empty;
                 try
@@ -372,13 +393,29 @@ namespace Emutastic
                 }
                 catch { }
 
-                string[] sources = string.IsNullOrEmpty(virtualStore)
-                    ? new[] { exeDir }
-                    : new[] { exeDir, virtualStore };
+                // Where SDL3.dll / ffmpeg.exe could live in each candidate source.
+                // Legacy sources keep them at the root; DataRoot-style sources keep
+                // them under a Native/ subfolder.
+                var nativeSourceDirs = new List<string>
+                {
+                    exeDir,                                                       // legacy [exe]/SDL3.dll
+                    virtualStore,                                                 // UAC mirror of above
+                    Path.Combine(AppPaths.DefaultRoot, "Native"),                 // [%AppData%/Emutastic]/Native/
+                    Path.Combine(exeDir, "PortableData", "Native"),               // [exe]/PortableData/Native/
+                };
 
-                MigrateSingleFile("SDL3.dll",  sources, nativeDir);
-                MigrateSingleFile("ffmpeg.exe", sources, nativeDir);
-                MigrateDatFolder(sources, datsDir);
+                // Parent dirs whose DATs/ subfolder we'll scan for *.dat files.
+                var datSourceParents = new List<string>
+                {
+                    exeDir,                                                       // [exe]/DATs/
+                    virtualStore,                                                 // [virtualStore]/DATs/
+                    AppPaths.DefaultRoot,                                         // [%AppData%/Emutastic]/DATs/
+                    Path.Combine(exeDir, "PortableData"),                         // [exe]/PortableData/DATs/
+                };
+
+                MigrateSingleFile("SDL3.dll",  nativeSourceDirs.ToArray(), nativeDir);
+                MigrateSingleFile("ffmpeg.exe", nativeSourceDirs.ToArray(), nativeDir);
+                MigrateDatFolder(datSourceParents.ToArray(), datsDir);
             }
             catch (Exception ex)
             {

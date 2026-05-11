@@ -10,10 +10,13 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IncludePackageReferencesDuringMarkupCompilation>true</IncludePackageReferencesDuringMarkupCompilation>
     <AssemblyName>Emutastic</AssemblyName>
-    <!-- Default to 1.3.14; the release workflow overrides this with the pushed tag
-         via `/p:Version=${{ github.ref_name }}` so published binaries always carry
-         the actual release version. Keeps the About tab honest. -->
-    <Version>1.4.5</Version>
+    <!-- Keep this in sync with the latest shipped tag. The release workflow
+         overrides this with /p:Version=${{ github.ref_name }} when building
+         from a tag, but local Release builds (user runs from bin/Release/...)
+         use this value verbatim — if it drifts behind the latest tag, the
+         About tab flags "A newer release is available" against the user's own
+         locally-built copy. Bump alongside every new git tag. -->
+    <Version>1.4.9</Version>
     <ApplicationIcon>Assets\emutastic-logo.ico</ApplicationIcon>
     <!-- Suppress WinRT AOT warnings (MVVMTK0045) and PRI resource warnings — not applicable to WPF -->
     <NoWarn>$(NoWarn);MVVMTK0045</NoWarn>

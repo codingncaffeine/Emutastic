@@ -79,7 +79,7 @@ namespace Emutastic.Views
 
             if (hasDesc)
             {
-                GameDescription.Visibility = Visibility.Visible;
+                GameDescriptionScroll.Visibility = Visibility.Visible;
                 GameDescription.Text = _game.Description;
             }
 

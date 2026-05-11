@@ -16,11 +16,14 @@ namespace Emutastic.Services
     {
         public record DatMatch(string Console, string Title);
 
+        /// <summary>Per-game arcade metadata pulled from the FBNeo DAT.</summary>
+        public record ArcadeMeta(string Title, string? Year, string? Manufacturer);
+
         // sha1 (lowercase hex) → DatMatch
         private readonly Dictionary<string, DatMatch> _sha1Index = new(StringComparer.OrdinalIgnoreCase);
 
-        // Arcade short ROM name (e.g. "mslug") → full title (e.g. "Metal Slug - Super Vehicle-001")
-        private readonly Dictionary<string, string> _arcadeNameIndex = new(StringComparer.OrdinalIgnoreCase);
+        // Arcade short ROM name (e.g. "mslug") → ArcadeMeta(title, year, manufacturer)
+        private readonly Dictionary<string, ArcadeMeta> _arcadeMetaIndex = new(StringComparer.OrdinalIgnoreCase);
 
         // NeoGeo ROM filename (e.g. "samsho") → full title (e.g. "Samurai Shodown / Samurai Spirits")
         private readonly Dictionary<string, string> _neoGeoNameIndex = new(StringComparer.OrdinalIgnoreCase);
@@ -81,6 +84,19 @@ namespace Emutastic.Services
 
                 string? currentGame = null;
                 string? currentDescription = null;
+                string? currentYear = null;
+                string? currentManufacturer = null;
+
+                // Helper to upsert/refresh the ArcadeMeta entry for the current
+                // game as each field is parsed. Idempotent — later writes pick up
+                // fields that were null on earlier writes.
+                void UpsertArcadeMeta()
+                {
+                    if (!isArcade || currentGame == null
+                        || string.IsNullOrWhiteSpace(currentDescription)) return;
+                    _arcadeMetaIndex[currentGame] = new ArcadeMeta(
+                        currentDescription, currentYear, currentManufacturer);
+                }
 
                 while (reader.Read())
                 {
@@ -90,15 +106,29 @@ namespace Emutastic.Services
                         {
                             currentGame = reader.GetAttribute("name");
                             currentDescription = null;
+                            currentYear = null;
+                            currentManufacturer = null;
                             continue;
                         }
 
                         if (reader.Name == "description" && isArcade && currentGame != null)
                         {
                             currentDescription = reader.ReadElementContentAsString();
-                            // Index short name → full title for Libretro thumbnail lookup
-                            if (!string.IsNullOrWhiteSpace(currentDescription))
-                                _arcadeNameIndex.TryAdd(currentGame, currentDescription);
+                            UpsertArcadeMeta();
+                            continue;
+                        }
+
+                        if (reader.Name == "year" && isArcade && currentGame != null)
+                        {
+                            currentYear = reader.ReadElementContentAsString();
+                            UpsertArcadeMeta();
+                            continue;
+                        }
+
+                        if (reader.Name == "manufacturer" && isArcade && currentGame != null)
+                        {
+                            currentManufacturer = reader.ReadElementContentAsString();
+                            UpsertArcadeMeta();
                             continue;
                         }
 
@@ -197,7 +227,34 @@ namespace Emutastic.Services
         public string? LookupArcadeTitle(string romName)
         {
             EnsureLoaded();
-            return _arcadeNameIndex.TryGetValue(romName, out var title) ? title : null;
+            if (!_arcadeMetaIndex.TryGetValue(romName, out var meta)) return null;
+            return CleanArcadeTitle(meta.Title);
+        }
+
+        /// <summary>
+        /// Full arcade metadata (title cleaned, year, manufacturer) for a given
+        /// FBNeo shortname. Use this when populating a Game's metadata fields
+        /// during import. Returns null if the DAT isn't loaded or the romName
+        /// isn't a known FBNeo shortname.
+        /// </summary>
+        public ArcadeMeta? LookupArcadeMeta(string romName)
+        {
+            EnsureLoaded();
+            if (!_arcadeMetaIndex.TryGetValue(romName, out var meta)) return null;
+            return new ArcadeMeta(CleanArcadeTitle(meta.Title), meta.Year, meta.Manufacturer);
+        }
+
+        // FBNeo descriptions are verbose: "Foo / Bar (Region PCB-Code)".
+        // For library display we drop the alternate name after " / " and the
+        // trailing parenthetical region/PCB info. Subtitle separators like
+        // " - The World Warrior" stay — those are part of the actual game name.
+        private static string CleanArcadeTitle(string desc)
+        {
+            int paren = desc.LastIndexOf(" (", StringComparison.Ordinal);
+            if (paren > 0) desc = desc.Substring(0, paren);
+            int slash = desc.IndexOf(" / ", StringComparison.Ordinal);
+            if (slash > 0) desc = desc.Substring(0, slash);
+            return desc.Trim();
         }
 
         /// <summary>

@@ -779,12 +779,27 @@ namespace Emutastic.Services
             if (result == null && !string.IsNullOrWhiteSpace(romPath))
                 result = await LookupByFilenameAsync(romPath);
 
-            // Step 3 — use cleaned filename as last resort
+            // Step 3 — use cleaned filename as last resort. Arcade and NeoGeo
+            // ROMs use short MAME-style filenames ("mslug", "kof98", "samsho")
+            // that look terrible in the library — try the FBNeo / NeoGeo DAT
+            // lookup before falling back to the raw stem so this fallback
+            // doesn't undo the import-time title-rewrite via ApplyMetadata.
             if (result == null && !string.IsNullOrWhiteSpace(romPath))
-                result = new ArtworkResult
+            {
+                string fallbackTitle = RomService.CleanTitle(Path.GetFileName(romPath));
+                string romStem = Path.GetFileNameWithoutExtension(romPath);
+                if (console == "Arcade")
                 {
-                    Title = RomService.CleanTitle(Path.GetFileName(romPath))
-                };
+                    string? datTitle = _datMatcher.LookupArcadeTitle(romStem);
+                    if (!string.IsNullOrWhiteSpace(datTitle)) fallbackTitle = datTitle;
+                }
+                else if (console == "NeoGeo")
+                {
+                    string? datTitle = _datMatcher.LookupNeoGeoTitle(romStem);
+                    if (!string.IsNullOrWhiteSpace(datTitle)) fallbackTitle = datTitle;
+                }
+                result = new ArtworkResult { Title = fallbackTitle };
+            }
 
             if (result == null) return (null, null, null);
 
@@ -910,6 +925,86 @@ namespace Emutastic.Services
                     }
                 }
                 catch { /* non-fatal — SS unavailable shouldn't block artwork flow */ }
+            }
+
+            // ── Arcade / Neo Geo metadata enrichment ──
+            // OpenVGDB has minimal arcade coverage, so for Arcade and Neo Geo
+            // (Geolith uses MAME shortnames too) we layer two extra sources:
+            //   - ScreenScraper jeuInfos if the user has credentials configured
+            //     (primary — typically richer, region-aware)
+            //   - ArcadeDatabase (adb.arcadeitalia.net) — free, no-auth, keyed
+            //     by MAME shortname; fallback when SS isn't configured or returns
+            //     nothing for this title
+            // Whichever source(s) returned data, we fill in ArtworkResult fields
+            // ApplyMetadata downstream will then persist Developer/Publisher/Genre/
+            // Description (and Year via the ReleaseDate extension below).
+            if (!string.IsNullOrWhiteSpace(console)
+                && (console == "Arcade" || console == "NeoGeo")
+                && !string.IsNullOrWhiteSpace(romPath))
+            {
+                string romName = Path.GetFileNameWithoutExtension(romPath);
+                bool wantsNetwork = string.IsNullOrWhiteSpace(result.Developer)
+                                 || string.IsNullOrWhiteSpace(result.Genre)
+                                 || string.IsNullOrWhiteSpace(result.Description)
+                                 || string.IsNullOrWhiteSpace(result.ReleaseDate);
+
+                if (wantsNetwork)
+                {
+                    // Primary: ScreenScraper if logged in
+                    ScreenScraperService.SsMetadata? ssMeta = null;
+                    try
+                    {
+                        var snapConfig = App.Configuration?.GetSnapConfiguration();
+                        if (snapConfig is { ScreenScraperEnabled: true }
+                            && !string.IsNullOrWhiteSpace(snapConfig.ScreenScraperUser))
+                        {
+                            var ss = new ScreenScraperService();
+                            ssMeta = await ss.FetchMetadataAsync(
+                                snapConfig.ScreenScraperUser, snapConfig.ScreenScraperPassword,
+                                console, md5Hash, romPath);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[ArcadeMeta] SS fetch failed: {ex.Message}");
+                    }
+
+                    if (ssMeta != null)
+                    {
+                        if (string.IsNullOrWhiteSpace(result.Developer)   && !string.IsNullOrWhiteSpace(ssMeta.Developer))   result.Developer = ssMeta.Developer!;
+                        if (string.IsNullOrWhiteSpace(result.Publisher)   && !string.IsNullOrWhiteSpace(ssMeta.Publisher))   result.Publisher = ssMeta.Publisher!;
+                        if (string.IsNullOrWhiteSpace(result.Genre)       && !string.IsNullOrWhiteSpace(ssMeta.Genre))       result.Genre       = ssMeta.Genre!;
+                        if (string.IsNullOrWhiteSpace(result.Description) && !string.IsNullOrWhiteSpace(ssMeta.Description)) result.Description = ssMeta.Description!;
+                        if (string.IsNullOrWhiteSpace(result.ReleaseDate) && !string.IsNullOrWhiteSpace(ssMeta.Year))        result.ReleaseDate = ssMeta.Year!;
+                    }
+
+                    // Fallback: ArcadeDatabase — free, no-auth. Fills anything SS
+                    // didn't already populate (or runs alone if SS isn't configured).
+                    bool stillMissing = string.IsNullOrWhiteSpace(result.Developer)
+                                     || string.IsNullOrWhiteSpace(result.Genre)
+                                     || string.IsNullOrWhiteSpace(result.Description)
+                                     || string.IsNullOrWhiteSpace(result.ReleaseDate);
+                    if (stillMissing)
+                    {
+                        try
+                        {
+                            var adb = new ArcadeDatabaseService();
+                            var adbResult = await adb.FetchAsync(romName);
+                            if (adbResult != null)
+                            {
+                                if (string.IsNullOrWhiteSpace(result.Developer)   && !string.IsNullOrWhiteSpace(adbResult.Manufacturer)) result.Developer   = adbResult.Manufacturer!;
+                                if (string.IsNullOrWhiteSpace(result.Publisher)   && !string.IsNullOrWhiteSpace(adbResult.Manufacturer)) result.Publisher   = adbResult.Manufacturer!;
+                                if (string.IsNullOrWhiteSpace(result.Genre)       && !string.IsNullOrWhiteSpace(adbResult.Genre))        result.Genre       = adbResult.Genre!;
+                                if (string.IsNullOrWhiteSpace(result.Description) && !string.IsNullOrWhiteSpace(adbResult.History))      result.Description = adbResult.History!;
+                                if (string.IsNullOrWhiteSpace(result.ReleaseDate) && !string.IsNullOrWhiteSpace(adbResult.Year))         result.ReleaseDate = adbResult.Year!;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[ArcadeMeta] ADB fetch failed: {ex.Message}");
+                        }
+                    }
+                }
             }
 
             return (artworkPath, screenScraperArtPath, result);
