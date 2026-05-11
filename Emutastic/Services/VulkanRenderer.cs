@@ -719,7 +719,7 @@ namespace Emutastic.Services
 
         private int _setImageLogCount;
         private static readonly string _vkLogPath = System.IO.Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "vulkan_debug.txt");
+            Emutastic.AppPaths.GetFolder("Logs"), "vulkan_debug.txt");
         private static void VkLog(string msg)
         {
             try { System.IO.File.AppendAllText(_vkLogPath, msg + "\n"); } catch { }

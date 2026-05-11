@@ -4681,8 +4681,7 @@ namespace Emutastic.Views
         {
             try
             {
-                string logDir = @"D:\Emutastic Data\Logs";
-                System.IO.Directory.CreateDirectory(logDir);
+                string logDir = Emutastic.AppPaths.GetFolder("Logs");
                 string logPath = System.IO.Path.Combine(logDir, "recording_debug.log");
                 System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] {msg}\n");
             }

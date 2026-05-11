@@ -3422,7 +3422,21 @@ namespace Emutastic.Views
             };
             if (dlg.ShowDialog(this) == true)
             {
-                BgImagePathLabel.Text = dlg.FileName;
+                // Auto-copy into [DataRoot]/Backgrounds/ if the source lives
+                // outside DataRoot. Keeps the background working when the user
+                // moves a portable install to another drive, or changes their
+                // custom data directory after picking the image.
+                try
+                {
+                    string imported = Emutastic.AppPaths.ImportFileToDataRoot(dlg.FileName, "Backgrounds");
+                    BgImagePathLabel.Text = imported;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Trace.WriteLine($"Background image import failed: {ex.Message}");
+                    // Fall back to the raw picker path so the user isn't blocked.
+                    BgImagePathLabel.Text = dlg.FileName;
+                }
             }
         }
 

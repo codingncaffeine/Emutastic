@@ -185,6 +185,47 @@ namespace Emutastic
         }
 
         /// <summary>
+        /// Copies a user-picked asset (background image, custom icon, etc.) into
+        /// [DataRoot]/{subfolder}/ if it isn't already living under DataRoot, and
+        /// returns the new absolute path. If the source is already under DataRoot,
+        /// returns it unchanged. Callers should then pass the result through
+        /// ToStoragePath before storing in config/DB so the relative form survives
+        /// portable USB swaps and CustomDataDirectory changes.
+        ///
+        /// Collision-safe: if a file with the same name already exists at the
+        /// destination, appends "_1", "_2", … to the filename. This avoids
+        /// silently overwriting a previously-imported asset the user might still
+        /// be using under a different theme/profile.
+        /// </summary>
+        public static string ImportFileToDataRoot(string sourceAbsolutePath, string subfolder)
+        {
+            if (string.IsNullOrWhiteSpace(sourceAbsolutePath)) return sourceAbsolutePath;
+            if (!File.Exists(sourceAbsolutePath)) return sourceAbsolutePath;
+
+            string dataRoot = Path.GetFullPath(DataRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string fullSrc  = Path.GetFullPath(sourceAbsolutePath);
+
+            // Already under DataRoot — no-op.
+            if (fullSrc.StartsWith(dataRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+             || string.Equals(fullSrc, dataRoot, StringComparison.OrdinalIgnoreCase))
+                return sourceAbsolutePath;
+
+            string destDir = Path.Combine(dataRoot, subfolder);
+            Directory.CreateDirectory(destDir);
+
+            string baseName = Path.GetFileNameWithoutExtension(fullSrc);
+            string ext      = Path.GetExtension(fullSrc);
+            string destPath = Path.Combine(destDir, baseName + ext);
+            // Sanity cap: an ACL or filesystem quirk could in theory keep
+            // File.Exists returning true; bail rather than spin forever.
+            for (int n = 1; n < 10000 && File.Exists(destPath); n++)
+                destPath = Path.Combine(destDir, $"{baseName}_{n}{ext}");
+
+            File.Copy(fullSrc, destPath, overwrite: false);
+            return destPath;
+        }
+
+        /// <summary>
         /// Returns the .exe folder regardless of portable mode — used by the
         /// native-assets migration to locate any pre-existing SDL3.dll, ffmpeg.exe,
         /// or DATs/ that legacy installs left next to the .exe.
