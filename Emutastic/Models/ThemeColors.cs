@@ -65,6 +65,12 @@ namespace Emutastic.Models
         public string? ContentBg { get; set; }
         public string? Warning { get; set; }
 
+        // ── Library ──
+        /// <summary>Selection ring color around a clicked game card in the library grid.</summary>
+        public string? LibrarySelection { get; set; }
+        /// <summary>Focus ring color around a keyboard-focused game card in the library grid.</summary>
+        public string? LibraryFocus { get; set; }
+
         // ── Misc ──
         public string? PillGroupBg { get; set; }
         public string? AchievementGold { get; set; }

@@ -1309,20 +1309,56 @@
                                         <ControlTemplate TargetType="ListBoxItem">
                                             <Grid>
                                                 <ContentPresenter/>
-                                                <!-- Selection ring overlay -->
+                                                <!-- Selection ring + focus ring overlays. Wraps the
+                                                     box art ONLY (not the title/stars caption below
+                                                     it) — the caption sits on a transparent
+                                                     StackPanel background, so a ring around the
+                                                     whole card frames empty space underneath the
+                                                     image. Sized via ConsoleToArtHeight (same
+                                                     binding the art Border uses) and top-left
+                                                     aligned so it sits flush with the art's rounded
+                                                     corners. Works for portrait (SNES, NES), square
+                                                     (Vectrex), and landscape (3DS, N64) box art
+                                                     because every console runs through the same
+                                                     ConsoleBoxRatios → height calculation. -->
                                                 <Border x:Name="SelectionRing"
+                                                        HorizontalAlignment="Left"
+                                                        VerticalAlignment="Top"
+                                                        Width="{DynamicResource LibraryCardWidth}"
                                                         CornerRadius="8"
                                                         BorderThickness="2"
-                                                        BorderBrush="{DynamicResource AccentBrush}"
+                                                        BorderBrush="{DynamicResource LibrarySelectionBrush}"
                                                         Visibility="Collapsed"
-                                                        IsHitTestVisible="False"/>
-                                                <!-- Keyboard focus indicator -->
+                                                        IsHitTestVisible="False">
+                                                    <Border.Height>
+                                                        <MultiBinding Converter="{StaticResource ConsoleToArtHeight}">
+                                                            <Binding Path="Console"/>
+                                                            <Binding Path="Width"
+                                                                     RelativeSource="{RelativeSource Self}"/>
+                                                            <Binding Path="DataContext.IsMixedView"
+                                                                     RelativeSource="{RelativeSource AncestorType=ListBox}"/>
+                                                        </MultiBinding>
+                                                    </Border.Height>
+                                                </Border>
                                                 <Border x:Name="FocusRing"
+                                                        HorizontalAlignment="Left"
+                                                        VerticalAlignment="Top"
+                                                        Width="{DynamicResource LibraryCardWidth}"
                                                         CornerRadius="8"
                                                         BorderThickness="2"
-                                                        BorderBrush="#88FFFFFF"
+                                                        BorderBrush="{DynamicResource LibraryFocusBrush}"
                                                         Visibility="Collapsed"
-                                                        IsHitTestVisible="False"/>
+                                                        IsHitTestVisible="False">
+                                                    <Border.Height>
+                                                        <MultiBinding Converter="{StaticResource ConsoleToArtHeight}">
+                                                            <Binding Path="Console"/>
+                                                            <Binding Path="Width"
+                                                                     RelativeSource="{RelativeSource Self}"/>
+                                                            <Binding Path="DataContext.IsMixedView"
+                                                                     RelativeSource="{RelativeSource AncestorType=ListBox}"/>
+                                                        </MultiBinding>
+                                                    </Border.Height>
+                                                </Border>
                                             </Grid>
                                             <ControlTemplate.Triggers>
                                                 <Trigger Property="IsSelected" Value="True">

@@ -181,6 +181,11 @@ namespace Emutastic.Views
                 ("TrafficRed", "Close"),
                 ("TrafficRedHover", "Close (hover)"),
             }),
+            ("LIBRARY", new[]
+            {
+                ("LibrarySelection", "Selection ring"),
+                ("LibraryFocus", "Focus ring"),
+            }),
             ("PILL CONTROLS", new[]
             {
                 ("PillBg", "Background"),

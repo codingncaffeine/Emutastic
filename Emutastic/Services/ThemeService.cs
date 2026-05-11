@@ -213,6 +213,13 @@ namespace Emutastic.Services
             Set("ContentBg", colors.ContentBg, defaults.ContentBg);
             Set("Warning", colors.Warning, defaults.Warning);
 
+            // Library
+            // Fall back to the accent color when the theme doesn't define a
+            // dedicated selection ring — preserves the pre-split look for old
+            // themes that were authored before LibrarySelection existed.
+            Set("LibrarySelection", colors.LibrarySelection, defaults.LibrarySelection ?? colors.Accent ?? defaults.Accent);
+            Set("LibraryFocus",     colors.LibraryFocus,     defaults.LibraryFocus     ?? "#88FFFFFF");
+
             // Misc
             Set("PillGroupBg", colors.PillGroupBg, defaults.PillGroupBg);
             Set("AchievementGold", colors.AchievementGold, defaults.AchievementGold);
@@ -430,6 +437,8 @@ namespace Emutastic.Services
             PillGroupBg = "#1E1E1E",
             AchievementGold = "#FFD700",
             FavoriteHeart = "#FF6B6B",
+            LibrarySelection = "#E03535",
+            LibraryFocus = "#88FFFFFF",
         };
 
         // ── Light theme ──────────────────────────────────────────────────
@@ -480,6 +489,8 @@ namespace Emutastic.Services
             PillGroupBg = "#D5D5DB",
             AchievementGold = "#C89800",
             FavoriteHeart = "#E05555",
+            LibrarySelection = "#E03535",
+            LibraryFocus = "#88000000",
         };
 
         // ── OLED Black theme ─────────────────────────────────────────────
@@ -530,6 +541,8 @@ namespace Emutastic.Services
             PillGroupBg = "#0F0F0F",
             AchievementGold = "#FFD700",
             FavoriteHeart = "#FF6B6B",
+            LibrarySelection = "#E03535",
+            LibraryFocus = "#88FFFFFF",
         };
 
         // ── Midnight Blue theme ──────────────────────────────────────────
@@ -580,6 +593,8 @@ namespace Emutastic.Services
             PillGroupBg = "#0F172A",
             AchievementGold = "#FFD700",
             FavoriteHeart = "#FF6B6B",
+            LibrarySelection = "#3B82F6",
+            LibraryFocus = "#88FFFFFF",
         };
 
     }
