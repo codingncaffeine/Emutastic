@@ -324,22 +324,32 @@ namespace Emutastic
         }
 
         /// <summary>
-        /// At startup, scan Arcade + Neo Geo libraries for games with incomplete
-        /// metadata and silently kick off a resume. Processes both consoles in
-        /// sequence under a single cancellation token so clicking the banner
-        /// stops the whole pass. No-op if both libraries are already fully populated.
+        /// At startup, scan EVERY console in the library for games with incomplete
+        /// metadata and silently kick off a resume pass. Processes consoles in
+        /// sequence under a single cancellation token so clicking the banner stops
+        /// the whole sweep. No-op if every console is already fully populated.
+        ///
+        /// ScreenScraper is now the primary metadata source (when configured) for
+        /// all consoles, so any library — cartridge or disc-era, classic or
+        /// recent — benefits from auto-resume picking up where it left off.
         /// </summary>
         private void AutoResumeArcadeMetadataRefresh()
         {
             try
             {
-                var consolesNeedingMeta = new[] { "Arcade", "NeoGeo" }
-                    .Where(c => _db.GetAllGames().Any(g =>
-                        string.Equals(g.Console, c, StringComparison.OrdinalIgnoreCase)
-                        && (string.IsNullOrWhiteSpace(g.Developer)
-                            || string.IsNullOrWhiteSpace(g.Genre)
-                            || string.IsNullOrWhiteSpace(g.Description)
-                            || g.Year == 0)))
+                // Snapshot all games once, group by console, find those with at
+                // least one missing-meta entry. Stable order so the resume always
+                // proceeds the same way across launches.
+                var allGames = _db.GetAllGames();
+                var consolesNeedingMeta = allGames
+                    .GroupBy(g => g.Console)
+                    .Where(grp => !string.IsNullOrWhiteSpace(grp.Key)
+                        && grp.Any(g => string.IsNullOrWhiteSpace(g.Developer)
+                                     || string.IsNullOrWhiteSpace(g.Genre)
+                                     || string.IsNullOrWhiteSpace(g.Description)
+                                     || g.Year == 0))
+                    .Select(grp => grp.Key)
+                    .OrderBy(c => c)
                     .ToList();
 
                 if (consolesNeedingMeta.Count == 0) return;
