@@ -1,5 +1,4 @@
-﻿using SharpCompress.Archives;
-using SharpCompress.Common;
+﻿using Emutastic.Services.Archives;
 using System.Linq;
 using Emutastic.Models;
 using Emutastic.Services;
@@ -1035,7 +1034,7 @@ namespace Emutastic.Services
             await Task.CompletedTask; // satisfy CS1998; method is intentionally synchronous
             try
             {
-                using var archive = ArchiveFactory.Open(archivePath);
+                using var archive = RomArchive.Open(archivePath);
                 var entries = archive.Entries.Where(e => !e.IsDirectory).ToList();
                 ImportLog($"[{Path.GetFileName(archivePath)}] {entries.Count} entries: {string.Join(", ", entries.Take(5).Select(e => e.Key ?? "null"))}");
                 // If every file inside is a .rom, this is a BIOS archive — skip silently.
@@ -1176,9 +1175,9 @@ namespace Emutastic.Services
                 // "ROM file not found" the next time the user launched the game.
                 string outputDir = AppPaths.GetFolder("ExtractedRoms", console);
 
-                using var archive = ArchiveFactory.Open(archivePath);
+                using var archive = RomArchive.Open(archivePath);
 
-                var romEntries = new List<IArchiveEntry>();
+                var romEntries = new List<IRomArchiveEntry>();
                 foreach (var entry in archive.Entries)
                 {
                     if (entry.IsDirectory) continue;
@@ -1194,8 +1193,7 @@ namespace Emutastic.Services
                 string tmpPath    = outputPath + ".tmp";
 
                 // Reuse only if the existing file has a sane non-zero size that matches.
-                // SharpCompress reports Size == 0 / -1 for some archive formats (rar, multi-volume zip);
-                // in those cases skip the fast-path and always re-extract.
+                // Some archive formats report Size <= 0 — skip fast-path and re-extract then.
                 if (romEntry.Size > 0
                     && File.Exists(outputPath)
                     && new FileInfo(outputPath).Length == romEntry.Size)
@@ -1205,11 +1203,13 @@ namespace Emutastic.Services
                 // never leaves a half-written file that the size-match path could later reuse.
                 if (File.Exists(tmpPath)) try { File.Delete(tmpPath); } catch { }
 
-                using (var inputStream  = romEntry.OpenEntryStream())
+                // Stream directly to disk — avoids buffering large ISO entries
+                // (PS1/GC/Wii images, 700MB+) in memory.
                 using (var outputStream = File.Create(tmpPath))
                 {
-                    await inputStream.CopyToAsync(outputStream);
+                    romEntry.ExtractTo(outputStream);
                 }
+                await Task.CompletedTask;
 
                 if (File.Exists(outputPath)) try { File.Delete(outputPath); } catch { }
                 File.Move(tmpPath, outputPath);

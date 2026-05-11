@@ -49,6 +49,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="SevenZipExtractor" Version="1.0.17" />
     <PackageReference Include="Vortice.Direct3D11" Version="3.6.2" />
     <PackageReference Include="Vortice.DXGI" Version="3.6.2" />
     <PackageReference Include="Vortice.MediaFoundation" Version="3.6.2" />
@@ -62,7 +63,6 @@
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="NAudio.Wasapi" Version="2.3.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
-    <PackageReference Include="SharpCompress" Version="0.38.0" />
     <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.23" />
     <PackageReference Include="VirtualizingWrapPanel" Version="2.5.1" />
   </ItemGroup>

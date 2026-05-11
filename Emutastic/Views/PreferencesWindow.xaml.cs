@@ -1452,7 +1452,7 @@ namespace Emutastic.Views
                 int extractedHere = 0;
                 try
                 {
-                    using var archive = SharpCompress.Archives.ArchiveFactory.Open(src);
+                    using var archive = Emutastic.Services.Archives.RomArchive.Open(src);
                     foreach (var entry in archive.Entries)
                     {
                         if (entry.IsDirectory || entry.Key == null) continue;

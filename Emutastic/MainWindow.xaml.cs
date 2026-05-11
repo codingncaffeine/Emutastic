@@ -2182,8 +2182,41 @@ namespace Emutastic
             }
             ScreenshotsEmptyState.Visibility = Visibility.Collapsed;
 
-            foreach (var ss in screenshots)
-                ScreenshotsPanel.Children.Add(BuildScreenshotCard(ss));
+            // Group per game, same shape as PopulateSaveStatesView. The Screenshot
+            // model doesn't carry a RomHash, so group by normalized title+console.
+            // Each group renders as: header bar (BuildSaveStateGroupHeader — title
+            // left, console right, raised-edge divider) followed by a WrapPanel of
+            // the game's screenshot cards, newest first.
+            static string GroupKey(Models.Screenshot s) =>
+                (s.GameTitle ?? "").Trim().ToLowerInvariant()
+                    + "|" + (s.Console ?? "").Trim().ToLowerInvariant();
+
+            var grouped = screenshots
+                .GroupBy(GroupKey)
+                .Select(g => new
+                {
+                    Title   = g.Select(x => x.GameTitle).FirstOrDefault(t => !string.IsNullOrEmpty(t)) ?? "",
+                    Console = g.Select(x => x.Console).FirstOrDefault(c => !string.IsNullOrEmpty(c)) ?? "",
+                    Items   = g.OrderByDescending(x => x.TakenAt).ToList(),
+                })
+                .OrderBy(g => g.Title)
+                .ThenBy(g => g.Console);
+
+            foreach (var group in grouped)
+            {
+                ScreenshotsPanel.Children.Add(BuildSaveStateGroupHeader(
+                    string.IsNullOrEmpty(group.Title) ? "Deleted Game" : group.Title,
+                    group.Console));
+
+                var wrap = new WrapPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Margin      = new Thickness(16, 8, 16, 0),
+                };
+                foreach (var ss in group.Items)
+                    wrap.Children.Add(BuildScreenshotCard(ss));
+                ScreenshotsPanel.Children.Add(wrap);
+            }
         }
 
         private FrameworkElement BuildScreenshotCard(Models.Screenshot ss)

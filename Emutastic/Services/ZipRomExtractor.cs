@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Emutastic.Configuration;
-using SharpCompress.Archives;
+using Emutastic.Services.Archives;
 
 namespace Emutastic.Services
 {
@@ -33,9 +33,9 @@ namespace Emutastic.Services
             try
             {
                 string outputDir = AppPaths.GetFolder("ExtractedRoms", console);
-                using var archive = ArchiveFactory.Open(archivePath);
+                using var archive = RomArchive.Open(archivePath);
 
-                IArchiveEntry? romEntry = null;
+                IRomArchiveEntry? romEntry = null;
                 int romCount = 0;
                 foreach (var entry in archive.Entries)
                 {
@@ -53,7 +53,7 @@ namespace Emutastic.Services
                 string tmpPath    = outputPath + ".tmp";
 
                 // Fast-path: if the existing file matches the entry size, reuse it.
-                // SharpCompress reports Size <= 0 for some formats — skip fast-path then.
+                // SevenZipExtractor reports Size <= 0 for some formats — skip fast-path then.
                 if (romEntry.Size > 0
                     && File.Exists(outputPath)
                     && new FileInfo(outputPath).Length == romEntry.Size)
@@ -61,11 +61,13 @@ namespace Emutastic.Services
 
                 if (File.Exists(tmpPath)) try { File.Delete(tmpPath); } catch { }
 
-                using (var inputStream  = romEntry.OpenEntryStream())
+                // Stream directly to disk via ExtractTo — avoids buffering large
+                // ROM ISOs (PSP/GC/Wii images can be multiple GB) in memory.
                 using (var outputStream = File.Create(tmpPath))
                 {
-                    await inputStream.CopyToAsync(outputStream);
+                    romEntry.ExtractTo(outputStream);
                 }
+                await Task.CompletedTask;
 
                 if (File.Exists(outputPath)) try { File.Delete(outputPath); } catch { }
                 File.Move(tmpPath, outputPath);
