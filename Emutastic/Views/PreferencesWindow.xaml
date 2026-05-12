@@ -1672,6 +1672,35 @@
                                         Click="ClearScreenshotsFolder_Click"/>
                             </Grid>
 
+                            <!-- Screenshot hotkey -->
+                            <TextBlock Text="Screenshot hotkey" FontSize="13" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                       Margin="0,18,0,4"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0" Background="{DynamicResource BgTertiaryBrush}"
+                                        BorderBrush="{DynamicResource BorderNormalBrush}" BorderThickness="1"
+                                        CornerRadius="6" Padding="10,8">
+                                    <TextBox x:Name="ScreenshotHotkeyBox"
+                                             Background="Transparent" BorderThickness="0"
+                                             Foreground="{DynamicResource TextPrimaryBrush}"
+                                             FontSize="12" IsReadOnly="True"
+                                             Text="F12 (default)"
+                                             ToolTip="Click here and press any key to set a new screenshot hotkey."
+                                             PreviewKeyDown="ScreenshotHotkeyBox_PreviewKeyDown"/>
+                                </Border>
+                                <Button Grid.Column="1"
+                                        Content="Reset" Style="{StaticResource SecondaryBtn}"
+                                        Margin="8,0,0,0" Padding="14,8"
+                                        Click="ResetScreenshotHotkey_Click"/>
+                            </Grid>
+                            <TextBlock FontSize="11" Foreground="{DynamicResource TextMutedBrush}"
+                                       TextWrapping="Wrap" Margin="0,6,0,0"
+                                       Text="Click in the box and press the key you want to use. Default: F12 (PrintScreen also works as a fallback regardless of this setting)."/>
+
                             <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,24,0,16"/>
 
                             <!-- Recordings folder -->

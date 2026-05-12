@@ -67,14 +67,22 @@ namespace Emutastic.Services
             var allConsoleGames = _db.GetAllGames()
                 .Where(g => string.Equals(g.Console, console, StringComparison.OrdinalIgnoreCase))
                 .ToList();
+            // Filter: missing fields AND not-yet-attempted. After a game's been
+            // through the pipeline once and came back empty (MetadataAttempts >= 1),
+            // it gets skipped on auto-resume — some titles genuinely have no
+            // entry in any source (regional variants, obscure releases, broken
+            // hashes) and retrying every launch is just noise. Manual Refresh
+            // Library resets MetadataAttempts to 0 for that console first, so
+            // re-trying is a deliberate user action.
             var games = allConsoleGames
+                .Where(g => g.MetadataAttempts < 1)
                 .Where(g => string.IsNullOrWhiteSpace(g.Developer)
                          || string.IsNullOrWhiteSpace(g.Genre)
                          || string.IsNullOrWhiteSpace(g.Description)
                          || g.Year == 0)
                 .ToList();
 
-            Log($"console total={allConsoleGames.Count}, missing-meta={games.Count}");
+            Log($"console total={allConsoleGames.Count}, missing-meta-untried={games.Count}");
             if (games.Count == 0) { Log("EXIT — nothing to do"); return; }
 
             // Determine which network source is the current primary so the
@@ -174,6 +182,10 @@ namespace Emutastic.Services
                                 OnUI(() => _vm.RefreshGame(game));
                                 Interlocked.Increment(ref filledAny);
                             }
+                            // Always mark the game as attempted, regardless of outcome.
+                            // If it landed full metadata it falls out of the filter anyway;
+                            // if it came back empty we don't want to retry every launch.
+                            _db.IncrementMetadataAttempts(game.Id);
                             int captured = Interlocked.Increment(ref done);
                             Log($"[{captured}/{games.Count}] {game.Title} (rom='{Path.GetFileNameWithoutExtension(game.RomPath)}') got-meta={got}");
                             // Emit after each game completes — title shown is the

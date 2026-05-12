@@ -1359,6 +1359,11 @@ namespace Emutastic
                     // Metadata pass: backfill missing fields for existing entries on
                     // this console. The user clicked Refresh expecting their library
                     // to be refreshed — that means metadata too, not just new files.
+                    // Reset MetadataAttempts for this console so games previously
+                    // marked as "we tried, came back empty" re-enter the queue.
+                    // The manual Refresh click IS the deliberate user opt-in to
+                    // re-trying those games.
+                    _db.ResetMetadataAttemptsForConsole(console);
                     StartMetadataRefresh(console);
                 });
             };

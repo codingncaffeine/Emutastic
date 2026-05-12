@@ -122,6 +122,15 @@ namespace Emutastic.Models
         public DateTime? LastPlayed { get; set; }
         public int ArtworkAttempts { get; set; }
 
+        /// <summary>
+        /// Counts how many times the metadata pipeline (SS + OpenVGDB + ADB) has
+        /// been run for this game. After at least one full attempt that didn't
+        /// land complete metadata, the auto-resume filter excludes this game so
+        /// it doesn't get retried on every launch. Manual Refresh Library on the
+        /// game's console resets this counter so the user can force a re-try.
+        /// </summary>
+        public int MetadataAttempts { get; set; }
+
         public string LastPlayedDisplay => LastPlayed.HasValue
             ? LastPlayed.Value.ToString("MMM d, yyyy")
             : "Never";

@@ -100,6 +100,12 @@ namespace Emutastic.Configuration
         public string BackupFolder { get; set; } = "";
         public string ScreenshotsFolder { get; set; } = "";
         public string RecordingsFolder { get; set; } = "";
+        /// <summary>
+        /// In-game key that triggers a screenshot. Stored as the
+        /// System.Windows.Input.Key enum name (e.g. "F12", "F11", "PrintScreen").
+        /// Empty means "default": F12 fires (PrintScreen continues to fire too).
+        /// </summary>
+        public string ScreenshotKey { get; set; } = "";
     }
 
     // Recording configuration — controls FFmpeg encode quality for the

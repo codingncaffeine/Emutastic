@@ -4139,6 +4139,12 @@ namespace Emutastic.Views
                 ScreenshotsFolderText.Foreground = brushMuted;
             }
 
+            // Screenshot hotkey — show saved key or "F12 (default)" hint.
+            if (ScreenshotHotkeyBox != null)
+                ScreenshotHotkeyBox.Text = string.IsNullOrEmpty(prefs.ScreenshotKey)
+                    ? "F12 (default)"
+                    : prefs.ScreenshotKey;
+
             if (!string.IsNullOrEmpty(prefs.RecordingsFolder))
             {
                 RecordingsFolderText.Text = prefs.RecordingsFolder;
@@ -4281,6 +4287,44 @@ namespace Emutastic.Views
 
             _configService.SetUserPreferences(prefs);
             _ = _configService.SaveAsync();
+        }
+
+        // ── Screenshot hotkey ────────────────────────────────────────────
+        private void ScreenshotHotkeyBox_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            // Eat the key event so the underlying TextBox doesn't try to handle
+            // it as text input, and so Tab/Escape don't fall through to focus.
+            e.Handled = true;
+
+            // Ignore modifier-only presses — we want an actual triggerable key.
+            if (e.Key == System.Windows.Input.Key.LeftShift   || e.Key == System.Windows.Input.Key.RightShift
+             || e.Key == System.Windows.Input.Key.LeftCtrl    || e.Key == System.Windows.Input.Key.RightCtrl
+             || e.Key == System.Windows.Input.Key.LeftAlt     || e.Key == System.Windows.Input.Key.RightAlt
+             || e.Key == System.Windows.Input.Key.LWin        || e.Key == System.Windows.Input.Key.RWin
+             || e.Key == System.Windows.Input.Key.System)
+                return;
+
+            // Escape clears back to default.
+            if (e.Key == System.Windows.Input.Key.Escape)
+            {
+                SetScreenshotHotkey("");
+                return;
+            }
+
+            SetScreenshotHotkey(e.Key.ToString());
+        }
+
+        private void ResetScreenshotHotkey_Click(object sender, RoutedEventArgs e) => SetScreenshotHotkey("");
+
+        private void SetScreenshotHotkey(string keyName)
+        {
+            var prefs = _configService.GetUserPreferences();
+            prefs.ScreenshotKey = keyName;
+            _configService.SetUserPreferences(prefs);
+            _ = _configService.SaveAsync();
+
+            if (ScreenshotHotkeyBox != null)
+                ScreenshotHotkeyBox.Text = string.IsNullOrEmpty(keyName) ? "F12 (default)" : keyName;
         }
 
         // ── Core Options tab ──────────────────────────────────────────────────

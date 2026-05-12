@@ -159,6 +159,7 @@ namespace Emutastic.Services
             TryAddColumn(connection, "Games", "Genre", "TEXT DEFAULT ''");
             TryAddColumn(connection, "Games", "Description", "TEXT DEFAULT ''");
             TryAddColumn(connection, "Games", "OriginalSourcePath", "TEXT DEFAULT ''");
+            TryAddColumn(connection, "Games", "MetadataAttempts",   "INTEGER DEFAULT 0");
 
             TryAddColumn(connection, "SaveStates", "Name",        "TEXT NOT NULL DEFAULT ''");
             TryAddColumn(connection, "SaveStates", "GameTitle",   "TEXT NOT NULL DEFAULT ''");
@@ -1221,6 +1222,37 @@ namespace Emutastic.Services
             cmd.ExecuteNonQuery();
         }
 
+        /// <summary>
+        /// Increments the per-game metadata-attempt counter. Used by the metadata
+        /// refresh pipeline to mark a game as "we tried, fetch came back empty"
+        /// so the auto-resume filter skips it on subsequent launches.
+        /// </summary>
+        public void IncrementMetadataAttempts(int gameId)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "UPDATE Games SET MetadataAttempts = MetadataAttempts + 1 WHERE Id = $id;";
+            cmd.Parameters.AddWithValue("$id", gameId);
+            cmd.ExecuteNonQuery();
+        }
+
+        /// <summary>
+        /// Resets MetadataAttempts to 0 for every game on the given console.
+        /// Called when the user explicitly clicks Refresh Library on that
+        /// console — they're asking for a re-try, so previously-attempted games
+        /// re-enter the refresh queue.
+        /// </summary>
+        public void ResetMetadataAttemptsForConsole(string console)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "UPDATE Games SET MetadataAttempts = 0 WHERE Console = $console;";
+            cmd.Parameters.AddWithValue("$console", console);
+            cmd.ExecuteNonQuery();
+        }
+
         public int GetSaveStateCountForGame(int gameId)
         {
             using var connection = new SqliteConnection(_connectionString);
@@ -1456,7 +1488,7 @@ namespace Emutastic.Services
             public readonly int Id, Title, Console, Manufacturer, Year, RomPath, OriginalSourcePath, RomHash,
                 CoverArtPath, BackgroundColor, AccentColor, PlayCount, SaveCount,
                 IsFavorite, Rating, Collection, LastPlayed, BoxArt3DPath,
-                ScreenScraperArtPath, ArtworkAttempts,
+                ScreenScraperArtPath, ArtworkAttempts, MetadataAttempts,
                 Developer, Publisher, Genre, Description;
 
             public OrdinalMap(SqliteDataReader reader)
@@ -1481,6 +1513,7 @@ namespace Emutastic.Services
                 BoxArt3DPath = TryOrd(reader, "BoxArt3DPath");
                 ScreenScraperArtPath = TryOrd(reader, "ScreenScraperArtPath");
                 ArtworkAttempts = TryOrd(reader, "ArtworkAttempts");
+                MetadataAttempts = TryOrd(reader, "MetadataAttempts");
                 Developer   = TryOrd(reader, "Developer");
                 Publisher   = TryOrd(reader, "Publisher");
                 Genre       = TryOrd(reader, "Genre");
@@ -1518,6 +1551,7 @@ namespace Emutastic.Services
                 BoxArt3DPath    = AppPaths.FromStoragePath(GetStr(reader, o.BoxArt3DPath)),
                 ScreenScraperArtPath = AppPaths.FromStoragePath(GetStr(reader, o.ScreenScraperArtPath)),
                 ArtworkAttempts = GetInt(reader, o.ArtworkAttempts),
+                MetadataAttempts = GetInt(reader, o.MetadataAttempts),
                 Developer   = GetStr(reader, o.Developer),
                 Publisher   = GetStr(reader, o.Publisher),
                 Genre       = GetStr(reader, o.Genre),

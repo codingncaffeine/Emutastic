@@ -4614,8 +4614,18 @@ namespace Emutastic.Views
                     if (qs != null) RequestLoad(qs.StatePath, "Quick Save");
                     else { _transientMsg = "No Quick Save found"; _transientExpiry = DateTime.Now.AddSeconds(3); }
                 }
-                if (e.Key == Key.PrintScreen || e.Key == Key.F12)
-                    TakeScreenshot();
+                // Configurable screenshot hotkey (Preferences → Media → Screenshot hotkey).
+                // PrintScreen always fires as a hardware-baked fallback regardless of the
+                // user's setting; F12 fires when the setting is empty (default) or set to
+                // F12; any other configured key takes its place.
+                {
+                    string configured = App.Configuration?.GetUserPreferences()?.ScreenshotKey ?? "";
+                    bool isDefault = string.IsNullOrEmpty(configured);
+                    bool match = e.Key == Key.PrintScreen
+                              || (isDefault && e.Key == Key.F12)
+                              || (!isDefault && string.Equals(e.Key.ToString(), configured, StringComparison.OrdinalIgnoreCase));
+                    if (match) TakeScreenshot();
+                }
                 if (e.Key == Key.F9)
                     ToggleRecording();
             }
@@ -4626,25 +4636,94 @@ namespace Emutastic.Views
         {
             try
             {
-                if (_bitmap == null)
+                // Capture chain prioritized for "what the user actually sees right now":
+                //   1. HW cores with an active Vulkan/GL overlay window → WGC capture
+                //      of that HWND. Captures the upscaled GPU-rendered frame at its
+                //      actual displayed resolution (e.g. PS1 HW at 4x internal → 1280×960,
+                //      N64 ParaLLEl-RDP at 4x → similar). Bypasses our small CPU readback.
+                //   2. SW cores, or HW cores without an overlay → RenderTargetBitmap of
+                //      the WPF GameScreen Image. This gives a WYSIWYG capture including
+                //      any shaders/scaling applied at the WPF level, sized to the actual
+                //      display area instead of the tiny native console resolution.
+                //   3. PrintWindow fallback for HW cores when WGC fails.
+                //   4. Raw _bitmap.CopyPixels() last resort — native console resolution,
+                //      no shaders applied. The pre-fix behavior, kept only as a backstop.
+                BitmapSource? bmp = null;
+
+                IntPtr overlayHwnd = _vulkanOverlayHwnd != IntPtr.Zero
+                                        ? _vulkanOverlayHwnd
+                                        : _glOverlayHwnd;
+
+                // 1. WGC on overlay (HW cores)
+                if (overlayHwnd != IntPtr.Zero)
+                {
+                    try { bmp = Emutastic.Services.WgcSnapshotService.Capture(overlayHwnd); }
+                    catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[Screenshot] WGC failed: {ex.Message}"); }
+                }
+
+                // 2. WPF GameScreen RenderTargetBitmap (SW cores; HW with no overlay)
+                if (bmp == null)
+                {
+                    BitmapSource? rtbCaptured = null;
+                    Dispatcher.Invoke(() =>
+                    {
+                        try
+                        {
+                            int w = (int)Math.Round(GameScreen.ActualWidth);
+                            int h = (int)Math.Round(GameScreen.ActualHeight);
+                            if (w > 0 && h > 0)
+                            {
+                                var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+                                rtb.Render(GameScreen);
+                                rtb.Freeze();
+                                rtbCaptured = rtb;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Trace.WriteLine($"[Screenshot] RenderTargetBitmap failed: {ex.Message}");
+                        }
+                    });
+                    bmp = rtbCaptured;
+                }
+
+                // 3. PrintWindow on overlay (HW backup when WGC is unhappy)
+                if (bmp == null && overlayHwnd != IntPtr.Zero)
+                {
+                    try { bmp = CaptureWindowToBitmap(overlayHwnd); }
+                    catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[Screenshot] PrintWindow failed: {ex.Message}"); }
+                }
+
+                // 4. Raw _bitmap (native console res — last resort)
+                if (bmp == null && _bitmap != null)
+                {
+                    int w = _bitmap.PixelWidth, h = _bitmap.PixelHeight;
+                    var snap = new WriteableBitmap(w, h, _bitmap.DpiX, _bitmap.DpiY, _bitmap.Format, null);
+                    snap.Lock();
+                    _bitmap.CopyPixels(new Int32Rect(0, 0, w, h), snap.BackBuffer, snap.BackBufferStride * h, snap.BackBufferStride);
+                    snap.AddDirtyRect(new Int32Rect(0, 0, w, h));
+                    snap.Unlock();
+                    snap.Freeze();
+                    bmp = snap;
+                }
+
+                if (bmp == null)
                 {
                     _transientMsg    = "Screenshot not available for this core";
                     _transientExpiry = DateTime.Now.AddSeconds(3);
                     return;
                 }
 
-                // Snapshot the current WriteableBitmap on the UI thread.
-                // CopyPixels pulls the front buffer without locking the render cycle.
-                int w = _bitmap.PixelWidth, h = _bitmap.PixelHeight;
-                var snap = new WriteableBitmap(w, h, _bitmap.DpiX, _bitmap.DpiY, _bitmap.Format, null);
-                snap.Lock();
-                _bitmap.CopyPixels(new Int32Rect(0, 0, w, h), snap.BackBuffer, snap.BackBufferStride * h, snap.BackBufferStride);
-                snap.AddDirtyRect(new Int32Rect(0, 0, w, h));
-                snap.Unlock();
-                snap.Freeze();
+                // Rotate for vertical-orientation arcade games (SET_ROTATION 1/3).
+                if (_coreRotation != 0)
+                {
+                    double angle = ((-(int)_coreRotation * 90.0) % 360 + 360) % 360;
+                    bmp = new TransformedBitmap(bmp, new RotateTransform(angle));
+                    if (bmp.CanFreeze && !bmp.IsFrozen) bmp.Freeze();
+                }
 
                 var service  = new Services.ScreenshotService();
-                string? path = service.Save(snap, _game.Title, _game.Console);
+                string? path = service.Save(bmp, _game.Title, _game.Console);
 
                 _transientMsg    = path != null ? "Screenshot saved" : "Screenshot failed";
                 _transientExpiry = DateTime.Now.AddSeconds(3);
