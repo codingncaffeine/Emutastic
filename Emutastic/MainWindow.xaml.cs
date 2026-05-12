@@ -1370,8 +1370,12 @@ namespace Emutastic
             _importer.ImportQueueDrained += onDrained;
 
             // Hand the importer a pre-filtered file list (not folders) so it
-            // doesn't enumerate-then-import unrelated extensions itself.
-            _importer.ImportFilesAsync(candidates);
+            // doesn't enumerate-then-import unrelated extensions itself. Pass
+            // the console as the hint so any ambiguous-extension files in the
+            // batch (.m3u / .cue / .chd / .iso) auto-resolve to this console
+            // instead of triggering the picker — the user already told us which
+            // library this is by right-clicking that console's Refresh action.
+            _importer.ImportFilesAsync(candidates, hintedConsole: console);
         }
 
         /// <summary>

@@ -40,7 +40,16 @@ namespace Emutastic.Services
         // Disc-image extensions that are valid M3U entries. .bin is excluded
         // because cue/chd is the entry point — bins are referenced by cues.
         private static readonly HashSet<string> DiscExtensions =
-            new(StringComparer.OrdinalIgnoreCase) { ".cue", ".chd", ".iso", ".ccd", ".mds", ".gdi", ".m3u" };
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                ".cue", ".chd", ".iso", ".ccd", ".mds", ".gdi", ".m3u",
+                // GameCube image formats — Dolphin libretro supports m3u disc-swap
+                // for multi-disc titles (Resident Evil 0, Baten Kaitos, etc.).
+                ".rvz", ".gcm", ".ciso", ".wbfs", ".gcz", ".wia",
+                // Dreamcast .cdi format — Flycast supports m3u disc-swap (Skies
+                // of Arcadia spans 2 discs, etc.).
+                ".cdi",
+            };
 
         public sealed record DiscEntry(string Path, int DiscNumber);
         public sealed record Bundle(string GroupKey, string BaseTitle, List<DiscEntry> Discs);

@@ -16,9 +16,11 @@ namespace Emutastic.Services
             { ".iso", new[] { "PSP", "GameCube", "3DO" } },
             { ".cue", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "3DO", "CDi" } },
             // .m3u playlists are how the libretro disc-control interface sees a
-            // multi-disc set as N images. Same console list as .cue/.chd —
-            // ambiguity resolved via DAT lookup, folder name, or user picker.
-            { ".m3u", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "3DO", "CDi", "Amiga" } },
+            // multi-disc set as N images. GameCube included so auto-bundled
+            // multi-disc GC titles (Resident Evil 0, Baten Kaitos, etc.) get
+            // routed correctly when the folder name disambiguates. Ambiguity
+            // resolved via DAT lookup, folder name, or user picker.
+            { ".m3u", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "3DO", "CDi", "GameCube", "Amiga" } },
             { ".bin", new[] { "PS1", "SegaCD", "Saturn", "3DO", "Dreamcast", "Atari7800", "Atari2600", "Genesis", "Sega32X", "ColecoVision", "NES", "NGP" } },
         };
 
