@@ -1289,6 +1289,7 @@
                              ItemsSource="{Binding Games}"
                              Visibility="{Binding IsGroupedView, Converter={StaticResource InverseBoolToVisibility}}"
                              SelectionMode="Extended"
+                             UseLayoutRounding="True"
                              VirtualizingPanel.IsVirtualizing="True"
                              VirtualizingPanel.VirtualizationMode="Recycling"
                              VirtualizingPanel.ScrollUnit="Pixel"
@@ -1449,6 +1450,7 @@
                                                 <Image Source="{Binding DisplayArtPath, Converter={StaticResource PathToImage}}"
                                                        Stretch="Uniform"
                                                        VerticalAlignment="Bottom"
+                                                       RenderOptions.BitmapScalingMode="LowQuality"
                                                        Visibility="{Binding DisplayArtPath, Converter={StaticResource NotNullToVisibility}}"/>
                                                 <TextBlock Text="♥" FontSize="14" Foreground="{DynamicResource FavoriteHeartBrush}"
                                                            VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,0,8,8"
@@ -1510,6 +1512,7 @@
                             <!-- Game grid grouped (All Games view — one section per console) -->
                             <ItemsControl x:Name="GameGridGroupedView"
                                           ItemsSource="{Binding GroupedGames}"
+                                          UseLayoutRounding="True"
                                           Visibility="{Binding IsGroupedView, Converter={StaticResource BoolToVisibility}}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
@@ -1603,6 +1606,7 @@
                                                                         <Image Source="{Binding DisplayArtPath, Converter={StaticResource PathToImage}}"
                                                                                Stretch="Uniform"
                                                                                VerticalAlignment="Bottom"
+                                                                               RenderOptions.BitmapScalingMode="LowQuality"
                                                                                Visibility="{Binding DisplayArtPath, Converter={StaticResource NotNullToVisibility}}"/>
                                                                         <TextBlock Text="♥" FontSize="14" Foreground="{DynamicResource FavoriteHeartBrush}"
                                                                                    VerticalAlignment="Top" HorizontalAlignment="Right" Margin="0,8,8,0"
@@ -1764,6 +1768,7 @@
                     <!-- Favorites grouped view (inside library area) -->
                     <ScrollViewer x:Name="FavoritesGroupedView"
                                   Visibility="Collapsed"
+                                  UseLayoutRounding="True"
                                   VerticalScrollBarVisibility="Auto"
                                   Style="{StaticResource MinimalScrollViewer}">
                         <StackPanel x:Name="FavoritesPanel"

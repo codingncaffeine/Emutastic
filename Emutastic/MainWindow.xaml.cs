@@ -60,6 +60,31 @@ namespace Emutastic
 
             // ── Phase 1: synchronous, fast — window becomes interactive immediately ──
             _db          = new DatabaseService();   // schema init (CREATE TABLE / indexes)
+
+            // Warm every Preferences-tab cache in the background so opening
+            // Preferences and clicking any tab is instant — no "Loading…" ever.
+            // Fire-and-forget; failures fall back to the per-tab builders.
+            try
+            {
+                Services.PreferencesCache.WarmUp(
+                    _db,
+                    AppPaths.GetFolder("System"),
+                    AppPaths.GetCoresFolder());
+            }
+            catch { }
+
+            // Pre-initialize SDL3 on the dispatcher at Background priority so
+            // the controller-name enumeration is warm by the time the user
+            // opens Preferences. Must be the dispatcher (SDL hooks
+            // WM_DEVICECHANGE on the calling thread). Background priority
+            // means the main window paints + becomes interactive first — the
+            // (occasionally many-second) SDL_Init cost runs during dispatcher
+            // idle, not as a visible freeze. If the user opens Preferences
+            // before this completes, GetConnectedControllers falls through to
+            // the XInput path for an instant result with generic names; the
+            // 2-second hot-plug timer in Preferences upgrades to SDL names
+            // once init finishes.
+            Services.ControllerManager.EnsureSdl3InitInBackground();
             // Live-refresh the Save States tab when a state is added/deleted/renamed
             // anywhere (EmulatorWindow during play, context-menu rename/delete,
             // startup orphan-discovery). Static event so events fired by
@@ -165,6 +190,14 @@ namespace Emutastic
 
             // Pre-build per-console caches in the background so switching feels instant.
             _ = _vm.PreloadConsoleCachesAsync();
+
+            // Controller hot-plug status — surface connect/disconnect events
+            // in the existing status text for 15s so the user sees their pad
+            // come up without having to open Preferences. SDL3 is initializing
+            // on its own thread in the background; the first ticks may use the
+            // XInput fallback (generic names) until SDL3 is ready, then
+            // upgrade to full names.
+            StartControllerStatusPoll();
 
             _ = _artworkFetch.RetryMissingArtworkAsync();
             _ = _artworkFetch.BackfillMetadataAsync();
@@ -288,7 +321,7 @@ namespace Emutastic
                         _vm.IsNotification   = true;
                     }, cts.Token);
 
-                    Dispatcher.BeginInvoke(() =>
+                    _ = Dispatcher.BeginInvoke(() =>
                     {
                         if (!cts.IsCancellationRequested)
                             _vm.NotificationText = $"Refresh complete — metadata pass finished for {console}.";
@@ -303,7 +336,7 @@ namespace Emutastic
                 }
                 catch (Exception ex)
                 {
-                    Dispatcher.BeginInvoke(() =>
+                    _ = Dispatcher.BeginInvoke(() =>
                     {
                         _vm.NotificationText = $"Metadata refresh failed: {ex.Message}";
                         _vm.IsNotification   = true;
@@ -341,13 +374,18 @@ namespace Emutastic
                 // least one missing-meta entry. Stable order so the resume always
                 // proceeds the same way across launches.
                 var allGames = _db.GetAllGames();
+                // Only count games that are BOTH missing fields AND haven't been tried yet.
+                // Without the MetadataAttempts gate, libraries with un-fillable entries
+                // (no ScreenScraper / OpenVGDB match) trigger the banner every launch
+                // even though the inner pass short-circuits with zero work.
                 var consolesNeedingMeta = allGames
                     .GroupBy(g => g.Console)
                     .Where(grp => !string.IsNullOrWhiteSpace(grp.Key)
-                        && grp.Any(g => string.IsNullOrWhiteSpace(g.Developer)
-                                     || string.IsNullOrWhiteSpace(g.Genre)
-                                     || string.IsNullOrWhiteSpace(g.Description)
-                                     || g.Year == 0))
+                        && grp.Any(g => g.MetadataAttempts < 1
+                                     && (string.IsNullOrWhiteSpace(g.Developer)
+                                      || string.IsNullOrWhiteSpace(g.Genre)
+                                      || string.IsNullOrWhiteSpace(g.Description)
+                                      || g.Year == 0)))
                     .Select(grp => grp.Key)
                     .OrderBy(c => c)
                     .ToList();
@@ -376,7 +414,7 @@ namespace Emutastic
                                 _vm.IsNotification   = true;
                             }, cts.Token);
                         }
-                        Dispatcher.BeginInvoke(() =>
+                        _ = Dispatcher.BeginInvoke(() =>
                         {
                             if (!cts.IsCancellationRequested)
                                 _vm.NotificationText = "Metadata refresh complete.";
@@ -1222,8 +1260,49 @@ namespace Emutastic
             }
         }
 
-        private void NavPreferences_Click(object sender, RoutedEventArgs e) 
-        { 
+        // ── Controller hot-plug status poll ───────────────────────────────────
+        // Diff the connected-controller list every 2 seconds. On change, surface
+        // a 15-second toast in the existing StatusText. First poll after launch
+        // primes _lastConnectedControllers without emitting a "connected" message
+        // (those controllers were there before the app started — not events).
+        private System.Windows.Threading.DispatcherTimer? _controllerStatusTimer;
+        private List<string>? _lastConnectedControllers;
+
+        private void StartControllerStatusPoll()
+        {
+            _controllerStatusTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(2)
+            };
+            _controllerStatusTimer.Tick += (_, _) =>
+            {
+                List<string> current;
+                try { current = Services.ControllerManager.GetConnectedControllers(); }
+                catch { return; }
+
+                if (_lastConnectedControllers == null)
+                {
+                    // Initial reading — nothing to compare against, no event.
+                    _lastConnectedControllers = current;
+                    return;
+                }
+
+                // Diff: anything in `current` not in last = newly connected.
+                //       anything in last not in `current` = disconnected.
+                var added = current.Except(_lastConnectedControllers, StringComparer.Ordinal).ToList();
+                var removed = _lastConnectedControllers.Except(current, StringComparer.Ordinal).ToList();
+                _lastConnectedControllers = current;
+
+                foreach (var name in added)
+                    _vm.SetStatus($"Controller connected: {name}", 15000);
+                foreach (var name in removed)
+                    _vm.SetStatus($"Controller disconnected: {name}", 15000);
+            };
+            _controllerStatusTimer.Start();
+        }
+
+        private void NavPreferences_Click(object sender, RoutedEventArgs e)
+        {
             InitializeControllerManager();
             var prefs = new PreferencesWindow(_db, _controllerManager!, App.Configuration!) { Owner = this };
             bool ss2dBefore = Game.PreferScreenScraper2D;
@@ -1633,15 +1712,15 @@ namespace Emutastic
                 var consoles = _vm.Games.Select(g => g.Console).Distinct();
                 foreach (var c in consoles)
                 {
-                    if (use3D) Game.Consoles3D.Add(c);
-                    else       Game.Consoles3D.Remove(c);
+                    if (use3D) Game.EnableConsole3D(c);
+                    else       Game.DisableConsole3D(c);
                 }
             }
             else
             {
                 string console = _vm.SelectedConsole ?? "";
-                if (use3D) Game.Consoles3D.Add(console);
-                else       Game.Consoles3D.Remove(console);
+                if (use3D) Game.EnableConsole3D(console);
+                else       Game.DisableConsole3D(console);
             }
 
             // Persist preference

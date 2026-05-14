@@ -165,10 +165,6 @@ that don't tolerate the default framebuffer indirection. While this
 is enabled the in-game overlay (cog menu, save/load, cheats panel)
 is hidden for GameCube, but the game itself will render correctly.
 
-N64 (parallel_n64): May crash on close due to internal cleanup threads.
-This is a known issue with the core and does not affect save data.
-
-
 MORE INFORMATION
 ----------------
 GitHub:  https://github.com/codingncaffeine/Emutastic

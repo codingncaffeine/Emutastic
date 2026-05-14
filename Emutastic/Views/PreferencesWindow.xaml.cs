@@ -71,6 +71,16 @@ namespace Emutastic.Views
         private enum PrefSection { Controls, SystemFiles, Cores, Library, Theme, Snaps, CoreOptions, Achievements, Media, About }
         private PrefSection _activeSection = PrefSection.Controls;
 
+        // Lazy-tab gating: build each panel at most once per cache lifetime,
+        // and never let two simultaneous clicks stack two builders.
+        private readonly HashSet<PrefSection> _sectionLoaded = new();
+        private readonly HashSet<PrefSection> _sectionLoading = new();
+
+        // Cancellation for in-flight async work scoped to this window's lifetime.
+        // Signalled in the Closed handler so HTTP / Task.Run continuations bail
+        // before they touch the now-disposed visual tree.
+        private readonly CancellationTokenSource _windowCts = new();
+
         // ── Core Options state ────────────────────────────────────────────────
         private string _selectedCoreOptionsName = "";
         private Dictionary<string, string> _pendingCoreOptionValues = new();
@@ -101,6 +111,8 @@ namespace Emutastic.Views
 
             Closed += (_, _) =>
             {
+                try { _windowCts.Cancel(); } catch { }
+                try { _windowCts.Dispose(); } catch { }
                 _controllerPollTimer?.Stop();
                 if (_controllerManager != null)
                 {
@@ -123,7 +135,14 @@ namespace Emutastic.Views
             // Marshal back to the dispatcher before touching XAML elements.
             Dispatcher.BeginInvoke(new Action(() =>
             {
-                try { LoadThemeSettings(); } catch { }
+                try
+                {
+                    PreferencesCache.InvalidateThemes();
+                    InvalidateSection(PrefSection.Theme);
+                    if (_activeSection == PrefSection.Theme)
+                        _ = LoadSectionAsync(PrefSection.Theme);
+                }
+                catch { }
             }));
         }
 
@@ -133,11 +152,11 @@ namespace Emutastic.Views
         { }
 
         // ── Initialisation ────────────────────────────────────────────────────
-        private void OnLoaded(object sender, RoutedEventArgs e)
+        private async void OnLoaded(object sender, RoutedEventArgs e)
         {
             PopulateSystemComboBox();
-            PopulateInputDevices();
             PlayerComboBox.SelectedIndex = 0;
+            await PopulateInputDevicesAsync();
         }
 
         private void PopulateSystemComboBox()
@@ -152,10 +171,14 @@ namespace Emutastic.Views
             SystemComboBox.SelectedIndex = idx >= 0 ? idx : 0;
         }
 
-        private void PopulateInputDevices()
+        private void PopulateInputDevices() => _ = PopulateInputDevicesAsync();
+
+        private async Task PopulateInputDevicesAsync()
         {
-            var devices = new List<string> { "Keyboard" };
-            devices.AddRange(ControllerManager.GetConnectedControllers());
+            var devices = await PreferencesCache
+                .GetControllerDevicesAsync(TimeSpan.FromSeconds(2))
+                .ConfigureAwait(true);
+            if (!IsLoaded) return;
 
             InputDeviceComboBox.ItemsSource = devices;
 
@@ -805,17 +828,14 @@ namespace Emutastic.Views
             PanelMedia.Visibility       = section == PrefSection.Media        ? Visibility.Visible : Visibility.Collapsed;
             PanelAbout.Visibility       = section == PrefSection.About        ? Visibility.Visible : Visibility.Collapsed;
 
-            if (section == PrefSection.SystemFiles) BuildBiosPanel();
-            if (section == PrefSection.Media)       LoadFoldersSettings();
-            if (section == PrefSection.Cores)       BuildCoresPanel();
-            if (section == PrefSection.Library)     LoadLibrarySettings();
-            if (section == PrefSection.Theme)       LoadThemeSettings();
-            if (section == PrefSection.Snaps)       LoadSnapsSettings();
-            if (section == PrefSection.CoreOptions) BuildCoreOptionsTab();
-            if (section == PrefSection.Achievements) LoadAchievementsSettings();
-            if (section == PrefSection.About)       LoadAboutSettings();
+            // Lazy builder dispatch — never block the dispatcher inline. The
+            // builders themselves dispatch heavy work (DB, disk fan-out, HTTP,
+            // controller enum) via Task.Run / async / per-call CTS, and a
+            // "Loading…" placeholder fills the panel while we wait.
+            _ = LoadSectionAsync(section);
 
-            // Start controller hotplug polling only while Controls tab is visible.
+            // Controller hotplug poll is dispatcher-affine (Keyboard label +
+            // device-list rebind), but the actual enumeration is async-cached.
             if (section == PrefSection.Controls)
             {
                 if (_controllerPollTimer == null)
@@ -824,24 +844,122 @@ namespace Emutastic.Views
                     {
                         Interval = TimeSpan.FromSeconds(2)
                     };
-                    _controllerPollTimer.Tick += (_, _) =>
+                    _controllerPollTimer.Tick += async (_, _) =>
                     {
-                        var current = ControllerManager.GetConnectedControllers();
-                        current.Insert(0, "Keyboard");
+                        // Force a fresh enumeration off-thread; cache TTL on
+                        // its own would skip the actual SDL/XInput call.
+                        PreferencesCache.InvalidateControllers();
+                        var current = await PreferencesCache
+                            .GetControllerDevicesAsync(TimeSpan.FromSeconds(0))
+                            .ConfigureAwait(true);
+                        if (!IsLoaded) return;
                         if (!current.SequenceEqual(_lastKnownDevices))
                         {
                             _lastKnownDevices = current;
-                            PopulateInputDevices();
+                            await PopulateInputDevicesAsync().ConfigureAwait(true);
                         }
                     };
                 }
-                _lastKnownDevices = ControllerManager.GetConnectedControllers();
-                _lastKnownDevices.Insert(0, "Keyboard");
                 _controllerPollTimer.Start();
+                // Seed _lastKnownDevices synchronously on the dispatcher so the
+                // very first hot-plug tick has something to compare against.
+                // SDL3 hot-plug requires a thread with a message loop, so this
+                // MUST run on the dispatcher (not Task.Run).
+                _lastKnownDevices = PreferencesCache
+                    .GetControllerDevicesAsync(TimeSpan.FromSeconds(2))
+                    .GetAwaiter().GetResult();
             }
             else
             {
                 _controllerPollTimer?.Stop();
+            }
+        }
+
+        // ── Lazy section loader ───────────────────────────────────────────────
+        // Returns the inner container that should host a "Loading…" placeholder
+        // for the given section. Returning null skips the placeholder for
+        // sections whose builders mutate scattered XAML elements rather than a
+        // single child panel.
+        private Panel? GetSectionContainer(PrefSection s) => s switch
+        {
+            PrefSection.SystemFiles => BiosPanel,
+            PrefSection.Cores       => CoresListPanel,
+            _ => null
+        };
+
+        private static StackPanel BuildLoadingPlaceholder()
+        {
+            var stack = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(0, 24, 0, 0),
+                Tag = "__loadingPlaceholder"
+            };
+            stack.Children.Add(new ProgressBar
+            {
+                IsIndeterminate = true,
+                Width = 120,
+                Height = 4,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 12, 0)
+            });
+            stack.Children.Add(new TextBlock
+            {
+                Text = "Loading…",
+                FontSize = 12,
+                Foreground = new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88)),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            return stack;
+        }
+
+        private void InvalidateSection(PrefSection s) => _sectionLoaded.Remove(s);
+
+        private async Task LoadSectionAsync(PrefSection section)
+        {
+            if (_sectionLoaded.Contains(section) || _sectionLoading.Contains(section))
+                return;
+            _sectionLoading.Add(section);
+
+            // Insert placeholder for the two builders that fan out to disk/DB.
+            var container = GetSectionContainer(section);
+            StackPanel? placeholder = null;
+            if (container != null)
+            {
+                container.Children.Clear();
+                placeholder = BuildLoadingPlaceholder();
+                container.Children.Add(placeholder);
+            }
+
+            try
+            {
+                switch (section)
+                {
+                    case PrefSection.SystemFiles: await BuildBiosPanelAsync(); break;
+                    case PrefSection.Cores:       await BuildCoresPanelAsync(); break;
+                    case PrefSection.Theme:       LoadThemeSettings(); break;
+                    case PrefSection.Media:       LoadFoldersSettings(); break;
+                    case PrefSection.Library:     LoadLibrarySettings(); break;
+                    case PrefSection.Snaps:       LoadSnapsSettings(); break;
+                    case PrefSection.CoreOptions: BuildCoreOptionsTab(); break;
+                    case PrefSection.Achievements: LoadAchievementsSettings(); break;
+                    case PrefSection.About:       LoadAboutSettings(); break;
+                    case PrefSection.Controls:    /* dispatcher-affine init lives in OnLoaded */ break;
+                }
+                _sectionLoaded.Add(section);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[Prefs] LoadSection {section} failed: {ex}");
+            }
+            finally
+            {
+                // BIOS/Cores builders rebuild their own container, so the
+                // placeholder is already gone — but if the builder threw before
+                // clearing, strip it here.
+                if (container != null && placeholder != null && container.Children.Contains(placeholder))
+                    container.Children.Remove(placeholder);
+                _sectionLoading.Remove(section);
             }
         }
 
@@ -857,10 +975,23 @@ namespace Emutastic.Views
             ("Other",     new[] { "3DO", "Philips CD-i" }),
         };
 
-        private void BuildBiosPanel()
+        private void BuildBiosPanel() => _ = BuildBiosPanelAsync();
+
+        private async Task BuildBiosPanelAsync()
         {
             BiosPanel.Children.Clear();
             string sysDir = AppPaths.GetFolder("System");
+
+            // Async fan-out: DB query + ROM-dir enumeration + every File.Exists
+            // candidate path resolves once on a worker thread, returns a
+            // pre-checked existence set we can look up by string.
+            var scan = await PreferencesCache
+                .GetBiosScanAsync(_db, sysDir, KnownBios.All, _windowCts.Token)
+                .ConfigureAwait(true);
+            if (!IsLoaded || _activeSection != PrefSection.SystemFiles) return;
+            BiosPanel.Children.Clear(); // strip the "Loading…" placeholder
+            var romDirsByConsole = scan.RomDirsByConsole;
+            bool BiosExists(string path) => scan.ExistingPathsLower.Contains(path);
 
             // Info banner
             var accent = (Color)FindResource("AccentColor");
@@ -909,19 +1040,7 @@ namespace Emutastic.Views
             banner.Child = bannerStack;
             BiosPanel.Children.Add(banner);
 
-            // Collect unique ROM directories per console tag from the library.
-            var allGames = _db.GetAllGames();
-            var romDirsByConsole = allGames
-                .Where(g => !string.IsNullOrEmpty(g.RomPath))
-                .GroupBy(g => g.Console)
-                .ToDictionary(
-                    grp => grp.Key,
-                    grp => grp
-                        .Select(g => System.IO.Path.GetDirectoryName(g.RomPath))
-                        .Where(d => !string.IsNullOrEmpty(d))
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .ToArray()
-                );
+            // (ROM dirs already resolved on a background thread via PreferencesCache above.)
 
             // Build lookup: ConsoleDisplay → BIOS entries
             var biosGroups = KnownBios.All.GroupBy(b => b.ConsoleDisplay)
@@ -943,7 +1062,7 @@ namespace Emutastic.Views
                     {
                         catTotal++;
                         string path = System.IO.Path.Combine(sysDir, entry.Filename);
-                        if (System.IO.File.Exists(path))
+                        if (BiosExists(path))
                             catFound++;
                         else
                         {
@@ -955,7 +1074,7 @@ namespace Emutastic.Views
                                 .SelectMany(tag => romDirsByConsole.TryGetValue(tag, out var dirs) ? dirs : Array.Empty<string>())
                                 .Where(d => d != null)
                                 .Distinct(StringComparer.OrdinalIgnoreCase);
-                            if (romDirs.Any(dir => dir != null && System.IO.File.Exists(
+                            if (romDirs.Any(dir => dir != null && BiosExists(
                                 System.IO.Path.Combine(dir, System.IO.Path.GetFileName(entry.Filename)))))
                                 catFound++;
                         }
@@ -1068,8 +1187,8 @@ namespace Emutastic.Views
                     foreach (var entry in entries)
                     {
                         string path = System.IO.Path.Combine(sysDir, entry.Filename);
-                        if (System.IO.File.Exists(path) || romDirs2.Any(dir => dir != null &&
-                            System.IO.File.Exists(System.IO.Path.Combine(dir, System.IO.Path.GetFileName(entry.Filename)))))
+                        if (BiosExists(path) || romDirs2.Any(dir => dir != null &&
+                            BiosExists(System.IO.Path.Combine(dir, System.IO.Path.GetFileName(entry.Filename)))))
                             consoleFound++;
                     }
 
@@ -1221,17 +1340,25 @@ namespace Emutastic.Views
 
         private UIElement BuildBiosRow(BiosEntry entry, string sysDir, string[]? romDirs = null)
         {
+            // Prefer the cached existence set so per-row paint doesn't re-hit
+            // the FS — the set is populated by BuildBiosPanelAsync just above.
+            // Fall back to live File.Exists if the cache is unavailable
+            // (e.g., the row is built from a code path that didn't warm it).
+            HashSet<string>? cache = null;
+            try { cache = Emutastic.Services.PreferencesCache.GetBiosScanSnapshot()?.ExistingPathsLower; } catch { }
+            bool Exists(string p) => cache != null ? cache.Contains(p) : System.IO.File.Exists(p);
+
             string fullPath = System.IO.Path.Combine(sysDir, entry.Filename);
-            bool existsInSysDir = System.IO.File.Exists(fullPath);
+            bool existsInSysDir = Exists(fullPath);
             bool existsInRomDir = !existsInSysDir && (romDirs?.Any(dir =>
-                System.IO.File.Exists(System.IO.Path.Combine(dir, System.IO.Path.GetFileName(entry.Filename)))) == true);
+                Exists(System.IO.Path.Combine(dir, System.IO.Path.GetFileName(entry.Filename)))) == true);
             bool exists = existsInSysDir || existsInRomDir;
 
             bool verified = false;
             string? foundPath = existsInSysDir ? fullPath
                 : existsInRomDir ? romDirs!.Select(dir =>
                     System.IO.Path.Combine(dir, System.IO.Path.GetFileName(entry.Filename)))
-                    .FirstOrDefault(System.IO.File.Exists)
+                    .FirstOrDefault(Exists)
                 : null;
             if (foundPath != null && entry.Md5 != null)
                 verified = VerifyMd5(foundPath, entry.Md5);
@@ -1389,7 +1516,12 @@ namespace Emutastic.Views
                 ProcessDroppedFile(src, sysDir, messages, ref imported, ref skipped);
             }
 
-            if (imported > 0) BuildBiosPanel(); // refresh status badges
+            if (imported > 0)
+            {
+                PreferencesCache.InvalidateBiosScan();
+                InvalidateSection(PrefSection.SystemFiles);
+                _ = LoadSectionAsync(PrefSection.SystemFiles); // refresh status badges
+            }
 
             string summary = imported > 0
                 ? $"Imported {imported} file{(imported == 1 ? "" : "s")}"
@@ -1562,16 +1694,25 @@ namespace Emutastic.Views
             ("Other",     new[] { "NGP", "ColecoVision", "Vectrex", "3DO", "CDi" }),
         };
 
-        private void BuildCoresPanel()
+        private void BuildCoresPanel() => _ = BuildCoresPanelAsync();
+
+        private async Task BuildCoresPanelAsync()
         {
             CoresListPanel.Children.Clear();
             string coresFolder = Emutastic.AppPaths.GetCoresFolder();
             var prefs = _configService.GetCorePreferences();
 
+            // Single Directory.EnumerateFiles in place of ~100+ File.Exists.
+            var installedDlls = await PreferencesCache
+                .GetInstalledCoresAsync(coresFolder)
+                .ConfigureAwait(true);
+            if (!IsLoaded || _activeSection != PrefSection.Cores) return;
+            CoresListPanel.Children.Clear(); // strip "Loading…" placeholder
+            bool IsInstalled(string dll) => installedDlls.Contains(dll);
+
             // ── Download All button + progress ──
             var recommended = CoreDownloadService.Catalog.Where(c => c.Recommended).ToList();
-            int installedCount = recommended.Count(c => System.IO.File.Exists(
-                System.IO.Path.Combine(coresFolder, c.FileName)));
+            int installedCount = recommended.Count(c => IsInstalled(c.FileName));
 
             var dlAllRow = new Grid { Margin = new Thickness(0, 0, 0, 12) };
             dlAllRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -1658,8 +1799,7 @@ namespace Emutastic.Views
                 {
                     var cores = Services.CoreManager.ConsoleCoreMap[c];
                     catTotal += cores.Length;
-                    catInstalled += cores.Count(dll =>
-                        System.IO.File.Exists(System.IO.Path.Combine(coresFolder, dll)));
+                    catInstalled += cores.Count(dll => IsInstalled(dll));
                 }
 
                 // Category accordion header
@@ -1758,7 +1898,7 @@ namespace Emutastic.Views
                             Dll = dll,
                             Path = System.IO.Path.Combine(coresFolder, dll),
                             Friendly = FormatCoreName(dll),
-                            Installed = System.IO.File.Exists(System.IO.Path.Combine(coresFolder, dll)),
+                            Installed = IsInstalled(dll),
                             CatalogEntry = CoreDownloadService.Catalog.FirstOrDefault(
                                 c => c.FileName.Equals(dll, StringComparison.OrdinalIgnoreCase))
                         })
@@ -1919,7 +2059,8 @@ namespace Emutastic.Views
                                 current.PreferredCores[capturedConsole] = capturedDll;
                                 _configService.SetCorePreferences(current);
                                 _ = _configService.SaveAsync();
-                                BuildCoresPanel();
+                                InvalidateSection(PrefSection.Cores);
+                                _ = LoadSectionAsync(PrefSection.Cores);
                                 e.Handled = true;
                             };
                         }
@@ -2187,7 +2328,9 @@ namespace Emutastic.Views
                     ? "Cancelled."
                     : $"Done — {done}/{recommended.Count} cores downloaded.";
                 dlAllBtn.IsEnabled = true;
-                BuildCoresPanel();
+                PreferencesCache.InvalidateCores();
+                InvalidateSection(PrefSection.Cores);
+                _ = LoadSectionAsync(PrefSection.Cores);
             };
 
             BuildExtrasSection();
@@ -2199,8 +2342,6 @@ namespace Emutastic.Views
             _ = DecorateUpdatesAvailableAsync(coresFolder, updatePillMap, updateAllBtn, dlActionMap);
         }
 
-        private List<CoreEntry>? _coreUpdatesCache;
-
         private async Task DecorateUpdatesAvailableAsync(
             string coresFolder,
             Dictionary<string, TextBlock> updatePillMap,
@@ -2209,8 +2350,9 @@ namespace Emutastic.Views
         {
             try
             {
-                _coreUpdatesCache ??= await _downloader.CheckAllForUpdatesAsync(coresFolder);
-                var updates = _coreUpdatesCache;
+                var updates = await PreferencesCache.GetCoreUpdatesAsync(
+                    _downloader, coresFolder, _windowCts.Token).ConfigureAwait(true);
+                if (!IsLoaded || _activeSection != PrefSection.Cores) return;
                 if (updates.Count == 0) return;
 
                 foreach (var entry in updates)
@@ -2259,8 +2401,7 @@ namespace Emutastic.Views
                                 try
                                 {
                                     await _downloader.DownloadAsync(e, coresFolder);
-                                    _coreUpdatesCache?.RemoveAll(c =>
-                                        string.Equals(c.FileName, e.FileName, StringComparison.OrdinalIgnoreCase));
+                                    PreferencesCache.RemoveCoreUpdate(e.FileName);
                                     ok = true; err = null;
                                 }
                                 catch (Exception ex)
@@ -2290,9 +2431,11 @@ namespace Emutastic.Views
                     {
                         _suppressPanelRebuildDuringDownload = false;
                         // Successful downloads already removed themselves from
-                        // _coreUpdatesCache; remaining entries are failures, so
-                        // the next BuildCoresPanel will keep their pills.
-                        BuildCoresPanel();
+                        // the staleness cache; remaining entries are failures,
+                        // so the next rebuild will keep their pills.
+                        PreferencesCache.InvalidateCores();
+                        InvalidateSection(PrefSection.Cores);
+                        _ = LoadSectionAsync(PrefSection.Cores);
 
                         // Surface final result via banner. Dwell ~20s so the
                         // user can read failure summary before it auto-clears.
@@ -2378,11 +2521,14 @@ namespace Emutastic.Views
 
                 // Drop this core from the staleness cache so the next panel
                 // rebuild doesn't show its pill again immediately after update.
-                _coreUpdatesCache?.RemoveAll(e =>
-                    string.Equals(e.FileName, entry.FileName, StringComparison.OrdinalIgnoreCase));
+                PreferencesCache.RemoveCoreUpdate(entry.FileName);
+                PreferencesCache.InvalidateCores();
 
                 if (!_suppressPanelRebuildDuringDownload)
-                    BuildCoresPanel();
+                {
+                    InvalidateSection(PrefSection.Cores);
+                    _ = LoadSectionAsync(PrefSection.Cores);
+                }
 
                 return (true, null);
             }
@@ -3561,11 +3707,13 @@ namespace Emutastic.Views
             InstalledThemesPanel.Children.Clear();
             var themes = Services.ThemeService.Instance.GetAvailableThemes();
             var activeId = Services.ThemeService.Instance.ActiveThemeId;
+            // Pre-parsed Color[] per theme — saves N x 5 ColorConverter.ConvertFromString
+            // calls on every Theme-tab open. Cache is rebuilt on ThemesChanged.
+            var swatchMap = PreferencesCache.GetThemeSwatches();
 
             foreach (var (id, name) in themes)
             {
-                // Get first 3 colors for a mini-swatch
-                var colors = GetThemePreviewColors(id);
+                var colors = swatchMap.TryGetValue(id, out var arr) ? arr : Array.Empty<Color>();
 
                 var card = new Border
                 {
@@ -3586,20 +3734,16 @@ namespace Emutastic.Views
 
                 // Color preview strip
                 var colorStrip = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
-                foreach (var hex in colors)
+                foreach (var c in colors)
                 {
-                    try
+                    var swatch = new System.Windows.Shapes.Rectangle
                     {
-                        var swatch = new System.Windows.Shapes.Rectangle
-                        {
-                            Width = 16, Height = 16,
-                            RadiusX = 3, RadiusY = 3,
-                            Margin = new Thickness(0, 0, 3, 0),
-                            Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex)),
-                        };
-                        colorStrip.Children.Add(swatch);
-                    }
-                    catch { }
+                        Width = 16, Height = 16,
+                        RadiusX = 3, RadiusY = 3,
+                        Margin = new Thickness(0, 0, 3, 0),
+                        Fill = new SolidColorBrush(c),
+                    };
+                    colorStrip.Children.Add(swatch);
                 }
                 stack.Children.Add(colorStrip);
 
@@ -3930,9 +4074,11 @@ namespace Emutastic.Views
 
         private static System.Net.Http.HttpClient CreateAboutHttp()
         {
+            // Per-call cancellation enforces a 3s budget via PreferencesCache;
+            // an HttpClient-wide Timeout would tear down concurrent requests too.
             var http = new System.Net.Http.HttpClient
             {
-                Timeout = TimeSpan.FromSeconds(10)
+                Timeout = System.Threading.Timeout.InfiniteTimeSpan
             };
             // GitHub API rejects requests without a User-Agent.
             http.DefaultRequestHeaders.UserAgent.ParseAdd("Emutastic/about-tab");
@@ -3969,33 +4115,21 @@ namespace Emutastic.Views
 
             try
             {
-                using var resp = await _aboutHttp.GetAsync(GitHubLatestApiUrl);
-                // User may have closed Preferences while the request was in flight —
-                // skip UI writes if so. Avoids ResourceReferenceKeyNotFoundException
-                // when FindResource runs against a detached visual tree.
+                var release = await PreferencesCache.GetGitHubLatestAsync(
+                    _aboutHttp, GitHubLatestApiUrl, _windowCts.Token).ConfigureAwait(true);
+
+                // User may have closed Preferences while the request was in flight.
                 if (!IsLoaded) return;
-                if (!resp.IsSuccessStatusCode)
+
+                if (release == null)
                 {
                     AboutLatestVersionText.Text = "—";
-                    AboutUpdateStatusText.Text = $"Could not reach GitHub ({(int)resp.StatusCode}). Check your connection or try again later.";
+                    AboutUpdateStatusText.Text = "Could not reach GitHub. Check your connection or try again later.";
                     return;
                 }
 
-                string json = await resp.Content.ReadAsStringAsync();
-                if (!IsLoaded) return;
-                using var doc = System.Text.Json.JsonDocument.Parse(json);
-                var root = doc.RootElement;
-
-                string tagName = root.TryGetProperty("tag_name", out var tagEl) ? tagEl.GetString() ?? "" : "";
-                string releaseUrl = root.TryGetProperty("html_url", out var urlEl) ? urlEl.GetString() ?? GitHubReleasesUrl : GitHubReleasesUrl;
-                _latestReleaseUrl = releaseUrl;
-
-                if (string.IsNullOrWhiteSpace(tagName))
-                {
-                    AboutLatestVersionText.Text = "—";
-                    AboutUpdateStatusText.Text = "GitHub returned an unexpected response. Try again later.";
-                    return;
-                }
+                string tagName = release.Tag;
+                _latestReleaseUrl = string.IsNullOrWhiteSpace(release.Url) ? GitHubReleasesUrl : release.Url;
 
                 AboutLatestVersionText.Text = tagName;
 
@@ -4024,7 +4158,7 @@ namespace Emutastic.Views
                     AboutOpenLatestReleaseBtn.Visibility = Visibility.Visible;
                 }
             }
-            catch (TaskCanceledException)
+            catch (OperationCanceledException)
             {
                 if (!IsLoaded) return;
                 AboutLatestVersionText.Text = "—";
@@ -4071,7 +4205,10 @@ namespace Emutastic.Views
             => OpenUrl(GitHubRepoUrl);
 
         private void AboutRecheck_Click(object sender, RoutedEventArgs e)
-            => _ = CheckLatestReleaseAsync();
+        {
+            PreferencesCache.InvalidateGitHubLatest();
+            _ = CheckLatestReleaseAsync();
+        }
 
         private static void OpenUrl(string url)
         {

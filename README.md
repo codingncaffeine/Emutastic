@@ -127,10 +127,17 @@ Earn achievements while playing via [RetroAchievements](https://retroachievement
 
 </details>
 
+<details>
+<summary><strong>About & Updates</strong></summary>
+
+**Preferences → About** shows the current version, build date, and credits. On open, it checks GitHub for the latest release and surfaces a download link if a newer version is available. Notification-only — no auto-installer, no telemetry.
+
+</details>
+
 - **Core Options** — Per-core settings (internal resolution, graphics plugins, etc.) in **Preferences → Core Options**
 
 <details>
-<summary><strong>Disk Swapping (FDS, PS1, Saturn, Sega CD, Amiga)</strong></summary>
+<summary><strong>Disk Swapping (FDS, PS1, Saturn, Sega CD)</strong></summary>
 
 Press **L3 + Start** in-game to flip between discs/sides on systems that need it. Rebindable to any two-button chord (controller or keyboard) in **Preferences → Controls → Disk Swap**. The status bar shows the new disc number on each swap.
 

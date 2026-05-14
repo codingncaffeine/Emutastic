@@ -1,8 +1,10 @@
 ﻿using Emutastic.Services;
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Media.Imaging;
@@ -78,18 +80,141 @@ namespace Emutastic.Converters
 
     public class PathToImageConverter : IValueConverter
     {
-        // Thread-safe cache: once an image is decoded + frozen it's shareable across threads.
-        // WeakReference lets the GC reclaim images that are no longer displayed.
-        private static readonly ConcurrentDictionary<string, WeakReference<BitmapImage>> _cache = new();
+        // Two-tier cache:
+        //   Weak tier: ConcurrentDictionary<path, WeakReference<BitmapImage>> — same as
+        //              before, lets GC reclaim images that fell out of all containers.
+        //   Strong tier: an LRU keyed by path that pins the most recently-touched N
+        //              decoded bitmaps so list virtualization recycling, console
+        //              switches, and rapid scroll don't trigger re-decode.
+        // The strong tier is the prefetch target for PreloadAsync.
+        private static readonly ConcurrentDictionary<string, WeakReference<BitmapImage>> _weak = new();
+
+        private const int StrongCapacity = 256;
+        private static readonly object _strongLock = new();
+        private static readonly Dictionary<string, LinkedListNode<string>> _strongIndex
+            = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly LinkedList<string> _strongOrder = new();
+        private static readonly Dictionary<string, BitmapImage> _strong
+            = new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>Clears the entire image cache (call after bulk artwork changes).</summary>
-        public static void ClearCache() => _cache.Clear();
+        public static void ClearCache()
+        {
+            _weak.Clear();
+            lock (_strongLock)
+            {
+                _strong.Clear();
+                _strongIndex.Clear();
+                _strongOrder.Clear();
+            }
+        }
 
         /// <summary>Evicts a single path from the cache (call when artwork is re-downloaded).</summary>
         public static void Evict(string? path)
         {
-            if (!string.IsNullOrEmpty(path))
-                _cache.TryRemove(path, out _);
+            if (string.IsNullOrEmpty(path)) return;
+            _weak.TryRemove(path, out _);
+            lock (_strongLock)
+            {
+                if (_strongIndex.TryGetValue(path, out var node))
+                {
+                    _strongOrder.Remove(node);
+                    _strongIndex.Remove(path);
+                }
+                _strong.Remove(path);
+            }
+        }
+
+        // Promote (or insert) path → bitmap in the strong-ref MRU tier.
+        // Caller must already hold a reference to the bitmap; this method
+        // freezes it if it isn't already frozen.
+        private static void Promote(string path, BitmapImage bitmap)
+        {
+            if (!bitmap.IsFrozen) { try { bitmap.Freeze(); } catch { return; } }
+            lock (_strongLock)
+            {
+                if (_strongIndex.TryGetValue(path, out var existing))
+                {
+                    _strongOrder.Remove(existing);
+                    _strongOrder.AddFirst(existing);
+                    _strong[path] = bitmap;
+                    return;
+                }
+                var node = _strongOrder.AddFirst(path);
+                _strongIndex[path] = node;
+                _strong[path] = bitmap;
+                while (_strongOrder.Count > StrongCapacity)
+                {
+                    var last = _strongOrder.Last!;
+                    _strongOrder.RemoveLast();
+                    _strongIndex.Remove(last.Value);
+                    _strong.Remove(last.Value);
+                    // Weak tier still holds it; GC can reclaim later.
+                }
+            }
+        }
+
+        // Internal decode routine — runs synchronously on whatever thread the
+        // caller is on. BitmapImage with BeginInit/EndInit/Freeze is the
+        // documented thread-safe-after-freeze pattern in WPF.
+        private static BitmapImage? Decode(string path)
+        {
+            try
+            {
+                if (!File.Exists(path)) return null;
+                var bitmap = new BitmapImage();
+                bitmap.BeginInit();
+                bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                bitmap.DecodePixelWidth = 300; // cards are ≤148px; 300 covers 2x DPI scaling
+                bitmap.UriSource = new Uri(path, UriKind.Absolute);
+                bitmap.EndInit();
+                bitmap.Freeze();
+                return bitmap;
+            }
+            catch { return null; }
+        }
+
+        /// <summary>
+        /// Background-decodes the given paths and pins them in the strong-ref
+        /// tier so the next on-screen request hits a warm cache. Skips paths
+        /// already cached. Failures are silent.
+        /// </summary>
+        public static Task PreloadAsync(IEnumerable<string?> paths)
+        {
+            // Snapshot the input so the worker doesn't see a mutating sequence.
+            var copy = new List<string>();
+            foreach (var p in paths)
+                if (!string.IsNullOrWhiteSpace(p)) copy.Add(p!);
+            if (copy.Count == 0) return Task.CompletedTask;
+
+            return Task.Run(() =>
+            {
+                foreach (var path in copy)
+                {
+                    // Already strong-cached → just promote.
+                    BitmapImage? hit = null;
+                    lock (_strongLock)
+                    {
+                        if (_strong.TryGetValue(path, out var s)) hit = s;
+                    }
+                    if (hit != null) { Promote(path, hit); continue; }
+
+                    // Live in weak tier → reuse + promote.
+                    if (_weak.TryGetValue(path, out var weakRef)
+                        && weakRef.TryGetTarget(out var alive))
+                    {
+                        Promote(path, alive);
+                        continue;
+                    }
+
+                    var bmp = Decode(path);
+                    if (bmp != null)
+                    {
+                        _weak[path] = new WeakReference<BitmapImage>(bmp);
+                        Promote(path, bmp);
+                    }
+                }
+            });
         }
 
         public object? Convert(object value, Type targetType, object parameter, CultureInfo culture)
@@ -99,26 +224,35 @@ namespace Emutastic.Converters
                 if (value is not string path || string.IsNullOrWhiteSpace(path))
                     return null;
 
-                // Cache hit — return immediately, no File.Exists, no decode.
-                if (_cache.TryGetValue(path, out var weakRef))
+                // Strong tier — promote on hit, returns instantly.
+                BitmapImage? strongHit = null;
+                lock (_strongLock)
+                {
+                    if (_strong.TryGetValue(path, out strongHit)
+                        && _strongIndex.TryGetValue(path, out var node))
+                    {
+                        _strongOrder.Remove(node);
+                        _strongOrder.AddFirst(node);
+                    }
+                }
+                if (strongHit != null) return strongHit;
+
+                // Weak tier — promote into strong on hit.
+                if (_weak.TryGetValue(path, out var weakRef))
                 {
                     if (weakRef.TryGetTarget(out var cached))
+                    {
+                        Promote(path, cached);
                         return cached;
-                    _cache.TryRemove(path, out _); // GC collected the image; remove dead entry
+                    }
+                    _weak.TryRemove(path, out _);
                 }
 
-                if (!File.Exists(path))
-                    return null;
+                var bitmap = Decode(path);
+                if (bitmap == null) return null;
 
-                var bitmap = new BitmapImage();
-                bitmap.BeginInit();
-                bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                bitmap.DecodePixelWidth = 300; // cards are ≤148px; 300 covers 2x DPI scaling
-                bitmap.UriSource = new Uri(path, UriKind.Absolute);
-                bitmap.EndInit();
-                bitmap.Freeze();
-
-                _cache[path] = new WeakReference<BitmapImage>(bitmap);
+                _weak[path] = new WeakReference<BitmapImage>(bitmap);
+                Promote(path, bitmap);
                 return bitmap;
             }
             catch { }

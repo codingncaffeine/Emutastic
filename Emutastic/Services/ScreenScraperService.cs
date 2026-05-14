@@ -261,6 +261,15 @@ namespace Emutastic.Services
                 string md5Part = string.IsNullOrWhiteSpace(romHash)
                     ? ""
                     : $"&md5={romHash.ToUpperInvariant()}";
+                // ScreenScraper uses taillerom (filesize in bytes) as a strong matcher,
+                // especially for large console ROMs where the MD5 path
+                // is unreliable. Cheap to compute, helps SS resolve by filename alone.
+                try
+                {
+                    if (!string.IsNullOrEmpty(romPath) && System.IO.File.Exists(romPath))
+                        md5Part += $"&taillerom={new System.IO.FileInfo(romPath).Length}";
+                }
+                catch { /* size lookup failure is non-fatal */ }
 
                 foreach (string candidate in BuildRomNomCandidates(console, romPath))
                 {
@@ -378,6 +387,15 @@ namespace Emutastic.Services
                 string md5Part = string.IsNullOrWhiteSpace(romHash)
                     ? ""
                     : $"&md5={romHash.ToUpperInvariant()}";
+                // ScreenScraper uses taillerom (filesize in bytes) as a strong matcher,
+                // especially for large console ROMs where the MD5 path
+                // is unreliable. Cheap to compute, helps SS resolve by filename alone.
+                try
+                {
+                    if (!string.IsNullOrEmpty(romPath) && System.IO.File.Exists(romPath))
+                        md5Part += $"&taillerom={new System.IO.FileInfo(romPath).Length}";
+                }
+                catch { /* size lookup failure is non-fatal */ }
 
                 foreach (string candidate in BuildRomNomCandidates(console, romPath))
                 {
@@ -468,6 +486,15 @@ namespace Emutastic.Services
                 string md5Part = string.IsNullOrWhiteSpace(romHash)
                     ? ""
                     : $"&md5={romHash.ToUpperInvariant()}";
+                // ScreenScraper uses taillerom (filesize in bytes) as a strong matcher,
+                // especially for large console ROMs where the MD5 path
+                // is unreliable. Cheap to compute, helps SS resolve by filename alone.
+                try
+                {
+                    if (!string.IsNullOrEmpty(romPath) && System.IO.File.Exists(romPath))
+                        md5Part += $"&taillerom={new System.IO.FileInfo(romPath).Length}";
+                }
+                catch { /* size lookup failure is non-fatal */ }
 
                 foreach (string candidate in BuildRomNomCandidates(console, romPath))
                 {
@@ -534,6 +561,15 @@ namespace Emutastic.Services
                 string md5Part = string.IsNullOrWhiteSpace(romHash)
                     ? ""
                     : $"&md5={romHash.ToUpperInvariant()}";
+                // ScreenScraper uses taillerom (filesize in bytes) as a strong matcher,
+                // especially for large console ROMs where the MD5 path
+                // is unreliable. Cheap to compute, helps SS resolve by filename alone.
+                try
+                {
+                    if (!string.IsNullOrEmpty(romPath) && System.IO.File.Exists(romPath))
+                        md5Part += $"&taillerom={new System.IO.FileInfo(romPath).Length}";
+                }
+                catch { /* size lookup failure is non-fatal */ }
 
                 foreach (string candidate in BuildRomNomCandidates(console, romPath))
                 {
@@ -659,6 +695,52 @@ namespace Emutastic.Services
 
         private static string? NullIfEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
 
+        // Region preference: us → wor → eu → jp → anything else.
+        // Handles BOTH SS schemas:
+        //   (a) legacy concatenated types: "box-2D-us", "box-2D-USA", "box-2D-eu", ...
+        //   (b) modern split fields (most post-2020 entries):
+        //       "type": "box-2D", "region": "us"
+        private static string? PickRegionalMediaUrl(System.Text.Json.Nodes.JsonArray medias, string baseType)
+        {
+            string? us = null, eu = null, wor = null, jp = null, generic = null;
+
+            foreach (var media in medias)
+            {
+                string? type = media?["type"]?.GetValue<string>();
+                string? mediaUrl = media?["url"]?.GetValue<string>();
+                if (string.IsNullOrWhiteSpace(type) || string.IsNullOrWhiteSpace(mediaUrl)) continue;
+
+                // Region from separate field (modern schema) or suffix on type (legacy)
+                string? region = null;
+                try { region = media?["region"]?.GetValue<string>()?.ToLowerInvariant(); } catch { }
+
+                if (type == baseType)
+                {
+                    switch (region)
+                    {
+                        case "us":  case "usa":           us  ??= mediaUrl; break;
+                        case "eu":  case "eur": case "de":
+                        case "fr":  case "it":  case "es":
+                        case "uk":                        eu  ??= mediaUrl; break;
+                        case "wor": case "world":         wor ??= mediaUrl; break;
+                        case "jp":  case "jap": case "ja":jp  ??= mediaUrl; break;
+                        case null:  case "":              generic ??= mediaUrl; break;
+                        default:                          generic ??= mediaUrl; break;
+                    }
+                }
+                else if (type == $"{baseType}-us" || type == $"{baseType}-USA")
+                    us ??= mediaUrl;
+                else if (type == $"{baseType}-eu" || type == $"{baseType}-EUR")
+                    eu ??= mediaUrl;
+                else if (type == $"{baseType}-wor")
+                    wor ??= mediaUrl;
+                else if (type == $"{baseType}-jp" || type == $"{baseType}-JAP")
+                    jp ??= mediaUrl;
+            }
+
+            return us ?? wor ?? eu ?? jp ?? generic;
+        }
+
         private static string? ExtractBoxArt2DUrl(string json)
         {
             try
@@ -666,23 +748,7 @@ namespace Emutastic.Services
                 var doc = JsonNode.Parse(json);
                 var medias = doc?["response"]?["jeu"]?["medias"]?.AsArray();
                 if (medias == null) return null;
-
-                string? us = null, eu = null, wor = null, jp = null, generic = null;
-
-                foreach (var media in medias)
-                {
-                    string? type = media?["type"]?.GetValue<string>();
-                    string? mediaUrl = media?["url"]?.GetValue<string>();
-                    if (string.IsNullOrWhiteSpace(type) || string.IsNullOrWhiteSpace(mediaUrl)) continue;
-
-                    if (type == "box-2D-us" || type == "box-2D-USA")       us = mediaUrl;
-                    else if (type == "box-2D-eu" || type == "box-2D-EUR")  eu = mediaUrl;
-                    else if (type == "box-2D-wor")                          wor = mediaUrl;
-                    else if (type == "box-2D-jp" || type == "box-2D-JAP")  jp = mediaUrl;
-                    else if (type == "box-2D")                              generic = mediaUrl;
-                }
-
-                return us ?? wor ?? eu ?? jp ?? generic;
+                return PickRegionalMediaUrl(medias, "box-2D");
             }
             catch { return null; }
         }
@@ -694,24 +760,7 @@ namespace Emutastic.Services
                 var doc = JsonNode.Parse(json);
                 var medias = doc?["response"]?["jeu"]?["medias"]?.AsArray();
                 if (medias == null) return null;
-
-                // Prefer region-specific: us → eu → wor → jp, then generic box-3D
-                string? us = null, eu = null, wor = null, jp = null, generic = null;
-
-                foreach (var media in medias)
-                {
-                    string? type = media?["type"]?.GetValue<string>();
-                    string? mediaUrl = media?["url"]?.GetValue<string>();
-                    if (string.IsNullOrWhiteSpace(type) || string.IsNullOrWhiteSpace(mediaUrl)) continue;
-
-                    if (type == "box-3D-us" || type == "box-3D-USA")       us = mediaUrl;
-                    else if (type == "box-3D-eu" || type == "box-3D-EUR")  eu = mediaUrl;
-                    else if (type == "box-3D-wor")                          wor = mediaUrl;
-                    else if (type == "box-3D-jp" || type == "box-3D-JAP")  jp = mediaUrl;
-                    else if (type == "box-3D")                              generic = mediaUrl;
-                }
-
-                return us ?? wor ?? eu ?? jp ?? generic;
+                return PickRegionalMediaUrl(medias, "box-3D");
             }
             catch { return null; }
         }

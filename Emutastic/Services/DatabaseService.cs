@@ -1066,6 +1066,7 @@ namespace Emutastic.Services
                 WHERE (Developer IS NULL OR Developer = '')
                 AND   (Genre IS NULL OR Genre = '')
                 AND   (RomHash IS NOT NULL AND RomHash != '')
+                AND   (MetadataAttempts IS NULL OR MetadataAttempts < 1)
                 ORDER BY Console, Title;";
             using var reader = cmd.ExecuteReader();
             var games = new List<Game>();

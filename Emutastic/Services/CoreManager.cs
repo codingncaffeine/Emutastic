@@ -148,9 +148,26 @@ namespace Emutastic.Services
             string region = "Unknown", IEnumerable<string>? extraDirs = null,
             string? corePath = null)
         {
+            // Expand each caller-supplied dir to include its immediate subdirectories
+            // (e.g. a user dropping a BIOS file into "Roms\PS1\BIOS\" alongside their
+            // PS1 ROMs in "Roms\PS1\"). Keeps the launch-time check in sync with the
+            // Preferences → System Files panel, which does the same shallow recurse.
+            static IEnumerable<string> ExpandShallow(string dir)
+            {
+                yield return dir;
+                IEnumerable<string>? subs = null;
+                try { subs = Directory.EnumerateDirectories(dir); }
+                catch { /* unreadable — skip */ }
+                if (subs != null)
+                    foreach (var s in subs) yield return s;
+            }
+
             var searchDirs = new[] { systemDir }
-                .Concat(extraDirs ?? Enumerable.Empty<string>())
+                .Concat((extraDirs ?? Enumerable.Empty<string>())
+                    .Where(d => !string.IsNullOrEmpty(d))
+                    .SelectMany(ExpandShallow))
                 .Where(d => !string.IsNullOrEmpty(d))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 
             bool FileFound(string filename) =>

@@ -284,7 +284,8 @@ namespace Emutastic.Services
                        releasePublisher,
                        releaseDate,
                        releaseGenre,
-                       releaseDescription
+                       releaseDescription,
+                       releaseCoverFront
                 FROM RELEASES
                 WHERE romID = $romId
                 LIMIT 1;";
@@ -307,6 +308,7 @@ namespace Emutastic.Services
                 ReleaseDate = releaseReader.IsDBNull(3) ? "" : releaseReader.GetString(3),
                 Genre = releaseReader.IsDBNull(4) ? "" : releaseReader.GetString(4),
                 Description = releaseReader.IsDBNull(5) ? "" : releaseReader.GetString(5),
+                BoxFrontUrl = releaseReader.IsDBNull(6) ? "" : releaseReader.GetString(6),
             };
 
             System.Diagnostics.Debug.WriteLine(
@@ -950,6 +952,24 @@ namespace Emutastic.Services
                             }
                         }
                     }
+                }
+            }
+
+            // Step 4.5 — OpenVGDB cover URL fallback. libretro-thumbnails is the primary
+            // image source but its coverage is patchy for some consoles and post-2010
+            // releases. When it misses, OpenVGDB's releaseCoverFront column has a CDN
+            // URL we can pull from. Skipped if libretro already produced an image.
+            if (artworkPath == null && !string.IsNullOrWhiteSpace(result.BoxFrontUrl))
+            {
+                try
+                {
+                    artworkPath = await DownloadArtworkAsync(result.BoxFrontUrl, md5Hash, console ?? "");
+                    if (artworkPath != null)
+                        System.Diagnostics.Debug.WriteLine($"Artwork found (OpenVGDB cover): {result.BoxFrontUrl}");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"OpenVGDB cover download failed: {ex.Message}");
                 }
             }
 

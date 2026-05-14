@@ -596,9 +596,24 @@ namespace Emutastic
             }
             catch { }
 
+            // Tear down the SDL3 dedicated dispatcher thread cleanly so its
+            // hidden HID message-pump window doesn't get terminated mid-frame.
+            Emutastic.Services.ControllerManager.ShutdownSdl3Thread();
+
             _singleInstanceMutex?.ReleaseMutex();
             _singleInstanceMutex?.Dispose();
             base.OnExit(e);
+
+            // Force-terminate to kill any lingering native worker threads spawned by
+            // libretro cores (Dolphin background threads, etc). These are native
+            // C++ threads — .NET's IsBackground flag
+            // doesn't apply to them — and several heavy cores leave them running
+            // after retro_unload_game because we skip context_destroy / FreeLibrary
+            // to avoid the on-close NVIDIA driver-callback AV. Without this, the
+            // app process can sit at 1+ GB RSS after the WPF UI is gone, blocking
+            // rebuilds and confusing the user. Anything we still cared about (config
+            // save, mutex release) has already run via base.OnExit by this point.
+            Environment.Exit(0);
         }
 
         private static class NativeMethods

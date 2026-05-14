@@ -93,7 +93,8 @@ namespace Emutastic.Services
             { "Sega32X",      "Sega"       }, { "Saturn",    "Sega"       },
             { "SMS",          "Sega"       }, { "GameGear",  "Sega"       },
             { "SG1000",       "Sega"       }, { "Dreamcast", "Sega"       },
-            { "PS1",          "Sony"       }, { "PSP",       "Sony"       },
+            { "PS1",          "Sony"       },
+            { "PSP",          "Sony"       },
             { "TG16",         "NEC"        }, { "TGCD",      "NEC"        },
             { "NGP",          "SNK"        },
             { "NGPC",         "SNK"        },
@@ -260,6 +261,8 @@ namespace Emutastic.Services
             ("sega saturn",   "Saturn"),
             ("saturn",        "Saturn"),
             ("dreamcast",     "Dreamcast"),
+            // PlayStation aliases — must come in most-specific-first order so
+            // "playstation portable" matches PSP before "playstation" matches PS1.
             ("playstation portable", "PSP"),
             ("psp",           "PSP"),
             ("playstation",   "PS1"),
@@ -437,6 +440,14 @@ namespace Emutastic.Services
             return $"{filePath}|{fi.Length}|{fi.LastWriteTimeUtc:o}";
         }
 
+        // Files above this size use a fast fingerprint (first 1 MB + last 1 MB + size)
+        // instead of a full-file MD5. Full MD5 of a multi-GB ISO (PSP, GameCube) takes
+        // ~30 s and saturates the disk during bulk imports; the partial fingerprint
+        // runs in ~10 ms and still uniquely identifies the file for cache/dedup purposes
+        // (filesize is mixed in, so two different-sized files can't collide).
+        private const long LargeFileThresholdBytes = 256L * 1024 * 1024;
+        private const int  FingerprintWindowBytes  = 1024 * 1024;
+
         public static string HashRom(string filePath)
         {
             string cacheKey = MakeCacheKey(filePath);
@@ -448,10 +459,33 @@ namespace Emutastic.Services
                     return cached;
             }
 
+            string hex;
+            long size = new FileInfo(filePath).Length;
             using var md5 = MD5.Create();
-            using var stream = File.OpenRead(filePath);
-            byte[] hash = md5.ComputeHash(stream);
-            string hex = BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+
+            if (size > LargeFileThresholdBytes)
+            {
+                // Fast fingerprint: head + tail + filesize
+                using var stream = File.OpenRead(filePath);
+                var head = new byte[FingerprintWindowBytes];
+                int headRead = stream.Read(head, 0, head.Length);
+                md5.TransformBlock(head, 0, headRead, null, 0);
+
+                stream.Seek(-FingerprintWindowBytes, SeekOrigin.End);
+                var tail = new byte[FingerprintWindowBytes];
+                int tailRead = stream.Read(tail, 0, tail.Length);
+                md5.TransformBlock(tail, 0, tailRead, null, 0);
+
+                var sizeBytes = BitConverter.GetBytes(size);
+                md5.TransformFinalBlock(sizeBytes, 0, sizeBytes.Length);
+                hex = BitConverter.ToString(md5.Hash!).Replace("-", "").ToLowerInvariant();
+            }
+            else
+            {
+                using var stream = File.OpenRead(filePath);
+                byte[] hash = md5.ComputeHash(stream);
+                hex = BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+            }
 
             lock (_hashCacheLock)
             {

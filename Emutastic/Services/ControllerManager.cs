@@ -64,6 +64,13 @@ namespace Emutastic.Services
         private static XInputSetStateDelegate? _xInputSetState;
         private static bool _xInputInitialized;
 
+        // Serializes XInputGetState calls across the per-player PollController
+        // timer thread(s) and any off-thread enumeration via
+        // GetConnectedControllers / PreferencesCache.GetControllerDevicesAsync.
+        // XInput is not documented as thread-safe; we previously relied on every
+        // call running on the dispatcher.
+        private static readonly object _xInputLock = new();
+
         private readonly Timer _pollTimer;
         private bool[] _buttonStates     = new bool[16];
         private bool[] _prevButtonStates = new bool[16];
@@ -289,7 +296,12 @@ namespace Emutastic.Services
 
             try
             {
-                var result        = _xInputGetState((uint)_xInputIndex, out XINPUT_STATE xinputState);
+                uint result;
+                XINPUT_STATE xinputState;
+                lock (_xInputLock)
+                {
+                    result = _xInputGetState((uint)_xInputIndex, out xinputState);
+                }
                 bool wasConnected = _isConnected;
                 _isConnected      = result == 0;
 
@@ -504,7 +516,10 @@ namespace Emutastic.Services
             try
             {
                 var vib = new XINPUT_VIBRATION { wLeftMotorSpeed = leftSpeed, wRightMotorSpeed = rightSpeed };
-                _xInputSetState((uint)_xInputIndex, ref vib);
+                lock (_xInputLock)
+                {
+                    _xInputSetState((uint)_xInputIndex, ref vib);
+                }
             }
             catch { }
         }
@@ -804,7 +819,7 @@ namespace Emutastic.Services
         [DllImport(SDL3Dll, CallingConvention = CallingConvention.Cdecl)]
         private static extern void SDL_PumpEvents();
 
-        private static bool _sdl3Available;
+        private static volatile bool _sdl3Available;
 
         private static void InitSdl3()
         {
@@ -818,6 +833,73 @@ namespace Emutastic.Services
             }
             catch (DllNotFoundException) { }
             catch { }
+        }
+
+        // Dedicated SDL thread: SDL3 hot-plug requires WM_DEVICECHANGE on the
+        // thread that called SDL_Init. We give SDL its own thread with its
+        // own WPF dispatcher (= message loop), keeping the WPF UI dispatcher
+        // free of any SDL cost. Init can take 10 s on some Windows systems
+        // (Bluetooth / USB enumeration), but the UI never blocks.
+        private static System.Windows.Threading.Dispatcher? _sdlDispatcher;
+        private static readonly object _sdlThreadStartLock = new();
+        private static bool _sdlThreadStarted;
+
+        /// <summary>
+        /// Spin up the dedicated SDL3 thread (with its own dispatcher /
+        /// message loop), run SDL_Init on it, then leave the dispatcher
+        /// pumping forever so SDL3 receives WM_DEVICECHANGE for hot-plug.
+        /// Returns immediately; init runs in the background. Safe to call
+        /// repeatedly — second + later calls no-op.
+        /// </summary>
+        public static void EnsureSdl3InitInBackground()
+        {
+            if (_sdl3Available || _sdlThreadStarted) return;
+            lock (_sdlThreadStartLock)
+            {
+                if (_sdl3Available || _sdlThreadStarted) return;
+                _sdlThreadStarted = true;
+
+                var ready = new System.Threading.ManualResetEventSlim(false);
+                var thread = new System.Threading.Thread(() =>
+                {
+                    try
+                    {
+                        _sdlDispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+                        ready.Set();              // dispatcher captured (instant)
+                        InitSdl3();               // 10 s on slow machines; on THIS thread only
+                        System.Windows.Threading.Dispatcher.Run(); // pump WM_DEVICECHANGE for hot-plug
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Trace.WriteLine($"[SDL thread] exited with {ex}");
+                        ready.Set();
+                    }
+                })
+                {
+                    IsBackground = true,
+                    Name = "SDL3 hot-plug dispatcher",
+                };
+                thread.SetApartmentState(System.Threading.ApartmentState.STA);
+                thread.Start();
+                ready.Wait();                     // wait only for dispatcher capture, not SDL_Init
+            }
+        }
+
+        /// <summary>
+        /// True once SDL3 has finished initializing on the dedicated thread.
+        /// While false, enumeration falls back to XInput (instant, generic
+        /// names). Once true, callers marshal SDL calls to <see cref="_sdlDispatcher"/>.
+        /// </summary>
+        public static bool IsSdl3Ready => _sdl3Available;
+
+        /// <summary>
+        /// Cleanly shut down the SDL3 dispatcher thread on app exit so it
+        /// isn't terminated abruptly mid-message-pump (which can leave HID
+        /// hidden-window handles dangling). Safe to call from app shutdown.
+        /// </summary>
+        public static void ShutdownSdl3Thread()
+        {
+            try { _sdlDispatcher?.InvokeShutdown(); } catch { }
         }
 
         private static string? Utf8PtrToString(IntPtr ptr)
@@ -839,15 +921,33 @@ namespace Emutastic.Services
         /// </summary>
         public static List<string> GetConnectedControllers()
         {
-            var result = new List<string>();
+            // If SDL is ready, marshal the enumeration onto the dedicated SDL
+            // thread (which owns the WM_DEVICECHANGE-receiving hidden window
+            // and is constantly pumping messages). If not ready, use the
+            // XInput fallback — instant, generic "Controller N" names, valid
+            // until SDL warms up and the next hot-plug poll upgrades them.
+            if (_sdl3Available && _sdlDispatcher != null)
+            {
+                try
+                {
+                    return _sdlDispatcher.Invoke(EnumerateOnSdlThread);
+                }
+                catch
+                {
+                    // Fall through to XInput on any marshalling failure.
+                }
+            }
+            return EnumerateXInputFallback();
+        }
 
-            // ── SDL3 path (preferred) ─────────────────────────────────────────
+        private static List<string> EnumerateOnSdlThread()
+        {
+            var result = new List<string>();
             try
             {
-                InitSdl3();
                 if (_sdl3Available)
                 {
-                    SDL_PumpEvents(); // flush OS device-change events so new connections are visible
+                    SDL_PumpEvents();
                     IntPtr arr = SDL_GetJoysticks(out int count);
                     try
                     {
@@ -867,12 +967,18 @@ namespace Emutastic.Services
                     {
                         if (arr != IntPtr.Zero) SDL_free(arr);
                     }
-                    return result;
                 }
             }
             catch { }
+            return result;
+        }
 
-            // ── XInput fallback (no names, just count) ────────────────────────
+        // XInput-only fallback. Used until the SDL thread finishes initializing
+        // (or if SDL is unavailable). Returns generic names because XInput
+        // doesn't expose device-specific friendly names.
+        private static List<string> EnumerateXInputFallback()
+        {
+            var result = new List<string>();
             if (!_xInputInitialized || _xInputGetState == null)
                 return result;
 
@@ -880,9 +986,12 @@ namespace Emutastic.Services
             {
                 try
                 {
-                    uint code = _xInputGetState(slot, out XINPUT_STATE _);
+                    uint code;
+                    lock (_xInputLock)
+                    {
+                        code = _xInputGetState(slot, out XINPUT_STATE _);
+                    }
                     if (code != 0) continue;
-
                     result.Add($"Controller {slot + 1}");
                 }
                 catch { }

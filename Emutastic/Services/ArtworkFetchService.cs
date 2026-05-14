@@ -354,7 +354,16 @@ namespace Emutastic.Services
             var missing = await Task.Run(() => _db.GetGamesWithoutArtworkForConsole(console));
             if (missing.Count == 0)
             {
-                _vm.SetStatus($"{displayName} — all artwork already downloaded", autoClear: true);
+                OnUI(() =>
+                {
+                    _vm.NotificationText = $"{displayName} — all artwork already downloaded";
+                    _vm.IsNotification   = true;
+                });
+                _ = Task.Delay(3000).ContinueWith(_ => OnUI(() =>
+                {
+                    _vm.IsNotification   = false;
+                    _vm.NotificationText = "";
+                }));
                 return;
             }
             await FetchArtworkForGamesAsync(missing, displayName);
@@ -466,7 +475,13 @@ namespace Emutastic.Services
             var sem     = new SemaphoreSlim(6, 6);
 
             if (total > 0)
-                _vm.SetStatus($"{label} — starting artwork fetch for {total} games…");
+            {
+                OnUI(() =>
+                {
+                    _vm.NotificationText = $"{label} — starting artwork fetch for {total} games…";
+                    _vm.IsNotification   = true;
+                });
+            }
 
             var loudTasks = loudGames.Select(async game =>
             {
@@ -503,7 +518,11 @@ namespace Emutastic.Services
 
                     int completed = Interlocked.Increment(ref done);
                     int pct = (int)((completed / (double)total) * 100);
-                    OnUI(() => _vm.SetStatus($"{label} — {pct}%  ({completed} of {total})  [{game.Console}] {game.Title}"));
+                    OnUI(() =>
+                    {
+                        _vm.NotificationText = $"{label} — {pct}%  ({completed} of {total})  [{game.Console}] {game.Title}";
+                        _vm.IsNotification   = true;
+                    });
                 }
                 catch
                 {
@@ -518,9 +537,18 @@ namespace Emutastic.Services
 
             if (total > 0)
             {
-                _vm.SetStatus(fetched > 0
-                    ? $"{label} — {fetched} image{(fetched == 1 ? "" : "s")} downloaded"
-                    : $"{label} — no artwork found", autoClear: true);
+                OnUI(() =>
+                {
+                    _vm.NotificationText = fetched > 0
+                        ? $"{label} — {fetched} image{(fetched == 1 ? "" : "s")} downloaded"
+                        : $"{label} — no artwork found";
+                    _vm.IsNotification   = true;
+                });
+                _ = Task.Delay(4000).ContinueWith(_ => OnUI(() =>
+                {
+                    _vm.IsNotification   = false;
+                    _vm.NotificationText = "";
+                }));
             }
 
             var silentTasks = silentGames.Select(async game =>
@@ -657,6 +685,12 @@ namespace Emutastic.Services
 
                 foreach (var game in missing)
                 {
+                    // Mark every game as attempted up front so misses (no romID match,
+                    // or OpenVGDB row with all-empty fields) aren't reconsidered on
+                    // subsequent launches. ResetMetadataAttemptsForConsole reopens the
+                    // door when the user explicitly retries from the library banner.
+                    _db.IncrementMetadataAttempts(game.Id);
+
                     int romId = -1;
 
                     if (!string.IsNullOrEmpty(game.RomHash))
@@ -678,8 +712,6 @@ namespace Emutastic.Services
 
                     if (romId <= 0) continue;
                     if (!releases.TryGetValue(romId, out var rel)) continue;
-                    // Skip if OpenVGDB has no useful metadata — writing empty strings
-                    // would leave Developer = '' which still matches "missing" on next launch
                     if (string.IsNullOrWhiteSpace(rel.dev) && string.IsNullOrWhiteSpace(rel.pub)
                         && string.IsNullOrWhiteSpace(rel.genre) && string.IsNullOrWhiteSpace(rel.desc)) continue;
 

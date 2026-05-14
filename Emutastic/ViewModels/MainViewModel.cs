@@ -44,6 +44,12 @@ namespace Emutastic.ViewModels
         private readonly ConcurrentDictionary<string, ObservableCollection<Game>> _consoleCache = new();
         private volatile bool _filterDirty = true;
 
+        // Rapid sidebar clicks queue independent Task.Run sorts; the cancellation
+        // token here gates the final assignment so only the latest click wins.
+        // The in-flight sort runs to completion — wasted CPU is fine, a wrong-
+        // console flash on screen is not.
+        private System.Threading.CancellationTokenSource? _filterCts;
+
         [ObservableProperty]
         private string _gameCountText = "";
 
@@ -375,11 +381,17 @@ namespace Emutastic.ViewModels
             // Cache hit — reuse the previously built collection for this console.
             if (!_filterDirty && _consoleCache.TryGetValue(console, out var cached))
             {
+                _filterCts?.Cancel(); // a stale slow-path may still be running; suppress its commit
                 Games = cached;
                 IsGroupedView = false;
                 UpdateCount();
                 return;
             }
+
+            _filterCts?.Cancel();
+            var cts = new System.Threading.CancellationTokenSource();
+            _filterCts = cts;
+            var token = cts.Token;
 
             List<Game> result = null!;
             await Task.Run(() =>
@@ -387,7 +399,9 @@ namespace Emutastic.ViewModels
                 result = console == "All Games"
                     ? _allGames.OrderBy(g => g.Console).ThenBy(g => g.Title).ToList()
                     : _allGames.Where(g => g.Console == console).OrderBy(g => g.Title).ToList();
-            });
+            }, token);
+
+            if (token.IsCancellationRequested) return;
 
             var oc = new ObservableCollection<Game>(result);
             _consoleCache[console] = oc;
@@ -513,6 +527,19 @@ namespace Emutastic.ViewModels
                     _consoleCache["All Games"] = new ObservableCollection<Game>(all);
                     _filterDirty = false;
                 }
+
+                // Pre-decode the first ~60 box-art images per console (roughly two
+                // viewport pages at default card width) so the very first paint
+                // after a console click is hot. Strong-ref tier pins them so the
+                // GC doesn't reclaim before the user actually navigates.
+                const int prefetchPerConsole = 60;
+                foreach (var (_, sorted) in grouped)
+                {
+                    var paths = new List<string?>(prefetchPerConsole);
+                    for (int i = 0; i < sorted.Count && i < prefetchPerConsole; i++)
+                        paths.Add(sorted[i].DisplayArtPath);
+                    _ = Emutastic.Converters.PathToImageConverter.PreloadAsync(paths);
+                }
             });
         }
 
@@ -520,13 +547,21 @@ namespace Emutastic.ViewModels
         private readonly SynchronizationContext? _uiContext = SynchronizationContext.Current;
 
         public void SetStatus(string msg, bool autoClear = false)
+            => SetStatus(msg, autoClear ? 3000 : 0);
+
+        /// <summary>
+        /// Overload with explicit dwell duration (ms). Pass 0 (or use the
+        /// <see cref="SetStatus(string, bool)"/> overload with autoClear=false)
+        /// for a sticky message.
+        /// </summary>
+        public void SetStatus(string msg, int dwellMs)
         {
             _statusClearCts?.Cancel();
             StatusText = msg;
-            if (!autoClear) return;
+            if (dwellMs <= 0) return;
             _statusClearCts = new CancellationTokenSource();
             var token = _statusClearCts.Token;
-            _ = Task.Delay(3000, token).ContinueWith(_ =>
+            _ = Task.Delay(dwellMs, token).ContinueWith(_ =>
             {
                 if (_uiContext != null)
                     _uiContext.Post(_ => StatusText = "", null);

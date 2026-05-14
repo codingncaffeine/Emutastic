@@ -90,8 +90,32 @@ namespace Emutastic.Models
             }
         }
 
+        // Reference assignment is atomic on the CLR; we treat the field as
+        // an immutable snapshot — the toggle helpers below swap in a fresh
+        // HashSet instead of mutating the existing one. This makes the getter
+        // safe to call from PathToImageConverter.PreloadAsync's background
+        // thread while the UI user toggles 3D art for a console live.
+        private static HashSet<string> _consoles3D = new();
+
         /// <summary>Set of console tags that currently display 3D box art.</summary>
-        public static HashSet<string> Consoles3D { get; set; } = new();
+        public static HashSet<string> Consoles3D
+        {
+            get => _consoles3D;
+            set => _consoles3D = value ?? new();
+        }
+
+        public static void EnableConsole3D(string console)
+        {
+            var copy = new HashSet<string>(_consoles3D) { console };
+            _consoles3D = copy;
+        }
+
+        public static void DisableConsole3D(string console)
+        {
+            var copy = new HashSet<string>(_consoles3D);
+            copy.Remove(console);
+            _consoles3D = copy;
+        }
 
         /// <summary>When true, prefer ScreenScraper 2D art over libretro for display.</summary>
         public static bool PreferScreenScraper2D { get; set; }

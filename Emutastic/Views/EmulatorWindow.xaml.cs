@@ -293,15 +293,7 @@ namespace Emutastic.Views
         private long _coreRunTotalTicks  = 0;   // sum of Stopwatch ticks spent inside _core.Run()
         private int  _coreRunSampleCount = 0;
 
-        // DBP/DOS crash diagnostics — traces retro_run + env activity during LOLCD transitions
-        // to narrow down the 0x80131506 CLR fault that fires mid-retro_run on program swap.
         private long _retroRunCallCount = 0;
-        private bool _crashDiagActive   = false;
-        private uint _vidDiagLastW = 0;
-        private uint _vidDiagLastH = 0;
-        private int  _vidDiagFramesRemaining = 0;
-        private int  _runDiagFramesRemaining = 0;   // log every retro_run for N frames after a transition
-        private int  _audDiagFramesRemaining = 0;
 
         // Transient save/load status — shown for 3s alongside the FPS counter
         private string   _transientMsg    = "";
@@ -1210,8 +1202,6 @@ namespace Emutastic.Views
 
                 SeedDefaultCoreOptions();
 
-                _crashDiagActive = _consoleHandler is Services.ConsoleHandlers.DosHandler;
-
                 _envCb        = OnEnvironment;
                 _videoCb      = OnVideoRefresh;
                 _audioCb      = OnAudioSample;
@@ -1264,28 +1254,6 @@ namespace Emutastic.Views
             if (_game.Console == "NDS")
                 _coreOptions.TryAdd("desmume_pointer_type", "touch");
 
-            // DOS: auto-enable MT-32 / CM-32L if the user has those ROMs in the system folder.
-            // Boxer-style plug-and-play — user drops the ROMs once and every MT-32-aware game
-            // picks them up automatically with no per-game Preferences tweaking.  The user's
-            // saved Core Options value (loaded below) still wins if they explicitly picked
-            // something else.
-            if (_consoleHandler is Services.ConsoleHandlers.DosHandler)
-            {
-                string sysDir = Marshal.PtrToStringAnsi(_systemDirPtr) ?? "";
-                if (!string.IsNullOrEmpty(sysDir) && Directory.Exists(sysDir))
-                {
-                    foreach (string rom in new[] { "CM32L_CONTROL.ROM", "MT32_CONTROL.ROM" })
-                    {
-                        if (File.Exists(Path.Combine(sysDir, rom)))
-                        {
-                            _coreOptions["dosbox_pure_midi"] = rom;
-                            System.Diagnostics.Trace.WriteLine($"DOS auto-MIDI: selected {rom}");
-                            break;
-                        }
-                    }
-                }
-            }
-
             // Apply legacy per-console overrides (e.g. N64 GFX plugin selection)
             var configSvc = _configService ?? App.Configuration;
             var prefs = configSvc?.GetCorePreferences();
@@ -1311,26 +1279,6 @@ namespace Emutastic.Views
             // This overrides any legacy config that may still have a different plugin saved.
             if (_game.Console == "N64")
                 _coreOptions["parallel-n64-gfxplugin"] = "parallel";
-
-            // DOS: decide whether to pre-create a GL context for DBP's 3dfx Voodoo
-            // hardware-rendering path.  DBP only sends SET_HW_RENDER when Voodoo is
-            // enabled AND voodoo_perf is auto or OpenGL; otherwise it stays SW and
-            // the pre-created context would be wasted.  Evaluated after user core
-            // options are loaded so per-game saves are honoured.  DBP defaults:
-            //   dosbox_pure_voodoo      = "8mb"  (enabled)
-            //   dosbox_pure_voodoo_perf = "auto"
-            if (_consoleHandler is Services.ConsoleHandlers.DosHandler dosHandler)
-            {
-                _coreOptions.TryGetValue("dosbox_pure_voodoo",      out var voodoo);
-                _coreOptions.TryGetValue("dosbox_pure_voodoo_perf", out var voodooPerf);
-                bool voodooOn = string.IsNullOrEmpty(voodoo) || voodoo != "off";
-                bool hwOgl = voodooOn && (string.IsNullOrEmpty(voodooPerf) ||
-                                          voodooPerf == "auto" ||
-                                          voodooPerf == "4");
-                dosHandler.UseVoodooOpenGL = hwOgl;
-                System.Diagnostics.Trace.WriteLine(
-                    $"DOS HW 3dfx Voodoo OpenGL: {hwOgl} (voodoo={voodoo ?? "default"}, perf={voodooPerf ?? "default"})");
-            }
         }
 
         // =========================================================================
@@ -1613,11 +1561,23 @@ namespace Emutastic.Views
                         double avgMs = samples > 0
                             ? (double)ticks / samples / System.Diagnostics.Stopwatch.Frequency * 1000.0
                             : 0;
+
+                        // Track how long FPS has been 0 — covers the gap where retro_run
+                        // is mid-call (e.g. inside a synchronous glCompileShader) and
+                        // OnRetroLog isn't firing, so the shader-compile banner can't
+                        // refresh. If we've been at 0 fps for ≥2 ticks AND no transient
+                        // message is active, fall back to a generic stall indicator.
+                        if (actual == 0) _zeroFpsSeconds++; else _zeroFpsSeconds = 0;
+
                         string fpsStr = $"{actual} fps  (target {fps:F0})  core.Run avg {avgMs:F1}ms";
                         string msg    = _transientMsg;
-                        StatusText.Text = (msg.Length > 0 && DateTime.Now < _transientExpiry)
-                            ? $"{fpsStr}    ✓ {msg}"
-                            : fpsStr;
+                        bool   transientLive = msg.Length > 0 && DateTime.Now < _transientExpiry;
+                        if (transientLive)
+                            StatusText.Text = $"{fpsStr}    ✓ {msg}";
+                        else if (_zeroFpsSeconds >= 2)
+                            StatusText.Text = $"{fpsStr}    ⏳ Working… ({_zeroFpsSeconds}s with no frame)";
+                        else
+                            StatusText.Text = fpsStr;
                     };
                     _timer.Start();
                     StatusText.Text = "Running...";
@@ -1715,6 +1675,24 @@ namespace Emutastic.Views
                                     $"Pre-context_reset FBO resize: {_fboWidth}x{_fboHeight} → {needW}x{needH}");
                                 CreateFBO(needW, needH);
                             }
+
+                            // The offscreen GL window is created at a fixed 640×480, which
+                            // sets the default glViewport to (0,0,640,480). Cores that don't
+                            // explicitly call glViewport render to (0,0,640,480) of whatever
+                            // framebuffer is bound — content lands in the BL 640×480. Resizing
+                            // the window updates the default viewport so upscaled renders fill
+                            // the FBO. Applies to both the FBO overlay path (NVIDIA) and the
+                            // UseDefaultFramebuffer readback path (AMD/Intel compat).
+                            if (_glHwndOwned && _glHwnd != IntPtr.Zero)
+                            {
+                                const uint SWP_NOMOVE = 0x0002;
+                                const uint SWP_NOZORDER = 0x0004;
+                                const uint SWP_NOACTIVATE = 0x0010;
+                                SetWindowPos(_glHwnd, IntPtr.Zero, 0, 0, (int)needW, (int)needH,
+                                    SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+                                System.Diagnostics.Trace.WriteLine(
+                                    $"Pre-context_reset offscreen window resize → {needW}x{needH} (default glViewport)");
+                            }
                         }
 
                         _consoleHandler.OnBeforeContextReset();
@@ -1722,16 +1700,6 @@ namespace Emutastic.Views
                         _hwContextReset.Invoke();
                         _consoleHandler.OnAfterContextReset();
                         System.Diagnostics.Trace.WriteLine("context_reset done.");
-
-                        // DOS: surface that 3dfx Voodoo hardware rendering is live.
-                        // SET_HW_RENDER + context_reset both accepted means DBP is
-                        // running against our OpenGL context instead of the software
-                        // Voodoo path.
-                        if (_consoleHandler is Services.ConsoleHandlers.DosHandler dosHw && dosHw.UseVoodooOpenGL)
-                        {
-                            _transientMsg    = "3dfx Voodoo hardware acceleration active";
-                            _transientExpiry = DateTime.Now.AddSeconds(5);
-                        }
 
                         var swapFn = GetGLProc<wglSwapIntervalEXTDelegate>("wglSwapIntervalEXT");
                         if (swapFn != null)
@@ -2110,12 +2078,8 @@ namespace Emutastic.Views
                     if (cb == null) return;
                     while (_kbEventQueue.TryDequeue(out var ev))
                     {
-                        if (_crashDiagActive)
-                            System.Diagnostics.Trace.WriteLine($"[KB] dispatch down={ev.down} key={ev.key} mod=0x{ev.mod:X} cb=0x{System.Runtime.InteropServices.Marshal.GetFunctionPointerForDelegate(cb).ToInt64():X}");
                         try { cb(ev.down, ev.key, 0, ev.mod); }
                         catch (Exception kbEx) { System.Diagnostics.Trace.WriteLine($"[KB] dispatch exception: {kbEx.GetType().Name}: {kbEx.Message}"); }
-                        if (_crashDiagActive)
-                            System.Diagnostics.Trace.WriteLine($"[KB] dispatch returned");
                     }
                 }
 
@@ -2166,27 +2130,34 @@ namespace Emutastic.Views
                     try
                     {
                         var _sw = System.Diagnostics.Stopwatch.StartNew();
-                        long _runId = System.Threading.Interlocked.Increment(ref _retroRunCallCount);
-                        bool _logThisRun = _crashDiagActive && (_runId < 500 || _runId % 60 == 0 || _runDiagFramesRemaining > 0);
-                        if (_runDiagFramesRemaining > 0) _runDiagFramesRemaining--;
-                        int _tid = System.Threading.Thread.CurrentThread.ManagedThreadId;
-                        int _qCount = _kbEventQueue.Count;
-                        if (_logThisRun)
-                            System.Diagnostics.Trace.WriteLine($"[RUN #{_runId}] pre-drain tid={_tid} kbQ={_qCount}");
+                        System.Threading.Interlocked.Increment(ref _retroRunCallCount);
                         DrainKeyboardQueue();
-                        if (_logThisRun)
-                            System.Diagnostics.Trace.WriteLine($"[RUN #{_runId}] drain-done → calling retro_run");
                         _core.Run();
                         ApplyFrontendArToRam();   // re-clamp AR cheats every frame
-                        if (_logThisRun)
-                            System.Diagnostics.Trace.WriteLine($"[RUN #{_runId}] retro_run returned");
                         try { _raClient?.DoFrame(); }
                         catch (Exception raEx) { System.Diagnostics.Trace.WriteLine($"[RA] DoFrame error: {raEx.Message}"); }
-                        if (_logThisRun)
-                            System.Diagnostics.Trace.WriteLine($"[RUN #{_runId}] DoFrame done");
                         _sw.Stop();
                         System.Threading.Interlocked.Add(ref _coreRunTotalTicks, _sw.ElapsedTicks);
                         System.Threading.Interlocked.Increment(ref _coreRunSampleCount);
+
+                        // Generic stall detector — covers EVERY cause of a single
+                        // retro_run taking far longer than the frame budget (shader
+                        // compile, EE/IOP JIT recompile, texture upload, blob decode,
+                        // disc seek, etc). When any single Run() exceeds ~5× target
+                        // frame ms, surface a "Working…" status so the user knows the
+                        // app isn't hung. Auto-clears once Run() is back to normal.
+                        double runMs = _sw.ElapsedTicks * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+                        if (runMs > _targetFrameMs * 5)
+                        {
+                            // Don't clobber a more specific message (e.g. "Compiling shaders…")
+                            // if it's still active.
+                            if (DateTime.Now >= _transientExpiry
+                                || (!string.IsNullOrEmpty(_transientMsg) && !_transientMsg.StartsWith("Compiling")))
+                            {
+                                _transientMsg    = $"Working… (frame took {runMs:F0} ms)";
+                                _transientExpiry = DateTime.Now.AddSeconds(3);
+                            }
+                        }
 
                         // Low-watermark catch-up: if the buffer dipped below the safe cushion,
                         // run one extra frame to refill before sleeping the frame budget.
@@ -2920,21 +2891,12 @@ namespace Emutastic.Views
                 if (_seenEnvCmds.Add(cmd))
                     System.Diagnostics.Trace.WriteLine($"[ENV-FIRST] cmd=0x{cmd:X} base={baseCmd} (decimal cmd={cmd})");
             }
-            bool _envDiag = _crashDiagActive && _runDiagFramesRemaining > 0;
-            if (_envDiag)
-                System.Diagnostics.Trace.WriteLine($"[ENV] enter cmd={cmd} base={baseCmd} dataNull={data == IntPtr.Zero}");
-            bool _envResult = false;
             try
             {
-            _envResult = OnEnvironmentBody(cmd, baseCmd, data);
-            if (_envDiag)
-                System.Diagnostics.Trace.WriteLine($"[ENV] exit base={baseCmd} result={_envResult}");
-            return _envResult;
+                return OnEnvironmentBody(cmd, baseCmd, data);
             }
-            catch (Exception _ex)
+            catch
             {
-                if (_envDiag)
-                    System.Diagnostics.Trace.WriteLine($"[ENV] THREW base={baseCmd} {_ex.GetType().Name}: {_ex.Message}");
                 return false;
             }
         }
@@ -3138,39 +3100,6 @@ namespace Emutastic.Views
                                 ? raw.Substring(semi + 1).Trim().Split('|').Select(v => v.Trim()).ToArray()
                                 : Array.Empty<string>();
 
-                            // DOSBox Pure announces `dosbox_pure_midi` with a minimal
-                            // [frontend, disabled] list when its VFS-based system-dir
-                            // scan can't run.  Seed MT-32 / CM-32L / SoundFont names
-                            // from the system dir into the valid list BEFORE validation
-                            // so our pre-seeded default (CM32L_CONTROL.ROM) isn't
-                            // rejected as "not in the list."
-                            if (key == "dosbox_pure_midi" && _consoleHandler is Services.ConsoleHandlers.DosHandler)
-                            {
-                                try
-                                {
-                                    string sysDir = Marshal.PtrToStringAnsi(_systemDirPtr) ?? "";
-                                    if (!string.IsNullOrEmpty(sysDir) && Directory.Exists(sysDir))
-                                    {
-                                        var extras = new List<string>();
-                                        foreach (string name in new[] { "CM32L_CONTROL.ROM", "MT32_CONTROL.ROM" })
-                                            if (File.Exists(Path.Combine(sysDir, name)))
-                                                extras.Add(name);
-                                        foreach (string sf2 in Directory.EnumerateFiles(sysDir, "*.sf2"))
-                                            extras.Add(Path.GetFileName(sf2));
-
-                                        if (extras.Count > 0)
-                                        {
-                                            var merged = new List<string>(validValues);
-                                            foreach (string v in extras)
-                                                if (!merged.Contains(v, StringComparer.OrdinalIgnoreCase))
-                                                    merged.Add(v);
-                                            validValues = merged.ToArray();
-                                        }
-                                    }
-                                }
-                                catch { /* non-fatal — fall back to core's original list */ }
-                            }
-
                             if (_coreOptions.ContainsKey(key))
                             {
                                 // Validate pre-seeded value — if not in the valid list, use safe fallback.
@@ -3317,12 +3246,6 @@ namespace Emutastic.Views
                     {
                         if (data == IntPtr.Zero) return false;
                         var av = Marshal.PtrToStructure<retro_system_av_info>(data);
-                        if (_crashDiagActive)
-                        {
-                            System.Diagnostics.Trace.WriteLine($"[SYSAV] geom={av.geometry.base_width}x{av.geometry.base_height} ar={av.geometry.aspect_ratio:F3} fps={av.timing.fps:F2} runId={_retroRunCallCount}");
-                            _runDiagFramesRemaining = 20;
-                            _audDiagFramesRemaining = 20;
-                        }
                         // No FBO resize needed — same reasoning as SET_GEOMETRY above.
                         UpdateDisplayAspectRatio(av.geometry.base_width, av.geometry.base_height, av.geometry.aspect_ratio);
                         // Update loop timing only if the handler doesn't force a hardware rate.
@@ -3336,8 +3259,6 @@ namespace Emutastic.Views
                                 System.Diagnostics.Trace.WriteLine($"SET_SYSTEM_AV_INFO: fps={newFps:F2} → targetFrameMs={_targetFrameMs:F2}");
                             }
                         }
-                        if (_crashDiagActive)
-                            System.Diagnostics.Trace.WriteLine($"[SYSAV] handler returning true");
                         return true;
                     }
 
@@ -3723,8 +3644,6 @@ namespace Emutastic.Views
         // =========================================================================
         private void OnVideoRefresh(IntPtr data, uint width, uint height, UIntPtr pitch)
         {
-            if (_crashDiagActive && (_runDiagFramesRemaining > 17 || width != _lastFrameWidth || height != _lastFrameHeight))
-                System.Diagnostics.Trace.WriteLine($"[VID] refresh {width}x{height} pitch={(ulong)pitch} dataNull={data == IntPtr.Zero} runId={_retroRunCallCount}");
             // Track last frame dimensions for recording (all paths including Vulkan swapchain)
             if (width > 0 && height > 0) { _lastFrameWidth = width; _lastFrameHeight = height; }
 
@@ -3892,19 +3811,6 @@ namespace Emutastic.Views
                 int rowBytes  = (int)width * bpp;
                 int frameSize = srcPitch * (int)height;
 
-                bool diagThisFrame = _crashDiagActive &&
-                    (width != _vidDiagLastW || height != _vidDiagLastH || _vidDiagFramesRemaining > 0 || _runDiagFramesRemaining > 17);
-                if (_crashDiagActive && (width != _vidDiagLastW || height != _vidDiagLastH))
-                {
-                    _vidDiagLastW = width; _vidDiagLastH = height;
-                    _vidDiagFramesRemaining = 3;
-                }
-                if (diagThisFrame)
-                {
-                    _vidDiagFramesRemaining--;
-                    System.Diagnostics.Trace.WriteLine($"[VID-SW] enter w={width} h={height} sp={srcPitch} rBytes={rowBytes} frameSize={frameSize} bufLen={_videoFrameBuffer.Length} vidPending={_videoPending}");
-                }
-
                 // Drop this frame if the UI thread is still processing the previous one.
                 // This prevents BeginInvoke from queueing unlimited frames AND prevents
                 // writing new data into the buffer while the UI thread is reading it.
@@ -3915,12 +3821,9 @@ namespace Emutastic.Views
                 // 640×480 XRGB8888, causing gen2 GC pauses and stuttering).
                 if (_videoFrameBuffer.Length != frameSize)
                 {
-                    if (diagThisFrame) System.Diagnostics.Trace.WriteLine($"[VID-SW] realloc frameBuffer {_videoFrameBuffer.Length} → {frameSize}");
                     _videoFrameBuffer = new byte[frameSize];
                 }
-                if (diagThisFrame) System.Diagnostics.Trace.WriteLine($"[VID-SW] about to Marshal.Copy(data=0x{data.ToInt64():X}, dst={frameSize} bytes)");
                 Marshal.Copy(data, _videoFrameBuffer, 0, frameSize);
-                if (diagThisFrame) System.Diagnostics.Trace.WriteLine($"[VID-SW] Marshal.Copy(native→managed) done");
 
                 // Recording: queue the raw frame for encoding.
                 // If the core's row pitch has padding (srcPitch > rowBytes), we must
@@ -3950,42 +3853,33 @@ namespace Emutastic.Views
                 int    rBytes   = rowBytes;
                 uint   w = width, h = height;
                 PixelFormat pf  = pixFmt;
-                bool   diagC    = diagThisFrame;
 
-                if (diagThisFrame) System.Diagnostics.Trace.WriteLine($"[VID-SW] scheduling Dispatcher.BeginInvoke");
                 Dispatcher.BeginInvoke(() =>
                 {
                     try
                     {
-                        if (diagC) System.Diagnostics.Trace.WriteLine($"[UI-VID] closure start w={w} h={h} pf={pf} curBitmap={(_bitmap==null?"null":$"{_videoWidth}x{_videoHeight}/{_bitmap.Format}")}");
                         if (_bitmap == null || _videoWidth != w || _videoHeight != h || _bitmap.Format != pf)
                         {
-                            if (diagC) System.Diagnostics.Trace.WriteLine($"[UI-VID] recreating WriteableBitmap");
                             _videoWidth = w; _videoHeight = h;
                             _bitmap = new WriteableBitmap((int)w, (int)h, 96, 96, pf, null);
                             GameScreen.Source = _bitmap;
                             UpdateDisplayAspectRatio(w, h, _core?.AvInfo.geometry.aspect_ratio ?? 0f);
                             UpdateShaderScreenHeight(h);
                             ApplyGameScreenScalingMode(w, h);
-                            if (diagC) System.Diagnostics.Trace.WriteLine($"[UI-VID] bitmap recreated");
                         }
                         _bitmap.Lock();
                         try
                         {
                             int destPitch = _bitmap.BackBufferStride;
-                            if (diagC) System.Diagnostics.Trace.WriteLine($"[UI-VID] destPitch={destPitch} backBuf=0x{_bitmap.BackBuffer.ToInt64():X} bufLen={buf.Length}");
                             for (int y = 0; y < (int)h; y++)
                                 Marshal.Copy(buf, y * sp, _bitmap.BackBuffer + y * destPitch, rBytes);
                             _bitmap.AddDirtyRect(new Int32Rect(0, 0, (int)w, (int)h));
-                            if (diagC) System.Diagnostics.Trace.WriteLine($"[UI-VID] row copies + dirty rect done");
                         }
                         finally { _bitmap.Unlock(); }
-                        if (diagC) System.Diagnostics.Trace.WriteLine($"[UI-VID] closure end");
                     }
                     catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Video UI: {ex.Message}"); }
                     finally { _videoPending = false; }
                 }, DispatcherPriority.Render);
-                if (diagThisFrame) System.Diagnostics.Trace.WriteLine($"[VID-SW] BeginInvoke returned — leaving OnVideoRefresh");
             }
             catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Video refresh: {ex.Message}"); }
         }
@@ -3995,8 +3889,6 @@ namespace Emutastic.Views
         // =========================================================================
         private void OnAudioSample(short left, short right)
         {
-            if (_crashDiagActive && _runDiagFramesRemaining > 0)
-                System.Diagnostics.Trace.WriteLine($"[AUDs] L={left} R={right} runId={_retroRunCallCount}");
             try { _audioPlayer?.QueueSample(left, right); }
             catch { }
         }
@@ -4011,12 +3903,6 @@ namespace Emutastic.Views
             {
                 // Native data is already interleaved 16-bit stereo PCM — copy straight to bytes.
                 int byteCount = (int)(uint)frames * 4; // 2 channels × 2 bytes
-                bool _diagAud = _audDiagFramesRemaining > 0;
-                if (_diagAud)
-                {
-                    _audDiagFramesRemaining--;
-                    System.Diagnostics.Trace.WriteLine($"[AUD] frames={(ulong)frames} byteCount={byteCount} bufLen={_audioBatchBuffer.Length} runId={_retroRunCallCount}");
-                }
                 if (_audioBatchBuffer.Length < byteCount)
                     _audioBatchBuffer = new byte[byteCount * 2]; // grow with headroom, rare
                 Marshal.Copy(data, _audioBatchBuffer, 0, byteCount);
@@ -4032,6 +3918,10 @@ namespace Emutastic.Views
         // =========================================================================
         // NOTE: fires on native core threads — Trace.WriteLine is safe because
         // App.OnStartup replaces DefaultTraceListener with ConsoleTraceListener.
+        private int _shaderCompileCount;
+        private DateTime _shaderLastSeenUtc;
+        private int _zeroFpsSeconds;
+
         private void OnRetroLog(uint level, IntPtr fmtPtr,
             IntPtr a0, IntPtr a1, IntPtr a2, IntPtr a3)
         {
@@ -4042,6 +3932,19 @@ namespace Emutastic.Views
                 string[] labels = { "DEBUG", "INFO", "WARN", "ERROR" };
                 string tag = level < (uint)labels.Length ? labels[level] : $"L{level}";
                 System.Diagnostics.Trace.WriteLine($"[CORE {tag}] {msg.TrimEnd('\n', '\r')}");
+
+                // Surface shader-compile bursts as a HUD status — bursts happen on
+                // first game launch AND mid-game when a new scene triggers shaders
+                // that aren't in the program cache yet, both manifesting as a black
+                // screen / 0 fps stall. The status reassures the user that the game
+                // isn't frozen.
+                if (msg.Contains("Compiling new", StringComparison.Ordinal))
+                {
+                    int n = System.Threading.Interlocked.Increment(ref _shaderCompileCount);
+                    _shaderLastSeenUtc = DateTime.UtcNow;
+                    _transientMsg    = $"Compiling shaders ({n})…";
+                    _transientExpiry = DateTime.Now.AddSeconds(8);
+                }
             }
             catch { }
         }
@@ -4107,8 +4010,6 @@ namespace Emutastic.Views
         // =========================================================================
         private void OnInputPoll()
         {
-            if (_crashDiagActive && _runDiagFramesRemaining > 0)
-                System.Diagnostics.Trace.WriteLine($"[POLL] input_poll_cb runId={_retroRunCallCount}");
             PollDiskSwap();
             // Decrement the FDS L-injection counter once per polled frame so the
             // simulated press lasts a fixed wall-clock duration regardless of how
@@ -4399,8 +4300,6 @@ namespace Emutastic.Views
         /// </summary>
         private short OnInputState(uint port, uint device, uint index, uint id)
         {
-            if (_crashDiagActive && _runDiagFramesRemaining > 17)
-                System.Diagnostics.Trace.WriteLine($"[IN-ST] port={port} dev={device} idx={index} id={id} runId={_retroRunCallCount}");
             try
             {
             if (port >= 4) return 0;
@@ -4468,16 +4367,14 @@ namespace Emutastic.Views
                 return pressed ? (short)1 : (short)0;
             }
 
-            // Mouse device — used by MAME-based cores (e.g. SAME CDi, port 0) and DOSBox Pure
-            // (port 1 per DosHandler.ConfigureControllerPorts).
+            // Mouse device — used by MAME-based cores (e.g. SAME CDi, port 0).
             // id=0 MOUSE_X: X delta (right = positive)
             // id=1 MOUSE_Y: Y delta (down = positive, so negate XInput Y)
             // id=2 MOUSE_LEFT:  Button 1
             // id=3 MOUSE_RIGHT: Button 2
             if (device == RETRO_DEVICE_MOUSE)
             {
-                bool isDos = _consoleHandler is Services.ConsoleHandlers.DosHandler;
-                bool acceptDeltas = isDos ? (port == 0 || port == 1) : isPort0;
+                bool acceptDeltas = isPort0;
 
                 if (id == 0) // MOUSE_X delta
                 {
@@ -4594,11 +4491,7 @@ namespace Emutastic.Views
             RecLog($"KeyDown: {e.Key}");
             SetKey(e.Key, true);
 
-            // Cores that consume raw keyboard (DOSBox Pure) need Escape/F-keys passed through.
-            // Gate frontend hotkeys behind Ctrl so the game still sees every key.
-            bool rawKeyboardCore = _consoleHandler is Services.ConsoleHandlers.DosHandler;
-            bool hotkeyModifier  = !rawKeyboardCore ||
-                                   (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
+            bool hotkeyModifier = true;
 
             if (hotkeyModifier)
             {
@@ -5334,20 +5227,6 @@ namespace Emutastic.Views
 
         private void GameScreen_PointerDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
-            // DOS: first click captures the mouse; subsequent clicks while captured are
-            // just "press left button" and also reassert capture in case it was lost.
-            if (_consoleHandler is Services.ConsoleHandlers.DosHandler)
-            {
-                if (!_mouseCaptured)
-                {
-                    EnterMouseCapture();
-                    return;
-                }
-                _leftMousePressed = true;
-                return;
-            }
-
-            // Non-DOS (NDS touch etc.) — absolute pointer
             UpdatePointerPosition(e);
             _pointerPressed = true;
             GameScreen.CaptureMouse();
@@ -5355,11 +5234,6 @@ namespace Emutastic.Views
 
         private void GameScreen_PointerUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
-            if (_consoleHandler is Services.ConsoleHandlers.DosHandler)
-            {
-                _leftMousePressed = false;
-                return;
-            }
             _pointerPressed = false;
             GameScreen.ReleaseMouseCapture();
         }
@@ -5367,18 +5241,15 @@ namespace Emutastic.Views
         private void GameScreen_RightDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
             // While paused, right-click rotates the pause-screen effect to the next
-            // one in the catalog (round-robin, skipping "None"). Lets the user flip
-            // through animations without re-opening Preferences. Doesn't fire during
+            // one in the catalog (round-robin, skipping "None"). Doesn't fire during
             // gameplay so it can't interfere with in-game mouse-right semantics
-            // (DOSBox / SAME CDi / MAME mouse-driven cores).
+            // (SAME CDi / MAME mouse-driven cores).
             if (_isPaused)
             {
                 CyclePauseEffect();
                 e.Handled = true;
                 return;
             }
-            if (_consoleHandler is Services.ConsoleHandlers.DosHandler && _mouseCaptured)
-                _rightMousePressed = true;
         }
 
         // Rotate to the next pause effect in the registry, skipping "None".
@@ -5419,8 +5290,6 @@ namespace Emutastic.Views
 
         private void GameScreen_RightUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
-            if (_consoleHandler is Services.ConsoleHandlers.DosHandler)
-                _rightMousePressed = false;
         }
 
         private void GameScreen_PreviewMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
@@ -6157,6 +6026,13 @@ namespace Emutastic.Views
                 {
                     GameViewport.Children.Remove(OverlayHud);
                     _vulkanHudGrid!.Children.Add(OverlayHud);
+                }
+                // Same for the load-state picker — otherwise the WS_POPUP overlay
+                // covers it and the user sees nothing when clicking the Load button.
+                if (LoadPickerPanel.Parent == GameViewport)
+                {
+                    GameViewport.Children.Remove(LoadPickerPanel);
+                    _vulkanHudGrid!.Children.Add(LoadPickerPanel);
                 }
                 // Always cancel any in-flight fade-out animation before re-showing,
                 // otherwise its Completed callback can race us back to Collapsed.
@@ -7319,9 +7195,14 @@ namespace Emutastic.Views
                 _recordingService = null;
             }
 
-            // Hide Vulkan overlay and HUD immediately so they don't linger during cleanup
+            // Hide overlay surfaces and HUD immediately so they don't linger during cleanup.
+            // Native WS_POPUP windows live independently of WPF's Hide() and must be
+            // dismissed explicitly — otherwise the GL/Vulkan present surface sits frozen
+            // on screen for the duration of the close (emu-thread join + GL quarantine).
             if (_vulkanOverlayHwnd != IntPtr.Zero)
                 ShowWindow(_vulkanOverlayHwnd, 0); // SW_HIDE
+            if (_glOverlayHwnd != IntPtr.Zero)
+                ShowWindow(_glOverlayHwnd, 0);     // SW_HIDE
             _vulkanHudWindow?.Hide();
 
             // Stop forwarding keyboard events to the core — the core's function pointer
@@ -7359,8 +7240,20 @@ namespace Emutastic.Views
                 // Skip if load failed — already disposed on the emu thread.
                 if (!_loadFailed)
                 {
-                    try { _core?.Dispose(); }
-                    catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Core dispose: {ex.Message}"); }
+                    // _core.Dispose calls retro_deinit. For heavy 3D cores the core's
+                    // internal worker threads can leave retro_deinit hung indefinitely —
+                    // blocking the rest of cleanup and preventing the window from ever
+                    // calling Close(). Run Dispose with a hard timeout so the WPF window
+                    // can finalise even when the core is misbehaving; any leaked native
+                    // state is reclaimed by App.OnExit's Environment.Exit when the user
+                    // quits the app.
+                    var disposeTask = System.Threading.Tasks.Task.Run(() =>
+                    {
+                        try { _core?.Dispose(); }
+                        catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Core dispose: {ex.Message}"); }
+                    });
+                    if (!disposeTask.Wait(TimeSpan.FromSeconds(5)))
+                        System.Diagnostics.Trace.WriteLine("WARNING: core dispose did not complete within 5s — abandoning to let window close");
                 }
 
                 // GL context cleanup + optional DLL unload.
