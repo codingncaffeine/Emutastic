@@ -96,6 +96,15 @@ namespace Emutastic.Services
 
         public event Action<uint, bool>? ButtonChanged;
 
+        /// <summary>
+        /// Fires when the controller's connection state changes — true when the
+        /// XInput slot starts responding (controller plugged in or powered on),
+        /// false when it stops (unplugged, battery died, USB reset). Raised on
+        /// the polling Timer thread, so subscribers that touch UI state must
+        /// marshal to the Dispatcher themselves.
+        /// </summary>
+        public event Action<bool>? ConnectionChanged;
+
         // -------------------------------------------------------------------------
         // Raw analog axis storage
         //
@@ -317,11 +326,16 @@ namespace Emutastic.Services
                         _leftStickX = _leftStickY = _rightStickX = _rightStickY = 0;
                         _leftTrigger = _rightTrigger = 0;
                         _logger?.LogInformation("Controller disconnected");
+                        try { ConnectionChanged?.Invoke(false); } catch { }
                     }
                     return;
                 }
 
-                if (!wasConnected) _logger?.LogInformation("Controller connected");
+                if (!wasConnected)
+                {
+                    _logger?.LogInformation("Controller connected");
+                    try { ConnectionChanged?.Invoke(true); } catch { }
+                }
 
                 var gamepad          = xinputState.Gamepad;
                 _lastRawButtons      = gamepad.wButtons;
@@ -598,13 +612,22 @@ namespace Emutastic.Services
             if (_sdl3Available) return;
             try
             {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
                 uint needed = SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD;
                 if ((SDL_WasInit(needed) & needed) != needed)
                     SDL_Init(needed);
                 _sdl3Available = true;
+                sw.Stop();
+                CtrlLog($"SDL3 InitSdl3 completed in {sw.ElapsedMilliseconds}ms (ready)");
             }
-            catch (DllNotFoundException) { }
-            catch { }
+            catch (DllNotFoundException ex)
+            {
+                CtrlLog($"SDL3 init failed — DLL not found: {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                CtrlLog($"SDL3 init failed: {ex.GetType().Name}: {ex.Message}");
+            }
         }
 
         // Dedicated SDL thread: SDL3 hot-plug requires WM_DEVICECHANGE on the
@@ -639,11 +662,37 @@ namespace Emutastic.Services
                         _sdlDispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
                         ready.Set();              // dispatcher captured (instant)
                         InitSdl3();               // 10 s on slow machines; on THIS thread only
-                        System.Windows.Threading.Dispatcher.Run(); // pump WM_DEVICECHANGE for hot-plug
+
+                        // Once SDL is up, run a periodic refresh of the device-name
+                        // cache on THIS thread (not the UI thread). SDL_PumpEvents
+                        // can stall for 10–20 seconds when a complex controller hot-plugs
+                        // (e.g. Xbox Elite 2 fires 3 WM_DEVICECHANGE events and each
+                        // takes ~18 s to process with Steam Input active). Doing it
+                        // here keeps the UI thread free; the UI just reads _cachedDevices.
+                        if (_sdl3Available)
+                        {
+                            // Initial snapshot so the cache isn't empty before the first tick.
+                            try { RefreshDevicesCacheOnSdlThread(); } catch { }
+
+                            var poll = new System.Windows.Threading.DispatcherTimer(
+                                System.Windows.Threading.DispatcherPriority.Background)
+                            {
+                                Interval = TimeSpan.FromSeconds(1)
+                            };
+                            poll.Tick += (_, _) =>
+                            {
+                                try { RefreshDevicesCacheOnSdlThread(); } catch { }
+                            };
+                            poll.Start();
+                            CtrlLog("SDL thread periodic device-cache refresh timer started (1 s)");
+                        }
+
+                        System.Windows.Threading.Dispatcher.Run(); // pump WM_DEVICECHANGE + run the timer
                     }
                     catch (Exception ex)
                     {
                         System.Diagnostics.Trace.WriteLine($"[SDL thread] exited with {ex}");
+                        CtrlLog($"SDL thread exited with: {ex.GetType().Name}: {ex.Message}");
                         ready.Set();
                     }
                 })
@@ -654,6 +703,29 @@ namespace Emutastic.Services
                 thread.SetApartmentState(System.Threading.ApartmentState.STA);
                 thread.Start();
                 ready.Wait();                     // wait only for dispatcher capture, not SDL_Init
+            }
+        }
+
+        // Thread-safe cache of the most recent SDL device name list, refreshed
+        // on the SDL thread itself by the periodic timer above. UI thread reads
+        // this cache via GetConnectedControllers — instant, no Invoke, no block.
+        private static readonly object _cachedDevicesLock = new();
+        private static List<string> _cachedDevices = new();
+        private static DateTime _cachedDevicesAt = DateTime.MinValue;
+
+        /// <summary>
+        /// Runs ON the SDL thread (inside the periodic DispatcherTimer). Pumps
+        /// WM_DEVICECHANGE events, enumerates joysticks, and updates the cache.
+        /// Slow pumps (10–20 s for Elite 2 + Steam Input) stay on this thread;
+        /// the UI thread never sees them.
+        /// </summary>
+        private static void RefreshDevicesCacheOnSdlThread()
+        {
+            var fresh = EnumerateOnSdlThread();
+            lock (_cachedDevicesLock)
+            {
+                _cachedDevices   = fresh;
+                _cachedDevicesAt = DateTime.UtcNow;
             }
         }
 
@@ -691,24 +763,41 @@ namespace Emutastic.Services
         /// across USB, Bluetooth and Xbox wireless. Falls back to XInput slot count
         /// with generic labels if SDL3.dll is not present.
         /// </summary>
-        public static List<string> GetConnectedControllers()
+        // Dedicated controller-diagnostic log file at a hardcoded path next to
+        // the running exe. Direct File.AppendAllText — no TraceListener
+        // indirection, nothing to misconfigure or fail silently.
+        private static readonly string _ctrlDiagLogPath =
+            System.IO.Path.Combine(AppContext.BaseDirectory, "controller-diag.log");
+        private static readonly object _ctrlDiagLogLock = new();
+        private static void CtrlLog(string msg)
         {
-            // If SDL is ready, marshal the enumeration onto the dedicated SDL
-            // thread (which owns the WM_DEVICECHANGE-receiving hidden window
-            // and is constantly pumping messages). If not ready, use the
-            // XInput fallback — instant, generic "Controller N" names, valid
-            // until SDL warms up and the next hot-plug poll upgrades them.
-            if (_sdl3Available && _sdlDispatcher != null)
+            try
             {
-                try
+                lock (_ctrlDiagLogLock)
                 {
-                    return _sdlDispatcher.Invoke(EnumerateOnSdlThread);
-                }
-                catch
-                {
-                    // Fall through to XInput on any marshalling failure.
+                    System.IO.File.AppendAllText(_ctrlDiagLogPath,
+                        $"{DateTime.Now:HH:mm:ss.fff} {msg}{Environment.NewLine}");
                 }
             }
+            catch { /* never throw from logging */ }
+        }
+
+        public static List<string> GetConnectedControllers()
+        {
+            // SDL3 is up: return the cache that the SDL thread is keeping fresh
+            // (refresh timer ticks every 1 s on that thread). This is a copy of
+            // a small list under a tiny lock — instant, never blocks the UI even
+            // when SDL_PumpEvents is mid-stall during a hot-plug event.
+            if (_sdl3Available)
+            {
+                lock (_cachedDevicesLock)
+                {
+                    return new List<string>(_cachedDevices);
+                }
+            }
+            // SDL not initialised yet: fall back to a synchronous XInput poll.
+            // Generic "Controller N" names, valid until SDL warms up and the
+            // next 1-second cache refresh upgrades them to friendly names.
             return EnumerateXInputFallback();
         }
 
@@ -719,7 +808,11 @@ namespace Emutastic.Services
             {
                 if (_sdl3Available)
                 {
+                    var swPump = System.Diagnostics.Stopwatch.StartNew();
                     SDL_PumpEvents();
+                    swPump.Stop();
+
+                    var swEnum = System.Diagnostics.Stopwatch.StartNew();
                     IntPtr arr = SDL_GetJoysticks(out int count);
                     try
                     {
@@ -739,9 +832,16 @@ namespace Emutastic.Services
                     {
                         if (arr != IntPtr.Zero) SDL_free(arr);
                     }
+                    swEnum.Stop();
+
+                    if (swPump.ElapsedMilliseconds + swEnum.ElapsedMilliseconds > 50)
+                        CtrlLog($"EnumerateOnSdlThread pump={swPump.ElapsedMilliseconds}ms enum={swEnum.ElapsedMilliseconds}ms count={result.Count} names=[{string.Join(", ", result)}]");
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                CtrlLog($"EnumerateOnSdlThread THREW: {ex.GetType().Name}: {ex.Message}");
+            }
             return result;
         }
 
@@ -754,6 +854,7 @@ namespace Emutastic.Services
             if (!_xInputInitialized || _xInputGetState == null)
                 return result;
 
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             for (uint slot = 0; slot < 4; slot++)
             {
                 try
@@ -768,6 +869,9 @@ namespace Emutastic.Services
                 }
                 catch { }
             }
+            sw.Stop();
+            if (sw.ElapsedMilliseconds > 25)
+                CtrlLog($"EnumerateXInputFallback took {sw.ElapsedMilliseconds}ms count={result.Count} — XInput lock contention?");
             return result;
         }
     }

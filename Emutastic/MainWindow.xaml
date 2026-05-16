@@ -546,17 +546,9 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
-                    <!-- Drag zone + status text -->
+                    <!-- Drag zone (status text consolidated into the bottom-left banner) -->
                     <Grid Grid.Column="0">
                         <Rectangle Fill="Transparent"/>
-                        <TextBlock x:Name="StatusText"
-                                   Text="{Binding StatusText}"
-                                   FontFamily="{StaticResource PrimaryFont}"
-                                   FontSize="11"
-                                   Foreground="{DynamicResource TextMutedBrush}"
-                                   HorizontalAlignment="Center"
-                                   VerticalAlignment="Center"
-                                   IsHitTestVisible="False"/>
                     </Grid>
 
                     <!-- Window buttons -->

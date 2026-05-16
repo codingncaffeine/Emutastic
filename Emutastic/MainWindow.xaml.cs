@@ -58,6 +58,12 @@ namespace Emutastic
         {
             Loaded -= OnLoaded; // fire once
 
+            // Diagnostic marker — confirms the controller-diag log file is writable
+            // before any controller interaction. If this line is missing from
+            // controller-diag.log, the logging path itself is broken (vs. just
+            // "no events fired").
+            CtrlDiagLog($"=== MainWindow.OnLoaded — exe at {AppContext.BaseDirectory} ===");
+
             // ── Phase 1: synchronous, fast — window becomes interactive immediately ──
             _db          = new DatabaseService();   // schema init (CREATE TABLE / indexes)
 
@@ -445,6 +451,18 @@ namespace Emutastic
             if (_controllerManager == null && App.Configuration != null)
             {
                 _controllerManager = new ControllerManager(App.Configuration);
+                // Surface hot-plug events in the library's bottom status bar.
+                // ConnectionChanged fires on the polling Timer thread, so marshal
+                // to the Dispatcher before touching _vm (WPF binding requirement).
+                _controllerManager.ConnectionChanged += connected =>
+                {
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        _vm.SetStatus(
+                            connected ? "Controller connected" : "Controller disconnected",
+                            autoClear: true);
+                    }));
+                };
             }
         }
 
@@ -1262,7 +1280,7 @@ namespace Emutastic
 
         // ── Controller hot-plug status poll ───────────────────────────────────
         // Diff the connected-controller list every 2 seconds. On change, surface
-        // a 15-second toast in the existing StatusText. First poll after launch
+        // a 5-second toast in the bottom-left banner. First poll after launch
         // primes _lastConnectedControllers without emitting a "connected" message
         // (those controllers were there before the app started — not events).
         private System.Windows.Threading.DispatcherTimer? _controllerStatusTimer;
@@ -1276,30 +1294,57 @@ namespace Emutastic
             };
             _controllerStatusTimer.Tick += (_, _) =>
             {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
                 List<string> current;
                 try { current = Services.ControllerManager.GetConnectedControllers(); }
-                catch { return; }
+                catch (Exception ex)
+                {
+                    CtrlDiagLog($"PollTick GetConnectedControllers THREW: {ex.GetType().Name}: {ex.Message}");
+                    return;
+                }
+                sw.Stop();
+
+                string currentJoined = current.Count == 0 ? "(none)" : string.Join(", ", current);
+                CtrlDiagLog($"PollTick elapsed={sw.ElapsedMilliseconds}ms current=[{currentJoined}]");
 
                 if (_lastConnectedControllers == null)
                 {
-                    // Initial reading — nothing to compare against, no event.
                     _lastConnectedControllers = current;
                     return;
                 }
 
-                // Diff: anything in `current` not in last = newly connected.
-                //       anything in last not in `current` = disconnected.
-                var added = current.Except(_lastConnectedControllers, StringComparer.Ordinal).ToList();
+                var added   = current.Except(_lastConnectedControllers, StringComparer.Ordinal).ToList();
                 var removed = _lastConnectedControllers.Except(current, StringComparer.Ordinal).ToList();
                 _lastConnectedControllers = current;
 
+                if (added.Count > 0 || removed.Count > 0)
+                    CtrlDiagLog($"PollTick DIFF added=[{string.Join(", ", added)}] removed=[{string.Join(", ", removed)}]");
+
                 foreach (var name in added)
-                    _vm.SetStatus($"Controller connected: {name}", 15000);
+                    _vm.SetStatus($"Controller connected: {name}", 5000);
                 foreach (var name in removed)
-                    _vm.SetStatus($"Controller disconnected: {name}", 15000);
+                    _vm.SetStatus($"Controller disconnected: {name}", 5000);
             };
             _controllerStatusTimer.Start();
         }
+
+        // Hardcoded path next to the exe — no AppPaths indirection.
+        private static readonly string _ctrlDiagLogPath =
+            System.IO.Path.Combine(AppContext.BaseDirectory, "controller-diag.log");
+        private static readonly object _ctrlDiagLogLock = new();
+        private static void CtrlDiagLog(string msg)
+        {
+            try
+            {
+                lock (_ctrlDiagLogLock)
+                {
+                    System.IO.File.AppendAllText(_ctrlDiagLogPath,
+                        $"{DateTime.Now:HH:mm:ss.fff} {msg}{Environment.NewLine}");
+                }
+            }
+            catch { }
+        }
+
 
         private void NavPreferences_Click(object sender, RoutedEventArgs e)
         {

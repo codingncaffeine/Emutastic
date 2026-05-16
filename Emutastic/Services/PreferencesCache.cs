@@ -325,14 +325,22 @@ namespace Emutastic.Services
         public static Task<List<string>> GetControllerDevicesAsync(TimeSpan maxAge)
         {
             if (_controllers != null && DateTime.UtcNow - _controllersAt < maxAge)
+            {
+                System.Diagnostics.Trace.WriteLine(
+                    $"[CTRL-DIAG] PreferencesCache.GetControllerDevicesAsync served from cache (age={(DateTime.UtcNow - _controllersAt).TotalMilliseconds:F0}ms, max={maxAge.TotalMilliseconds:F0}ms)");
                 return Task.FromResult(new List<string>(_controllers));
+            }
 
             // Synchronous enumeration on the caller's thread — must be the
             // dispatcher for SDL3 hot-plug to see device-change events.
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var l = new List<string> { "Keyboard" };
             try { l.AddRange(ControllerManager.GetConnectedControllers()); } catch { }
             _controllers = l;
             _controllersAt = DateTime.UtcNow;
+            sw.Stop();
+            System.Diagnostics.Trace.WriteLine(
+                $"[CTRL-DIAG] PreferencesCache.GetControllerDevicesAsync fresh enumeration took {sw.ElapsedMilliseconds}ms count={l.Count} devices=[{string.Join(", ", l)}]");
             return Task.FromResult(new List<string>(l));
         }
 

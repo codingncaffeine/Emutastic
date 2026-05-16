@@ -550,23 +550,41 @@ namespace Emutastic.ViewModels
             => SetStatus(msg, autoClear ? 3000 : 0);
 
         /// <summary>
-        /// Overload with explicit dwell duration (ms). Pass 0 (or use the
-        /// <see cref="SetStatus(string, bool)"/> overload with autoClear=false)
-        /// for a sticky message.
+        /// Routes to the single bottom-left banner surface (NotificationText +
+        /// IsNotification). All transient status updates go through here, so the
+        /// app has exactly one place for status messages.
         /// </summary>
         public void SetStatus(string msg, int dwellMs)
         {
             _statusClearCts?.Cancel();
-            StatusText = msg;
+            // Imports + core-update flows still set their own IsImporting /
+            // IsCoreUpdating properties, which BannerText prioritises over the
+            // notification text. So a SetStatus call during an active import
+            // won't stomp on the import progress — the notification just queues
+            // behind it via the BannerText priority chain.
+            NotificationText = msg;
+            IsNotification   = true;
+            // Keep StatusText in sync so any leftover bindings still see the
+            // current message (no-op if nothing is bound to it).
+            StatusText       = msg;
             if (dwellMs <= 0) return;
             _statusClearCts = new CancellationTokenSource();
             var token = _statusClearCts.Token;
             _ = Task.Delay(dwellMs, token).ContinueWith(_ =>
             {
-                if (_uiContext != null)
-                    _uiContext.Post(_ => StatusText = "", null);
-                else
-                    StatusText = "";
+                Action clear = () =>
+                {
+                    // Only clear if our text is still showing — don't stomp on a
+                    // newer status that fired after us.
+                    if (NotificationText == msg)
+                    {
+                        NotificationText = "";
+                        IsNotification   = false;
+                        StatusText       = "";
+                    }
+                };
+                if (_uiContext != null) _uiContext.Post(_ => clear(), null);
+                else                    clear();
             }, token, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default);
         }
 
