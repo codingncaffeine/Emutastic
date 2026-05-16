@@ -58,7 +58,7 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 | Neo Geo Pocket | NGP | mednafen_ngp | No |
 | Neo Geo Pocket Color | NGPC | mednafen_ngp | No |
 | Neo Geo | NeoGeo | geolith | `neogeo.zip` + `aes.zip` |
-| Arcade | Arcade | fbneo | No |
+| Arcade | Arcade | fbneo + mame2003-plus ¹ | No |
 | Atari 2600 | Atari2600 | stella | No |
 | Atari 7800 | Atari7800 | prosystem | No |
 | Atari Jaguar | Jaguar | virtualjaguar | No |
@@ -68,6 +68,8 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 | Philips CD-i | CDi | same_cdi | No |
 
 </details>
+
+¹ Arcade routes per-game between FBNeo (primary; better controls + save states) and MAME 2003-Plus (fills FBNeo gaps — Atari vector, Sega G-80, Cinematronics, Williams pre-MK, Killer Instinct, War Gods, etc.). MAME 2003-Plus's romset expectations have drifted over time and a few drivers (Sega ST-V, Midway Vegas) aren't fully backported — your mileage will vary on those. See the [Arcade wiki page](https://github.com/codingncaffeine/Emutastic/wiki/Arcade) for known-broken hardware.
 
 ---
 
