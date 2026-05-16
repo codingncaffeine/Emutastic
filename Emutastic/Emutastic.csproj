@@ -16,7 +16,7 @@
          use this value verbatim — if it drifts behind the latest tag, the
          About tab flags "A newer release is available" against the user's own
          locally-built copy. Bump alongside every new git tag. -->
-    <Version>1.5.1</Version>
+    <Version>1.5.2</Version>
     <ApplicationIcon>Assets\emutastic-logo.ico</ApplicationIcon>
     <!-- Suppress WinRT AOT warnings (MVVMTK0045) and PRI resource warnings — not applicable to WPF -->
     <NoWarn>$(NoWarn);MVVMTK0045</NoWarn>
@@ -30,9 +30,13 @@
     </Content>
   </ItemGroup>
   <ItemGroup>
-    <Content Include="Cores\*.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
+    <!-- Cores\*.dll is intentionally NOT bundled. The release workflow ships
+         with an empty Cores/ folder; users populate it via Preferences →
+         Cores → Update All on first launch. Bundling source-tree DLLs caused
+         freshly-downloaded cores to be overwritten by stale ones on the next
+         incremental build (MSBuild's PreserveNewest preserves the SOURCE mtime
+         when copying, so re-deployed cores immediately look weeks-old to the
+         staleness check). -->
     <Content Include="Cores\disksys.rom" Condition="Exists('Cores\disksys.rom')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
