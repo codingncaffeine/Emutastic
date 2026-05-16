@@ -108,22 +108,24 @@ namespace Emutastic.Views
         // CLR EE fault.  Queue on the UI thread; drain before every retro_run.
         private readonly System.Collections.Concurrent.ConcurrentQueue<(bool down, uint key, ushort mod)> _kbEventQueue
             = new(); // kept GC-rooted; provided by core
-        private const uint JOYPAD_B      = 0;
-        private const uint JOYPAD_Y      = 1;
-        private const uint JOYPAD_SELECT = 2;
-        private const uint JOYPAD_START  = 3;
-        private const uint JOYPAD_UP     = 4;
-        private const uint JOYPAD_DOWN   = 5;
-        private const uint JOYPAD_LEFT   = 6;
-        private const uint JOYPAD_RIGHT  = 7;
-        private const uint JOYPAD_A      = 8;
-        private const uint JOYPAD_X      = 9;
-        private const uint JOYPAD_L      = 10;
-        private const uint JOYPAD_R      = 11;
-        private const uint JOYPAD_L2     = 12;
-        private const uint JOYPAD_R2     = 13;
-        private const uint JOYPAD_L3     = 14;
-        private const uint JOYPAD_R3     = 15;
+        // Canonical values live in Services.LibretroInput; aliased here so the many
+        // existing JOYPAD_* references in this file don't all need to change.
+        private const uint JOYPAD_B      = Services.LibretroInput.JOYPAD_B;
+        private const uint JOYPAD_Y      = Services.LibretroInput.JOYPAD_Y;
+        private const uint JOYPAD_SELECT = Services.LibretroInput.JOYPAD_SELECT;
+        private const uint JOYPAD_START  = Services.LibretroInput.JOYPAD_START;
+        private const uint JOYPAD_UP     = Services.LibretroInput.JOYPAD_UP;
+        private const uint JOYPAD_DOWN   = Services.LibretroInput.JOYPAD_DOWN;
+        private const uint JOYPAD_LEFT   = Services.LibretroInput.JOYPAD_LEFT;
+        private const uint JOYPAD_RIGHT  = Services.LibretroInput.JOYPAD_RIGHT;
+        private const uint JOYPAD_A      = Services.LibretroInput.JOYPAD_A;
+        private const uint JOYPAD_X      = Services.LibretroInput.JOYPAD_X;
+        private const uint JOYPAD_L      = Services.LibretroInput.JOYPAD_L;
+        private const uint JOYPAD_R      = Services.LibretroInput.JOYPAD_R;
+        private const uint JOYPAD_L2     = Services.LibretroInput.JOYPAD_L2;
+        private const uint JOYPAD_R2     = Services.LibretroInput.JOYPAD_R2;
+        private const uint JOYPAD_L3     = Services.LibretroInput.JOYPAD_L3;
+        private const uint JOYPAD_R3     = Services.LibretroInput.JOYPAD_R3;
 
         // Turbo / autofire: per-port set of button IDs to modulate.
         // Modulation matches RetroArch defaults: period=6 frames, duty=3 → ~10Hz at 60fps.
@@ -4931,7 +4933,7 @@ namespace Emutastic.Views
                     }
                     if (Enum.TryParse<Key>(mapping.InputIdentifier, out var key))
                     {
-                        uint id = GetLibretroButtonId(mapping.ButtonName, _game.Console);
+                        uint id = Services.LibretroInput.GetButtonId(mapping.ButtonName, _game.Console);
                         if (id < 16) _keyboardMappings[key] = id;
                     }
                 }
@@ -4981,226 +4983,7 @@ namespace Emutastic.Views
             _keyboardMappings[Key.RightShift] = JOYPAD_SELECT;
         }
 
-        private uint GetLibretroButtonId(string name, string console = "")
-        {
-            string n = name.ToLower();
-
-            switch (console)
-            {
-                // ── Sega 6-button layout: A→Y, C→A, Z→R, Mode→Select ─────────
-                case "Genesis": case "SegaCD": case "Sega32X":
-                    return n switch {
-                        "a" => JOYPAD_Y, "b" => JOYPAD_B, "c" => JOYPAD_A,
-                        "x" => JOYPAD_X, "y" => JOYPAD_L, "z" => JOYPAD_R,
-                        "mode" => JOYPAD_SELECT, "start" => JOYPAD_START,
-                        "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
-                        "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
-                        _ => uint.MaxValue
-                    };
-                case "Saturn":
-                    // Both Kronos and Beetle Saturn decode RetroPad IDs into Saturn
-                    // buttons using RetroArch's standard "6-button-on-modern-pad"
-                    // convention (not the Saturn pad's physical positional layout).
-                    // Kronos: yabause/src/libretro/libretro.c
-                    // Beetle: beetle-saturn-libretro/input.cpp
-                    //   JOYPAD_B (0) → A   JOYPAD_A (8) → B   JOYPAD_R (11) → C
-                    //   JOYPAD_Y (1) → X   JOYPAD_X (9) → Y   JOYPAD_L (10) → Z
-                    //   JOYPAD_L2 (12) → L-trigger  JOYPAD_R2 (13) → R-trigger
-                    return n switch {
-                        "a" => JOYPAD_B, "b" => JOYPAD_A, "c" => JOYPAD_R,
-                        "x" => JOYPAD_Y, "y" => JOYPAD_X, "z" => JOYPAD_L,
-                        "l" => 12, "r" => 13,               // shoulder → L2/R2
-                        "select" => JOYPAD_SELECT, "start" => JOYPAD_START,
-                        "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
-                        "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
-                        _ => uint.MaxValue
-                    };
-
-                // ── PlayStation: Sony button names → libretro IDs ─────────────
-                case "PS1": case "PSP":
-                    return n switch {
-                        "cross" => JOYPAD_B, "circle" => JOYPAD_A,
-                        "square" => JOYPAD_Y, "triangle" => JOYPAD_X,
-                        "l1" => JOYPAD_L, "r1" => JOYPAD_R,
-                        "l2" => 12, "r2" => 13, "l3" => 14, "r3" => 15,
-                        "select" => JOYPAD_SELECT, "start" => JOYPAD_START,
-                        "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
-                        "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
-                        _ => uint.MaxValue
-                    };
-
-                // ── NEC PC-Engine ─────────────────────────────────────────────
-                case "TG16": case "TGCD":
-                    return n switch {
-                        "ii" => JOYPAD_B, "i" => JOYPAD_A,
-                        "select" => JOYPAD_SELECT, "run" => JOYPAD_START,
-                        "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
-                        "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
-                        _ => uint.MaxValue
-                    };
-                // ── Nintendo 64 (Z trigger → L2; C-buttons via analog path) ──
-                case "N64":
-                    return n switch {
-                        "a" => JOYPAD_B, "b" => JOYPAD_Y,   // N64 A=south(0), B=west(1) per RetroArch standard
-                        "z" => 12, "l" => JOYPAD_L, "r" => JOYPAD_R,
-                        "start" => JOYPAD_START,
-                        "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
-                        "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
-                        _ => uint.MaxValue   // C-buttons / analog handled by WASD/IJKL
-                    };
-
-                // ── GameCube (Z → L2; analog handled by WASD/IJKL) ───────────
-                case "GameCube":
-                    return n switch {
-                        "a" => JOYPAD_A, "b" => JOYPAD_B, "x" => JOYPAD_X, "y" => JOYPAD_Y,
-                        "l" => JOYPAD_L, "r" => JOYPAD_R, "z" => 12,
-                        "start" => JOYPAD_START,
-                        "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
-                        "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
-                        _ => uint.MaxValue
-                    };
-
-                // ── Nintendo 3DS ──────────────────────────────────────────────
-                case "3DS":
-                    return n switch {
-                        "a" => JOYPAD_A, "b" => JOYPAD_B, "x" => JOYPAD_X, "y" => JOYPAD_Y,
-                        "l" => JOYPAD_L, "r" => JOYPAD_R,
-                        "zl" => 12, "zr" => 13, "home" => 14, "touch" => 15,
-                        "select" => JOYPAD_SELECT, "start" => JOYPAD_START,
-                        "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
-                        "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
-                        _ => uint.MaxValue  // analog directions handled via RETRO_DEVICE_ANALOG path
-                    };
-
-                // ── Sega 8-bit: numbered buttons ──────────────────────────────
-                case "SMS": case "GameGear": case "SG1000":
-                    return n switch {
-                        "1" => JOYPAD_B, "2" => JOYPAD_A, "start" => JOYPAD_START,
-                        "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
-                        "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
-                        _ => uint.MaxValue
-                    };
-
-                // ── Atari ─────────────────────────────────────────────────────
-                case "Atari2600":
-                    return n switch {
-                        "fire" => JOYPAD_B,
-                        "select" => JOYPAD_SELECT, "reset" => JOYPAD_START,
-                        "left diff a" => JOYPAD_L, "left diff b" => 12,  // L2
-                        "right diff a" => JOYPAD_R, "right diff b" => 13, // R2
-                        "color" => 14, "b/w" => 15,  // L3, R3
-                        "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
-                        "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
-                        _ => uint.MaxValue
-                    };
-                case "Atari7800":
-                    return n switch {
-                        "fire 1" => JOYPAD_B, "fire 2" => JOYPAD_A,
-                        "select" => JOYPAD_SELECT, "pause" => JOYPAD_START,
-                        "reset" => JOYPAD_X,
-                        "left diff" => JOYPAD_L, "right diff" => JOYPAD_R,
-                        "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
-                        "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
-                        _ => uint.MaxValue
-                    };
-                case "Jaguar":
-                    return n switch {
-                        "a" => JOYPAD_B, "b" => JOYPAD_A, "c" => JOYPAD_R,
-                        "option" => JOYPAD_SELECT, "pause" => JOYPAD_START,
-                        "*" => JOYPAD_L, "#" => JOYPAD_Y, "0" => JOYPAD_X,
-                        "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
-                        "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
-                        _ => uint.MaxValue
-                    };
-                case "Dreamcast":
-                    return n switch {
-                        "a" => JOYPAD_B, "b" => JOYPAD_A, "x" => JOYPAD_Y, "y" => JOYPAD_X,
-                        "start" => JOYPAD_START,
-                        "l trigger" => JOYPAD_L2, "r trigger" => JOYPAD_R2,
-                        "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
-                        "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
-                        _ => uint.MaxValue  // analog directions handled via RETRO_DEVICE_ANALOG path
-                    };
-
-                // ── Others ────────────────────────────────────────────────────
-                case "ColecoVision":
-                    return n switch {
-                        "left fire" => JOYPAD_B, "right fire" => JOYPAD_A,
-                        "1" => JOYPAD_Y, "2" => JOYPAD_X,
-                        "3" => JOYPAD_L, "4" => JOYPAD_R,
-                        "5" => JOYPAD_L2, "6" => JOYPAD_R2,
-                        "*" => JOYPAD_START, "#" => JOYPAD_SELECT,
-                        "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
-                        "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
-                        _ => uint.MaxValue
-                    };
-
-                case "Vectrex":
-                    return n switch {
-                        "1" => JOYPAD_A, "2" => JOYPAD_B, "3" => JOYPAD_X, "4" => JOYPAD_Y,
-                        _ => uint.MaxValue
-                    };
-                case "3DO":
-                    return n switch {
-                        "c" => JOYPAD_A, "b" => JOYPAD_B, "a" => JOYPAD_Y, "x" => JOYPAD_X,
-                        "l" => JOYPAD_L, "r" => JOYPAD_R, "p" => JOYPAD_START,
-                        "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
-                        "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
-                        _ => uint.MaxValue
-                    };
-                case "NGP":
-                    return n switch {
-                        "a" => JOYPAD_A, "b" => JOYPAD_B, "option" => JOYPAD_START,
-                        "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
-                        "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
-                        _ => uint.MaxValue
-                    };
-                case "VirtualBoy":
-                    return n switch {
-                        "left up"    => JOYPAD_UP,   "left down"  => JOYPAD_DOWN,
-                        "left left"  => JOYPAD_LEFT, "left right" => JOYPAD_RIGHT,
-                        "right up"   => JOYPAD_X,    "right down" => JOYPAD_B,
-                        "right left" => JOYPAD_Y,    "right right"=> JOYPAD_A,
-                        "a" => JOYPAD_A, "b" => JOYPAD_B, "l" => JOYPAD_L, "r" => JOYPAD_R,
-                        "select" => JOYPAD_SELECT, "start" => JOYPAD_START,
-                        _ => uint.MaxValue
-                    };
-
-                // ── Arcade / FBNeo (Classic mode button numbering) ────────────
-                case "Arcade":
-                    return n switch {
-                        "button 1" => JOYPAD_Y,  "button 2" => JOYPAD_B,
-                        "button 3" => JOYPAD_X,  "button 4" => JOYPAD_A,
-                        "button 5" => JOYPAD_L,  "button 6" => JOYPAD_R,
-                        "button 7" => 12,         "button 8" => 13,
-                        "coin"     => JOYPAD_SELECT, "start" => JOYPAD_START,
-                        "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
-                        "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
-                        _ => uint.MaxValue
-                    };
-
-                // ── Neo Geo / Geolith ────────────────────────────────────────
-                case "NeoGeo":
-                    return n switch {
-                        "a"      => JOYPAD_B,      "b"     => JOYPAD_A,
-                        "c"      => JOYPAD_Y,      "d"     => JOYPAD_X,
-                        "select" => JOYPAD_SELECT,  "start" => JOYPAD_START,
-                        "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
-                        "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
-                        _ => uint.MaxValue
-                    };
-            }
-
-            // Standard libretro joypad mapping (NES, SNES, GB, GBA, NDS, FDS, MSX, etc.)
-            return n switch
-            {
-                "b" => JOYPAD_B, "y" => JOYPAD_Y, "select" => JOYPAD_SELECT, "start" => JOYPAD_START,
-                "up" => JOYPAD_UP, "down" => JOYPAD_DOWN, "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
-                "a" => JOYPAD_A, "x" => JOYPAD_X, "l" => JOYPAD_L, "r" => JOYPAD_R,
-                "l2" => 12, "r2" => 13, "l3" => 14, "r3" => 15,
-                _ => uint.MaxValue
-            };
-        }
+        // GetLibretroButtonId moved to Services/LibretroInput.GetButtonId.
 
         // ── Pointer / touch input (NDS bottom screen) ─────────────────────
 
@@ -5490,9 +5273,26 @@ namespace Emutastic.Views
             return new string(s.Select(c => invalid.Contains(c) ? '_' : c).ToArray()).Trim();
         }
 
+        /// <summary>
+        /// True when the loaded core's save state support is unreliable enough that
+        /// we proactively disable save/load UI rather than silently dropping the user's
+        /// save. Currently: mame2003-plus (MAME's per-game inconsistent serialization).
+        /// </summary>
+        private bool IsSaveStateUnreliable()
+        {
+            string p = (_core?.CorePath ?? "").ToLowerInvariant();
+            return p.Contains("mame2003_plus");
+        }
+
         /// <summary>Request a named save from the UI thread. Emu thread picks it up after next retro_run.</summary>
         private void RequestSave(string name)
         {
+            if (IsSaveStateUnreliable())
+            {
+                _transientMsg    = "Save states are disabled for MAME 2003-Plus (unreliable per-game)";
+                _transientExpiry = DateTime.Now.AddSeconds(5);
+                return;
+            }
             _pendingSaveName  = name;
             _saveStatePending = true;
         }
@@ -5755,6 +5555,12 @@ namespace Emutastic.Views
         /// <summary>Request a load by file path from the UI thread.</summary>
         private void RequestLoad(string statePath, string name)
         {
+            if (IsSaveStateUnreliable())
+            {
+                _transientMsg    = "Save states are disabled for MAME 2003-Plus (unreliable per-game)";
+                _transientExpiry = DateTime.Now.AddSeconds(5);
+                return;
+            }
             try
             {
                 _pendingLoadData         = File.ReadAllBytes(statePath);

@@ -160,6 +160,33 @@ namespace Emutastic.Services
             TryAddColumn(connection, "Games", "Description", "TEXT DEFAULT ''");
             TryAddColumn(connection, "Games", "OriginalSourcePath", "TEXT DEFAULT ''");
             TryAddColumn(connection, "Games", "MetadataAttempts",   "INTEGER DEFAULT 0");
+            TryAddColumn(connection, "Games", "PreferredCore",      "TEXT DEFAULT ''");
+
+            // One-shot migration: games whose RomPath lives in a mame2003-plus folder
+            // should route to that core regardless of DAT membership. Earlier import
+            // logic preferred FBNeo whenever FBNeo's DAT listed the game, even when
+            // the actual ROM file matched MAME 2003-Plus's romset (different CRCs).
+            // Symptom: launches into FBNeo and fails to load. Fix the persisted state
+            // here so the user doesn't have to delete + re-import every affected game.
+            try
+            {
+                var routeFix = connection.CreateCommand();
+                routeFix.CommandText = @"
+                    UPDATE Games
+                    SET PreferredCore = 'mame2003_plus_libretro.dll'
+                    WHERE Console = 'Arcade'
+                      AND (LOWER(RomPath) LIKE '%mame2003plus%'
+                           OR LOWER(RomPath) LIKE '%mame2003-plus%')
+                      AND PreferredCore <> 'mame2003_plus_libretro.dll';";
+                int rowsFixed = routeFix.ExecuteNonQuery();
+                if (rowsFixed > 0)
+                    System.Diagnostics.Trace.WriteLine(
+                        $"[DatabaseService] Re-routed {rowsFixed} arcade game(s) to mame2003-plus based on folder path.");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[DatabaseService] PreferredCore migration failed: {ex.Message}");
+            }
 
             TryAddColumn(connection, "SaveStates", "Name",        "TEXT NOT NULL DEFAULT ''");
             TryAddColumn(connection, "SaveStates", "GameTitle",   "TEXT NOT NULL DEFAULT ''");
@@ -795,12 +822,12 @@ namespace Emutastic.Services
                     (Title, Console, Manufacturer, Year, RomPath, OriginalSourcePath, RomHash,
                      CoverArtPath, BoxArt3DPath, ScreenScraperArtPath,
                      BackgroundColor, AccentColor, Rating, Collection, DateAdded,
-                     Developer, Publisher, Genre, Description)
+                     Developer, Publisher, Genre, Description, PreferredCore)
                 VALUES
                     ($title, $console, $manufacturer, $year, $romPath, $origSourcePath, $romHash,
                      $coverArt, $boxArt3D, $ssArt,
                      $bgColor, $accentColor, 0, '', $dateAdded,
-                     $developer, $publisher, $genre, $description);";
+                     $developer, $publisher, $genre, $description, $preferredCore);";
 
             cmd.Parameters.AddWithValue("$title", game.Title);
             cmd.Parameters.AddWithValue("$console", game.Console);
@@ -822,6 +849,7 @@ namespace Emutastic.Services
             cmd.Parameters.AddWithValue("$publisher", game.Publisher ?? "");
             cmd.Parameters.AddWithValue("$genre", game.Genre ?? "");
             cmd.Parameters.AddWithValue("$description", game.Description ?? "");
+            cmd.Parameters.AddWithValue("$preferredCore", game.PreferredCore ?? "");
             cmd.ExecuteNonQuery();
 
             var idCmd = connection.CreateCommand();
@@ -1490,7 +1518,7 @@ namespace Emutastic.Services
                 CoverArtPath, BackgroundColor, AccentColor, PlayCount, SaveCount,
                 IsFavorite, Rating, Collection, LastPlayed, BoxArt3DPath,
                 ScreenScraperArtPath, ArtworkAttempts, MetadataAttempts,
-                Developer, Publisher, Genre, Description;
+                Developer, Publisher, Genre, Description, PreferredCore;
 
             public OrdinalMap(SqliteDataReader reader)
             {
@@ -1519,6 +1547,7 @@ namespace Emutastic.Services
                 Publisher   = TryOrd(reader, "Publisher");
                 Genre       = TryOrd(reader, "Genre");
                 Description = TryOrd(reader, "Description");
+                PreferredCore = TryOrd(reader, "PreferredCore");
             }
 
             private static int TryOrd(SqliteDataReader r, string col)
@@ -1557,6 +1586,7 @@ namespace Emutastic.Services
                 Publisher   = GetStr(reader, o.Publisher),
                 Genre       = GetStr(reader, o.Genre),
                 Description = GetStr(reader, o.Description),
+                PreferredCore = GetStr(reader, o.PreferredCore),
             };
         }
 

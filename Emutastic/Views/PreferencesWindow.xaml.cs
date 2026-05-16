@@ -2545,8 +2545,9 @@ namespace Emutastic.Views
 
         private static readonly (string Tag, string Label, string? RedumpSlug, string? DirectUrl)[] KnownDats =
         {
-            ("Arcade", "Arcade (FBNeo)",     null, "https://raw.githubusercontent.com/libretro/FBNeo/master/dats/FinalBurn%20Neo%20(ClrMame%20Pro%20XML%2C%20Arcade%20only).dat"),
-            ("NeoGeo", "Neo Geo (Geolith)", null, "https://raw.githubusercontent.com/libretro/libretro-database/master/dat/SNK%20-%20Neo%20Geo.dat"),
+            ("Arcade",       "Arcade (FBNeo)",          null, "https://raw.githubusercontent.com/libretro/FBNeo/master/dats/FinalBurn%20Neo%20(ClrMame%20Pro%20XML%2C%20Arcade%20only).dat"),
+            ("mame2003plus", "Arcade (MAME 2003-Plus)", null, "https://raw.githubusercontent.com/libretro/mame2003-plus-libretro/master/metadata/mame2003-plus.xml"),
+            ("NeoGeo",       "Neo Geo (Geolith)",       null, "https://raw.githubusercontent.com/libretro/libretro-database/master/dat/SNK%20-%20Neo%20Geo.dat"),
             ("SegaCD", "Sega CD / Mega CD",  "mcd",  null),
             ("Saturn", "Sega Saturn",        "ss",   null),
             ("PS1",    "PlayStation",         "psx",  null),

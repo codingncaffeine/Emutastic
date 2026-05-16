@@ -352,45 +352,51 @@ namespace Emutastic.Services
             return !string.IsNullOrEmpty(tag) && ManufacturerMap.ContainsKey(tag);
         }
 
-        // Box art aspect ratios (width / height) sourced from actual Libretro thumbnail repository.
+        // Box art aspect ratios (width / height) — empirically measured from
+        // the user's actual ScreenScraper artwork library, NOT physical box
+        // shapes. ScreenScraper often returns landscape promotional artwork
+        // even for consoles whose physical boxes are tall (SNES, NES, 3DS,
+        // DS), so values trend higher (more landscape) than you'd expect from
+        // looking at a physical cart/box.
         // Values below 1.0 = portrait, above 1.0 = landscape.
+        // To re-measure if user changes art source or finds another off-by-x,
+        // see project_consoleboxratios_screenscraper memory for the PowerShell.
         private static readonly Dictionary<string, double> ConsoleBoxRatios = new()
         {
-            { "NES",          0.64 },  // US clamshell / Famicom vertical box
-            { "FDS",          0.64 },  // same box as NES
-            { "SNES",         0.68 },  // large Nintendo clamshell
-            { "N64",          1.37 },  // famously wide N64 cardboard box (landscape)
-            { "GameCube",     0.73 },  // DVD keepcase
-            { "GB",           0.81 },  // Game Boy clamshell
-            { "GBC",          0.82 },  // same physical box as GB
-            { "GBA",          0.98 },  // GBA clamshell (near-square)
-            { "NDS",          0.95 },  // DS keepcase
-            { "3DS",          0.72 },  // 3DS keepcase
-            { "VirtualBoy",   0.90 },  // Virtual Boy box
-            { "Genesis",      0.66 },  // Genesis clamshell
-            { "SegaCD",       0.66 },  // same Genesis clamshell
-            { "Sega32X",      0.66 },  // same Genesis clamshell
-            { "Saturn",       0.63 },  // tall custom Sega Saturn jewel case
-            { "SMS",          0.73 },  // Master System box
-            { "GameGear",     0.73 },  // Game Gear clamshell
-            { "SG1000",       1.03 },  // SG-1000 box (near-square)
-            { "Dreamcast",    0.93 },  // GD-ROM jewel case
-            { "PS1",          0.95 },  // CD jewel case
-            { "PSP",          0.70 },  // UMD keepcase
-            { "TG16",         0.90 },  // HuCard box
-            { "TGCD",         0.90 },  // same as TG16
-            { "NGP",          1.28 },  // Neo Geo Pocket hang-tab card (landscape)
-            { "NGPC",         1.28 },  // Neo Geo Pocket Color hang-tab card (landscape)
-            { "Atari2600",    0.83 },  // 2600 box
-
-            { "Atari7800",    0.88 },  // 7800 box
-            { "Jaguar",       0.73 },  // Jaguar box
-            { "ColecoVision", 0.73 },  // ColecoVision box
-
-            { "Vectrex",      0.75 },  // Vectrex box
-            { "3DO",          0.58 },  // exceptionally tall 3DO slipcase
-            { "NeoGeo",       0.73 },  // Neo Geo AES box art
-            { "Arcade",       0.73 },  // arcade flyer art
+            { "NES",          0.78 },
+            { "FDS",          0.92 },
+            { "SNES",         1.41 },
+            { "N64",          1.39 },
+            { "GameCube",     0.75 },
+            { "GB",           1.02 },
+            { "GBC",          1.01 },
+            { "GBA",          1.04 },
+            { "NDS",          1.12 },
+            { "3DS",          1.12 },
+            { "VirtualBoy",   1.02 },
+            { "Genesis",      0.70 },
+            { "SegaCD",       0.66 },
+            { "Sega32X",      0.83 },
+            { "Saturn",       0.77 },
+            { "SMS",          0.83 },
+            { "GameGear",     0.71 },
+            { "SG1000",       0.97 },
+            { "Dreamcast",    1.04 },
+            { "PS1",          1.00 },
+            { "PSP",          0.98 },
+            { "TG16",         0.98 },
+            { "TGCD",         1.00 },
+            { "NGP",          1.00 },
+            { "NGPC",         1.00 },
+            { "Atari2600",    0.73 },
+            { "Atari7800",    0.96 },
+            { "Jaguar",       0.84 },
+            { "ColecoVision", 0.73 },
+            { "Vectrex",      0.76 },
+            { "3DO",          1.09 },
+            { "CDi",          1.02 },
+            { "NeoGeo",       0.81 },
+            { "Arcade",       0.84 },
         };
 
         public static double GetBoxRatio(string console)

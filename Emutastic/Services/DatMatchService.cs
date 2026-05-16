@@ -23,7 +23,15 @@ namespace Emutastic.Services
         private readonly Dictionary<string, DatMatch> _sha1Index = new(StringComparer.OrdinalIgnoreCase);
 
         // Arcade short ROM name (e.g. "mslug") → ArcadeMeta(title, year, manufacturer)
+        // Populated from whichever Arcade DAT loads first; used for metadata lookup.
         private readonly Dictionary<string, ArcadeMeta> _arcadeMetaIndex = new(StringComparer.OrdinalIgnoreCase);
+
+        // Per-DAT name sets for arcade core routing. A given ROM name (e.g. "polepos")
+        // may live in only one of these (mame2003-plus has Pole Position; FBNeo doesn't),
+        // both (Street Fighter II), or neither. GetPreferredArcadeCore prefers FBNeo when
+        // both are present because FBNeo has better-tuned controls + save state support.
+        private readonly HashSet<string> _fbneoArcadeNames        = new(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _mame2003plusArcadeNames = new(StringComparer.OrdinalIgnoreCase);
 
         // NeoGeo ROM filename (e.g. "samsho") → full title (e.g. "Samurai Shodown / Samurai Spirits")
         private readonly Dictionary<string, string> _neoGeoNameIndex = new(StringComparer.OrdinalIgnoreCase);
@@ -53,28 +61,57 @@ namespace Emutastic.Services
 
             if (!Directory.Exists(_datsFolder)) return;
 
-            foreach (string datPath in Directory.EnumerateFiles(_datsFolder, "*.dat"))
+            // Scan .dat (Redump/No-Intro/clrmamepro) and .xml (MAME listinfo) files.
+            // The mame2003-plus DAT ships as .xml from libretro/mame2003-plus-libretro;
+            // FBNeo's DAT is .dat. Filename (case-insensitive) tells us the source core
+            // for arcade routing.
+            var files = new List<string>();
+            files.AddRange(Directory.EnumerateFiles(_datsFolder, "*.dat"));
+            files.AddRange(Directory.EnumerateFiles(_datsFolder, "*.xml"));
+            foreach (string datPath in files)
             {
-                string console = Path.GetFileNameWithoutExtension(datPath);
+                string fileBase = Path.GetFileNameWithoutExtension(datPath);
+                string console = fileBase;
                 // NGPC games use the same core and sidebar entry as NGP
                 if (console.Equals("NGPC", StringComparison.OrdinalIgnoreCase))
                     console = "NGP";
+
+                // Arcade DAT routing: filename pattern identifies source core.
+                //   "Arcade.dat"             → FBNeo arcade games
+                //   "mame2003plus.*"         → MAME 2003-Plus arcade games
+                //   "mame2003-plus.*"        → MAME 2003-Plus arcade games (alt spelling)
+                ArcadeSource? arcadeSource = null;
+                if (fileBase.StartsWith("mame2003plus", StringComparison.OrdinalIgnoreCase) ||
+                    fileBase.StartsWith("mame2003-plus", StringComparison.OrdinalIgnoreCase))
+                {
+                    arcadeSource = ArcadeSource.Mame2003Plus;
+                    console = "Arcade";
+                }
+                else if (console.Equals("Arcade", StringComparison.OrdinalIgnoreCase))
+                {
+                    arcadeSource = ArcadeSource.FBNeo;
+                }
+
                 if (console.Equals("NeoGeo", StringComparison.OrdinalIgnoreCase) ||
                     console.Equals("NGP",    StringComparison.OrdinalIgnoreCase))
                     LoadClrmameproDat(datPath, console);
                 else
-                    LoadDat(datPath, console);
+                    LoadDat(datPath, console, arcadeSource);
             }
 
             System.Diagnostics.Trace.WriteLine(
-                $"[DatMatchService] Loaded {_sha1Index.Count} SHA1 entries, {_neoGeoNameIndex.Count} NeoGeo titles from {_datsFolder}");
+                $"[DatMatchService] Loaded {_sha1Index.Count} SHA1 entries, {_neoGeoNameIndex.Count} NeoGeo titles, " +
+                $"{_fbneoArcadeNames.Count} FBNeo arcade names, {_mame2003plusArcadeNames.Count} MAME 2003-Plus arcade names from {_datsFolder}");
         }
+
+        /// <summary>Identifies which arcade DAT a game came from, for core routing.</summary>
+        private enum ArcadeSource { FBNeo, Mame2003Plus }
 
         /// <summary>
         /// Parses a standard Redump/No-Intro XML DAT file.
         /// Indexes every &lt;rom&gt; element's sha1 attribute.
         /// </summary>
-        private void LoadDat(string path, string console)
+        private void LoadDat(string path, string console, ArcadeSource? arcadeSource = null)
         {
             try
             {
@@ -94,8 +131,10 @@ namespace Emutastic.Services
                 {
                     if (!isArcade || currentGame == null
                         || string.IsNullOrWhiteSpace(currentDescription)) return;
-                    _arcadeMetaIndex[currentGame] = new ArcadeMeta(
-                        currentDescription, currentYear, currentManufacturer);
+                    // Use TryAdd so the first DAT loaded wins for metadata
+                    // (FBNeo's descriptions are generally cleaner than MAME's).
+                    _arcadeMetaIndex.TryAdd(currentGame, new ArcadeMeta(
+                        currentDescription, currentYear, currentManufacturer));
                 }
 
                 while (reader.Read())
@@ -105,6 +144,14 @@ namespace Emutastic.Services
                         if (reader.Name == "game" || reader.Name == "machine")
                         {
                             currentGame = reader.GetAttribute("name");
+                            // Track which arcade DAT each game came from for core routing.
+                            if (isArcade && currentGame != null && arcadeSource is ArcadeSource src)
+                            {
+                                if (src == ArcadeSource.FBNeo)
+                                    _fbneoArcadeNames.Add(currentGame);
+                                else
+                                    _mame2003plusArcadeNames.Add(currentGame);
+                            }
                             currentDescription = null;
                             currentYear = null;
                             currentManufacturer = null;
@@ -242,6 +289,26 @@ namespace Emutastic.Services
             EnsureLoaded();
             if (!_arcadeMetaIndex.TryGetValue(romName, out var meta)) return null;
             return new ArcadeMeta(CleanArcadeTitle(meta.Title), meta.Year, meta.Manufacturer);
+        }
+
+        /// <summary>
+        /// Returns the preferred libretro core DLL filename for an arcade ROM,
+        /// based on which DAT the ROM name appears in. FBNeo wins when both
+        /// DATs claim the ROM (better-tuned controls and save state support);
+        /// MAME 2003-Plus fills FBNeo's gaps (Atari vector, Sega G-80, Williams
+        /// pre-MK, Cinematronics, Gottlieb, Nintendo arcade, etc.).
+        ///
+        /// Returns null when neither DAT recognises the name — callers should
+        /// fall back to the user's preferred-core setting or CoreManager's
+        /// default priority order.
+        /// </summary>
+        public string? GetPreferredArcadeCore(string romName)
+        {
+            if (string.IsNullOrEmpty(romName)) return null;
+            EnsureLoaded();
+            if (_fbneoArcadeNames.Contains(romName))        return "fbneo_libretro.dll";
+            if (_mame2003plusArcadeNames.Contains(romName)) return "mame2003_plus_libretro.dll";
+            return null;
         }
 
         // FBNeo descriptions are verbose: "Foo / Bar (Region PCB-Code)".

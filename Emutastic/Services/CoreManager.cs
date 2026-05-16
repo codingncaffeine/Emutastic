@@ -75,7 +75,8 @@ namespace Emutastic.Services
             { "3DO",         new[] { "opera_libretro.dll"               }},
             { "CDi",         new[] { "same_cdi_libretro.dll"            }},
             { "NeoGeo",      new[] { "geolith_libretro.dll"              }},
-            { "Arcade",      new[] { "fbneo_libretro.dll"                 }},
+            { "Arcade",      new[] { "fbneo_libretro.dll",
+                                     "mame2003_plus_libretro.dll"        }},
         };
 
         // Region-specific BIOS requirements for consoles where the BIOS must match the game region.
@@ -209,6 +210,11 @@ namespace Emutastic.Services
             return flat.Any(FileFound) ? new List<string>() : new List<string>(flat);
         }
 
+        // Lazily-constructed DAT lookup service for arcade core routing. Shared
+        // across calls to keep parsed indexes cached.
+        private DatMatchService? _datMatcher;
+        private DatMatchService DatMatcher => _datMatcher ??= new DatMatchService();
+
         public CoreManager()
         {
             // Portable mode: cores live under [DataRoot]/Cores/ so the entire
@@ -250,6 +256,59 @@ namespace Emutastic.Services
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Resolves the core path for a specific game, applying per-ROM routing
+        /// where applicable. For arcade games this consults the FBNeo and MAME
+        /// 2003-Plus DATs: a ROM the FBNeo DAT recognises goes to FBNeo (better
+        /// controls + saves), one only MAME 2003-Plus recognises goes to MAME
+        /// 2003-Plus, unrecognised falls back to <see cref="GetCorePath(string)"/>'s
+        /// user-preferred-then-priority-order logic.
+        ///
+        /// For every other console this is identical to <see cref="GetCorePath(string)"/>.
+        /// </summary>
+        public string? GetCorePathForGame(Models.Game game)
+        {
+            if (game == null) return null;
+
+            // 1. Honour per-game PreferredCore (set at import time by ImportService
+            //    for consoles with multiple cores, e.g. Arcade FBNeo vs MAME 2003-Plus).
+            if (!string.IsNullOrEmpty(game.PreferredCore))
+            {
+                string preferredPath = Path.Combine(_coresFolder, game.PreferredCore);
+                if (File.Exists(preferredPath))
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[CoreManager] Using per-game PreferredCore '{game.PreferredCore}' for '{game.Title}'");
+                    return preferredPath;
+                }
+                // Preferred core not installed — fall through to legacy/default logic.
+            }
+
+            // 2. Legacy fallback for games imported before PreferredCore existed:
+            //    do a fresh DAT lookup for arcade ROMs so they still get routed
+            //    correctly even without a DB update. (One-time cost; new imports
+            //    skip this branch via the PreferredCore short-circuit above.)
+            if (game.Console.Equals("Arcade", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrEmpty(game.RomPath))
+            {
+                string romName = Path.GetFileNameWithoutExtension(game.RomPath);
+                string? routedDll = DatMatcher.GetPreferredArcadeCore(romName);
+                if (!string.IsNullOrEmpty(routedDll))
+                {
+                    string routedPath = Path.Combine(_coresFolder, routedDll);
+                    if (File.Exists(routedPath))
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[CoreManager] Legacy DAT-routed arcade: '{romName}' → {routedDll}");
+                        return routedPath;
+                    }
+                }
+            }
+
+            // 3. Standard preferred-or-priority resolution.
+            return GetCorePath(game.Console);
         }
 
         public bool HasCore(string console)

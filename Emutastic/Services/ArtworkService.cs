@@ -94,7 +94,9 @@ namespace Emutastic.Services
         private static readonly Dictionary<string, string[]> SystemFolderFallbacks = new()
         {
             { "NGP", new[] { "SNK - Neo Geo Pocket Color" } },
-            { "Arcade", new[] { "MAME" } },
+            // Arcade: thumbnails may live in FBNeo's repo (primary), the older
+            // generic MAME repo, or the MAME 2003-Plus repo — pull from any.
+            { "Arcade", new[] { "MAME 2003-Plus", "MAME" } },
         };
 
         private IEnumerable<string> GetSystemFolders(string console)

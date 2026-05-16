@@ -62,6 +62,7 @@ namespace Emutastic.Services
             ["genesis_plus_gx_libretro"]  = "Genesis",
             ["kronos_libretro"]           = "Saturn",
             ["mednafen_ngp_libretro"]     = "NGP",
+            ["mame2003_plus_libretro"]    = "Arcade",
             ["mednafen_pce_libretro"]     = "TG16",
             ["mednafen_psx_libretro"]     = "PS1",
             ["mednafen_vb_libretro"]      = "VirtualBoy",

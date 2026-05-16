@@ -292,7 +292,7 @@ namespace Emutastic.Views
             string systemDir = AppPaths.GetFolder("System");
             string region = RomService.DetectRegion(_game.RomPath);
             string? romDir = System.IO.Path.GetDirectoryName(_game.RomPath);
-            string? resolvedCore = coreManager.GetCorePath(_game.Console);
+            string? resolvedCore = coreManager.GetCorePathForGame(_game);
             var missingBios = CoreManager.GetMissingBios(_game.Console, systemDir, region,
                 romDir != null ? new[] { romDir } : null, resolvedCore);
             if (missingBios.Count > 0)
@@ -332,7 +332,7 @@ namespace Emutastic.Views
 
             try
             {
-                string corePath = coreManager.GetCorePath(_game.Console)!;
+                string corePath = coreManager.GetCorePathForGame(_game)!;
                 EmulatorWindow.FreeStaleDll(); // must be BEFORE LoadLibrary
                 var core = new LibretroCore(corePath);
                 var emulator = new EmulatorWindow(_game, core);

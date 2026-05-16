@@ -20,6 +20,15 @@ namespace Emutastic.Models
         public int Id { get; set; }
         public string Title { get; set; } = "";
         public string Console { get; set; } = "";
+
+        // Preferred libretro core DLL filename (e.g. "mame2003_plus_libretro.dll").
+        // Set at import time by ImportService for consoles with multiple cores
+        // (currently only Arcade — FBNeo vs MAME 2003-Plus). Empty for games on
+        // single-core consoles or legacy imports from before this column existed.
+        // Launch path: CoreManager.GetCorePathForGame consults this first, falling
+        // back to a fresh DAT lookup, then to the user's preferred-core setting.
+        public string PreferredCore { get; set; } = "";
+
         public string Manufacturer { get; set; } = "";
         public int Year { get; set; }
         public string RomPath { get; set; } = "";

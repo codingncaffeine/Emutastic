@@ -2793,7 +2793,7 @@ namespace Emutastic
                 return;
             }
 
-            string? corePath = _coreManager.GetCorePath(game.Console);
+            string? corePath = _coreManager.GetCorePathForGame(game);
             if (corePath == null)
             {
                 MessageBox.Show($"No core found for {game.Console}.", "Error",

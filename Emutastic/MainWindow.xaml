@@ -1449,7 +1449,8 @@
                                                            Visibility="{Binding DisplayArtPath, Converter={StaticResource NullToVisibility}}"/>
                                                 <Image Source="{Binding DisplayArtPath, Converter={StaticResource PathToImage}}"
                                                        Stretch="Uniform"
-                                                       VerticalAlignment="Bottom"
+                                                       HorizontalAlignment="Left"
+                                                       VerticalAlignment="Top"
                                                        RenderOptions.BitmapScalingMode="LowQuality"
                                                        Visibility="{Binding DisplayArtPath, Converter={StaticResource NotNullToVisibility}}"/>
                                                 <TextBlock Text="♥" FontSize="14" Foreground="{DynamicResource FavoriteHeartBrush}"

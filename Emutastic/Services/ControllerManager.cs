@@ -121,15 +121,18 @@ namespace Emutastic.Services
         // Deadzone applied before storing; below this the axis reads zero
         private readonly int _analogDeadzone = 8000;
 
-        // Extended button IDs for analog directions (beyond standard 16 buttons)
-        public const uint ANALOG_LEFT_UP    = 16;
-        public const uint ANALOG_LEFT_DOWN  = 17;
-        public const uint ANALOG_LEFT_LEFT  = 18;
-        public const uint ANALOG_LEFT_RIGHT = 19;
-        public const uint ANALOG_RIGHT_UP   = 20;
-        public const uint ANALOG_RIGHT_DOWN = 21;
-        public const uint ANALOG_RIGHT_LEFT = 22;
-        public const uint ANALOG_RIGHT_RIGHT= 23;
+        // Extended button IDs for analog directions (beyond standard 16 buttons).
+        // Aliased to LibretroInput so callers like PreferencesWindow that reference
+        // ControllerManager.ANALOG_LEFT_UP keep compiling without churn — the canonical
+        // values live in LibretroInput.
+        public const uint ANALOG_LEFT_UP     = LibretroInput.ANALOG_LEFT_UP;
+        public const uint ANALOG_LEFT_DOWN   = LibretroInput.ANALOG_LEFT_DOWN;
+        public const uint ANALOG_LEFT_LEFT   = LibretroInput.ANALOG_LEFT_LEFT;
+        public const uint ANALOG_LEFT_RIGHT  = LibretroInput.ANALOG_LEFT_RIGHT;
+        public const uint ANALOG_RIGHT_UP    = LibretroInput.ANALOG_RIGHT_UP;
+        public const uint ANALOG_RIGHT_DOWN  = LibretroInput.ANALOG_RIGHT_DOWN;
+        public const uint ANALOG_RIGHT_LEFT  = LibretroInput.ANALOG_RIGHT_LEFT;
+        public const uint ANALOG_RIGHT_RIGHT = LibretroInput.ANALOG_RIGHT_RIGHT;
 
         // -------------------------------------------------------------------------
         // Static initialiser — load XInput DLL once for the process lifetime
@@ -333,7 +336,7 @@ namespace Emutastic.Services
                     foreach (var mapping in _inputConfig.ControllerMappings)
                     {
                         if (!uint.TryParse(mapping.InputIdentifier, out var controllerButtonId)) continue;
-                        uint libretroId = GetLibretroButtonId(mapping.ButtonName, _consoleName);
+                        uint libretroId = LibretroInput.GetButtonId(mapping.ButtonName, _consoleName);
                         if (libretroId < 16 && controllerButtonId < 16)
                             _buttonStates[libretroId] = IsXboxButtonPressed(gamepad.wButtons, controllerButtonId);
                     }
@@ -529,238 +532,7 @@ namespace Emutastic.Services
             _pollTimer?.Dispose();
         }
 
-        // -------------------------------------------------------------------------
-        // Helpers
-        // -------------------------------------------------------------------------
-        private uint GetLibretroButtonId(string buttonName, string console = "")
-        {
-            string n = buttonName.ToLower();
-
-            switch (console)
-            {
-                // ── Sega 6-button: A→Y, C→A, Z→R, Mode→Select ───────────────
-                case "Genesis": case "SegaCD": case "Sega32X":
-                    return n switch {
-                        "a" => 1, "b" => 0, "c" => 8,
-                        "x" => 9, "y" => 10, "z" => 11,
-                        "mode" => 2, "start" => 3,
-                        "up" => 4, "down" => 5, "left" => 6, "right" => 7,
-                        _ => uint.MaxValue
-                    };
-                case "Saturn":
-                    // RetroPad IDs both Kronos and Beetle Saturn expect (mirror of
-                    // EmulatorWindow.GetLibretroButtonId for "Saturn"):
-                    //   A=0 (B), B=8 (A), C=11 (R), X=1 (Y), Y=9 (X), Z=10 (L),
-                    //   L=12 (L2), R=13 (R2). Keep this aligned with that switch.
-                    return n switch {
-                        "a" => 0, "b" => 8, "c" => 11,
-                        "x" => 1, "y" => 9, "z" => 10,
-                        "l" => 12, "r" => 13,
-                        "select" => 2, "start" => 3,
-                        "up" => 4, "down" => 5, "left" => 6, "right" => 7,
-                        _ => uint.MaxValue
-                    };
-
-                // ── PlayStation ───────────────────────────────────────────────
-                case "PS1": case "PSP":
-                    return n switch {
-                        "cross" => 0, "circle" => 8, "square" => 1, "triangle" => 9,
-                        "l1" => 10, "r1" => 11, "l2" => 12, "r2" => 13, "l3" => 14, "r3" => 15,
-                        "select" => 2, "start" => 3,
-                        "up" => 4, "down" => 5, "left" => 6, "right" => 7,
-                        // Analog directions route to stick events
-                        "left analog up"    => ANALOG_LEFT_UP,    "left analog down"  => ANALOG_LEFT_DOWN,
-                        "left analog left"  => ANALOG_LEFT_LEFT,  "left analog right" => ANALOG_LEFT_RIGHT,
-                        "right analog up"   => ANALOG_RIGHT_UP,   "right analog down" => ANALOG_RIGHT_DOWN,
-                        "right analog left" => ANALOG_RIGHT_LEFT, "right analog right"=> ANALOG_RIGHT_RIGHT,
-                        _ => uint.MaxValue
-                    };
-
-                // ── NEC PC-Engine ─────────────────────────────────────────────
-                case "TG16": case "TGCD":
-                    return n switch {
-                        "ii" => 0, "i" => 8, "select" => 2, "run" => 3,
-                        "up" => 4, "down" => 5, "left" => 6, "right" => 7,
-                        _ => uint.MaxValue
-                    };
-                // ── Nintendo 64 ───────────────────────────────────────────────
-                case "N64":
-                    return n switch {
-                        "a" => 0, "b" => 1, "z" => 12, "l" => 10, "r" => 11, "start" => 3,   // A=JOYPAD_B(0), B=JOYPAD_Y(1)
-                        "up" => 4, "down" => 5, "left" => 6, "right" => 7,
-                        "analog up"    => ANALOG_LEFT_UP,    "analog down"  => ANALOG_LEFT_DOWN,
-                        "analog left"  => ANALOG_LEFT_LEFT,  "analog right" => ANALOG_LEFT_RIGHT,
-                        "c up"         => ANALOG_RIGHT_UP,   "c down"       => ANALOG_RIGHT_DOWN,
-                        "c left"       => ANALOG_RIGHT_LEFT, "c right"      => ANALOG_RIGHT_RIGHT,
-                        _ => uint.MaxValue
-                    };
-
-                // ── GameCube ──────────────────────────────────────────────────
-                case "GameCube":
-                    return n switch {
-                        "a" => 8, "b" => 0, "x" => 9, "y" => 1, "l" => 10, "r" => 11, "z" => 12, "start" => 3,
-                        "up" => 4, "down" => 5, "left" => 6, "right" => 7,
-                        "analog up"     => ANALOG_LEFT_UP,    "analog down"  => ANALOG_LEFT_DOWN,
-                        "analog left"   => ANALOG_LEFT_LEFT,  "analog right" => ANALOG_LEFT_RIGHT,
-                        "c-stick up"    => ANALOG_RIGHT_UP,   "c-stick down" => ANALOG_RIGHT_DOWN,
-                        "c-stick left"  => ANALOG_RIGHT_LEFT, "c-stick right"=> ANALOG_RIGHT_RIGHT,
-                        _ => uint.MaxValue
-                    };
-
-                // ── Nintendo 3DS ──────────────────────────────────────────────
-                case "3DS":
-                    return n switch {
-                        "a" => 8, "b" => 0, "x" => 9, "y" => 1,
-                        "l" => 10, "r" => 11,
-                        "zl" => 12, "zr" => 13, "home" => 14, "touch" => 15,
-                        "select" => 2, "start" => 3,
-                        "up" => 4, "down" => 5, "left" => 6, "right" => 7,
-                        "circle pad up"    => ANALOG_LEFT_UP,    "circle pad down"  => ANALOG_LEFT_DOWN,
-                        "circle pad left"  => ANALOG_LEFT_LEFT,  "circle pad right" => ANALOG_LEFT_RIGHT,
-                        "c-stick up"       => ANALOG_RIGHT_UP,   "c-stick down"     => ANALOG_RIGHT_DOWN,
-                        "c-stick left"     => ANALOG_RIGHT_LEFT, "c-stick right"    => ANALOG_RIGHT_RIGHT,
-                        _ => uint.MaxValue
-                    };
-
-                // ── Sega 8-bit ────────────────────────────────────────────────
-                case "SMS": case "GameGear": case "SG1000":
-                    return n switch {
-                        "1" => 0, "2" => 8, "start" => 3,
-                        "up" => 4, "down" => 5, "left" => 6, "right" => 7,
-                        _ => uint.MaxValue
-                    };
-
-                // ── Atari ─────────────────────────────────────────────────────
-                case "Atari2600":
-                    return n switch {
-                        "fire" => 0,   // JOYPAD_B
-                        "select" => 2, "reset" => 3,  // SELECT, START
-                        "left diff a" => 10, "left diff b" => 12,  // L, L2
-                        "right diff a" => 11, "right diff b" => 13, // R, R2
-                        "color" => 14, "b/w" => 15,  // L3, R3
-                        "up" => 4, "down" => 5, "left" => 6, "right" => 7,
-                        _ => uint.MaxValue
-                    };
-                case "Atari7800":
-                    return n switch {
-                        "fire 1" => 0, "fire 2" => 8,  // JOYPAD_B, JOYPAD_A
-                        "select" => 2, "pause" => 3,   // SELECT, START
-                        "reset" => 9,                    // JOYPAD_X
-                        "left diff" => 10, "right diff" => 11, // L, R
-                        "up" => 4, "down" => 5, "left" => 6, "right" => 7,
-                        _ => uint.MaxValue
-                    };
-                case "Jaguar":
-                    return n switch {
-                        "a" => 0, "b" => 8, "c" => 11, "option" => 2, "pause" => 3,
-                        "*" => 10, "#" => 1, "0" => 9,
-                        "up" => 4, "down" => 5, "left" => 6, "right" => 7,
-                        _ => uint.MaxValue
-                    };
-                case "Dreamcast":
-                    return n switch {
-                        "a" => 0, "b" => 8, "x" => 9, "y" => 10,
-                        "start" => 3,
-                        "l trigger" => 12, "r trigger" => 13,
-                        "up" => 4, "down" => 5, "left" => 6, "right" => 7,
-                        _ => uint.MaxValue  // analog directions handled via RETRO_DEVICE_ANALOG path
-                    };
-
-                // ── Others ────────────────────────────────────────────────────
-                case "ColecoVision":
-                    return n switch {
-                        "left fire" => 0, "right fire" => 8,
-                        "1" => 1, "2" => 9,
-                        "3" => 10, "4" => 11,
-                        "5" => 12, "6" => 13,
-                        "*" => 3, "#" => 2,
-                        "up" => 4, "down" => 5, "left" => 6, "right" => 7,
-                        _ => uint.MaxValue
-                    };
-
-                case "Vectrex":
-                    return n switch {
-                        "1" => 8, "2" => 0, "3" => 9, "4" => 1,
-                        "analog up" => ANALOG_LEFT_UP, "analog down" => ANALOG_LEFT_DOWN,
-                        "analog left" => ANALOG_LEFT_LEFT, "analog right" => ANALOG_LEFT_RIGHT,
-                        _ => uint.MaxValue
-                    };
-                case "3DO":
-                    return n switch {
-                        "c" => 8, "b" => 0, "a" => 1, "x" => 9, "l" => 10, "r" => 11, "p" => 3,
-                        "up" => 4, "down" => 5, "left" => 6, "right" => 7,
-                        "left analog up"   => ANALOG_LEFT_UP,   "left analog down"  => ANALOG_LEFT_DOWN,
-                        "left analog left" => ANALOG_LEFT_LEFT, "left analog right" => ANALOG_LEFT_RIGHT,
-                        _ => uint.MaxValue
-                    };
-                // ── Philips CD-i ──────────────────────────────────────────────
-                // Button 1 = primary (JOYPAD_B), Button 2 = secondary (JOYPAD_Y),
-                // Button 3 = 3-button games only (JOYPAD_A, e.g. Mad Dog McCree).
-                // Thumbpad analog directions route to left-stick axis values.
-                case "CDi":
-                    return n switch {
-                        "1" => 0, "2" => 1, "3" => 8,
-                        "up" => 4, "down" => 5, "left" => 6, "right" => 7,
-                        "analog up"    => ANALOG_LEFT_UP,   "analog down"  => ANALOG_LEFT_DOWN,
-                        "analog left"  => ANALOG_LEFT_LEFT, "analog right" => ANALOG_LEFT_RIGHT,
-                        _ => uint.MaxValue
-                    };
-
-                // ── Arcade / FBNeo (Classic mode button numbering) ────────────
-                case "Arcade":
-                    return n switch {
-                        "button 1" => 1,  "button 2" => 0,   // JOYPAD_Y, JOYPAD_B
-                        "button 3" => 9,  "button 4" => 8,   // JOYPAD_X, JOYPAD_A
-                        "button 5" => 10, "button 6" => 11,  // JOYPAD_L, JOYPAD_R
-                        "button 7" => 12, "button 8" => 13,  // JOYPAD_L2, JOYPAD_R2
-                        "coin"  => 2, "start" => 3,
-                        "up" => 4, "down" => 5, "left" => 6, "right" => 7,
-                        _ => uint.MaxValue
-                    };
-
-                case "NGP":
-                    return n switch {
-                        "a" => 8, "b" => 0, "option" => 3,
-                        "up" => 4, "down" => 5, "left" => 6, "right" => 7,
-                        _ => uint.MaxValue
-                    };
-                case "VirtualBoy":
-                    return n switch {
-                        "left up" => 4, "left down" => 5, "left left" => 6, "left right" => 7,
-                        "right up" => 9, "right down" => 0, "right left" => 1, "right right" => 8,
-                        "a" => 8, "b" => 0, "l" => 10, "r" => 11,
-                        "select" => 2, "start" => 3,
-                        _ => uint.MaxValue
-                    };
-
-                // ── Neo Geo / Geolith ────────────────────────────────────────
-                // Standard RetroArch convention: A→JOYPAD_B, B→JOYPAD_A,
-                // C→JOYPAD_Y, D→JOYPAD_X. Without this case the polling loop
-                // falls through to the generic libretro fallback, which has no
-                // entry for "c" or "d" — those button presses are silently
-                // dropped and A/B end up swapped relative to what the core expects.
-                case "NeoGeo":
-                    return n switch {
-                        "a" => 0, "b" => 8, "c" => 1, "d" => 9,
-                        "select" => 2, "start" => 3,
-                        "up" => 4, "down" => 5, "left" => 6, "right" => 7,
-                        _ => uint.MaxValue
-                    };
-            }
-
-            // Standard libretro joypad mapping (NES, SNES, GB, GBA, NDS, FDS, MSX, etc.)
-            return n switch
-            {
-                "b" => 0, "y" => 1, "select" => 2, "start" => 3,
-                "up" => 4, "down" => 5, "left" => 6, "right" => 7,
-                "a" => 8, "x" => 9, "l" => 10, "r" => 11,
-                "l2" => 12, "r2" => 13, "l3" => 14, "r3" => 15,
-                // Analog directions (Name field has spaces: "Analog Up" → "analog up")
-                "analog up"    => ANALOG_LEFT_UP,    "analog down"  => ANALOG_LEFT_DOWN,
-                "analog left"  => ANALOG_LEFT_LEFT,  "analog right" => ANALOG_LEFT_RIGHT,
-                _ => uint.MaxValue
-            };
-        }
+        // GetLibretroButtonId moved to Services/LibretroInput.GetButtonId.
 
         private bool IsXboxButtonPressed(ushort wButtons, uint controllerButtonId) =>
             controllerButtonId switch

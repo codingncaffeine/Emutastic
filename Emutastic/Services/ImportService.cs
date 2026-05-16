@@ -172,9 +172,10 @@ namespace Emutastic.Services
                         if (Directory.Exists(path))
                         {
                             batchCount += Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories)
-                                .Count(f => RomService.IsRomFile(f));
+                                .Count(f => RomService.IsRomFile(f) && !IsMameSamplesFile(f) && !IsMameCompanionChd(f));
                         }
-                        else if (File.Exists(path) && RomService.IsRomFile(path))
+                        else if (File.Exists(path) && RomService.IsRomFile(path)
+                                 && !IsMameSamplesFile(path) && !IsMameCompanionChd(path))
                             batchCount++;
                     }
                 });
@@ -248,8 +249,9 @@ namespace Emutastic.Services
                     try
                     {
                         if (Directory.Exists(p))
-                            candidates.AddRange(Directory.EnumerateFiles(p, "*", SearchOption.AllDirectories));
-                        else if (File.Exists(p))
+                            candidates.AddRange(Directory.EnumerateFiles(p, "*", SearchOption.AllDirectories)
+                                .Where(f => !IsMameSamplesFile(f) && !IsMameCompanionChd(f)));
+                        else if (File.Exists(p) && !IsMameSamplesFile(p) && !IsMameCompanionChd(p))
                             candidates.Add(p);
                     }
                     catch (Exception ex)
@@ -380,7 +382,18 @@ namespace Emutastic.Services
             // (PrepareBatchBundlingAsync). _batchSkipSet contains every disc file
             // that should be skipped, plus generated .m3u paths exist on disk so
             // EnumerateFiles will pick them up below.
-            var allFiles = Directory.EnumerateFiles(folderPath, "*", SearchOption.AllDirectories).ToList();
+            //
+            // Skip MAME auxiliary files that share extensions / naming with real ROMs:
+            //   * <roms>/samples/<game>.zip — digital audio sample packs
+            //   * <roms>/<game>/<game>.chd — companion CHDs for hard-drive arcade games
+            //     (Killer Instinct, NFL Blitz, War Gods, etc.); the parent .zip is the
+            //     library entry, the CHD just lives alongside on disk.
+            // Without these filters every game with samples gets a phantom samples-zip
+            // entry, and every CHD-bearing game gets a phantom CHD entry classified as
+            // a CD console (PS1/Saturn/SegaCD via AmbiguousExtensions) that fails on launch.
+            var allFiles = Directory.EnumerateFiles(folderPath, "*", SearchOption.AllDirectories)
+                .Where(f => !IsMameSamplesFile(f) && !IsMameCompanionChd(f))
+                .ToList();
 
             // Console-nav hint short-circuit: user dropped a folder while on a
             // specific console nav (e.g. SNES). Trust that signal — recursively
@@ -410,6 +423,51 @@ namespace Emutastic.Services
                 Interlocked.Increment(ref _progressCurrent);
                 ProgressChanged?.Invoke(_progressCurrent, _progressTotal);
             }
+        }
+
+        /// <summary>
+        /// True when <paramref name="filePath"/> lives anywhere under a "samples"
+        /// folder — MAME's convention for digital audio sample packs. Sample
+        /// zips share the .zip extension and game-name pattern of real arcade
+        /// ROMs, so without this filter every game with audio samples (Pole
+        /// Position, Moonwalker, Donkey Kong, etc.) would import as a phantom
+        /// duplicate of itself. Case-insensitive; matches "samples", "Samples",
+        /// "SAMPLES" at any depth in the path.
+        /// </summary>
+        private static bool IsMameSamplesFile(string filePath)
+        {
+            string? dir = Path.GetDirectoryName(filePath);
+            while (!string.IsNullOrEmpty(dir))
+            {
+                string segment = Path.GetFileName(dir);
+                if (string.Equals(segment, "samples", StringComparison.OrdinalIgnoreCase))
+                    return true;
+                dir = Path.GetDirectoryName(dir);
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// True when <paramref name="filePath"/> matches MAME's CHD-companion
+        /// convention: a .chd file inside a folder named after the parent ROM
+        /// (e.g. <c>kinst/kinst.chd</c>, <c>blitz/blitz.chd</c>,
+        /// <c>wargods/wargods.chd</c>). These CHDs are paired auxiliaries of an
+        /// arcade ROM zip one level up, NOT standalone game discs — but .chd is
+        /// in AmbiguousExtensions for PS1/Saturn/SegaCD/Dreamcast, so without
+        /// this filter the importer treats them as CD games and routes them to
+        /// the wrong core. The parent arcade .zip (e.g. <c>kinst.zip</c>) is
+        /// the real library entry; the CHD just needs to sit alongside it on
+        /// disk for MAME to find at launch.
+        /// </summary>
+        private static bool IsMameCompanionChd(string filePath)
+        {
+            if (!filePath.EndsWith(".chd", StringComparison.OrdinalIgnoreCase)) return false;
+            string? parentDir = Path.GetDirectoryName(filePath);
+            if (string.IsNullOrEmpty(parentDir)) return false;
+            string parentFolderName = Path.GetFileName(parentDir);
+            string chdBasename = Path.GetFileNameWithoutExtension(filePath);
+            // Folder name matches the CHD basename — the MAME convention.
+            return string.Equals(parentFolderName, chdBasename, StringComparison.OrdinalIgnoreCase);
         }
 
         private async Task ImportSingleRomAsync(string romPath)
@@ -801,6 +859,7 @@ namespace Emutastic.Services
             // Preferences → Cores / Extras.
             int seededYear = 0;
             string seededDeveloper = "";
+            string preferredCore = "";
             if (console == "Arcade" && overrideTitle == null)
             {
                 string romName = Path.GetFileNameWithoutExtension(romPath);
@@ -812,6 +871,28 @@ namespace Emutastic.Services
                         seededYear = y;
                     if (!string.IsNullOrWhiteSpace(datMeta.Manufacturer))
                         seededDeveloper = datMeta.Manufacturer;
+                }
+                // Per-game arcade core routing:
+                //   1. Folder hint: if the ROM doesn't live in the user's main arcade
+                //      collection — i.e. the path contains "mame" anywhere (mame2003plus,
+                //      mame2003-plus, MAME, mame_arcade, etc.) — treat it as a MAME
+                //      2003-Plus ROM regardless of what FBNeo's DAT claims. This handles
+                //      the case where both DATs list the same game name but the actual
+                //      file matches MAME's CRCs, not FBNeo's (different romset versions).
+                //      Users tend to name MAME folders with "mame" in the name;
+                //      FBNeo collections rarely do. Imperfect but covers the common case.
+                //   2. Otherwise DAT name lookup: FBNeo if its DAT recognises the ROM
+                //      (better controls + save state support), else MAME 2003-Plus.
+                //   3. Empty PreferredCore = neither hint nor DAT had it; launcher falls
+                //      back to user's per-console core preference.
+                string pathHint = (sourcePath ?? romPath).ToLowerInvariant();
+                if (System.Text.RegularExpressions.Regex.IsMatch(pathHint, @"(^|[\\/_-])mame([\\/_-]|$|2003|0\.)"))
+                {
+                    preferredCore = "mame2003_plus_libretro.dll";
+                }
+                else
+                {
+                    preferredCore = _datMatcher.GetPreferredArcadeCore(romName) ?? "";
                 }
             }
 
@@ -829,6 +910,7 @@ namespace Emutastic.Services
                 AccentColor = colors.accent,
                 Year = seededYear,
                 Developer = seededDeveloper,
+                PreferredCore = preferredCore,
             };
 
             // Insert immediately so it appears in the library without waiting for hash/artwork
