@@ -2333,7 +2333,7 @@ namespace Emutastic
             // Featured / Discovery — all three panels share the same cold-paint pattern.
             RenderAchievementOfTheWeek(ra.PeekCached<Models.RAAchievementOfTheWeek>("achievement_of_the_week"));
             RenderCommunityPulse(ra.PeekCached<List<Models.RARecentGameAward>>("recent_game_awards:c=25"));
-            RenderTopTen(ra.PeekCached<List<RaDataService.TopTenEntry>>("top_ten_users"));
+            RenderTopTen(ra.PeekCached<List<RaDataService.TopTenEntry>>("top_ten_users:v2"));
 
             // Heatmap — render from persisted ra_heatmap_daily for instant
             // paint. Background task tops up today's bucket if stale.

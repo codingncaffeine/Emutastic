@@ -489,12 +489,19 @@ namespace Emutastic.Services
                 ct).ConfigureAwait(false);
         }
 
-        /// <summary>Top 10 site users (#21). Cached 24h, global.</summary>
+        /// <summary>
+        /// Top 10 site users (#21). Cached 24h, global.
+        /// Cache key bumped to :v2 — the v1 implementation expected positional
+        /// arrays and silently cached an empty list when the API actually
+        /// returns array-of-objects with string keys. Existing v1 rows stay
+        /// in ra_cache but go untouched; the cleanup pass at startup or the
+        /// existing owner-wipe paths will reclaim them eventually.
+        /// </summary>
         public async Task<List<TopTenEntry>?> GetTopTenAsync(CancellationToken ct = default)
         {
             if (!HasApiKey()) return null;
             return await GetCachedAsync<List<TopTenEntry>>(
-                "top_ten_users",
+                "top_ten_users:v2",
                 "global",
                 TtlTopTen,
                 async inner =>

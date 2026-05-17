@@ -413,10 +413,13 @@ namespace Emutastic.Services
         }
 
         // ── #21 GetTopTenUsers ─────────────────────────────────────────────
-        // The API returns a JSON array of arrays: [["user", points, retroPoints], ...].
-        // System.Text.Json will deserialize that into a List<JsonElement[]>;
-        // we project into RATopTenUser via index, since strong typing across
-        // a positional JSON array would require a custom converter.
+        // The API returns a JSON array of OBJECTS keyed by numeric strings:
+        //   [{"1": "MaxMilyin", "2": 399597, "3": 1599212, "4": "<ULID>"}, ...]
+        //   1 = username, 2 = hardcore points, 3 = retro/white points, 4 = ULID
+        // The official api-js client normalizes this to readable fields, but
+        // the raw HTTP response is positional-by-string-key. We project into
+        // a typed tuple here so the cache layer can JSON-serialize a clean
+        // shape downstream.
         public async Task<List<(string User, int Points, int RetroPoints)>> GetTopTenUsersAsync(CancellationToken ct = default)
         {
             string? key = GetApiKey();
@@ -427,7 +430,11 @@ namespace Emutastic.Services
             try
             {
                 using var resp = await _http.GetAsync(url, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
-                if (!resp.IsSuccessStatusCode) return new();
+                if (!resp.IsSuccessStatusCode)
+                {
+                    Trace.WriteLine($"[RA] GetTopTenUsers HTTP {(int)resp.StatusCode}");
+                    return new();
+                }
                 string json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
                 var doc = JsonDocument.Parse(json);
                 var result = new List<(string, int, int)>();
@@ -435,13 +442,18 @@ namespace Emutastic.Services
                 {
                     foreach (var row in doc.RootElement.EnumerateArray())
                     {
-                        if (row.ValueKind == JsonValueKind.Array && row.GetArrayLength() >= 3)
-                        {
-                            string user = row[0].GetString() ?? "";
-                            int pts = row[1].TryGetInt32(out int p) ? p : 0;
-                            int rpts = row[2].TryGetInt32(out int rp) ? rp : 0;
+                        if (row.ValueKind != JsonValueKind.Object) continue;
+                        string user = "";
+                        int pts = 0;
+                        int rpts = 0;
+                        if (row.TryGetProperty("1", out var userProp))
+                            user = userProp.GetString() ?? "";
+                        if (row.TryGetProperty("2", out var ptsProp))
+                            pts = ptsProp.ValueKind == JsonValueKind.Number && ptsProp.TryGetInt32(out int p) ? p : 0;
+                        if (row.TryGetProperty("3", out var rptsProp))
+                            rpts = rptsProp.ValueKind == JsonValueKind.Number && rptsProp.TryGetInt32(out int rp) ? rp : 0;
+                        if (!string.IsNullOrEmpty(user))
                             result.Add((user, pts, rpts));
-                        }
                     }
                 }
                 return result;
