@@ -150,6 +150,39 @@ A few cores cannot apply cheats (PSP, 3DS, Vectrex, 3DO, CD-i, NeoGeo,
 ColecoVision). For those systems the Cheats option is hidden.
 
 
+RETROACHIEVEMENTS
+-----------------
+RetroAchievements (https://retroachievements.org) is a community-run
+service that tracks achievement unlocks across hundreds of supported
+games. Enable in Preferences -> Achievements:
+
+  1. Username + Password
+     Used for the unlocks themselves. After your first successful
+     login the password is replaced by a session token, so you only
+     enter it once.
+
+  2. Web API Key  (separate from your password)
+     Unlocks the per-game stats on the library detail card: an
+     achievement progress bar, "Coming up" preview of the achievements
+     you're closest to, and "Typical run: beat ~Xh / master ~Yh"
+     based on community medians. Without it the unlocks still work,
+     just no in-app stats.
+
+     Grab the key from:
+        https://retroachievements.org/controlpanel.php
+     Sign in, find "Keys" -> "Web API Key" near the bottom, and
+     paste the value into Preferences -> Achievements -> Web API Key.
+
+  3. Hardcore Mode  (optional)
+     Disables save states, rewind, and slow-motion during gameplay.
+     Required by RA for "hardcore" achievement unlocks, which are
+     worth more points and count toward the mastery badge.
+
+In-game, achievements appear as toast notifications the moment you
+unlock them. The detail card shows aggregated progress for any game
+you've launched at least once with RA enabled.
+
+
 CORE SPECIFIC NOTES
 -------------------
 GameCube (Dolphin): The emulator core remains loaded in memory after
