@@ -209,6 +209,10 @@ namespace Emutastic.Services
         /// across many games in one call. Right tool for refreshing the
         /// library's tile-level state cheaply. Returned dictionary is keyed
         /// by RA game ID. Returns null on failure.
+        ///
+        /// Currently UNUSED by Phase 1 (detail card consumes the full
+        /// GetGameInfoAndUserProgress shape per-game). Kept for the planned
+        /// tile-level achievement badges that read these totals.
         /// </summary>
         public async Task<Dictionary<int, RABatchUserProgress>?> GetUserProgressBatchAsync(
             string username, IEnumerable<int> raGameIds, CancellationToken ct = default)
