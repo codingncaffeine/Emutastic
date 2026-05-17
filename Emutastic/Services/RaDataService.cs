@@ -220,6 +220,180 @@ namespace Emutastic.Services
                 ct);
         }
 
+        /// <summary>
+        /// Materialized Library Spotlight — the five cross-reference panels
+        /// (Closest to mastering / Quick wins / Continue / Never started /
+        /// Wishlist owned). Combines RA's per-user completion stream with
+        /// the local library's RA-tagged games. Runs entirely on a background
+        /// thread; computation is in-memory hash-set intersections, no
+        /// per-render DB joins. Cached 15 min so UI binds to a pre-built
+        /// snapshot.
+        /// </summary>
+        public async Task<RALibrarySpotlight?> GetLibrarySpotlightAsync(CancellationToken ct = default)
+        {
+            var user = CurrentUser();
+            if (user == null || !HasApiKey()) return null;
+
+            string cacheKey = $"library_spotlight:user={user}";
+            return await GetCachedAsync<RALibrarySpotlight>(
+                cacheKey,
+                OwnerForUser(user),
+                TtlCompletionProgress,
+                async inner =>
+                {
+                    // 1. Owned RA game IDs from the local library — single
+                    //    DB scan, hash-set intersection downstream.
+                    var ownedRaIds = _db.GetOwnedRAGameIds();
+                    if (ownedRaIds.Count == 0) return new RALibrarySpotlight();
+
+                    // 2. Load Game records once so the panels can render
+                    //    titles/consoles + know how to launch.
+                    var ownedGames = _db.GetAllGames()
+                        .Where(g => g.RAGameId > 0 && ownedRaIds.Contains(g.RAGameId))
+                        .GroupBy(g => g.RAGameId)
+                        .ToDictionary(g => g.Key, g => g.First());
+
+                    // 3. Parallel-fan the three user-scoped fetches so we
+                    //    don't pay the throttle wait three times in series.
+                    var completionTask    = _api.GetUserCompletionProgressAsync(user, inner);
+                    var recentlyPlayedTask = _api.GetUserRecentlyPlayedGamesAsync(user, 50, inner);
+                    var wishlistTask       = _api.GetUserWantToPlayListAsync(user, inner);
+                    await Task.WhenAll(completionTask, recentlyPlayedTask, wishlistTask).ConfigureAwait(false);
+
+                    var completion    = completionTask.Result    ?? new();
+                    var recentlyPlayed = recentlyPlayedTask.Result ?? new();
+                    var wishlist       = wishlistTask.Result       ?? new();
+
+                    var spotlight = new RALibrarySpotlight();
+
+                    // ── Closest to mastering ─────────────────────────────
+                    // Items the user has started but not finished, sorted
+                    // by remaining achievements ascending. Top 5.
+                    spotlight.ClosestToMastering = completion
+                        .Where(p => ownedRaIds.Contains(p.GameId))
+                        .Where(p => p.NumAwarded > 0 && p.NumAwarded < p.MaxPossible && p.MaxPossible > 0)
+                        .OrderBy(p => p.MaxPossible - p.NumAwarded)
+                        .ThenByDescending(p => p.NumAwarded)
+                        .Take(5)
+                        .Select(p => new RASpotlightGame
+                        {
+                            RAGameId = p.GameId,
+                            LocalGameId = ownedGames.TryGetValue(p.GameId, out var g) ? g.Id : 0,
+                            Title = p.Title,
+                            Console = p.ConsoleName,
+                            ImageIcon = p.ImageIcon,
+                            NumAchieved = p.NumAwarded,
+                            MaxPossible = p.MaxPossible,
+                            Subtitle = $"{p.NumAwarded}/{p.MaxPossible} · {p.MaxPossible - p.NumAwarded} to go",
+                        })
+                        .ToList();
+
+                    // ── Continue where you left off ───────────────────────
+                    // Recently-played games (RA's list) intersected with
+                    // owned library. Most-recent first; cap at 5.
+                    spotlight.ContinueWhereLeftOff = recentlyPlayed
+                        .Where(r => ownedRaIds.Contains(r.GameId))
+                        .Take(5)
+                        .Select(r => new RASpotlightGame
+                        {
+                            RAGameId = r.GameId,
+                            LocalGameId = ownedGames.TryGetValue(r.GameId, out var g) ? g.Id : 0,
+                            Title = r.Title,
+                            Console = r.ConsoleName,
+                            ImageIcon = r.ImageIcon,
+                            NumAchieved = r.NumAchieved,
+                            MaxPossible = r.NumPossibleAchievements,
+                            Subtitle = r.NumPossibleAchievements > 0
+                                ? $"{r.NumAchieved}/{r.NumPossibleAchievements}"
+                                : "Played",
+                        })
+                        .ToList();
+
+                    // ── Never started ─────────────────────────────────────
+                    // Owned games with RAGameId that don't show up in the
+                    // completion stream (= user has zero unlocks). Cap at 5.
+                    var touchedIds = new HashSet<int>(completion.Select(p => p.GameId));
+                    spotlight.NeverStarted = ownedGames.Values
+                        .Where(g => !touchedIds.Contains(g.RAGameId))
+                        .Take(5)
+                        .Select(g => new RASpotlightGame
+                        {
+                            RAGameId = g.RAGameId,
+                            LocalGameId = g.Id,
+                            Title = g.Title,
+                            Console = g.Console,
+                            ImageIcon = null,  // we use local artwork for this panel
+                            NumAchieved = 0,
+                            MaxPossible = 0,
+                            Subtitle = "Untouched",
+                        })
+                        .ToList();
+
+                    // ── Wishlist you own ─────────────────────────────────
+                    spotlight.WishlistOwned = wishlist
+                        .Where(w => ownedRaIds.Contains(w.Id))
+                        .Take(5)
+                        .Select(w => new RASpotlightGame
+                        {
+                            RAGameId = w.Id,
+                            LocalGameId = ownedGames.TryGetValue(w.Id, out var g) ? g.Id : 0,
+                            Title = w.Title,
+                            Console = w.ConsoleName,
+                            ImageIcon = w.ImageIcon,
+                            NumAchieved = 0,
+                            MaxPossible = w.AchievementsPublished,
+                            Subtitle = w.AchievementsPublished > 0
+                                ? $"{w.AchievementsPublished} achievements · {w.PointsTotal} pts"
+                                : "On your wishlist",
+                        })
+                        .ToList();
+
+                    // ── Quick wins across library ─────────────────────────
+                    // Aggregates unearned-with-low-median-TTU candidates
+                    // from every owned game that has cached RAProgressionJson
+                    // (set by the detail card workflow). No extra API calls.
+                    var quickWins = new List<RASpotlightQuickWin>();
+                    foreach (var g in ownedGames.Values)
+                    {
+                        var prog = g.RAProgressionTyped;
+                        if (prog == null || prog.Achievements == null || prog.Achievements.Count == 0) continue;
+                        var earned = new HashSet<int>();
+                        var userProg = g.RAUserProgressTyped;
+                        if (userProg != null && userProg.Achievements != null)
+                        {
+                            foreach (var kv in userProg.Achievements)
+                                if (!string.IsNullOrEmpty(kv.Value.DateEarned)) earned.Add(kv.Value.Id);
+                        }
+                        foreach (var a in prog.Achievements)
+                        {
+                            if (earned.Contains(a.Id)) continue;
+                            if (!a.MedianTimeToUnlock.HasValue || a.MedianTimeToUnlock.Value <= 0) continue;
+                            quickWins.Add(new RASpotlightQuickWin
+                            {
+                                RAGameId = g.RAGameId,
+                                LocalGameId = g.Id,
+                                GameTitle = g.Title,
+                                Console = g.Console,
+                                AchievementId = a.Id,
+                                AchievementTitle = a.Title,
+                                Description = a.Description,
+                                BadgeName = a.BadgeName,
+                                Points = a.Points,
+                                MedianSeconds = a.MedianTimeToUnlock.Value,
+                            });
+                        }
+                    }
+                    spotlight.QuickWins = quickWins
+                        .OrderBy(q => q.MedianSeconds)
+                        .ThenByDescending(q => q.Points)
+                        .Take(5)
+                        .ToList();
+
+                    return spotlight;
+                },
+                ct).ConfigureAwait(false);
+        }
+
         /// <summary>Trophy case data (#22): mastery / beaten / completion awards. Cached 1h per user.</summary>
         public Task<RAUserAwards?> GetAwardsAsync(CancellationToken ct = default)
         {

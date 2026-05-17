@@ -1999,6 +1999,19 @@
                                 </StackPanel>
                             </Border>
 
+                            <!-- D. Library Spotlight ───────────────────────────
+                                 The "across all my games" cross-reference panels
+                                 — the differentiator vs the RA website. Each
+                                 panel hides itself when empty so the tab
+                                 doesn't show empty buckets for a new user. -->
+                            <TextBlock Text="ACROSS YOUR LIBRARY"
+                                       FontFamily="{StaticResource PrimaryFont}"
+                                       FontSize="10"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextMutedBrush}"
+                                       Margin="2,22,0,8"/>
+                            <StackPanel x:Name="RASpotlightStack"/>
+
                             <!-- Logged-out / no-key placeholder for the whole tab -->
                             <Border x:Name="RAUnconfiguredCard"
                                     Background="{DynamicResource BgSecondaryBrush}"

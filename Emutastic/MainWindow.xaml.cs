@@ -2314,6 +2314,11 @@ namespace Emutastic
             var cachedAwards = ra.PeekCached<Models.RAUserAwards>($"user_awards:user={user}");
             RenderTrophyCase(cachedAwards);
 
+            // Library Spotlight (cached snapshot — already materialized in
+            // RaDataService so render is just iteration, no joins here).
+            var cachedSpotlight = ra.PeekCached<Models.RALibrarySpotlight>($"library_spotlight:user={user}");
+            RenderLibrarySpotlight(cachedSpotlight);
+
             _ = System.Threading.Tasks.Task.Run(async () =>
             {
                 try
@@ -2338,6 +2343,11 @@ namespace Emutastic
                     var awards = await ra.GetAwardsAsync(ct).ConfigureAwait(false);
                     if (ct.IsCancellationRequested) return;
                     _ = Dispatcher.BeginInvoke(new Action(() => RenderTrophyCase(awards)));
+
+                    // Library Spotlight (15-min TTL, materialized in service).
+                    var spotlight = await ra.GetLibrarySpotlightAsync(ct).ConfigureAwait(false);
+                    if (ct.IsCancellationRequested) return;
+                    _ = Dispatcher.BeginInvoke(new Action(() => RenderLibrarySpotlight(spotlight)));
                 }
                 catch (OperationCanceledException) { /* tab switched away */ }
                 catch (Exception ex)
@@ -2714,6 +2724,352 @@ namespace Emutastic
             }
             outer.ToolTip = tip.ToString().TrimEnd();
             return outer;
+        }
+
+        // ── Library Spotlight ─────────────────────────────────────────────
+
+        private void RenderLibrarySpotlight(Models.RALibrarySpotlight? spotlight)
+        {
+            RASpotlightStack.Children.Clear();
+            if (spotlight == null) return;
+
+            var font          = (System.Windows.Media.FontFamily)FindResource("PrimaryFont");
+            var bgSecondary   = (System.Windows.Media.Brush)FindResource("BgSecondaryBrush");
+            var bgTertiary    = (System.Windows.Media.Brush)FindResource("BgTertiaryBrush");
+            var borderSubtle  = (System.Windows.Media.Brush)FindResource("BorderSubtleBrush");
+            var textPrimary   = (System.Windows.Media.Brush)FindResource("TextPrimaryBrush");
+            var textSecondary = (System.Windows.Media.Brush)FindResource("TextSecondaryBrush");
+            var textMuted     = (System.Windows.Media.Brush)FindResource("TextMutedBrush");
+
+            var ctx = new SpotlightContext
+            {
+                Font = font, BgSecondary = bgSecondary, BgTertiary = bgTertiary,
+                BorderSubtle = borderSubtle, TextPrimary = textPrimary,
+                TextSecondary = textSecondary, TextMuted = textMuted,
+            };
+
+            AppendSpotlightGamePanel("CLOSEST TO MASTERING", spotlight.ClosestToMastering, ctx);
+            AppendSpotlightQuickWinsPanel("QUICK WINS", spotlight.QuickWins, ctx);
+            AppendSpotlightGamePanel("CONTINUE WHERE YOU LEFT OFF", spotlight.ContinueWhereLeftOff, ctx);
+            AppendSpotlightGamePanel("OWNED BUT NEVER STARTED", spotlight.NeverStarted, ctx);
+            AppendSpotlightGamePanel("WISHLIST YOU OWN", spotlight.WishlistOwned, ctx);
+
+            // If every panel is empty, fall back to a single explanation row.
+            if (RASpotlightStack.Children.Count == 0)
+            {
+                var empty = new Border
+                {
+                    Background = bgSecondary,
+                    BorderBrush = borderSubtle,
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(10),
+                    Padding = new Thickness(16, 22, 16, 22),
+                };
+                empty.Child = new TextBlock
+                {
+                    Text = "Launch a RetroAchievements-supported game at least once to start populating these panels.",
+                    FontFamily = font,
+                    FontSize = 12,
+                    Foreground = textMuted,
+                    TextAlignment = TextAlignment.Center,
+                    TextWrapping = TextWrapping.Wrap,
+                };
+                RASpotlightStack.Children.Add(empty);
+            }
+        }
+
+        private sealed class SpotlightContext
+        {
+            public System.Windows.Media.FontFamily Font = null!;
+            public System.Windows.Media.Brush BgSecondary = null!;
+            public System.Windows.Media.Brush BgTertiary = null!;
+            public System.Windows.Media.Brush BorderSubtle = null!;
+            public System.Windows.Media.Brush TextPrimary = null!;
+            public System.Windows.Media.Brush TextSecondary = null!;
+            public System.Windows.Media.Brush TextMuted = null!;
+        }
+
+        private void AppendSpotlightGamePanel(string header, List<Models.RASpotlightGame> items, SpotlightContext ctx)
+        {
+            if (items == null || items.Count == 0) return;
+
+            // Section header (small caps, muted).
+            RASpotlightStack.Children.Add(new TextBlock
+            {
+                Text = header,
+                FontFamily = ctx.Font,
+                FontSize = 10,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = ctx.TextMuted,
+                Margin = new Thickness(2, 12, 0, 6),
+            });
+
+            var card = new Border
+            {
+                Background = ctx.BgSecondary,
+                BorderBrush = ctx.BorderSubtle,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(10),
+                Padding = new Thickness(10),
+            };
+            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            foreach (var item in items)
+                row.Children.Add(BuildSpotlightGameTile(item, ctx));
+            card.Child = row;
+            RASpotlightStack.Children.Add(card);
+        }
+
+        private UIElement BuildSpotlightGameTile(Models.RASpotlightGame item, SpotlightContext ctx)
+        {
+            // Tile = 160-wide column: 80x80 icon on top, title (1 line),
+            // console (1 line, muted), subtitle (1 line, accent or muted).
+            // Click anywhere → open the local game's detail card if we can
+            // resolve the local Game row by LocalGameId.
+            var col = new StackPanel
+            {
+                Width = 160,
+                Margin = new Thickness(6),
+                Cursor = item.LocalGameId > 0 ? System.Windows.Input.Cursors.Hand : System.Windows.Input.Cursors.Arrow,
+            };
+
+            // Icon — outer Border for background fallback, inner rounded
+            // wrapper for the actual image so the corners clip properly.
+            var iconOuter = new Border
+            {
+                Width = 80, Height = 80,
+                CornerRadius = new CornerRadius(8),
+                Background = ctx.BgTertiary,
+                HorizontalAlignment = HorizontalAlignment.Center,
+            };
+            var iconInner = new Border
+            {
+                CornerRadius = new CornerRadius(8),
+                ClipToBounds = true,
+            };
+            iconOuter.Child = iconInner;
+            if (!string.IsNullOrEmpty(item.ImageIcon))
+            {
+                try
+                {
+                    string trimmed = item.ImageIcon!.Trim();
+                    string url = trimmed.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                        ? trimmed
+                        : "https://media.retroachievements.org" + trimmed;
+                    var bmp = new System.Windows.Media.Imaging.BitmapImage();
+                    bmp.BeginInit();
+                    bmp.UriSource = new Uri(url);
+                    bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                    bmp.EndInit();
+                    iconInner.Child = new System.Windows.Controls.Image
+                    {
+                        Source = bmp,
+                        Stretch = System.Windows.Media.Stretch.UniformToFill,
+                    };
+                }
+                catch { }
+            }
+            col.Children.Add(iconOuter);
+
+            // Title
+            col.Children.Add(new TextBlock
+            {
+                Text = item.Title,
+                FontFamily = ctx.Font,
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = ctx.TextPrimary,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                TextAlignment = TextAlignment.Center,
+                Margin = new Thickness(0, 8, 0, 0),
+            });
+            // Console
+            col.Children.Add(new TextBlock
+            {
+                Text = item.Console,
+                FontFamily = ctx.Font,
+                FontSize = 10,
+                Foreground = ctx.TextMuted,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                TextAlignment = TextAlignment.Center,
+                Margin = new Thickness(0, 1, 0, 0),
+            });
+            // Subtitle (panel-specific blurb — kept on its own line so the
+            // tiles align)
+            col.Children.Add(new TextBlock
+            {
+                Text = item.Subtitle,
+                FontFamily = ctx.Font,
+                FontSize = 11,
+                Foreground = ctx.TextSecondary,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                TextAlignment = TextAlignment.Center,
+                Margin = new Thickness(0, 4, 0, 0),
+            });
+
+            // Tooltip: full title (in case truncated)
+            col.ToolTip = item.Title;
+
+            // Click to open detail card if we can find the local game row.
+            if (item.LocalGameId > 0)
+            {
+                int localId = item.LocalGameId;
+                col.MouseLeftButtonUp += (_, e) =>
+                {
+                    e.Handled = true;
+                    OpenLocalGameDetail(localId);
+                };
+            }
+            return col;
+        }
+
+        private void AppendSpotlightQuickWinsPanel(string header, List<Models.RASpotlightQuickWin> items, SpotlightContext ctx)
+        {
+            if (items == null || items.Count == 0) return;
+
+            RASpotlightStack.Children.Add(new TextBlock
+            {
+                Text = header,
+                FontFamily = ctx.Font,
+                FontSize = 10,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = ctx.TextMuted,
+                Margin = new Thickness(2, 12, 0, 6),
+            });
+
+            var card = new Border
+            {
+                Background = ctx.BgSecondary,
+                BorderBrush = ctx.BorderSubtle,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(10),
+                Padding = new Thickness(10),
+            };
+            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            foreach (var item in items)
+                row.Children.Add(BuildQuickWinTile(item, ctx));
+            card.Child = row;
+            RASpotlightStack.Children.Add(card);
+        }
+
+        private UIElement BuildQuickWinTile(Models.RASpotlightQuickWin item, SpotlightContext ctx)
+        {
+            var col = new StackPanel
+            {
+                Width = 140,
+                Margin = new Thickness(6),
+                Cursor = item.LocalGameId > 0 ? System.Windows.Input.Cursors.Hand : System.Windows.Input.Cursors.Arrow,
+            };
+
+            // 56x56 badge tile (matches the "Coming up" row treatment on the
+            // game detail card so the visual vocabulary is consistent).
+            var badgeOuter = new Border
+            {
+                Width = 56, Height = 56,
+                CornerRadius = new CornerRadius(8),
+                Background = ctx.BgTertiary,
+                HorizontalAlignment = HorizontalAlignment.Center,
+            };
+            var badgeInner = new Border
+            {
+                CornerRadius = new CornerRadius(8),
+                ClipToBounds = true,
+            };
+            badgeOuter.Child = badgeInner;
+            if (!string.IsNullOrEmpty(item.BadgeName))
+            {
+                try
+                {
+                    var bmp = new System.Windows.Media.Imaging.BitmapImage();
+                    bmp.BeginInit();
+                    bmp.UriSource = new Uri($"https://media.retroachievements.org/Badge/{item.BadgeName}.png");
+                    bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                    bmp.EndInit();
+                    badgeInner.Child = new System.Windows.Controls.Image
+                    {
+                        Source = bmp,
+                        Stretch = System.Windows.Media.Stretch.UniformToFill,
+                    };
+                }
+                catch { }
+            }
+            col.Children.Add(badgeOuter);
+
+            col.Children.Add(new TextBlock
+            {
+                Text = item.AchievementTitle,
+                FontFamily = ctx.Font,
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = ctx.TextPrimary,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                TextAlignment = TextAlignment.Center,
+                Margin = new Thickness(0, 6, 0, 0),
+            });
+            col.Children.Add(new TextBlock
+            {
+                Text = item.GameTitle,
+                FontFamily = ctx.Font,
+                FontSize = 10,
+                Foreground = ctx.TextMuted,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                TextAlignment = TextAlignment.Center,
+                Margin = new Thickness(0, 1, 0, 0),
+            });
+            col.Children.Add(new TextBlock
+            {
+                Text = "~" + FormatDurationShort(item.MedianSeconds),
+                FontFamily = ctx.Font,
+                FontSize = 11,
+                Foreground = ctx.TextSecondary,
+                TextAlignment = TextAlignment.Center,
+                Margin = new Thickness(0, 3, 0, 0),
+            });
+
+            var tip = new System.Text.StringBuilder();
+            tip.AppendLine(item.AchievementTitle);
+            if (!string.IsNullOrEmpty(item.Description))
+            {
+                tip.AppendLine();
+                tip.AppendLine(item.Description);
+            }
+            tip.AppendLine();
+            tip.Append($"{item.GameTitle} · {item.Console}");
+            col.ToolTip = tip.ToString();
+
+            if (item.LocalGameId > 0)
+            {
+                int localId = item.LocalGameId;
+                col.MouseLeftButtonUp += (_, e) =>
+                {
+                    e.Handled = true;
+                    OpenLocalGameDetail(localId);
+                };
+            }
+            return col;
+        }
+
+        private void OpenLocalGameDetail(int localGameId)
+        {
+            try
+            {
+                var game = _db.GetGameById(localGameId);
+                if (game == null) return;
+                var detail = new Views.GameDetailWindow(game) { Owner = this };
+                detail.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[RA] OpenLocalGameDetail failed: {ex.Message}");
+            }
+        }
+
+        private static string FormatDurationShort(int sec)
+        {
+            if (sec <= 0) return "—";
+            if (sec < 60) return $"{sec}s";
+            if (sec < 3600) return $"{sec / 60}m";
+            double h = sec / 3600.0;
+            return h < 100 ? $"{h:0.#}h" : $"{(int)h}h";
         }
 
         private static string FormatTimeAgo(string isoDate)

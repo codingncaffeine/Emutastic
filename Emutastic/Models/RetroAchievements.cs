@@ -431,4 +431,44 @@ namespace Emutastic.Models
     {
         public Dictionary<string, int> Buckets { get; set; } = new();
     }
+
+    // ── Library Spotlight (materialized) ────────────────────────────────────
+    // Pre-computed cross-reference of RA Web API data with the local library
+    // for the Achievements tab's "across all my games" panels. Materialized
+    // once per refresh on the background thread; UI binds to it directly.
+
+    public sealed class RALibrarySpotlight
+    {
+        public List<RASpotlightGame> ClosestToMastering   { get; set; } = new();
+        public List<RASpotlightQuickWin> QuickWins        { get; set; } = new();
+        public List<RASpotlightGame> ContinueWhereLeftOff { get; set; } = new();
+        public List<RASpotlightGame> NeverStarted         { get; set; } = new();
+        public List<RASpotlightGame> WishlistOwned        { get; set; } = new();
+    }
+
+    public sealed class RASpotlightGame
+    {
+        public int RAGameId      { get; set; }
+        public int LocalGameId   { get; set; }
+        public string Title      { get; set; } = "";
+        public string Console    { get; set; } = "";
+        public string? ImageIcon { get; set; }       // RA image path; UI prepends host
+        public int NumAchieved   { get; set; }
+        public int MaxPossible   { get; set; }
+        public string Subtitle   { get; set; } = "";  // panel-specific blurb
+    }
+
+    public sealed class RASpotlightQuickWin
+    {
+        public int RAGameId           { get; set; }
+        public int LocalGameId        { get; set; }
+        public string GameTitle       { get; set; } = "";
+        public string Console         { get; set; } = "";
+        public int AchievementId      { get; set; }
+        public string AchievementTitle { get; set; } = "";
+        public string Description     { get; set; } = "";
+        public string BadgeName       { get; set; } = "";
+        public int Points             { get; set; }
+        public int MedianSeconds      { get; set; }  // typical time-to-unlock from community medians
+    }
 }
