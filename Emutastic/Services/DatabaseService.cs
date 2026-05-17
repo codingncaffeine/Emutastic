@@ -868,6 +868,23 @@ namespace Emutastic.Services
         }
 
         /// <summary>
+        /// Persists the RA numeric game ID for a single game. Called once at
+        /// game launch after rcheevos identifies the ROM, so subsequent Web
+        /// API fetches (time-to-beat, achievement list, per-user progress)
+        /// can skip the hash-resolve roundtrip.
+        /// </summary>
+        public void UpdateRAGameId(int gameId, int raGameId)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "UPDATE Games SET RAGameId = $raId WHERE Id = $id;";
+            cmd.Parameters.AddWithValue("$raId", raGameId);
+            cmd.Parameters.AddWithValue("$id", gameId);
+            cmd.ExecuteNonQuery();
+        }
+
+        /// <summary>
         /// Updates the RomPath for a single game. Used when the launcher transparently
         /// extracts a .zip whose path was stored as-is by the importer (pre-fix imports
         /// via the console-nav hint short-circuit), so the next launch is fast.

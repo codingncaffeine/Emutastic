@@ -220,6 +220,21 @@ namespace Emutastic.Services
             return PtrToStringUTF8(game.title);
         }
 
+        /// <summary>
+        /// Returns RA's numeric game ID for the currently-loaded game, or 0
+        /// if no game is loaded / identification didn't land. Cached on the
+        /// Game row by the caller so the Web API stats fetch can skip the
+        /// hash-resolve roundtrip on subsequent library visits.
+        /// </summary>
+        public int GetGameId()
+        {
+            if (_client == IntPtr.Zero) return 0;
+            IntPtr gamePtr = rc_client_get_game_info(_client);
+            if (gamePtr == IntPtr.Zero) return 0;
+            var game = Marshal.PtrToStructure<rc_client_game_t>(gamePtr);
+            return (int)game.id;
+        }
+
         // ── Memory read callback ─────────────────────────────────────────────
 
         private void CacheMemoryRegions()

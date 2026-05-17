@@ -6063,7 +6063,23 @@ namespace Emutastic.Views
                 }
 
                 string? gameTitle = _raClient.GetGameTitle();
-                System.Diagnostics.Trace.WriteLine($"[RA] Game identified: {gameTitle}");
+                int raGameId = _raClient.GetGameId();
+                System.Diagnostics.Trace.WriteLine($"[RA] Game identified: {gameTitle} (id={raGameId})");
+
+                // Cache the RA game ID on the Game row so the detail card's
+                // Web API fetch can skip the hash-resolve roundtrip on every
+                // subsequent library visit. Idempotent — same value is written
+                // each launch.
+                if (raGameId > 0 && _game.RAGameId != raGameId)
+                {
+                    _game.RAGameId = raGameId;
+                    try { _db?.UpdateRAGameId(_game.Id, raGameId); }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Trace.WriteLine($"[RA] Failed to persist RAGameId: {ex.Message}");
+                    }
+                }
+
                 Dispatcher.BeginInvoke(() =>
                 {
                     _transientMsg = $"RetroAchievements: {gameTitle}";
