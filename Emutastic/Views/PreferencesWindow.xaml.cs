@@ -4006,6 +4006,7 @@ namespace Emutastic.Views
             RAEnabledToggle.IsChecked  = ra.Enabled;
             RAUsernameBox.Text         = ra.Username;
             RAPasswordBox.Password     = ra.Password;
+            RAApiKeyBox.Text           = ra.ApiKey;
             RAHardcoreToggle.IsChecked = ra.HardcoreMode;
             RATokenStatus.Text = !string.IsNullOrEmpty(ra.Token)
                 ? "Login token saved — password not required for future sessions."
@@ -4047,6 +4048,7 @@ namespace Emutastic.Views
             ra.Enabled      = RAEnabledToggle.IsChecked == true;
             ra.Username     = RAUsernameBox.Text.Trim();
             ra.Password     = RAPasswordBox.Password;
+            ra.ApiKey       = RAApiKeyBox.Text.Trim();
             ra.HardcoreMode = RAHardcoreToggle.IsChecked == true;
             _configService.SetRetroAchievementsConfiguration(ra);
             _ = _configService.SaveAsync();
@@ -4056,6 +4058,9 @@ namespace Emutastic.Views
             => SaveAchievementsSettings();
 
         private void RAHardcore_Changed(object sender, RoutedEventArgs e)
+            => SaveAchievementsSettings();
+
+        private void RAApiKey_Changed(object sender, System.Windows.Controls.TextChangedEventArgs e)
             => SaveAchievementsSettings();
 
         private void RASaveBtn_Click(object sender, RoutedEventArgs e)
