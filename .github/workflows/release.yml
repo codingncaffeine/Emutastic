@@ -21,8 +21,13 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: Download OpenVGDB
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $release = Invoke-RestMethod "https://api.github.com/repos/OpenVGDB/OpenVGDB/releases/latest"
+          # Authenticate the API call so we get the 5000/hr limit instead of
+          # the 60/hr unauthenticated cap shared across the Actions runner pool.
+          $headers = @{ Authorization = "Bearer $env:GH_TOKEN" }
+          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/OpenVGDB/OpenVGDB/releases/latest" -Headers $headers
           $asset = $release.assets | Where-Object { $_.name -like "openvgdb*" } | Select-Object -First 1
           Invoke-WebRequest -Uri $asset.browser_download_url -OutFile openvgdb.zip
           Expand-Archive -Path openvgdb.zip -DestinationPath Emutastic/Assets/ -Force
