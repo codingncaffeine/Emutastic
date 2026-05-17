@@ -83,9 +83,7 @@ namespace Emutastic.Views
                 GameDescription.Text = _game.Description;
             }
 
-            StatPlayed.Text = _game.PlayCount.ToString();
-            StatSaves.Text = _game.SaveCount.ToString();
-            StatLastPlayed.Text = _game.LastPlayedDisplay;
+            UpdateStatPills();
             FavoriteBadge.Visibility = _game.IsFavorite
                 ? Visibility.Visible
                 : Visibility.Collapsed;
@@ -101,9 +99,50 @@ namespace Emutastic.Views
 
         private void RefreshStats()
         {
-            StatPlayed.Text = _game.PlayCount.ToString();
-            StatSaves.Text = _game.SaveCount.ToString();
-            StatLastPlayed.Text = _game.LastPlayedDisplay;
+            UpdateStatPills();
+        }
+
+        /// <summary>
+        /// Renders the inline stats pills (Times Played / Save States / Last
+        /// Played) alongside the meta pills. Each pill hides when its value
+        /// is zero/Never, so the right cluster doesn't get noisy for a freshly
+        /// imported game.
+        /// </summary>
+        private void UpdateStatPills()
+        {
+            int plays = _game.PlayCount;
+            int saves = _game.SaveCount;
+            bool everPlayed = _game.LastPlayed.HasValue;
+
+            if (plays > 0)
+            {
+                StatPlayed.Text = plays == 1 ? "1 play" : $"{plays} plays";
+                PlayedPill.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                PlayedPill.Visibility = Visibility.Collapsed;
+            }
+
+            if (saves > 0)
+            {
+                StatSaves.Text = saves == 1 ? "1 save" : $"{saves} saves";
+                SavesPill.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                SavesPill.Visibility = Visibility.Collapsed;
+            }
+
+            if (everPlayed)
+            {
+                StatLastPlayed.Text = _game.LastPlayedDisplay;
+                LastPlayedPill.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                LastPlayedPill.Visibility = Visibility.Collapsed;
+            }
         }
 
         // ── Snap loading: video (ScreenScraper) → image (libretro) → placeholder ──

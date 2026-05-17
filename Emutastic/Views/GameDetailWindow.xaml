@@ -146,37 +146,78 @@
                                Foreground="{DynamicResource TextPrimaryBrush}"
                                TextWrapping="Wrap"/>
 
-                    <!-- Metadata pills row -->
-                    <WrapPanel x:Name="MetadataPanel" Margin="0,10,0,0"
-                               Visibility="Collapsed">
-                        <!-- Year pill -->
-                        <Border x:Name="YearPill"
-                                Background="{DynamicResource BgTertiaryBrush}"
-                                CornerRadius="4" Padding="8,3" Margin="0,0,6,6"
-                                Visibility="Collapsed">
-                            <TextBlock x:Name="GameYear"
-                                       FontFamily="{StaticResource PrimaryFont}"
-                                       FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                        </Border>
-                        <!-- Developer pill -->
-                        <Border x:Name="DeveloperPill"
-                                Background="{DynamicResource BgTertiaryBrush}"
-                                CornerRadius="4" Padding="8,3" Margin="0,0,6,6"
-                                Visibility="Collapsed">
-                            <TextBlock x:Name="GameDeveloper"
-                                       FontFamily="{StaticResource PrimaryFont}"
-                                       FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                        </Border>
-                        <!-- Genre pill -->
-                        <Border x:Name="GenrePill"
-                                Background="{DynamicResource BgTertiaryBrush}"
-                                CornerRadius="4" Padding="8,3" Margin="0,0,6,6"
-                                Visibility="Collapsed">
-                            <TextBlock x:Name="GameGenre"
-                                       FontFamily="{StaticResource PrimaryFont}"
-                                       FontSize="11" Foreground="{DynamicResource TextMutedBrush}"/>
-                        </Border>
-                    </WrapPanel>
+                    <!-- Combined meta + stats row. Meta pills wrap from the
+                         left, stats pills anchor to the right; on a narrow
+                         card with long developer names, meta wraps and stats
+                         stay visible. -->
+                    <Grid Margin="0,10,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Meta pills (year, developer, genre) -->
+                        <WrapPanel x:Name="MetadataPanel" Grid.Column="0">
+                            <Border x:Name="YearPill"
+                                    Background="{DynamicResource BgTertiaryBrush}"
+                                    CornerRadius="4" Padding="8,3" Margin="0,0,6,6"
+                                    Visibility="Collapsed">
+                                <TextBlock x:Name="GameYear"
+                                           FontFamily="{StaticResource PrimaryFont}"
+                                           FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                            </Border>
+                            <Border x:Name="DeveloperPill"
+                                    Background="{DynamicResource BgTertiaryBrush}"
+                                    CornerRadius="4" Padding="8,3" Margin="0,0,6,6"
+                                    Visibility="Collapsed">
+                                <TextBlock x:Name="GameDeveloper"
+                                           FontFamily="{StaticResource PrimaryFont}"
+                                           FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                            </Border>
+                            <Border x:Name="GenrePill"
+                                    Background="{DynamicResource BgTertiaryBrush}"
+                                    CornerRadius="4" Padding="8,3" Margin="0,0,6,6"
+                                    Visibility="Collapsed">
+                                <TextBlock x:Name="GameGenre"
+                                           FontFamily="{StaticResource PrimaryFont}"
+                                           FontSize="11" Foreground="{DynamicResource TextMutedBrush}"/>
+                            </Border>
+                        </WrapPanel>
+
+                        <!-- Stats pills (right-aligned, accent-tinted to read
+                             as "your activity" vs. the game's static metadata).
+                             Code-behind populates text as "47 plays" / "3 saves"
+                             / formatted last-played date. -->
+                        <StackPanel x:Name="StatsPanel"
+                                    Grid.Column="1"
+                                    Orientation="Horizontal"
+                                    VerticalAlignment="Top">
+                            <Border x:Name="PlayedPill"
+                                    Background="{DynamicResource BgTertiaryBrush}"
+                                    CornerRadius="4" Padding="8,3" Margin="6,0,0,6">
+                                <TextBlock x:Name="StatPlayed"
+                                           FontFamily="{StaticResource PrimaryFont}"
+                                           FontSize="11"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"/>
+                            </Border>
+                            <Border x:Name="SavesPill"
+                                    Background="{DynamicResource BgTertiaryBrush}"
+                                    CornerRadius="4" Padding="8,3" Margin="6,0,0,6">
+                                <TextBlock x:Name="StatSaves"
+                                           FontFamily="{StaticResource PrimaryFont}"
+                                           FontSize="11"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"/>
+                            </Border>
+                            <Border x:Name="LastPlayedPill"
+                                    Background="{DynamicResource BgTertiaryBrush}"
+                                    CornerRadius="4" Padding="8,3" Margin="6,0,0,6">
+                                <TextBlock x:Name="StatLastPlayed"
+                                           FontFamily="{StaticResource PrimaryFont}"
+                                           FontSize="11"
+                                           Foreground="{DynamicResource TextMutedBrush}"/>
+                            </Border>
+                        </StackPanel>
+                    </Grid>
 
                     <!-- Description. Wrapped in a ScrollViewer so rich arcade
                          synopses (which can be many paragraphs from arcade-history)
@@ -198,76 +239,9 @@
                                    LineHeight="18"/>
                     </ScrollViewer>
 
-                    <!-- Stats row -->
-                    <Grid Margin="0,18,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-
-                        <Border Grid.Column="0"
-                                Background="{DynamicResource BgTertiaryBrush}"
-                                CornerRadius="8"
-                                Padding="0,12"
-                                Margin="0,0,6,0">
-                            <StackPanel HorizontalAlignment="Center">
-                                <TextBlock x:Name="StatPlayed"
-                                           FontFamily="{StaticResource PrimaryFont}"
-                                           FontSize="15"
-                                           FontWeight="SemiBold"
-                                           Foreground="{DynamicResource TextPrimaryBrush}"
-                                           HorizontalAlignment="Center"/>
-                                <TextBlock Text="Times Played"
-                                           FontFamily="{StaticResource PrimaryFont}"
-                                           FontSize="10"
-                                           Foreground="{DynamicResource TextMutedBrush}"
-                                           HorizontalAlignment="Center"
-                                           Margin="0,3,0,0"/>
-                            </StackPanel>
-                        </Border>
-
-                        <Border Grid.Column="1"
-                                Background="{DynamicResource BgTertiaryBrush}"
-                                CornerRadius="8"
-                                Padding="0,12"
-                                Margin="0,0,6,0">
-                            <StackPanel HorizontalAlignment="Center">
-                                <TextBlock x:Name="StatSaves"
-                                           FontFamily="{StaticResource PrimaryFont}"
-                                           FontSize="15"
-                                           FontWeight="SemiBold"
-                                           Foreground="{DynamicResource TextPrimaryBrush}"
-                                           HorizontalAlignment="Center"/>
-                                <TextBlock Text="Save States"
-                                           FontFamily="{StaticResource PrimaryFont}"
-                                           FontSize="10"
-                                           Foreground="{DynamicResource TextMutedBrush}"
-                                           HorizontalAlignment="Center"
-                                           Margin="0,3,0,0"/>
-                            </StackPanel>
-                        </Border>
-
-                        <Border Grid.Column="2"
-                                Background="{DynamicResource BgTertiaryBrush}"
-                                CornerRadius="8"
-                                Padding="0,12">
-                            <StackPanel HorizontalAlignment="Center">
-                                <TextBlock x:Name="StatLastPlayed"
-                                           FontFamily="{StaticResource PrimaryFont}"
-                                           FontSize="12"
-                                           FontWeight="SemiBold"
-                                           Foreground="{DynamicResource TextPrimaryBrush}"
-                                           HorizontalAlignment="Center"/>
-                                <TextBlock Text="Last Played"
-                                           FontFamily="{StaticResource PrimaryFont}"
-                                           FontSize="10"
-                                           Foreground="{DynamicResource TextMutedBrush}"
-                                           HorizontalAlignment="Center"
-                                           Margin="0,3,0,0"/>
-                            </StackPanel>
-                        </Border>
-                    </Grid>
+                    <!-- Stats moved inline into the meta+stats row above.
+                         Reserved space here will house the RetroAchievements
+                         section in a follow-up phase. -->
 
                     <!-- Action buttons -->
                     <Grid Margin="0,16,0,0">
