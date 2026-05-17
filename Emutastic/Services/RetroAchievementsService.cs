@@ -47,12 +47,87 @@ namespace Emutastic.Services
         };
 
         private readonly IConfigurationService? _config;
+        private readonly DatabaseService? _db;
 
         public RetroAchievementsService() { }
 
         public RetroAchievementsService(IConfigurationService config)
         {
             _config = config;
+        }
+
+        public RetroAchievementsService(IConfigurationService config, DatabaseService db)
+        {
+            _config = config;
+            _db = db;
+        }
+
+        // TTLs for the two cached responses. Progression rarely changes (the
+        // medians shift slowly as more players touch the set); per-user state
+        // changes every play session.
+        public static readonly TimeSpan ProgressionTtl   = TimeSpan.FromHours(24);
+        public static readonly TimeSpan UserProgressTtl  = TimeSpan.FromHours(1);
+
+        // ── 3) Orchestration — refresh + persist for the detail card ────────
+
+        /// <summary>
+        /// Refreshes the cached Web API state for a single game and persists
+        /// the responses to the DB. Skips network calls for fresh cache, no
+        /// API key, or games without an RA game ID. Updates the Game object
+        /// in-place so the caller can read the typed views without reloading
+        /// from the DB. Never throws.
+        /// </summary>
+        public async Task RefreshDetailForGameAsync(Game game, CancellationToken ct = default)
+        {
+            if (game == null || _db == null || game.RAGameId <= 0) return;
+            var ra = _config?.GetRetroAchievementsConfiguration();
+            if (ra == null || string.IsNullOrWhiteSpace(ra.ApiKey)) return;
+
+            // Game-wide progression (no user needed).
+            if (game.IsRAProgressionStale(ProgressionTtl))
+            {
+                var prog = await GetGameProgressionAsync(game.RAGameId, ct).ConfigureAwait(false);
+                if (prog != null)
+                {
+                    string json = JsonSerializer.Serialize(prog);
+                    long ts = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                    try { _db.UpdateRAProgression(game.Id, json, ts); }
+                    catch (Exception ex) { Trace.WriteLine($"[RA] persist progression failed: {ex.Message}"); }
+                    game.RAProgressionJson = json;
+                    game.RAProgressionFetchedAt = ts;
+                }
+            }
+
+            // Per-user (only if logged in).
+            if (!string.IsNullOrWhiteSpace(ra.Username) && game.IsRAUserProgressStale(UserProgressTtl))
+            {
+                var user = await GetGameInfoAndUserProgressAsync(game.RAGameId, ra.Username, ct)
+                    .ConfigureAwait(false);
+                if (user != null)
+                {
+                    string json = JsonSerializer.Serialize(user);
+                    long ts = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                    try { _db.UpdateRAUserProgress(game.Id, json, ts); }
+                    catch (Exception ex) { Trace.WriteLine($"[RA] persist user progress failed: {ex.Message}"); }
+                    game.RAUserProgressJson = json;
+                    game.RAUserProgressFetchedAt = ts;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Marks the per-user cache stale so the next detail-card open
+        /// refetches. Cheap — DB-only, no network. Call after the user exits
+        /// a game so their freshly-unlocked achievements show up next time
+        /// they peek at the card.
+        /// </summary>
+        public void InvalidateUserProgressForGame(Game game)
+        {
+            if (game == null || _db == null || game.RAGameId <= 0) return;
+            try { _db.UpdateRAUserProgress(game.Id, "", 0L); }
+            catch (Exception ex) { Trace.WriteLine($"[RA] invalidate failed: {ex.Message}"); }
+            game.RAUserProgressJson = "";
+            game.RAUserProgressFetchedAt = 0L;
         }
 
         // ── 1) Credential validation via rcheevos ───────────────────────────

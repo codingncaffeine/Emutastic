@@ -885,6 +885,39 @@ namespace Emutastic.Services
         }
 
         /// <summary>
+        /// Persists the cached GetGameProgression JSON response with a fetch
+        /// timestamp (unix seconds). Pass empty/0 to invalidate.
+        /// </summary>
+        public void UpdateRAProgression(int gameId, string json, long fetchedAt)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "UPDATE Games SET RAProgressionJson = $json, RAProgressionFetchedAt = $ts WHERE Id = $id;";
+            cmd.Parameters.AddWithValue("$json", json ?? "");
+            cmd.Parameters.AddWithValue("$ts", fetchedAt);
+            cmd.Parameters.AddWithValue("$id", gameId);
+            cmd.ExecuteNonQuery();
+        }
+
+        /// <summary>
+        /// Persists the cached GetGameInfoAndUserProgress JSON response with
+        /// a fetch timestamp (unix seconds). Pass empty/0 to invalidate so
+        /// the next detail-card open refetches.
+        /// </summary>
+        public void UpdateRAUserProgress(int gameId, string json, long fetchedAt)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "UPDATE Games SET RAUserProgressJson = $json, RAUserProgressFetchedAt = $ts WHERE Id = $id;";
+            cmd.Parameters.AddWithValue("$json", json ?? "");
+            cmd.Parameters.AddWithValue("$ts", fetchedAt);
+            cmd.Parameters.AddWithValue("$id", gameId);
+            cmd.ExecuteNonQuery();
+        }
+
+        /// <summary>
         /// Updates the RomPath for a single game. Used when the launcher transparently
         /// extracts a .zip whose path was stored as-is by the importer (pre-fix imports
         /// via the console-nav hint short-circuit), so the next launch is fast.

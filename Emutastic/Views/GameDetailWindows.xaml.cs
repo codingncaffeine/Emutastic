@@ -338,6 +338,16 @@ namespace Emutastic.Views
                 var emulator = new EmulatorWindow(_game, core);
                 emulator.ShowDialog();
 
+                // The user just played — any cached per-user achievement state
+                // is potentially stale. Mark it invalid so the next time the
+                // detail card opens, fresh data is fetched. No network call
+                // here — just a TTL stamp reset.
+                if (App.Configuration != null)
+                {
+                    var ra = new RetroAchievementsService(App.Configuration, _db);
+                    ra.InvalidateUserProgressForGame(_game);
+                }
+
                 // Refresh stats — EmulatorWindow updates _game.PlayCount / LastPlayed / SaveCount
                 // on the shared object, so the card shows accurate numbers immediately.
                 if (IsVisible) RefreshStats();
