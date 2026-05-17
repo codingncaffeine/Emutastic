@@ -2157,6 +2157,62 @@
                                 </Border>
                             </Grid>
 
+                            <!-- F. Heatmap calendar (90-day activity grid) ────
+                                 Each cell is one day, color intensity scaled
+                                 to that day's unlock count. Hover for the
+                                 count + date. Past days are persisted to
+                                 ra_heatmap_daily forever (frozen) so the
+                                 grid paints from disk on tab open. -->
+                            <TextBlock Text="ACTIVITY"
+                                       FontFamily="{StaticResource PrimaryFont}"
+                                       FontSize="10"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextMutedBrush}"
+                                       Margin="2,22,0,8"/>
+                            <Border x:Name="RAHeatmapCard"
+                                    Background="{DynamicResource BgSecondaryBrush}"
+                                    BorderBrush="{DynamicResource BorderSubtleBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="10"
+                                    Padding="16,14,16,14">
+                                <StackPanel>
+                                    <TextBlock x:Name="RAHeatmapCaption"
+                                               FontFamily="{StaticResource PrimaryFont}"
+                                               FontSize="11"
+                                               Foreground="{DynamicResource TextMutedBrush}"
+                                               Margin="0,0,0,8"/>
+                                    <UniformGrid x:Name="RAHeatmapGrid"
+                                                 Rows="7"
+                                                 HorizontalAlignment="Left"/>
+                                    <Grid Margin="0,8,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock x:Name="RAHeatmapTotal"
+                                                   Grid.Column="0"
+                                                   FontFamily="{StaticResource PrimaryFont}"
+                                                   FontSize="11"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <TextBlock Text="less"
+                                                       FontFamily="{StaticResource PrimaryFont}"
+                                                       FontSize="10"
+                                                       Foreground="{DynamicResource TextMutedBrush}"
+                                                       VerticalAlignment="Center"
+                                                       Margin="0,0,6,0"/>
+                                            <StackPanel x:Name="RAHeatmapLegend" Orientation="Horizontal"/>
+                                            <TextBlock Text="more"
+                                                       FontFamily="{StaticResource PrimaryFont}"
+                                                       FontSize="10"
+                                                       Foreground="{DynamicResource TextMutedBrush}"
+                                                       VerticalAlignment="Center"
+                                                       Margin="6,0,0,0"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
                             <!-- Logged-out / no-key placeholder for the whole tab -->
                             <Border x:Name="RAUnconfiguredCard"
                                     Background="{DynamicResource BgSecondaryBrush}"

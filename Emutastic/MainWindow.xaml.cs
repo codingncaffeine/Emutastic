@@ -2332,6 +2332,17 @@ namespace Emutastic
             RenderCommunityPulse(ra.PeekCached<List<Models.RARecentGameAward>>("recent_game_awards:c=25"));
             RenderTopTen(ra.PeekCached<List<RaDataService.TopTenEntry>>("top_ten_users"));
 
+            // Heatmap — render from persisted ra_heatmap_daily for instant
+            // paint. Background task tops up today's bucket if stale.
+            try
+            {
+                var endUtc = DateTime.UtcNow.Date;
+                var startUtc = endUtc.AddDays(-89);
+                var persistedHeatmap = _db.GetRaHeatmapRange(user, startUtc.ToString("yyyy-MM-dd"), endUtc.ToString("yyyy-MM-dd"));
+                RenderHeatmap(persistedHeatmap);
+            }
+            catch { /* empty grid until refresh lands */ }
+
             _ = System.Threading.Tasks.Task.Run(async () =>
             {
                 try
@@ -2376,6 +2387,13 @@ namespace Emutastic
                         RenderCommunityPulse(pulseTask.Result);
                         RenderTopTen(topTenTask.Result);
                     }));
+
+                    // Heatmap — past days are immutable on disk, so this
+                    // typically refetches only today's row (or nothing on
+                    // a warm cache within the TTL window).
+                    var heatmap = await ra.GetHeatmapAsync(90, ct).ConfigureAwait(false);
+                    if (ct.IsCancellationRequested) return;
+                    _ = Dispatcher.BeginInvoke(new Action(() => RenderHeatmap(heatmap)));
                 }
                 catch (OperationCanceledException) { /* tab switched away */ }
                 catch (Exception ex)
@@ -3352,6 +3370,117 @@ namespace Emutastic
                 Grid.SetColumn(ptsCell, 2);
                 row.Children.Add(ptsCell);
                 RATopTenItems.Items.Add(row);
+            }
+        }
+
+        // ── Heatmap ───────────────────────────────────────────────────────
+        // Five-stop intensity ramp from BgTertiary (no activity) up through
+        // increasing red tint. Frozen so we can hand the same brush to many
+        // cells without per-cell allocations.
+        private static readonly System.Windows.Media.Brush[] _heatmapStops = BuildHeatmapStops();
+
+        private static System.Windows.Media.Brush[] BuildHeatmapStops()
+        {
+            // 0 = empty (dark gray, BgTertiary), 1..4 ramp toward accent red.
+            // Accent is #E03535 per the project's accent color memory; we
+            // step from a muted tone to full saturation.
+            var stops = new[]
+            {
+                System.Windows.Media.Color.FromRgb(0x2A, 0x2A, 0x2D),   // 0 unlocks
+                System.Windows.Media.Color.FromRgb(0x5A, 0x29, 0x29),   // 1
+                System.Windows.Media.Color.FromRgb(0x8C, 0x2A, 0x2A),   // 2-3
+                System.Windows.Media.Color.FromRgb(0xB7, 0x2F, 0x2F),   // 4-7
+                System.Windows.Media.Color.FromRgb(0xE0, 0x35, 0x35),   // 8+
+            };
+            return stops.Select(c =>
+            {
+                var b = new System.Windows.Media.SolidColorBrush(c);
+                b.Freeze();
+                return (System.Windows.Media.Brush)b;
+            }).ToArray();
+        }
+
+        private static int HeatmapBucket(int count)
+        {
+            if (count <= 0) return 0;
+            if (count <= 1) return 1;
+            if (count <= 3) return 2;
+            if (count <= 7) return 3;
+            return 4;
+        }
+
+        private void RenderHeatmap(Dictionary<string, int>? counts)
+        {
+            RAHeatmapGrid.Children.Clear();
+            RAHeatmapLegend.Children.Clear();
+            counts ??= new Dictionary<string, int>();
+
+            const int Days = 90;
+            // 7 rows × 13 columns ≈ 91 cells. Pad up to fill the last column
+            // so the grid stays rectangular; pad cells render invisible.
+            var endUtc = DateTime.UtcNow.Date;
+            var startUtc = endUtc.AddDays(-(Days - 1));
+
+            // UniformGrid renders left-to-right top-to-bottom; we want
+            // top-to-bottom left-to-right (each column = one week, row =
+            // weekday). Compute the column count from total cells.
+            int cols = (int)Math.Ceiling(Days / 7.0);
+            RAHeatmapGrid.Columns = cols;
+
+            // Build cells row-major-by-weekday (Sun..Sat) so the grid reads
+            // like the GitHub heatmap. We iterate weekdays 0..6 across the
+            // outer loop and weeks 0..cols-1 across the inner; each cell's
+            // actual date is startUtc + (week * 7) + weekday. If that date
+            // is outside the 90-day window (overflow on the right edge),
+            // render an invisible filler.
+            int total = 0;
+            for (int weekday = 0; weekday < 7; weekday++)
+            {
+                for (int week = 0; week < cols; week++)
+                {
+                    var date = startUtc.AddDays(week * 7 + (weekday - (int)startUtc.DayOfWeek));
+                    if (date < startUtc || date > endUtc)
+                    {
+                        RAHeatmapGrid.Children.Add(new Border
+                        {
+                            Width = 14, Height = 14,
+                            Margin = new Thickness(2),
+                            Background = System.Windows.Media.Brushes.Transparent,
+                        });
+                        continue;
+                    }
+                    string iso = date.ToString("yyyy-MM-dd");
+                    int count = counts.TryGetValue(iso, out var c) ? c : 0;
+                    total += count;
+                    var cell = new Border
+                    {
+                        Width = 14, Height = 14,
+                        Margin = new Thickness(2),
+                        CornerRadius = new CornerRadius(3),
+                        Background = _heatmapStops[HeatmapBucket(count)],
+                        ToolTip = count == 0
+                            ? $"No unlocks · {date:MMM d, yyyy}"
+                            : $"{count} unlock{(count == 1 ? "" : "s")} · {date:MMM d, yyyy}",
+                    };
+                    RAHeatmapGrid.Children.Add(cell);
+                }
+            }
+
+            RAHeatmapCaption.Text = $"Last 90 days · {startUtc:MMM d} → {endUtc:MMM d}";
+            RAHeatmapTotal.Text = total == 1
+                ? "1 achievement unlocked in this window"
+                : $"{total:N0} achievements unlocked in this window";
+
+            // Legend: five small squares mirroring the bucket ramp.
+            foreach (var brush in _heatmapStops)
+            {
+                RAHeatmapLegend.Children.Add(new Border
+                {
+                    Width = 12, Height = 12,
+                    Margin = new Thickness(2, 0, 2, 0),
+                    CornerRadius = new CornerRadius(2),
+                    Background = brush,
+                });
             }
         }
 

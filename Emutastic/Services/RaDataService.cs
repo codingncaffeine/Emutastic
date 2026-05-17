@@ -470,6 +470,110 @@ namespace Emutastic.Services
                 ct).ConfigureAwait(false);
         }
 
+        /// <summary>
+        /// Heatmap aggregate for the trailing N days. Reads ra_heatmap_daily
+        /// first — past days are written once and never refreshed, so they
+        /// short-circuit the API call. Today's row is refetched if older
+        /// than TtlHeatmapCurrent (1h) so a play session shows up while the
+        /// user is in the tab. Returns a map { "yyyy-MM-dd" → count }.
+        ///
+        /// Network failure falls back silently to whatever's already in
+        /// ra_heatmap_daily for the range.
+        /// </summary>
+        public async Task<Dictionary<string, int>?> GetHeatmapAsync(int days = 90, CancellationToken ct = default)
+        {
+            var user = CurrentUser();
+            if (user == null || !HasApiKey()) return null;
+
+            var endUtc = DateTime.UtcNow.Date;
+            var startUtc = endUtc.AddDays(-(days - 1));
+            string startIso = startUtc.ToString("yyyy-MM-dd");
+            string endIso = endUtc.ToString("yyyy-MM-dd");
+            string todayIso = endIso;
+
+            // 1. Read what's already aggregated. Past days don't need to be
+            //    refetched — they're frozen by definition.
+            Dictionary<string, int> persisted;
+            try { persisted = _db.GetRaHeatmapRange(user, startIso, endIso); }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"[RA] heatmap read failed: {ex.Message}");
+                persisted = new();
+            }
+
+            // 2. Decide whether we need to refetch today's row. Track via a
+            //    cache row in ra_cache (cheaper than parsing a date column
+            //    on ra_heatmap_daily). If the today-row was refreshed within
+            //    the TTL, skip the API call entirely.
+            string todayCacheKey = $"heatmap_today:user={user}:date={todayIso}";
+            var todayMarker = _db.GetRaCache(todayCacheKey);
+            long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            bool todayFresh = todayMarker != null
+                              && todayMarker.FetchedAt > 0
+                              && (now - todayMarker.FetchedAt) < todayMarker.TtlSeconds;
+
+            // 3. Determine which past days are missing from persistence.
+            //    Build a set of expected dates and subtract what we have.
+            var missing = new List<DateTime>();
+            for (var d = startUtc; d <= endUtc; d = d.AddDays(1))
+            {
+                string iso = d.ToString("yyyy-MM-dd");
+                if (iso == todayIso)
+                {
+                    if (!todayFresh) missing.Add(d);
+                }
+                else if (!persisted.ContainsKey(iso))
+                {
+                    missing.Add(d);
+                }
+            }
+
+            // 4. If everything's cached, return the map immediately.
+            if (missing.Count == 0) return persisted;
+
+            // 5. Otherwise fetch the bounding range that covers the missing
+            //    span. One network call for the whole range — RA's endpoint
+            //    accepts a single from/to and returns every unlock in between.
+            DateTime fromUtc = missing.First();
+            DateTime toUtc   = missing.Last().AddDays(1).AddSeconds(-1);
+            var unlocks = await _api.GetAchievementsEarnedBetweenAsync(
+                user,
+                new DateTimeOffset(fromUtc, TimeSpan.Zero),
+                new DateTimeOffset(toUtc, TimeSpan.Zero),
+                ct).ConfigureAwait(false);
+
+            // 6. Bucket unlocks by date, accumulate counts. Today's bucket
+            //    is initialised to 0 explicitly so the renderer knows we
+            //    asked, even if the user got nothing today.
+            var freshCounts = new Dictionary<string, int>();
+            foreach (var d in missing)
+                freshCounts[d.ToString("yyyy-MM-dd")] = 0;
+
+            foreach (var u in unlocks)
+            {
+                if (string.IsNullOrEmpty(u.Date)) continue;
+                // RA returns "yyyy-MM-dd HH:mm:ss" — take the date portion.
+                string iso = u.Date.Length >= 10 ? u.Date.Substring(0, 10) : u.Date;
+                if (!freshCounts.ContainsKey(iso)) continue;
+                freshCounts[iso] = freshCounts[iso] + 1;
+            }
+
+            // 7. Persist + merge.
+            foreach (var (iso, count) in freshCounts)
+            {
+                try { _db.SetRaHeatmapDay(user, iso, count); }
+                catch (Exception ex) { Trace.WriteLine($"[RA] heatmap persist failed: {ex.Message}"); }
+                persisted[iso] = count;
+            }
+
+            // 8. Stamp today's refresh marker so we don't fetch again
+            //    within the TTL window.
+            try { _db.SetRaCache(todayCacheKey, OwnerForUser(user), "1", now, (long)TtlHeatmapCurrent.TotalSeconds); }
+            catch { }
+
+            return persisted;
+        }
+
         /// <summary>Trophy case data (#22): mastery / beaten / completion awards. Cached 1h per user.</summary>
         public Task<RAUserAwards?> GetAwardsAsync(CancellationToken ct = default)
         {
