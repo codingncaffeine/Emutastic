@@ -2877,7 +2877,11 @@ namespace Emutastic
                 CornerRadius = new CornerRadius(10),
                 Padding = new Thickness(10),
             };
-            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            // WrapPanel so tiles beyond the visible width spill onto a second
+            // row instead of getting clipped. At 160+12px per game tile,
+            // ~6 fit per row at the card's max content width; 10 tiles
+            // produces a tidy two-row shelf.
+            var row = new WrapPanel { Orientation = Orientation.Horizontal };
             foreach (var item in items)
                 row.Children.Add(BuildSpotlightGameTile(item, ctx));
             card.Child = row;
@@ -2987,18 +2991,23 @@ namespace Emutastic
                 Margin = new Thickness(0, 4, 0, 0),
             });
 
-            // Tooltip: full title (in case truncated)
-            col.ToolTip = item.Title;
-
-            // Click to open detail card if we can find the local game row.
+            // Tooltip + visual cue when the local library doesn't have this
+            // game yet. Cursor stays Arrow (not Hand) and the tile dims to
+            // make the non-clickable state legible without being noisy.
             if (item.LocalGameId > 0)
             {
+                col.ToolTip = item.Title;
                 int localId = item.LocalGameId;
                 col.MouseLeftButtonUp += (_, e) =>
                 {
                     e.Handled = true;
                     OpenLocalGameDetail(localId);
                 };
+            }
+            else
+            {
+                col.Opacity = 0.6;
+                col.ToolTip = $"{item.Title} — not in your local library";
             }
             return col;
         }
@@ -3025,7 +3034,9 @@ namespace Emutastic
                 CornerRadius = new CornerRadius(10),
                 Padding = new Thickness(10),
             };
-            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            // WrapPanel — same overflow story as the game-tile rows. At
+            // 140+12px per quick-win tile ~7 fit per row; 10 wraps cleanly.
+            var row = new WrapPanel { Orientation = Orientation.Horizontal };
             foreach (var item in items)
                 row.Children.Add(BuildQuickWinTile(item, ctx));
             card.Child = row;
@@ -3115,6 +3126,7 @@ namespace Emutastic
             }
             tip.AppendLine();
             tip.Append($"{item.GameTitle} · {item.Console}");
+            if (item.LocalGameId <= 0) tip.Append(" · (not in your local library)");
             col.ToolTip = tip.ToString();
 
             if (item.LocalGameId > 0)
@@ -3125,6 +3137,10 @@ namespace Emutastic
                     e.Handled = true;
                     OpenLocalGameDetail(localId);
                 };
+            }
+            else
+            {
+                col.Opacity = 0.6;
             }
             return col;
         }
