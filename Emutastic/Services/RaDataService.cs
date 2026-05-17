@@ -244,8 +244,8 @@ namespace Emutastic.Services
                 // forces a refetch but keeps the row as a fallback if the
                 // network fails.
                 long zero = 0L;
-                _db.SetRaCache($"library_spotlight:user={user}", OwnerForUser(user),
-                    _db.GetRaCache($"library_spotlight:user={user}")?.Payload ?? "", zero, 0);
+                _db.SetRaCache($"library_spotlight:v2:user={user}", OwnerForUser(user),
+                    _db.GetRaCache($"library_spotlight:v2:user={user}")?.Payload ?? "", zero, 0);
                 _db.SetRaCache($"user_recent:user={user}", OwnerForUser(user),
                     _db.GetRaCache($"user_recent:user={user}")?.Payload ?? "", zero, 0);
             }
@@ -294,7 +294,11 @@ namespace Emutastic.Services
             var user = CurrentUser();
             if (user == null || !HasApiKey()) return null;
 
-            string cacheKey = $"library_spotlight:user={user}";
+            // :v2 — relaxed the local-library filter on closest-to-mastering
+            // and continue-where-left-off, raised tile cap to 10. Bumping the
+            // key forces a fresh materialization on next visit rather than
+            // serving the prior strict-filter snapshot for up to 15 min.
+            string cacheKey = $"library_spotlight:v2:user={user}";
             return await GetCachedAsync<RALibrarySpotlight>(
                 cacheKey,
                 OwnerForUser(user),
@@ -327,17 +331,17 @@ namespace Emutastic.Services
                     var spotlight = new RALibrarySpotlight();
 
                     // ── Closest to mastering ─────────────────────────────
-                    // Items the user has started but not finished, sorted
-                    // by remaining achievements ascending. Tiebreaker is
-                    // completion ratio descending (a 4/6 set wins over a
-                    // 28/30 set when both have 2 left, since the 4/6 user
-                    // is closer to a cheap mastery finish).
+                    // Every game the user has started but not finished, no
+                    // local-library filter — the value here is seeing the
+                    // user's RA progress, regardless of whether they've
+                    // launched that game in Emutastic yet. Sort: remaining
+                    // achievements ascending (smallest gap leftmost), tied
+                    // by completion ratio descending. Cap at 10.
                     spotlight.ClosestToMastering = completion
-                        .Where(p => ownedRaIds.Contains(p.GameId))
                         .Where(p => p.NumAwarded > 0 && p.NumAwarded < p.MaxPossible)
                         .OrderBy(p => p.MaxPossible - p.NumAwarded)
                         .ThenByDescending(p => (double)p.NumAwarded / p.MaxPossible)
-                        .Take(5)
+                        .Take(10)
                         .Select(p => new RASpotlightGame
                         {
                             RAGameId = p.GameId,
@@ -352,11 +356,10 @@ namespace Emutastic.Services
                         .ToList();
 
                     // ── Continue where you left off ───────────────────────
-                    // Recently-played games (RA's list) intersected with
-                    // owned library. Most-recent first; cap at 5.
+                    // RA's most-recently-played list as-is (no local filter).
+                    // Most-recent first; cap at 10.
                     spotlight.ContinueWhereLeftOff = recentlyPlayed
-                        .Where(r => ownedRaIds.Contains(r.GameId))
-                        .Take(5)
+                        .Take(10)
                         .Select(r => new RASpotlightGame
                         {
                             RAGameId = r.GameId,
@@ -381,7 +384,7 @@ namespace Emutastic.Services
                     var touchedIds = new HashSet<int>(completion.Select(p => p.GameId));
                     spotlight.NeverStarted = ownedGames.Values
                         .Where(g => !touchedIds.Contains(g.RAGameId))
-                        .Take(5)
+                        .Take(10)
                         .Select(g => new RASpotlightGame
                         {
                             RAGameId = g.RAGameId,
@@ -399,7 +402,7 @@ namespace Emutastic.Services
                     // ── Wishlist you own ─────────────────────────────────
                     spotlight.WishlistOwned = wishlist
                         .Where(w => ownedRaIds.Contains(w.Id))
-                        .Take(5)
+                        .Take(10)
                         .Select(w => new RASpotlightGame
                         {
                             RAGameId = w.Id,
@@ -453,7 +456,7 @@ namespace Emutastic.Services
                     spotlight.QuickWins = quickWins
                         .OrderBy(q => q.MedianSeconds)
                         .ThenByDescending(q => q.Points)
-                        .Take(5)
+                        .Take(10)
                         .ToList();
 
                     return spotlight;

@@ -2327,7 +2327,7 @@ namespace Emutastic
 
             // Library Spotlight (cached snapshot — already materialized in
             // RaDataService so render is just iteration, no joins here).
-            var cachedSpotlight = ra.PeekCached<Models.RALibrarySpotlight>($"library_spotlight:user={user}");
+            var cachedSpotlight = ra.PeekCached<Models.RALibrarySpotlight>($"library_spotlight:v2:user={user}");
             RenderLibrarySpotlight(cachedSpotlight);
 
             // Featured / Discovery — all three panels share the same cold-paint pattern.
