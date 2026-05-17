@@ -180,21 +180,30 @@ namespace Emutastic.Models
         public long RAUserProgressFetchedAt { get; set; }
 
         // Lazy-deserialize the JSON on first access and invalidate when the
-        // underlying string is reassigned. Callers don't pay the parse cost
-        // until they actually read typed fields.
+        // underlying string is reassigned. The fetch service mutates the JSON
+        // properties from a background thread while the UI thread reads the
+        // typed views, so the cache check + assignment is locked. The lock
+        // is uncontended in the common case (single reader, infrequent writer)
+        // so the overhead is just a couple of monitor instructions.
+        private readonly object _raTypedLock = new();
         private RAProgression? _raProgression;
         private string? _raProgressionJsonCached;
         public RAProgression? RAProgressionTyped
         {
             get
             {
-                if (!ReferenceEquals(_raProgressionJsonCached, RAProgressionJson)
-                    && _raProgressionJsonCached != RAProgressionJson)
+                // Snapshot the live JSON once — the property field could change
+                // mid-method on a writer thread otherwise.
+                string current = RAProgressionJson;
+                lock (_raTypedLock)
                 {
-                    _raProgressionJsonCached = RAProgressionJson;
-                    _raProgression = TryDeserialize<RAProgression>(RAProgressionJson);
+                    if (!string.Equals(_raProgressionJsonCached, current, StringComparison.Ordinal))
+                    {
+                        _raProgressionJsonCached = current;
+                        _raProgression = TryDeserialize<RAProgression>(current);
+                    }
+                    return _raProgression;
                 }
-                return _raProgression;
             }
         }
 
@@ -204,13 +213,16 @@ namespace Emutastic.Models
         {
             get
             {
-                if (!ReferenceEquals(_raUserProgressJsonCached, RAUserProgressJson)
-                    && _raUserProgressJsonCached != RAUserProgressJson)
+                string current = RAUserProgressJson;
+                lock (_raTypedLock)
                 {
-                    _raUserProgressJsonCached = RAUserProgressJson;
-                    _raUserProgress = TryDeserialize<RAUserProgress>(RAUserProgressJson);
+                    if (!string.Equals(_raUserProgressJsonCached, current, StringComparison.Ordinal))
+                    {
+                        _raUserProgressJsonCached = current;
+                        _raUserProgress = TryDeserialize<RAUserProgress>(current);
+                    }
+                    return _raUserProgress;
                 }
-                return _raUserProgress;
             }
         }
 

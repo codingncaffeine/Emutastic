@@ -872,6 +872,12 @@ namespace Emutastic.Services
         /// game launch after rcheevos identifies the ROM, so subsequent Web
         /// API fetches (time-to-beat, achievement list, per-user progress)
         /// can skip the hash-resolve roundtrip.
+        ///
+        /// THREAD-AFFINITY: Call only from the emulator startup path or the
+        /// UI thread. Never call from rcheevos event delegates
+        /// (AchievementTriggered / GameCompleted / etc.) — those fire on the
+        /// per-frame emu thread and a synchronous SQLite write there causes
+        /// audio crackle and frame stalls.
         /// </summary>
         public void UpdateRAGameId(int gameId, int raGameId)
         {
@@ -887,6 +893,9 @@ namespace Emutastic.Services
         /// <summary>
         /// Persists the cached GetGameProgression JSON response with a fetch
         /// timestamp (unix seconds). Pass empty/0 to invalidate.
+        ///
+        /// THREAD-AFFINITY: Call from background fetch tasks or the UI thread,
+        /// never from rcheevos event delegates — see UpdateRAGameId comment.
         /// </summary>
         public void UpdateRAProgression(int gameId, string json, long fetchedAt)
         {
@@ -904,6 +913,9 @@ namespace Emutastic.Services
         /// Persists the cached GetGameInfoAndUserProgress JSON response with
         /// a fetch timestamp (unix seconds). Pass empty/0 to invalidate so
         /// the next detail-card open refetches.
+        ///
+        /// THREAD-AFFINITY: Call from background fetch tasks or the UI thread,
+        /// never from rcheevos event delegates — see UpdateRAGameId comment.
         /// </summary>
         public void UpdateRAUserProgress(int gameId, string json, long fetchedAt)
         {
