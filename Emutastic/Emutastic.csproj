@@ -16,7 +16,7 @@
          use this value verbatim — if it drifts behind the latest tag, the
          About tab flags "A newer release is available" against the user's own
          locally-built copy. Bump alongside every new git tag. -->
-    <Version>1.6.0</Version>
+    <Version>1.6.5</Version>
     <ApplicationIcon>Assets\emutastic-logo.ico</ApplicationIcon>
     <!-- Suppress WinRT AOT warnings (MVVMTK0045) and PRI resource warnings — not applicable to WPF -->
     <NoWarn>$(NoWarn);MVVMTK0045</NoWarn>
