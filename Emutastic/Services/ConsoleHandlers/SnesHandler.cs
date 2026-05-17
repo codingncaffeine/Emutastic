@@ -5,6 +5,7 @@ namespace Emutastic.Services.ConsoleHandlers
     public class SnesHandler : ConsoleHandlerBase
     {
         public override string ConsoleName => "SNES";
+        public override bool PromoteAnalogStickToDpad => true;
 
         public override Dictionary<string, string> GetDefaultCoreOptions()
         {

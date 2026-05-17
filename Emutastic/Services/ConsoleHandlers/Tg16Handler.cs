@@ -16,6 +16,7 @@ namespace Emutastic.Services.ConsoleHandlers
         }
 
         public override string ConsoleName => _consoleName;
+        public override bool PromoteAnalogStickToDpad => true;
 
         public override Dictionary<string, string> GetDefaultCoreOptions() => new()
         {
