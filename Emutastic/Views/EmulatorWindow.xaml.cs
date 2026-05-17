@@ -6152,7 +6152,7 @@ namespace Emutastic.Views
                     System.Diagnostics.Trace.WriteLine("[RA] Hardcore mode refused for PSP — PPSSPP cheats path not gateable from the frontend; dropping to softcore for this session.");
                     Dispatcher.BeginInvoke(() =>
                     {
-                        _transientMsg = "RetroAchievements: hardcore not yet available for PSP — playing in softcore";
+                        _transientMsg = "Hardcore Mode is disabled for PSP titles — achievements still track";
                         _transientExpiry = DateTime.Now.AddSeconds(6);
                     });
                 }

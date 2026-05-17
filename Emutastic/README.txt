@@ -173,10 +173,26 @@ games. Enable in Preferences -> Achievements:
      Sign in, find "Keys" -> "Web API Key" near the bottom, and
      paste the value into Preferences -> Achievements -> Web API Key.
 
-  3. Hardcore Mode  (optional)
-     Disables save states, rewind, and slow-motion during gameplay.
-     Required by RA for "hardcore" achievement unlocks, which are
-     worth more points and count toward the mastery badge.
+  3. Hardcore Mode  (optional, default OFF)
+     Disables save state LOADING (creating states is still allowed)
+     and cheat codes during gameplay. Required by RA for "hardcore"
+     achievement unlocks, which are worth more points and count
+     toward the mastery badge.
+
+     Note: RA "recommends" but does not require frontends to default
+     hardcore to ON. Emutastic deliberately ships with it OFF so
+     first-run users can experiment with save states without losing
+     hardcore eligibility on their account. Flip the toggle in
+     Preferences -> Achievements -> Hardcore Mode any time. Switching
+     mid-session is not allowed by RA, so the change takes effect on
+     the next game launch.
+
+     Hardcore Mode is temporarily disabled for PSP titles regardless
+     of the toggle setting — see the Hardcore Compliance wiki page
+     for the technical reason.
+
+     For the full line-by-line compliance audit:
+        https://github.com/codingncaffeine/Emutastic/wiki/Hardcore-Compliance
 
 In-game, achievements appear as toast notifications the moment you
 unlock them. The detail card shows aggregated progress for any game
