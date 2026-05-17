@@ -16,6 +16,7 @@ namespace Emutastic.Services.ConsoleHandlers
     {
         public override string ConsoleName => "CDi";
         public override bool UsesAnalogStick => true;
+        public override bool PromoteAnalogStickToDpad => true;
 
         public override Dictionary<string, string> GetDefaultCoreOptions()
             => new()

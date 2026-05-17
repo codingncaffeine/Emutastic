@@ -14,6 +14,17 @@ namespace Emutastic.Services.ConsoleHandlers
         /// <summary>True for consoles whose cores expect analog stick input (N64, GameCube, PS1, etc.).</summary>
         bool UsesAnalogStick { get; }
 
+        /// <summary>
+        /// When true, OnInputState falls back to the left analog stick when
+        /// no digital JOYPAD direction is pressed, mapping stick UP/DOWN/LEFT/
+        /// RIGHT to the corresponding JOYPAD_UP/DOWN/LEFT/RIGHT button. Used
+        /// for consoles whose hardware was digital-only (CDi, Arcade) but
+        /// whose users naturally drive movement from the modern controller's
+        /// analog thumbstick. Diagonals survive because the X and Y deadzone
+        /// checks fire independently in ControllerManager.
+        /// </summary>
+        bool PromoteAnalogStickToDpad { get; }
+
         /// <summary>Core options to pre-seed before the core announces its variable list.</summary>
         Dictionary<string, string> GetDefaultCoreOptions();
 

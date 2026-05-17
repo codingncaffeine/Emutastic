@@ -12,6 +12,7 @@ namespace Emutastic.Services.ConsoleHandlers
 
         public abstract string ConsoleName { get; }
         public virtual bool UsesAnalogStick => false;
+        public virtual bool PromoteAnalogStickToDpad => false;
 
         public virtual Dictionary<string, string> GetDefaultCoreOptions()
             => new Dictionary<string, string>();

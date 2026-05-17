@@ -4327,7 +4327,7 @@ namespace Emutastic.Views
                     {
                         bool bp = (isPort0 && b < (uint)_inputState.Length && _inputState[b])
                                   || (ctrl?.GetButtonState(b) ?? false);
-                        if (!bp && isPort0 && _consoleHandler is CdiHandler && ctrl != null)
+                        if (!bp && isPort0 && (_consoleHandler?.PromoteAnalogStickToDpad ?? false) && ctrl != null)
                         {
                             bp = b switch
                             {
@@ -4356,11 +4356,14 @@ namespace Emutastic.Views
                 bool pressed = (isPort0 && id < (uint)_inputState.Length && _inputState[id])
                                || (ctrl?.GetButtonState(id) ?? false);
 
-                // CDi: analog stick also drives the JOYPAD directional buttons so the
-                // cursor moves smoothly.  MAME's cdimono1 input ports are wired to the
-                // joystick device (hence d-pad works), not the mouse device, so we have
-                // to express movement as digital JOYPAD presses against a threshold.
-                if (!pressed && isPort0 && _consoleHandler is CdiHandler && ctrl != null)
+                // Promote left analog stick to JOYPAD directions for consoles
+                // whose handler opts in (CDi: cursor needs smooth movement;
+                // Arcade: modern controllers' stick is the natural input for
+                // FBNeo / MAME 2003-Plus games, originally digital joysticks).
+                // X and Y are read against independent deadzone thresholds so
+                // diagonals (NE/NW/SE/SW) survive — both JOYPAD_UP and
+                // JOYPAD_RIGHT can be reported true on the same poll.
+                if (!pressed && isPort0 && (_consoleHandler?.PromoteAnalogStickToDpad ?? false) && ctrl != null)
                 {
                     pressed = id switch
                     {
