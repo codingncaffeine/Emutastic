@@ -4232,7 +4232,7 @@ namespace Emutastic.Views
             => OpenUrl("https://github.com/codingncaffeine/Emutastic/wiki/Privacy-Policy");
 
         private void AboutLicense_Click(object sender, RoutedEventArgs e)
-            => OpenUrl("https://github.com/codingncaffeine/Emutastic/blob/main/LICENSE");
+            => OpenUrl("https://github.com/codingncaffeine/Emutastic/blob/main/LICENSE.txt");
 
         private void AboutCores_Click(object sender, RoutedEventArgs e)
             => OpenUrl("https://github.com/codingncaffeine/Emutastic/wiki/Cores");
