@@ -2088,7 +2088,8 @@
                                     <Button x:Name="RAOfTheWeekPlay"
                                             Grid.Column="2"
                                             Content="▶  Play Now"
-                                            Style="{StaticResource ActionBtn}"
+                                            Style="{StaticResource PlayButtonStyle}"
+                                            Padding="20,10"
                                             VerticalAlignment="Center"
                                             Visibility="Collapsed"
                                             Click="RAOfTheWeekPlay_Click"/>
