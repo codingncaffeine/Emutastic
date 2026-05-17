@@ -6214,6 +6214,29 @@ namespace Emutastic.Views
                 {
                     System.Diagnostics.Trace.WriteLine($"[RA] Game load failed: {loadErr}");
                     Dispatcher.BeginInvoke(() => _transientMsg = "RetroAchievements: game not in database");
+                    // Persist the outcome so the Detail card can show a clear
+                    // status next time the user opens it, instead of an empty
+                    // RA section that looks identical to "never launched."
+                    // rcheevos returns two distinct "no playable achievements"
+                    // strings: "Unknown game" (hash didn't match anything in
+                    // RA's database) and "Response contained no sets" (hash
+                    // matched but the game has no authored achievement set).
+                    // Both should read to the user as "no achievements
+                    // available," so they're bucketed together as
+                    // not_in_database. Anything else (network failure,
+                    // timeout, credential reject) is a generic load_failed.
+                    string err = loadErr ?? "";
+                    bool noAchievements =
+                           err.IndexOf("unknown game",      StringComparison.OrdinalIgnoreCase) >= 0
+                        || err.IndexOf("no sets",           StringComparison.OrdinalIgnoreCase) >= 0
+                        || err.IndexOf("response contained", StringComparison.OrdinalIgnoreCase) >= 0;
+                    string outcome = noAchievements ? "not_in_database" : "load_failed";
+                    try
+                    {
+                        _game.RALastLaunchOutcome = outcome;
+                        _db?.UpdateRALastLaunchOutcome(_game.Id, outcome);
+                    }
+                    catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[RA] Persist outcome failed: {ex.Message}"); }
                     _raClient.Dispose();
                     _raClient = null;
                     return;
@@ -6227,6 +6250,18 @@ namespace Emutastic.Views
                     $"title=\"{_game.Title}\" raGameId={raGameId} raTitle=\"{gameTitle}\" " +
                     $"existingRAGameId={_game.RAGameId} dbNull={(_db == null)} " +
                     $"dbPath=\"{_db?.DbPath ?? "<null>"}\" portable={AppPaths.IsPortable}");
+                // Persist the success outcome so the Detail card knows this
+                // game has a verified RA catalog entry without needing the
+                // Web API fetch to have already landed.
+                if (!string.Equals(_game.RALastLaunchOutcome, "identified", StringComparison.Ordinal))
+                {
+                    try
+                    {
+                        _game.RALastLaunchOutcome = "identified";
+                        _db?.UpdateRALastLaunchOutcome(_game.Id, "identified");
+                    }
+                    catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[RA] Persist outcome failed: {ex.Message}"); }
+                }
 
                 // Cache the RA game ID on the Game row so the detail card's
                 // Web API fetch can skip the hash-resolve roundtrip on every

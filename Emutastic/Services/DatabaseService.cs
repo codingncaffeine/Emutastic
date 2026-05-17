@@ -195,6 +195,17 @@ namespace Emutastic.Services
             TryAddColumn(connection, "Games", "RALiveProgressJson",       "TEXT DEFAULT ''");
             TryAddColumn(connection, "Games", "RALiveProgressFetchedAt",  "INTEGER DEFAULT 0");
 
+            // RA per-game launch outcome — captured every time we attempt to
+            // identify the ROM with rcheevos. Lets the Detail card distinguish
+            // "you've never launched this with RA on" from "RA says no
+            // achievement set exists" from "ROM hash isn't recognized" —
+            // three states that all look like an empty RA section to the user
+            // otherwise. Values: "" (never attempted), "identified",
+            // "not_in_database" (rcheevos didn't find a match for the hash),
+            // or "load_failed" (other rc_client_begin_identify_and_load_game
+            // failure — bad credentials, network, etc.).
+            TryAddColumn(connection, "Games", "RALastLaunchOutcome",      "TEXT DEFAULT ''");
+
             // Speed up the Achievements-tab library cross-ref. The "across
             // every game you own, which ones are RA-tracked" lookup runs on
             // every tab refresh; a partial index over the populated subset
@@ -965,6 +976,26 @@ namespace Emutastic.Services
             cmd.Parameters.AddWithValue("$raId", raGameId);
             cmd.Parameters.AddWithValue("$id", gameId);
             return cmd.ExecuteNonQuery();
+        }
+
+        /// <summary>
+        /// Records the outcome of the most recent rcheevos identification
+        /// attempt for this game. Lets the Detail card surface a clear status
+        /// even when nothing has been unlocked yet. Values: "identified",
+        /// "not_in_database", "load_failed". Empty string clears the field.
+        ///
+        /// THREAD-AFFINITY: Same as <see cref="UpdateRAGameId"/> — launch path
+        /// or UI thread only, never per-frame rcheevos callbacks.
+        /// </summary>
+        public void UpdateRALastLaunchOutcome(int gameId, string outcome)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "UPDATE Games SET RALastLaunchOutcome = $outcome WHERE Id = $id;";
+            cmd.Parameters.AddWithValue("$outcome", outcome ?? "");
+            cmd.Parameters.AddWithValue("$id", gameId);
+            cmd.ExecuteNonQuery();
         }
 
         /// <summary>
@@ -1853,7 +1884,8 @@ namespace Emutastic.Services
                 Developer, Publisher, Genre, Description, PreferredCore,
                 RAGameId, RAProgressionJson, RAProgressionFetchedAt,
                 RAUserProgressJson, RAUserProgressFetchedAt,
-                RALiveProgressJson, RALiveProgressFetchedAt;
+                RALiveProgressJson, RALiveProgressFetchedAt,
+                RALastLaunchOutcome;
 
             public OrdinalMap(SqliteDataReader reader)
             {
@@ -1890,6 +1922,7 @@ namespace Emutastic.Services
                 RAUserProgressFetchedAt = TryOrd(reader, "RAUserProgressFetchedAt");
                 RALiveProgressJson      = TryOrd(reader, "RALiveProgressJson");
                 RALiveProgressFetchedAt = TryOrd(reader, "RALiveProgressFetchedAt");
+                RALastLaunchOutcome     = TryOrd(reader, "RALastLaunchOutcome");
             }
 
             private static int TryOrd(SqliteDataReader r, string col)
@@ -1936,6 +1969,7 @@ namespace Emutastic.Services
                 RAUserProgressFetchedAt = GetLong(reader, o.RAUserProgressFetchedAt),
                 RALiveProgressJson      = GetStr(reader, o.RALiveProgressJson),
                 RALiveProgressFetchedAt = GetLong(reader, o.RALiveProgressFetchedAt),
+                RALastLaunchOutcome     = GetStr(reader, o.RALastLaunchOutcome),
             };
         }
 

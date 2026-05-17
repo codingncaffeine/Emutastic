@@ -218,13 +218,18 @@ namespace Emutastic.Views
         /// </summary>
         private async System.Threading.Tasks.Task LoadRetroAchievementsAsync()
         {
-            if (_game.RAGameId <= 0)
+            // Hide the section entirely for users who haven't opted into RA.
+            // We don't want to pester them with empty achievement UI.
+            var raConfig = App.Configuration?.GetRetroAchievementsConfiguration();
+            if (raConfig == null || !raConfig.Enabled)
             {
                 RASection.Visibility = Visibility.Collapsed;
                 return;
             }
 
-            // Render whatever's already cached so the section appears instantly.
+            // Render whatever's already cached (or show a status placeholder
+            // when there's nothing to render — the user wants to know whether
+            // they've engaged with RA on this title, regardless of progress).
             RenderRetroAchievements();
 
             // Refresh if either cache is stale (no-op when fresh / no API key).
@@ -259,15 +264,33 @@ namespace Emutastic.Views
             var prog = _game.RAProgressionTyped;
             var user = _game.RAUserProgressTyped;
 
-            // No progression data yet — show the section as a skeleton-less
-            // hidden state until the first fetch lands.
+            // No progression data yet — show a single labeled status line
+            // instead of an empty section so the user can tell at a glance
+            // why nothing is unlocking. Distinguishes "never launched with
+            // RA" from "rcheevos says no set exists" from "ROM unrecognized"
+            // — three states that look identical otherwise. The label is
+            // driven by RALastLaunchOutcome which the launch path persists
+            // alongside RAGameId.
             if (prog == null || prog.NumAchievements <= 0)
             {
-                RASection.Visibility = Visibility.Collapsed;
+                string status = (_game.RAGameId > 0, _game.RALastLaunchOutcome) switch
+                {
+                    (true, _)               => "Fetching achievement data…",
+                    (false, "not_in_database") => "No achievements available for this game",
+                    (false, "load_failed")     => "RetroAchievements identification failed — try relaunching",
+                    _                          => "Not checked yet — launch this game with RetroAchievements enabled",
+                };
+                RASection.Visibility = Visibility.Visible;
+                RAProgressLabel.Text = status;
+                RAProgress.Value = 0;
+                RAProgress.Visibility = Visibility.Collapsed;
+                ComingUpSection.Visibility = Visibility.Collapsed;
+                RATimingsCaption.Visibility = Visibility.Collapsed;
                 return;
             }
 
             RASection.Visibility = Visibility.Visible;
+            RAProgress.Visibility = Visibility.Visible;
 
             // Pick the unlock track that matches the user's hardcore setting.
             // In hardcore mode the user cares about hardcore unlocks (gated on

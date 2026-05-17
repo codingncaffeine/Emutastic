@@ -187,6 +187,13 @@ namespace Emutastic.Models
         public string RALiveProgressJson { get; set; } = "";
         public long RALiveProgressFetchedAt { get; set; }
 
+        // Outcome of the last rcheevos identification attempt. Lets the
+        // Detail card distinguish "never launched with RA on" from
+        // "launched, rcheevos said no achievement set" from "ROM hash
+        // unrecognized." Values: "" (never attempted), "identified",
+        // "not_in_database", or "load_failed".
+        public string RALastLaunchOutcome { get; set; } = "";
+
         // Lazy-deserialize the JSON on first access and invalidate when the
         // underlying string is reassigned. The fetch service mutates the JSON
         // properties from a background thread while the UI thread reads the
