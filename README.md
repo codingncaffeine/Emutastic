@@ -120,12 +120,23 @@ Four built-in themes: **Dark** (default), **Light**, **OLED Black**, **Midnight 
 
 XInput button polling during gameplay with SDL3 device name detection. Xbox, DualSense/DualShock, and hundreds of other controllers are identified by product name. Button mappings configurable per-controller in **Preferences → Input**. Falls back to generic names if `SDL3.dll` is absent.
 
+**Left analog stick works as movement input** on every old console with a digital joystick or D-pad — push the stick on the NES, SNES, Genesis, Game Boy line, Saturn, Neo Geo, Atari, ColecoVision, TurboGrafx, arcade games, and more, and your character moves. Diagonals are honored (pushing NE registers as up + right simultaneously). The D-pad still works exactly as before — use whichever you prefer.
+
 </details>
 
 <details>
 <summary><strong>RetroAchievements</strong></summary>
 
-Earn achievements while playing via [RetroAchievements](https://retroachievements.org/). Enable in **Preferences → Achievements** with your RA username and password. Achievements appear as toast notifications during gameplay.
+Earn achievements while playing via [RetroAchievements](https://retroachievements.org/). Enable in **Preferences → Achievements** with your RA username and password; paste your Web API Key (from retroachievements.org → Settings) in the same place to unlock per-game stats on the detail card.
+
+The detail card for any game you've launched with achievements enabled shows:
+
+- An **achievement progress bar** with `X / Y unlocked · Z pts`, gold-tinted when you've mastered the set
+- **Coming up** — three suggested achievement badges. If you've made in-game progress in your last session, these are the ones you're closest to ("73% · 3 of 5"); otherwise they're picked from the community's fastest-typical unlocks for the game
+- **Typical run** caption: `beat ~Xh · master ~Yh` based on community medians
+- Hardcore mode aware — all numbers and "Coming up" picks reflect hardcore unlocks when Hardcore is on
+
+In-game, achievements appear as toast notifications when you unlock them.
 
 </details>
 
