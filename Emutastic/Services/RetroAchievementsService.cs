@@ -457,21 +457,22 @@ namespace Emutastic.Services
 
         // ── #5 GetAchievementsEarnedBetween ────────────────────────────────
         // Used by the heatmap to bulk-fetch a date range, then derived into
-        // {date → count} aggregates persisted to ra_heatmap_daily.
-        public async Task<List<RAEarnedAchievement>> GetAchievementsEarnedBetweenAsync(
+        // {date → count} aggregates persisted to ra_heatmap_daily. Returns
+        // null on network failure (so the heatmap caller can distinguish
+        // "fetched, no unlocks" from "couldn't fetch" and avoid persisting
+        // poisoned zeros for past days).
+        public Task<List<RAEarnedAchievement>?> GetAchievementsEarnedBetweenAsync(
             string username, DateTimeOffset fromUtc, DateTimeOffset toUtc, CancellationToken ct = default)
         {
-            if (string.IsNullOrWhiteSpace(username)) return new();
+            if (string.IsNullOrWhiteSpace(username)) return Task.FromResult<List<RAEarnedAchievement>?>(null);
             string? key = GetApiKey();
-            if (string.IsNullOrWhiteSpace(key)) return new();
+            if (string.IsNullOrWhiteSpace(key)) return Task.FromResult<List<RAEarnedAchievement>?>(null);
             string url = $"{ApiBase}/API_GetAchievementsEarnedBetween.php"
                        + $"?y={Uri.EscapeDataString(key)}"
                        + $"&u={Uri.EscapeDataString(username)}"
                        + $"&f={fromUtc.ToUnixTimeSeconds()}"
                        + $"&t={toUtc.ToUnixTimeSeconds()}";
-            var list = await GetJsonAsync<List<RAEarnedAchievement>>(
-                url, "GetAchievementsEarnedBetween", ct).ConfigureAwait(false);
-            return list ?? new();
+            return GetJsonAsync<List<RAEarnedAchievement>>(url, "GetAchievementsEarnedBetween", ct);
         }
 
         // ── #6 GetAchievementsEarnedOnDay ──────────────────────────────────

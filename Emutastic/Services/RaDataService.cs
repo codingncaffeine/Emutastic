@@ -542,9 +542,21 @@ namespace Emutastic.Services
                 new DateTimeOffset(toUtc, TimeSpan.Zero),
                 ct).ConfigureAwait(false);
 
-            // 6. Bucket unlocks by date, accumulate counts. Today's bucket
-            //    is initialised to 0 explicitly so the renderer knows we
-            //    asked, even if the user got nothing today.
+            // 6. Network failure → return whatever's already on disk WITHOUT
+            //    persisting zeros. Otherwise we'd poison past days as
+            //    "fetched and empty" forever (the !ContainsKey check would
+            //    pass next launch and skip the retry).
+            if (unlocks == null)
+            {
+                Trace.WriteLine($"[RA] heatmap fetch failed for {fromUtc:yyyy-MM-dd}..{toUtc:yyyy-MM-dd}; serving cached subset");
+                return persisted;
+            }
+
+            // 7. Bucket unlocks by date, accumulate counts. Missing days are
+            //    initialised to 0 so the persist step writes them as
+            //    confirmed-empty (which past-day reads short-circuit on
+            //    next launch). Today's bucket is initialised to 0 too —
+            //    its TTL marker controls when we refetch.
             var freshCounts = new Dictionary<string, int>();
             foreach (var d in missing)
                 freshCounts[d.ToString("yyyy-MM-dd")] = 0;
@@ -558,7 +570,7 @@ namespace Emutastic.Services
                 freshCounts[iso] = freshCounts[iso] + 1;
             }
 
-            // 7. Persist + merge.
+            // 8. Persist + merge.
             foreach (var (iso, count) in freshCounts)
             {
                 try { _db.SetRaHeatmapDay(user, iso, count); }
@@ -566,7 +578,7 @@ namespace Emutastic.Services
                 persisted[iso] = count;
             }
 
-            // 8. Stamp today's refresh marker so we don't fetch again
+            // 9. Stamp today's refresh marker so we don't fetch again
             //    within the TTL window.
             try { _db.SetRaCache(todayCacheKey, OwnerForUser(user), "1", now, (long)TtlHeatmapCurrent.TotalSeconds); }
             catch { }

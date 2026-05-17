@@ -2373,12 +2373,15 @@ namespace Emutastic
                     if (ct.IsCancellationRequested) return;
                     _ = Dispatcher.BeginInvoke(new Action(() => RenderLibrarySpotlight(spotlight)));
 
-                    // Featured / Discovery (parallel fan — all three are
-                    // global, no per-user shared state).
+                    // Featured / Discovery + heatmap (parallel fan — none
+                    // share per-user state; heatmap's typical cost is
+                    // one network call for today's bucket or nothing if
+                    // the TTL marker is still warm).
                     var aotwTask = ra.GetAchievementOfTheWeekAsync(ct);
                     var pulseTask = ra.GetRecentGameAwardsAsync(25, ct);
                     var topTenTask = ra.GetTopTenAsync(ct);
-                    await System.Threading.Tasks.Task.WhenAll(aotwTask, pulseTask, topTenTask).ConfigureAwait(false);
+                    var heatmapTask = ra.GetHeatmapAsync(90, ct);
+                    await System.Threading.Tasks.Task.WhenAll(aotwTask, pulseTask, topTenTask, heatmapTask).ConfigureAwait(false);
 
                     if (ct.IsCancellationRequested) return;
                     _ = Dispatcher.BeginInvoke(new Action(() =>
@@ -2386,14 +2389,8 @@ namespace Emutastic
                         RenderAchievementOfTheWeek(aotwTask.Result);
                         RenderCommunityPulse(pulseTask.Result);
                         RenderTopTen(topTenTask.Result);
+                        RenderHeatmap(heatmapTask.Result);
                     }));
-
-                    // Heatmap — past days are immutable on disk, so this
-                    // typically refetches only today's row (or nothing on
-                    // a warm cache within the TTL window).
-                    var heatmap = await ra.GetHeatmapAsync(90, ct).ConfigureAwait(false);
-                    if (ct.IsCancellationRequested) return;
-                    _ = Dispatcher.BeginInvoke(new Action(() => RenderHeatmap(heatmap)));
                 }
                 catch (OperationCanceledException) { /* tab switched away */ }
                 catch (Exception ex)
@@ -3411,20 +3408,29 @@ namespace Emutastic
 
         private void RenderHeatmap(Dictionary<string, int>? counts)
         {
+            // Note on time zones: the grid bins by UTC date because RA's
+            // unlock timestamps are UTC. A user playing at, say, 23:30 PST
+            // will see that unlock on the next UTC day's cell — a small
+            // edge-of-day misalignment vs their local calendar. Tradeoff
+            // accepted because matching local-date semantics would require
+            // converting every RA timestamp during aggregation and shifting
+            // the range bounds, both of which complicate the API contract
+            // for marginal UX gain on a 90-day overview chart.
             RAHeatmapGrid.Children.Clear();
-            RAHeatmapLegend.Children.Clear();
             counts ??= new Dictionary<string, int>();
 
             const int Days = 90;
-            // 7 rows × 13 columns ≈ 91 cells. Pad up to fill the last column
-            // so the grid stays rectangular; pad cells render invisible.
             var endUtc = DateTime.UtcNow.Date;
             var startUtc = endUtc.AddDays(-(Days - 1));
 
-            // UniformGrid renders left-to-right top-to-bottom; we want
-            // top-to-bottom left-to-right (each column = one week, row =
-            // weekday). Compute the column count from total cells.
-            int cols = (int)Math.Ceiling(Days / 7.0);
+            // Column count has to account for the leading partial week —
+            // the renderer offsets each cell's date by (weekday - startDoW),
+            // so the first column holds the Sunday on-or-before startUtc.
+            // Without `+startDoW` in the ceiling, weekday=0 of the trailing
+            // partial week falls off the right edge and today's cell goes
+            // missing (regression caught by audit).
+            int startDoW = (int)startUtc.DayOfWeek;
+            int cols = (int)Math.Ceiling((Days + startDoW) / 7.0);
             RAHeatmapGrid.Columns = cols;
 
             // Build cells row-major-by-weekday (Sun..Sat) so the grid reads
@@ -3472,15 +3478,19 @@ namespace Emutastic
                 : $"{total:N0} achievements unlocked in this window";
 
             // Legend: five small squares mirroring the bucket ramp.
-            foreach (var brush in _heatmapStops)
+            // Built once and reused — same five static stops each render.
+            if (RAHeatmapLegend.Children.Count == 0)
             {
-                RAHeatmapLegend.Children.Add(new Border
+                foreach (var brush in _heatmapStops)
                 {
-                    Width = 12, Height = 12,
-                    Margin = new Thickness(2, 0, 2, 0),
-                    CornerRadius = new CornerRadius(2),
-                    Background = brush,
-                });
+                    RAHeatmapLegend.Children.Add(new Border
+                    {
+                        Width = 12, Height = 12,
+                        Margin = new Thickness(2, 0, 2, 0),
+                        CornerRadius = new CornerRadius(2),
+                        Background = brush,
+                    });
+                }
             }
         }
 
