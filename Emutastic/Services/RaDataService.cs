@@ -179,6 +179,11 @@ namespace Emutastic.Services
         /// Drops every cached row for the given user. Call on RA logout or
         /// when the user changes their Web API key in Preferences so the next
         /// sign-in doesn't serve the prior user's stats.
+        ///
+        /// Note: ra_heatmap_daily is keyed by (user, date) so logout doesn't
+        /// need to wipe it — different users naturally don't see each other's
+        /// rows. Past days survive across logout/login cycles intentionally
+        /// so returning users see their heatmap immediately on cold open.
         /// </summary>
         public void InvalidateUser(string username)
         {

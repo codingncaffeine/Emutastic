@@ -36,9 +36,13 @@ namespace Emutastic.Services
             using var pragma = connection.CreateCommand();
             // WAL lets background services (RA refresher, artwork fetch, save-state
             // sweeper) write to the DB concurrent with UI reads from the library
-            // grid without hitting "database is locked". busy_timeout is the
-            // safety net if a write blocks behind a checkpoint.
-            pragma.CommandText = "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;";
+            // grid without hitting "database is locked". synchronous=NORMAL is
+            // the SQLite-recommended pairing — keeps WAL's write-throughput win
+            // (default FULL still fsyncs per commit, killing the benefit) while
+            // capping the worst-case loss to the last in-flight transaction on
+            // a power cut. busy_timeout is the safety net if a write blocks
+            // behind a checkpoint.
+            pragma.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;";
             pragma.ExecuteNonQuery();
             return connection;
         }

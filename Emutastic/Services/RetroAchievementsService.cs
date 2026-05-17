@@ -538,8 +538,9 @@ namespace Emutastic.Services
 
         // ── #15 GetGameList (paginated, per console; HEAVY) ─────────────────
         // Whole-console game dumps. Docs explicitly warn "aggressively cache."
-        // Caller responsible for choosing the console and accepting the multi-
-        // page wait.
+        // Big consoles (NES has 1500+ games) exceed RA's 500/page default, so
+        // page until the response returns < 500. Cached at 7-day TTL so the
+        // multi-page wait happens at most weekly.
         public async Task<List<RAGameListItem>> GetGameListAsync(
             int consoleId, bool onlyWithAchievements = true, bool includeHashes = false, CancellationToken ct = default)
         {
@@ -547,13 +548,23 @@ namespace Emutastic.Services
             if (consoleId <= 0) return all;
             string? key = GetApiKey();
             if (string.IsNullOrWhiteSpace(key)) return all;
-            string url = $"{ApiBase}/API_GetGameList.php"
-                       + $"?y={Uri.EscapeDataString(key)}"
-                       + $"&i={consoleId}"
-                       + $"&f={(onlyWithAchievements ? 1 : 0)}"
-                       + $"&h={(includeHashes ? 1 : 0)}";
-            var list = await GetJsonAsync<List<RAGameListItem>>(url, "GetGameList", ct).ConfigureAwait(false);
-            if (list != null) all.AddRange(list);
+
+            const int PageSize = 500;
+            int offset = 0;
+            while (true)
+            {
+                string url = $"{ApiBase}/API_GetGameList.php"
+                           + $"?y={Uri.EscapeDataString(key)}"
+                           + $"&i={consoleId}"
+                           + $"&f={(onlyWithAchievements ? 1 : 0)}"
+                           + $"&h={(includeHashes ? 1 : 0)}"
+                           + $"&c={PageSize}&o={offset}";
+                var page = await GetJsonAsync<List<RAGameListItem>>(url, "GetGameList", ct).ConfigureAwait(false);
+                if (page == null || page.Count == 0) break;
+                all.AddRange(page);
+                if (page.Count < PageSize) break;
+                offset += PageSize;
+            }
             return all;
         }
 
