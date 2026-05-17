@@ -247,6 +247,326 @@ namespace Emutastic.Services
             return merged;
         }
 
+        // ═══════════════════════════════════════════════════════════════════
+        // Achievements-tab endpoints (v1)
+        // 18 read-only Web API methods feeding the dedicated tab. All share
+        // the existing _throttle (max 2 concurrent) and _http instance —
+        // adding new methods to this class instead of spinning a parallel
+        // pool means total RA-host concurrency stays at 2, per polite-citizen
+        // convention. Every method returns null on any failure (missing
+        // API key, network error, parse failure); never throws.
+        //
+        // Paginated endpoints (GetUserCompletionProgress, GetGameList,
+        // GetRecentGameAwards, GetUserWantToPlayList) handle paging
+        // internally — callers receive the consolidated list. 500/page is
+        // RA's documented max.
+        // ═══════════════════════════════════════════════════════════════════
+
+        // ── #29 GetUserProfile ─────────────────────────────────────────────
+        public Task<RAUserProfile?> GetUserProfileAsync(string username, CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(username)) return Task.FromResult<RAUserProfile?>(null);
+            string? key = GetApiKey();
+            if (string.IsNullOrWhiteSpace(key)) return Task.FromResult<RAUserProfile?>(null);
+            string url = $"{ApiBase}/API_GetUserProfile.php?y={Uri.EscapeDataString(key)}&u={Uri.EscapeDataString(username)}";
+            return GetJsonAsync<RAUserProfile>(url, "GetUserProfile", ct);
+        }
+
+        // ── #28 GetUserPoints ──────────────────────────────────────────────
+        public Task<RAUserPoints?> GetUserPointsAsync(string username, CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(username)) return Task.FromResult<RAUserPoints?>(null);
+            string? key = GetApiKey();
+            if (string.IsNullOrWhiteSpace(key)) return Task.FromResult<RAUserPoints?>(null);
+            string url = $"{ApiBase}/API_GetUserPoints.php?y={Uri.EscapeDataString(key)}&u={Uri.EscapeDataString(username)}";
+            return GetJsonAsync<RAUserPoints>(url, "GetUserPoints", ct);
+        }
+
+        // ── #31 GetUserRecentAchievements ──────────────────────────────────
+        // Returns an array of unlocks earned in the last `minutes` (default
+        // 60 per RA convention). Tail the array; newest first.
+        public async Task<List<RAUserRecentAchievement>> GetUserRecentAchievementsAsync(
+            string username, int minutes = 60, CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(username)) return new List<RAUserRecentAchievement>();
+            string? key = GetApiKey();
+            if (string.IsNullOrWhiteSpace(key)) return new List<RAUserRecentAchievement>();
+            string url = $"{ApiBase}/API_GetUserRecentAchievements.php"
+                       + $"?y={Uri.EscapeDataString(key)}"
+                       + $"&u={Uri.EscapeDataString(username)}"
+                       + $"&m={minutes}";
+            var list = await GetJsonAsync<List<RAUserRecentAchievement>>(
+                url, "GetUserRecentAchievements", ct).ConfigureAwait(false);
+            return list ?? new List<RAUserRecentAchievement>();
+        }
+
+        // ── #22 GetUserAwards ──────────────────────────────────────────────
+        public Task<RAUserAwards?> GetUserAwardsAsync(string username, CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(username)) return Task.FromResult<RAUserAwards?>(null);
+            string? key = GetApiKey();
+            if (string.IsNullOrWhiteSpace(key)) return Task.FromResult<RAUserAwards?>(null);
+            string url = $"{ApiBase}/API_GetUserAwards.php?y={Uri.EscapeDataString(key)}&u={Uri.EscapeDataString(username)}";
+            return GetJsonAsync<RAUserAwards>(url, "GetUserAwards", ct);
+        }
+
+        // ── #25 GetUserCompletionProgress (paginated 500/page) ─────────────
+        // Pages internally and concatenates. Callers receive the full list.
+        // Worst case for a 5000-game RA history: 10 HTTP calls @ ~500ms each
+        // behind the throttle — done on a background task, never blocks UI.
+        public async Task<List<RAUserCompletionProgressItem>> GetUserCompletionProgressAsync(
+            string username, CancellationToken ct = default)
+        {
+            var all = new List<RAUserCompletionProgressItem>();
+            if (string.IsNullOrWhiteSpace(username)) return all;
+            string? key = GetApiKey();
+            if (string.IsNullOrWhiteSpace(key)) return all;
+
+            const int PageSize = 500;
+            int offset = 0;
+            while (true)
+            {
+                string url = $"{ApiBase}/API_GetUserCompletionProgress.php"
+                           + $"?y={Uri.EscapeDataString(key)}"
+                           + $"&u={Uri.EscapeDataString(username)}"
+                           + $"&c={PageSize}&o={offset}";
+                var page = await GetJsonAsync<RAUserCompletionProgressResponse>(
+                    url, "GetUserCompletionProgress", ct).ConfigureAwait(false);
+                if (page == null || page.Results == null || page.Results.Count == 0) break;
+                all.AddRange(page.Results);
+                if (all.Count >= page.Total || page.Results.Count < PageSize) break;
+                offset += PageSize;
+            }
+            return all;
+        }
+
+        // ── #32 GetUserRecentlyPlayedGames ─────────────────────────────────
+        public async Task<List<RARecentlyPlayedGame>> GetUserRecentlyPlayedGamesAsync(
+            string username, int count = 50, CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(username)) return new List<RARecentlyPlayedGame>();
+            string? key = GetApiKey();
+            if (string.IsNullOrWhiteSpace(key)) return new List<RARecentlyPlayedGame>();
+            string url = $"{ApiBase}/API_GetUserRecentlyPlayedGames.php"
+                       + $"?y={Uri.EscapeDataString(key)}"
+                       + $"&u={Uri.EscapeDataString(username)}"
+                       + $"&c={count}";
+            var list = await GetJsonAsync<List<RARecentlyPlayedGame>>(
+                url, "GetUserRecentlyPlayedGames", ct).ConfigureAwait(false);
+            return list ?? new List<RARecentlyPlayedGame>();
+        }
+
+        // ── #35 GetUserWantToPlayList (paginated, mutual-follow only) ──────
+        public async Task<List<RAWantToPlayItem>> GetUserWantToPlayListAsync(
+            string username, CancellationToken ct = default)
+        {
+            var all = new List<RAWantToPlayItem>();
+            if (string.IsNullOrWhiteSpace(username)) return all;
+            string? key = GetApiKey();
+            if (string.IsNullOrWhiteSpace(key)) return all;
+
+            const int PageSize = 500;
+            int offset = 0;
+            while (true)
+            {
+                string url = $"{ApiBase}/API_GetUserWantToPlayList.php"
+                           + $"?y={Uri.EscapeDataString(key)}"
+                           + $"&u={Uri.EscapeDataString(username)}"
+                           + $"&c={PageSize}&o={offset}";
+                var page = await GetJsonAsync<RAWantToPlayResponse>(
+                    url, "GetUserWantToPlayList", ct).ConfigureAwait(false);
+                if (page == null || page.Results == null || page.Results.Count == 0) break;
+                all.AddRange(page.Results);
+                if (all.Count >= page.Total || page.Results.Count < PageSize) break;
+                offset += PageSize;
+            }
+            return all;
+        }
+
+        // ── #3 GetAchievementOfTheWeek ─────────────────────────────────────
+        public Task<RAAchievementOfTheWeek?> GetAchievementOfTheWeekAsync(CancellationToken ct = default)
+        {
+            string? key = GetApiKey();
+            if (string.IsNullOrWhiteSpace(key)) return Task.FromResult<RAAchievementOfTheWeek?>(null);
+            string url = $"{ApiBase}/API_GetAchievementOfTheWeek.php?y={Uri.EscapeDataString(key)}";
+            return GetJsonAsync<RAAchievementOfTheWeek>(url, "GetAchievementOfTheWeek", ct);
+        }
+
+        // ── #20 GetRecentGameAwards (paginated) ────────────────────────────
+        public async Task<List<RARecentGameAward>> GetRecentGameAwardsAsync(
+            DateTimeOffset? startingFrom = null, int count = 25, CancellationToken ct = default)
+        {
+            var all = new List<RARecentGameAward>();
+            string? key = GetApiKey();
+            if (string.IsNullOrWhiteSpace(key)) return all;
+
+            string url = $"{ApiBase}/API_GetRecentGameAwards.php"
+                       + $"?y={Uri.EscapeDataString(key)}"
+                       + $"&c={count}";
+            if (startingFrom.HasValue)
+                url += $"&d={Uri.EscapeDataString(startingFrom.Value.ToString("yyyy-MM-dd"))}";
+
+            var page = await GetJsonAsync<RARecentGameAwardsResponse>(
+                url, "GetRecentGameAwards", ct).ConfigureAwait(false);
+            if (page?.Results != null) all.AddRange(page.Results);
+            return all;
+        }
+
+        // ── #21 GetTopTenUsers ─────────────────────────────────────────────
+        // The API returns a JSON array of arrays: [["user", points, retroPoints], ...].
+        // System.Text.Json will deserialize that into a List<JsonElement[]>;
+        // we project into RATopTenUser via index, since strong typing across
+        // a positional JSON array would require a custom converter.
+        public async Task<List<(string User, int Points, int RetroPoints)>> GetTopTenUsersAsync(CancellationToken ct = default)
+        {
+            string? key = GetApiKey();
+            if (string.IsNullOrWhiteSpace(key)) return new();
+            string url = $"{ApiBase}/API_GetTopTenUsers.php?y={Uri.EscapeDataString(key)}";
+
+            await _throttle.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                using var resp = await _http.GetAsync(url, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode) return new();
+                string json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                var doc = JsonDocument.Parse(json);
+                var result = new List<(string, int, int)>();
+                if (doc.RootElement.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var row in doc.RootElement.EnumerateArray())
+                    {
+                        if (row.ValueKind == JsonValueKind.Array && row.GetArrayLength() >= 3)
+                        {
+                            string user = row[0].GetString() ?? "";
+                            int pts = row[1].TryGetInt32(out int p) ? p : 0;
+                            int rpts = row[2].TryGetInt32(out int rp) ? rp : 0;
+                            result.Add((user, pts, rpts));
+                        }
+                    }
+                }
+                return result;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"[RA] GetTopTenUsers failed: {ex.Message}");
+                return new();
+            }
+            finally { try { _throttle.Release(); } catch { } }
+        }
+
+        // ── #5 GetAchievementsEarnedBetween ────────────────────────────────
+        // Used by the heatmap to bulk-fetch a date range, then derived into
+        // {date → count} aggregates persisted to ra_heatmap_daily.
+        public async Task<List<RAEarnedAchievement>> GetAchievementsEarnedBetweenAsync(
+            string username, DateTimeOffset fromUtc, DateTimeOffset toUtc, CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(username)) return new();
+            string? key = GetApiKey();
+            if (string.IsNullOrWhiteSpace(key)) return new();
+            string url = $"{ApiBase}/API_GetAchievementsEarnedBetween.php"
+                       + $"?y={Uri.EscapeDataString(key)}"
+                       + $"&u={Uri.EscapeDataString(username)}"
+                       + $"&f={fromUtc.ToUnixTimeSeconds()}"
+                       + $"&t={toUtc.ToUnixTimeSeconds()}";
+            var list = await GetJsonAsync<List<RAEarnedAchievement>>(
+                url, "GetAchievementsEarnedBetween", ct).ConfigureAwait(false);
+            return list ?? new();
+        }
+
+        // ── #6 GetAchievementsEarnedOnDay ──────────────────────────────────
+        // Drill-in for a heatmap cell click. Returns the full per-achievement
+        // payload for that single day — not cached, fetched on click.
+        public async Task<List<RAEarnedAchievement>> GetAchievementsEarnedOnDayAsync(
+            string username, DateTime day, CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(username)) return new();
+            string? key = GetApiKey();
+            if (string.IsNullOrWhiteSpace(key)) return new();
+            string url = $"{ApiBase}/API_GetAchievementsEarnedOnDay.php"
+                       + $"?y={Uri.EscapeDataString(key)}"
+                       + $"&u={Uri.EscapeDataString(username)}"
+                       + $"&d={Uri.EscapeDataString(day.ToString("yyyy-MM-dd"))}";
+            var list = await GetJsonAsync<List<RAEarnedAchievement>>(
+                url, "GetAchievementsEarnedOnDay", ct).ConfigureAwait(false);
+            return list ?? new();
+        }
+
+        // ── #1 GetAchievementCount ─────────────────────────────────────────
+        public Task<RAAchievementCount?> GetAchievementCountAsync(int raGameId, CancellationToken ct = default)
+        {
+            if (raGameId <= 0) return Task.FromResult<RAAchievementCount?>(null);
+            string? key = GetApiKey();
+            if (string.IsNullOrWhiteSpace(key)) return Task.FromResult<RAAchievementCount?>(null);
+            string url = $"{ApiBase}/API_GetAchievementCount.php?y={Uri.EscapeDataString(key)}&i={raGameId}";
+            return GetJsonAsync<RAAchievementCount>(url, "GetAchievementCount", ct);
+        }
+
+        // ── #2 GetAchievementDistribution ──────────────────────────────────
+        // Returns a small JSON object { "1": 12000, "2": 8000, ... } so we
+        // round-trip through Dictionary<string,int> directly.
+        public async Task<RAAchievementDistribution?> GetAchievementDistributionAsync(int raGameId, CancellationToken ct = default)
+        {
+            if (raGameId <= 0) return null;
+            string? key = GetApiKey();
+            if (string.IsNullOrWhiteSpace(key)) return null;
+            string url = $"{ApiBase}/API_GetAchievementDistribution.php?y={Uri.EscapeDataString(key)}&i={raGameId}";
+            var buckets = await GetJsonAsync<Dictionary<string, int>>(
+                url, "GetAchievementDistribution", ct).ConfigureAwait(false);
+            return buckets == null ? null : new RAAchievementDistribution { Buckets = buckets };
+        }
+
+        // ── #10 GetConsoleIDs ──────────────────────────────────────────────
+        public async Task<List<RAConsole>> GetConsoleIdsAsync(CancellationToken ct = default)
+        {
+            string? key = GetApiKey();
+            if (string.IsNullOrWhiteSpace(key)) return new();
+            string url = $"{ApiBase}/API_GetConsoleIDs.php?y={Uri.EscapeDataString(key)}&a=1&g=1";
+            var list = await GetJsonAsync<List<RAConsole>>(url, "GetConsoleIDs", ct).ConfigureAwait(false);
+            return list ?? new();
+        }
+
+        // ── #12 GetGameHashes ──────────────────────────────────────────────
+        public Task<RAGameHashesResponse?> GetGameHashesAsync(int raGameId, CancellationToken ct = default)
+        {
+            if (raGameId <= 0) return Task.FromResult<RAGameHashesResponse?>(null);
+            string? key = GetApiKey();
+            if (string.IsNullOrWhiteSpace(key)) return Task.FromResult<RAGameHashesResponse?>(null);
+            string url = $"{ApiBase}/API_GetGameHashes.php?y={Uri.EscapeDataString(key)}&i={raGameId}";
+            return GetJsonAsync<RAGameHashesResponse>(url, "GetGameHashes", ct);
+        }
+
+        // ── #15 GetGameList (paginated, per console; HEAVY) ─────────────────
+        // Whole-console game dumps. Docs explicitly warn "aggressively cache."
+        // Caller responsible for choosing the console and accepting the multi-
+        // page wait.
+        public async Task<List<RAGameListItem>> GetGameListAsync(
+            int consoleId, bool onlyWithAchievements = true, bool includeHashes = false, CancellationToken ct = default)
+        {
+            var all = new List<RAGameListItem>();
+            if (consoleId <= 0) return all;
+            string? key = GetApiKey();
+            if (string.IsNullOrWhiteSpace(key)) return all;
+            string url = $"{ApiBase}/API_GetGameList.php"
+                       + $"?y={Uri.EscapeDataString(key)}"
+                       + $"&i={consoleId}"
+                       + $"&f={(onlyWithAchievements ? 1 : 0)}"
+                       + $"&h={(includeHashes ? 1 : 0)}";
+            var list = await GetJsonAsync<List<RAGameListItem>>(url, "GetGameList", ct).ConfigureAwait(false);
+            if (list != null) all.AddRange(list);
+            return all;
+        }
+
+        // ── #18 GetGame ────────────────────────────────────────────────────
+        public Task<RAGameMinimal?> GetGameAsync(int raGameId, CancellationToken ct = default)
+        {
+            if (raGameId <= 0) return Task.FromResult<RAGameMinimal?>(null);
+            string? key = GetApiKey();
+            if (string.IsNullOrWhiteSpace(key)) return Task.FromResult<RAGameMinimal?>(null);
+            string url = $"{ApiBase}/API_GetGame.php?y={Uri.EscapeDataString(key)}&i={raGameId}";
+            return GetJsonAsync<RAGameMinimal>(url, "GetGame", ct);
+        }
+
         private async Task<T?> GetJsonAsync<T>(string url, string opName, CancellationToken ct)
             where T : class
         {

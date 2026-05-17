@@ -34,7 +34,11 @@ namespace Emutastic.Services
             var connection = new SqliteConnection(_connectionString);
             connection.Open();
             using var pragma = connection.CreateCommand();
-            pragma.CommandText = "PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;";
+            // WAL lets background services (RA refresher, artwork fetch, save-state
+            // sweeper) write to the DB concurrent with UI reads from the library
+            // grid without hitting "database is locked". busy_timeout is the
+            // safety net if a write blocks behind a checkpoint.
+            pragma.CommandText = "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;";
             pragma.ExecuteNonQuery();
             return connection;
         }
@@ -179,6 +183,49 @@ namespace Emutastic.Services
             // (e.g. "73% · 3 of 5") rather than community-median proxies.
             TryAddColumn(connection, "Games", "RALiveProgressJson",       "TEXT DEFAULT ''");
             TryAddColumn(connection, "Games", "RALiveProgressFetchedAt",  "INTEGER DEFAULT 0");
+
+            // Speed up the Achievements-tab library cross-ref. The "across
+            // every game you own, which ones are RA-tracked" lookup runs on
+            // every tab refresh; a partial index over the populated subset
+            // (RAGameId > 0) keeps the scan tight on a 500-game library.
+            try
+            {
+                var idx = connection.CreateCommand();
+                idx.CommandText = "CREATE INDEX IF NOT EXISTS idx_games_ra_game_id ON Games(RAGameId) WHERE RAGameId > 0;";
+                idx.ExecuteNonQuery();
+            }
+            catch { /* old SQLite without partial-index support — full table scan still works */ }
+
+            // Generic web-API response cache for the Achievements tab. cache_key
+            // encodes endpoint + args (e.g. "user_completion_progress:user=Foo:offset=0").
+            // owner groups rows for wipe-on-logout / API-key-change ('user:Foo',
+            // 'global', 'game:1234'). fetched_at + ttl_seconds drive freshness checks.
+            var raCache = connection.CreateCommand();
+            raCache.CommandText = @"
+                CREATE TABLE IF NOT EXISTS ra_cache (
+                    cache_key      TEXT PRIMARY KEY,
+                    owner          TEXT NOT NULL DEFAULT 'global',
+                    payload_json   TEXT NOT NULL DEFAULT '',
+                    fetched_at     INTEGER NOT NULL DEFAULT 0,
+                    ttl_seconds    INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE INDEX IF NOT EXISTS idx_ra_cache_owner ON ra_cache(owner);";
+            raCache.ExecuteNonQuery();
+
+            // Heatmap daily-aggregate persistence. GetAchievementsEarnedBetween
+            // for a 90-day range returns 1000+ per-achievement rows; the heatmap
+            // UI only needs (date, count) so we derive the aggregate once and
+            // keep it forever. Composite PK lets us upsert today's row while
+            // past days stay frozen.
+            var raHeat = connection.CreateCommand();
+            raHeat.CommandText = @"
+                CREATE TABLE IF NOT EXISTS ra_heatmap_daily (
+                    user   TEXT NOT NULL,
+                    date   TEXT NOT NULL,
+                    count  INTEGER NOT NULL,
+                    PRIMARY KEY(user, date)
+                );";
+            raHeat.ExecuteNonQuery();
 
             // One-shot migration: games whose RomPath lives in a mame2003-plus folder
             // should route to that core regardless of DAT membership. Earlier import
@@ -956,6 +1003,131 @@ namespace Emutastic.Services
             cmd.Parameters.AddWithValue("$ts", fetchedAt);
             cmd.Parameters.AddWithValue("$id", gameId);
             cmd.ExecuteNonQuery();
+        }
+
+        // ── ra_cache CRUD ────────────────────────────────────────────────────
+        // Generic web-API cache used by the Achievements tab. Access wrapped
+        // through a single TTL-checking helper so UI code never touches the
+        // raw rows. All methods are background-thread safe per the WAL setup
+        // in OpenConnection.
+
+        public sealed record RaCacheRow(string Payload, long FetchedAt, long TtlSeconds);
+
+        /// <summary>
+        /// Returns the cached payload and freshness data for a key, or null
+        /// if no row exists. The caller decides whether the row is fresh
+        /// based on fetched_at + ttl_seconds.
+        /// </summary>
+        public RaCacheRow? GetRaCache(string cacheKey)
+        {
+            using var connection = OpenConnection();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT payload_json, fetched_at, ttl_seconds FROM ra_cache WHERE cache_key = $k;";
+            cmd.Parameters.AddWithValue("$k", cacheKey);
+            using var reader = cmd.ExecuteReader();
+            if (!reader.Read()) return null;
+            return new RaCacheRow(
+                Payload:     reader.IsDBNull(0) ? "" : reader.GetString(0),
+                FetchedAt:   reader.IsDBNull(1) ? 0L : reader.GetInt64(1),
+                TtlSeconds:  reader.IsDBNull(2) ? 0L : reader.GetInt64(2));
+        }
+
+        /// <summary>
+        /// Upserts a cached row. Owner groups per-user payloads for
+        /// wipe-on-logout (e.g. <c>"user:foo"</c>, <c>"global"</c>,
+        /// <c>"game:1234"</c>).
+        /// </summary>
+        public void SetRaCache(string cacheKey, string owner, string payload, long fetchedAt, long ttlSeconds)
+        {
+            using var connection = OpenConnection();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = @"
+                INSERT INTO ra_cache (cache_key, owner, payload_json, fetched_at, ttl_seconds)
+                VALUES ($k, $o, $p, $f, $t)
+                ON CONFLICT(cache_key) DO UPDATE SET
+                    owner=excluded.owner,
+                    payload_json=excluded.payload_json,
+                    fetched_at=excluded.fetched_at,
+                    ttl_seconds=excluded.ttl_seconds;";
+            cmd.Parameters.AddWithValue("$k", cacheKey);
+            cmd.Parameters.AddWithValue("$o", owner ?? "global");
+            cmd.Parameters.AddWithValue("$p", payload ?? "");
+            cmd.Parameters.AddWithValue("$f", fetchedAt);
+            cmd.Parameters.AddWithValue("$t", ttlSeconds);
+            cmd.ExecuteNonQuery();
+        }
+
+        /// <summary>
+        /// Wipes every cached row tagged with the given owner. Called on RA
+        /// logout / API-key change so the next sign-in doesn't see the prior
+        /// user's stats.
+        /// </summary>
+        public void DeleteRaCacheByOwner(string owner)
+        {
+            using var connection = OpenConnection();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "DELETE FROM ra_cache WHERE owner = $o;";
+            cmd.Parameters.AddWithValue("$o", owner ?? "");
+            cmd.ExecuteNonQuery();
+        }
+
+        // ── ra_heatmap_daily CRUD ────────────────────────────────────────────
+
+        /// <summary>
+        /// Upserts one day's unlock count for a user. Past days are written
+        /// once and never refreshed; only today's row gets re-stamped as the
+        /// user plays.
+        /// </summary>
+        public void SetRaHeatmapDay(string user, string isoDate, int count)
+        {
+            using var connection = OpenConnection();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = @"
+                INSERT INTO ra_heatmap_daily (user, date, count)
+                VALUES ($u, $d, $c)
+                ON CONFLICT(user, date) DO UPDATE SET count=excluded.count;";
+            cmd.Parameters.AddWithValue("$u", user ?? "");
+            cmd.Parameters.AddWithValue("$d", isoDate ?? "");
+            cmd.Parameters.AddWithValue("$c", count);
+            cmd.ExecuteNonQuery();
+        }
+
+        /// <summary>
+        /// Returns a date-keyed map of unlock counts for the given user
+        /// across the range. Inclusive start/end. Used to render the heatmap
+        /// grid from cached data only — no network call required for past days.
+        /// </summary>
+        public Dictionary<string, int> GetRaHeatmapRange(string user, string isoStart, string isoEnd)
+        {
+            var result = new Dictionary<string, int>();
+            using var connection = OpenConnection();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT date, count FROM ra_heatmap_daily WHERE user = $u AND date BETWEEN $s AND $e;";
+            cmd.Parameters.AddWithValue("$u", user ?? "");
+            cmd.Parameters.AddWithValue("$s", isoStart ?? "");
+            cmd.Parameters.AddWithValue("$e", isoEnd ?? "");
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+                result[reader.GetString(0)] = reader.GetInt32(1);
+            return result;
+        }
+
+        /// <summary>
+        /// Returns the RA game IDs of every game in the local library that
+        /// has been launched at least once with RA enabled. Used by the
+        /// Achievements tab to intersect library ownership with RA's
+        /// per-user completion stream.
+        /// </summary>
+        public HashSet<int> GetOwnedRAGameIds()
+        {
+            var set = new HashSet<int>();
+            using var connection = OpenConnection();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT RAGameId FROM Games WHERE RAGameId > 0;";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+                set.Add(reader.GetInt32(0));
+            return set;
         }
 
         /// <summary>
