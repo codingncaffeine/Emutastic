@@ -239,9 +239,74 @@
                                    LineHeight="18"/>
                     </ScrollViewer>
 
-                    <!-- Stats moved inline into the meta+stats row above.
-                         Reserved space here will house the RetroAchievements
-                         section in a follow-up phase. -->
+                    <!-- Stats moved inline into the meta+stats row above. -->
+
+                    <!-- RetroAchievements section. Hidden until per-game data
+                         is cached or fetched; logged-out users see only the
+                         public progression medians + total count, not unlocks
+                         or "Coming up". -->
+                    <StackPanel x:Name="RASection"
+                                Margin="0,18,0,0"
+                                Visibility="Collapsed">
+
+                        <!-- Header row: label on the left, X/Y · pts on the right -->
+                        <Grid Margin="0,0,0,6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       Text="ACHIEVEMENTS"
+                                       FontFamily="{StaticResource PrimaryFont}"
+                                       FontSize="10"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextMutedBrush}"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock x:Name="RAProgressLabel"
+                                       Grid.Column="2"
+                                       FontFamily="{StaticResource PrimaryFont}"
+                                       FontSize="11"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       VerticalAlignment="Center"/>
+                        </Grid>
+
+                        <!-- Progress bar. Foreground swaps to gold when 100%
+                             (mastered) — set in code-behind. -->
+                        <ProgressBar x:Name="RAProgress"
+                                     Height="6"
+                                     Minimum="0" Maximum="100" Value="0"
+                                     Background="{DynamicResource BgTertiaryBrush}"
+                                     Foreground="{DynamicResource AccentBrush}"
+                                     BorderThickness="0"/>
+
+                        <!-- "Coming up" — three unearned achievements sorted by
+                             ascending median time-to-unlock. Hidden when user
+                             is logged out or no eligible achievements remain. -->
+                        <StackPanel x:Name="ComingUpSection"
+                                    Margin="0,14,0,0"
+                                    Visibility="Collapsed">
+                            <TextBlock Text="Coming up"
+                                       FontFamily="{StaticResource PrimaryFont}"
+                                       FontSize="10"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextMutedBrush}"
+                                       Margin="0,0,0,8"/>
+                            <UniformGrid x:Name="ComingUpGrid"
+                                         Rows="1" Columns="3"
+                                         HorizontalAlignment="Stretch"/>
+                        </StackPanel>
+
+                        <!-- Typical-run caption. Hidden when sample size is
+                             too small to trust the median. -->
+                        <TextBlock x:Name="RATimingsCaption"
+                                   FontFamily="{StaticResource PrimaryFont}"
+                                   FontSize="11"
+                                   FontStyle="Italic"
+                                   Foreground="{DynamicResource TextMutedBrush}"
+                                   Margin="0,12,0,0"
+                                   Visibility="Collapsed"/>
+                    </StackPanel>
 
                     <!-- Action buttons -->
                     <Grid Margin="0,16,0,0">

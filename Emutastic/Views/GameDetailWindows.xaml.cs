@@ -4,6 +4,8 @@ using Emutastic.Services;
 using Emutastic.Views;
 using LibVLCSharp.Shared;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -34,6 +36,7 @@ namespace Emutastic.Views
             PopulateData();
             AnimateIn();
             _ = LoadSnapAsync();
+            _ = LoadRetroAchievementsAsync();
         }
 
         private void PopulateData()
@@ -197,6 +200,267 @@ namespace Emutastic.Views
                 });
             }
             catch { /* cosmetic — silently ignore */ }
+        }
+
+        // ── RetroAchievements section ─────────────────────────────────────
+
+        /// <summary>
+        /// Renders the RA section using whatever's cached, then fires a
+        /// background refresh; on completion the section re-renders with
+        /// fresh data. Bails fast for games that have never been launched
+        /// with RA enabled (RAGameId == 0) and for users who haven't entered
+        /// a Web API key.
+        /// </summary>
+        private async System.Threading.Tasks.Task LoadRetroAchievementsAsync()
+        {
+            if (_game.RAGameId <= 0)
+            {
+                RASection.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            // Render whatever's already cached so the section appears instantly.
+            RenderRetroAchievements();
+
+            // Refresh if either cache is stale (no-op when fresh / no API key).
+            try
+            {
+                if (App.Configuration == null) return;
+                var svc = new RetroAchievementsService(App.Configuration, _db);
+                await svc.RefreshDetailForGameAsync(_game).ConfigureAwait(true);
+                if (!IsLoaded) return;
+                RenderRetroAchievements();
+            }
+            catch
+            {
+                // Network-side failures are already swallowed inside the
+                // service; this catch is the belt for any DB / render glitch
+                // so a flaky API can never crash the card.
+            }
+        }
+
+        /// <summary>
+        /// Reads current cached typed views from the Game and pushes data into
+        /// the UI. Safe to call multiple times — re-renders from scratch each
+        /// invocation. Handles missing data gracefully (hides sections piece
+        /// by piece rather than the whole pane).
+        /// </summary>
+        private void RenderRetroAchievements()
+        {
+            var prog = _game.RAProgressionTyped;
+            var user = _game.RAUserProgressTyped;
+
+            // No progression data yet — show the section as a skeleton-less
+            // hidden state until the first fetch lands.
+            if (prog == null || prog.NumAchievements <= 0)
+            {
+                RASection.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            RASection.Visibility = Visibility.Visible;
+
+            // Header: "12 / 47 · 1,240 pts" — pts is what the user has, not the
+            // game total, when logged in. Logged-out: just "47 achievements".
+            int earned = user?.NumAwardedToUser ?? 0;
+            int total  = prog.NumAchievements;
+            int userPts = 0;
+            if (user != null)
+            {
+                foreach (var a in user.Achievements.Values)
+                    if (!string.IsNullOrEmpty(a.DateEarned)) userPts += a.Points;
+            }
+
+            if (user != null)
+            {
+                RAProgressLabel.Text = userPts > 0
+                    ? $"{earned} / {total}  ·  {userPts:N0} pts"
+                    : $"{earned} / {total}";
+                RAProgress.Value = total > 0 ? earned * 100.0 / total : 0;
+                // Mastered (100%): switch the bar to gold; otherwise accent.
+                RAProgress.Foreground = (earned >= total && total > 0)
+                    ? new SolidColorBrush(Color.FromRgb(0xFF, 0xC8, 0x3D))
+                    : (Brush)FindResource("AccentBrush");
+            }
+            else
+            {
+                RAProgressLabel.Text = $"{total} achievements";
+                RAProgress.Value = 0;
+            }
+
+            // "Coming up" — top 3 unearned by ascending median time-to-unlock.
+            BuildComingUp(prog, user);
+
+            // Typical-run caption — only when sample sizes are high enough
+            // to trust the median (n >= 20 is a community convention).
+            BuildTimingsCaption(prog);
+        }
+
+        private void BuildComingUp(RAProgression prog, RAUserProgress? user)
+        {
+            ComingUpGrid.Children.Clear();
+
+            // Logged-out users have no "earned" set, so every achievement
+            // would be "Coming up" — meaningless. Hide the section instead.
+            if (user == null || user.Achievements.Count == 0)
+            {
+                ComingUpSection.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            // Build a HashSet of earned achievement IDs for O(1) lookup.
+            var earnedIds = new HashSet<int>();
+            foreach (var a in user.Achievements.Values)
+                if (!string.IsNullOrEmpty(a.DateEarned)) earnedIds.Add(a.Id);
+
+            // Phase-1 picker: unearned, sorted ascending by community median
+            // time-to-unlock (= typical players unlock these fastest), tiebreak
+            // descending numAwarded (= more popular first), take 3. Skip any
+            // achievement with a null/zero median — that's a no-data signal,
+            // not "instant."
+            var picks = prog.Achievements
+                .Where(a => !earnedIds.Contains(a.Id))
+                .Where(a => a.MedianTimeToUnlock.HasValue && a.MedianTimeToUnlock.Value > 0)
+                .OrderBy(a => a.MedianTimeToUnlock!.Value)
+                .ThenByDescending(a => a.NumAwarded)
+                .Take(3)
+                .ToList();
+
+            if (picks.Count == 0)
+            {
+                ComingUpSection.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            foreach (var ach in picks)
+                ComingUpGrid.Children.Add(BuildBadgeTile(ach));
+
+            ComingUpSection.Visibility = Visibility.Visible;
+        }
+
+        /// <summary>
+        /// Builds a single badge tile for the "Coming up" row: badge image
+        /// (downloaded from RA's CDN), achievement title (truncated), and
+        /// median time-to-unlock caption. Hover-tooltip exposes the full
+        /// description, points, and community rarity.
+        /// </summary>
+        private UIElement BuildBadgeTile(RAAchievement ach)
+        {
+            var panel = new StackPanel
+            {
+                Margin = new Thickness(0, 0, 6, 0),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+            };
+
+            // Badge — 56×56 image from media.retroachievements.org.
+            var img = new System.Windows.Controls.Image
+            {
+                Width = 56,
+                Height = 56,
+                Stretch = Stretch.UniformToFill,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                SnapsToDevicePixels = true,
+            };
+            if (!string.IsNullOrEmpty(ach.BadgeName))
+            {
+                try
+                {
+                    var bmp = new BitmapImage();
+                    bmp.BeginInit();
+                    bmp.UriSource = new Uri($"https://media.retroachievements.org/Badge/{ach.BadgeName}.png");
+                    bmp.CacheOption = BitmapCacheOption.OnLoad;
+                    bmp.EndInit();
+                    img.Source = bmp;
+                }
+                catch { /* fall through to a blank tile */ }
+            }
+            panel.Children.Add(img);
+
+            // Title (one line, truncated).
+            var title = new TextBlock
+            {
+                Text = ach.Title,
+                FontFamily = (FontFamily)FindResource("PrimaryFont"),
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = (Brush)FindResource("TextPrimaryBrush"),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                TextAlignment = TextAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxWidth = 110,
+                Margin = new Thickness(0, 4, 0, 0),
+            };
+            panel.Children.Add(title);
+
+            // Time-to-unlock caption.
+            var caption = new TextBlock
+            {
+                Text = "~" + FormatDuration(ach.MedianTimeToUnlock ?? 0),
+                FontFamily = (FontFamily)FindResource("PrimaryFont"),
+                FontSize = 10,
+                Foreground = (Brush)FindResource("TextMutedBrush"),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 1, 0, 0),
+            };
+            panel.Children.Add(caption);
+
+            // Tooltip: full description + rarity (% of all players) + points.
+            // RA community calls "rarity" = (numAwarded / numPlayers); show the
+            // softcore figure since users see all unlocks not just hardcore.
+            var tipLines = new System.Text.StringBuilder();
+            tipLines.AppendLine(ach.Title);
+            if (!string.IsNullOrEmpty(ach.Description))
+            {
+                tipLines.AppendLine();
+                tipLines.AppendLine(ach.Description);
+            }
+            tipLines.AppendLine();
+            tipLines.Append($"{ach.Points} pts");
+            panel.ToolTip = tipLines.ToString();
+
+            return panel;
+        }
+
+        private void BuildTimingsCaption(RAProgression prog)
+        {
+            // Sample-size gate — under n=20 the medians are too noisy to be
+            // worth showing as a "typical run" estimate.
+            const int MinSamples = 20;
+            string? beat = prog.MedianTimeToBeat.HasValue
+                        && prog.TimesUsedInBeatMedian >= MinSamples
+                ? FormatDuration(prog.MedianTimeToBeat.Value) : null;
+            string? master = prog.MedianTimeToMaster.HasValue
+                          && prog.TimesUsedInMasteryMedian >= MinSamples
+                ? FormatDuration(prog.MedianTimeToMaster.Value) : null;
+
+            if (beat == null && master == null)
+            {
+                RATimingsCaption.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            var parts = new List<string>();
+            if (beat != null) parts.Add($"beat ~{beat}");
+            if (master != null) parts.Add($"master ~{master}");
+            RATimingsCaption.Text = "Typical run: " + string.Join("  ·  ", parts);
+            RATimingsCaption.Visibility = Visibility.Visible;
+        }
+
+        /// <summary>
+        /// Compact human-readable duration from a second count. Examples:
+        ///   45  → "45s"
+        ///   300 → "5m"
+        ///   3720 → "1.0h"
+        ///   100800 → "28h"
+        /// Designed to fit a small pill / caption without wrapping.
+        /// </summary>
+        private static string FormatDuration(int sec)
+        {
+            if (sec <= 0) return "—";
+            if (sec < 60) return $"{sec}s";
+            if (sec < 3600) return $"{sec / 60}m";
+            double h = sec / 3600.0;
+            return h < 100 ? $"{h:0.#}h" : $"{(int)h}h";
         }
 
         private void ShowCoverArtPlaceholder()
