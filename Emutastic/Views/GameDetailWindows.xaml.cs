@@ -347,8 +347,17 @@ namespace Emutastic.Views
             // Skip any community-median candidate with a null/zero median —
             // that's a no-data signal, not "instant." Hardcore mode picks
             // the hardcore-flavoured median + unlock count when available.
+            //
+            // Live progress is only trusted when its captured mode matches the
+            // user's current mode — softcore-captured "73%" is meaningless
+            // under hardcore (different ruleset, server resets state on mode
+            // switch). Mode-mismatched data falls through to the proxy.
             var live = _game.RALiveProgressTyped;
-            var liveMap = live?.Achievements ?? new Dictionary<int, RALiveAchievementProgress>();
+            Dictionary<int, RALiveAchievementProgress> liveMap;
+            if (live != null && live.Hardcore == hardcore)
+                liveMap = live.Achievements;
+            else
+                liveMap = new Dictionary<int, RALiveAchievementProgress>();
 
             var unearned = prog.Achievements
                 .Where(a => !earnedIds.Contains(a.Id))
@@ -361,9 +370,15 @@ namespace Emutastic.Views
                 .OrderByDescending(a => liveMap[a.Id].Percent)
                 .ToList();
 
+            // ID-based dedup — RAAchievement has no Equals override, so
+            // reference-equality only works by accident from the shared
+            // `unearned` list. A HashSet<int> of live-hit IDs survives any
+            // future refactor that projects/copies achievements.
+            var liveHitIds = new HashSet<int>(liveHits.Select(a => a.Id));
+
             // Bucket B: web-API proxy fallback.
             var proxyPool = unearned
-                .Where(a => !liveHits.Contains(a))
+                .Where(a => !liveHitIds.Contains(a.Id))
                 .Select(a => new
                 {
                     Ach = a,

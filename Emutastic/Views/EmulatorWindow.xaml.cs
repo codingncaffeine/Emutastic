@@ -6122,7 +6122,15 @@ namespace Emutastic.Views
 
                 bool hardcore = App.Configuration?.GetRetroAchievementsConfiguration()?.HardcoreMode == true;
                 var payload = new Emutastic.Models.RALiveProgress { Hardcore = hardcore };
-                foreach (var kvp in snap)
+
+                // Defensive cap. A typical RA set has <50 measured achievements;
+                // capping at 50 by descending percent keeps the JSON small even
+                // if some future set ships 200+ progress-tracked achievements.
+                const int MaxPerGame = 50;
+                var topByPercent = snap
+                    .OrderByDescending(kvp => kvp.Value.MeasuredPercent)
+                    .Take(MaxPerGame);
+                foreach (var kvp in topByPercent)
                 {
                     payload.Achievements[kvp.Key] = new Emutastic.Models.RALiveAchievementProgress
                     {

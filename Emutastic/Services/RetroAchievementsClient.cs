@@ -59,11 +59,15 @@ namespace Emutastic.Services
         /// EmulatorWindow flushes this on game exit so the detail card can
         /// later show "you were 73% of the way to X" instead of community
         /// median proxies.
+        ///
+        /// ConcurrentDictionary enumeration is not a consistent snapshot —
+        /// concurrent writes mid-walk may or may not appear. In practice
+        /// callers only invoke this from the emu loop's finally block,
+        /// after the rcheevos event source has stopped firing into this
+        /// client, so the race window is closed by construction.
         /// </summary>
         public IReadOnlyDictionary<int, AchievementInfo> GetLiveProgressSnapshot()
         {
-            // Copy under the dictionary's internal coordination so a parallel
-            // emu-thread write can't be torn by the enumerator.
             var copy = new Dictionary<int, AchievementInfo>(_liveProgress.Count);
             foreach (var kvp in _liveProgress)
                 copy[kvp.Key] = kvp.Value;
