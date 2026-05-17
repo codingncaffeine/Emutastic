@@ -220,6 +220,19 @@ namespace Emutastic.Services
                 ct);
         }
 
+        /// <summary>Trophy case data (#22): mastery / beaten / completion awards. Cached 1h per user.</summary>
+        public Task<RAUserAwards?> GetAwardsAsync(CancellationToken ct = default)
+        {
+            var user = CurrentUser();
+            if (user == null) return Task.FromResult<RAUserAwards?>(null);
+            return GetCachedAsync<RAUserAwards>(
+                $"user_awards:user={user}",
+                OwnerForUser(user),
+                TtlAwards,
+                inner => _api.GetUserAwardsAsync(user, inner),
+                ct);
+        }
+
         /// <summary>
         /// Recent unlock feed (#31). 7-day window keeps the feed populated
         /// even for users who only play a few sessions a week; we cap render

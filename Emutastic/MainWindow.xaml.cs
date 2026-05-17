@@ -2310,6 +2310,10 @@ namespace Emutastic
             try { _raTabCts?.Cancel(); _raTabCts?.Dispose(); } catch { }
             _raTabCts = new System.Threading.CancellationTokenSource();
             var ct = _raTabCts.Token;
+            // Trophy case (peek paints stale; bg fetch fills fresh).
+            var cachedAwards = ra.PeekCached<Models.RAUserAwards>($"user_awards:user={user}");
+            RenderTrophyCase(cachedAwards);
+
             _ = System.Threading.Tasks.Task.Run(async () =>
             {
                 try
@@ -2329,6 +2333,11 @@ namespace Emutastic
 
                     if (ct.IsCancellationRequested) return;
                     _ = Dispatcher.BeginInvoke(new Action(() => RenderRecentUnlocks(recent)));
+
+                    // Trophy case (1h TTL).
+                    var awards = await ra.GetAwardsAsync(ct).ConfigureAwait(false);
+                    if (ct.IsCancellationRequested) return;
+                    _ = Dispatcher.BeginInvoke(new Action(() => RenderTrophyCase(awards)));
                 }
                 catch (OperationCanceledException) { /* tab switched away */ }
                 catch (Exception ex)
@@ -2504,6 +2513,168 @@ namespace Emutastic
                 row.ToolTip = u.Description;
 
             return row;
+        }
+
+        // Award ring colors for the trophy case. Gold for mastery (hardcore
+        // 100%), silver for completion (softcore 100%), bronze for beaten-
+        // hardcore, muted for beaten-softcore. Frozen brushes so they're
+        // safe to share across many tiles.
+        private static readonly System.Windows.Media.Brush _ringMastery = MakeFrozenBrush(0xFF, 0xC8, 0x3D);
+        private static readonly System.Windows.Media.Brush _ringCompletion = MakeFrozenBrush(0xC0, 0xC8, 0xD0);
+        private static readonly System.Windows.Media.Brush _ringBeatenHardcore = MakeFrozenBrush(0xB2, 0x72, 0x43);
+        private static readonly System.Windows.Media.Brush _ringBeatenSoftcore = MakeFrozenBrush(0x55, 0x55, 0x5A);
+
+        private static System.Windows.Media.Brush MakeFrozenBrush(byte r, byte g, byte b)
+        {
+            var br = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(r, g, b));
+            br.Freeze();
+            return br;
+        }
+
+        private void RenderTrophyCase(Models.RAUserAwards? awards)
+        {
+            RATrophyWall.Items.Clear();
+            RATrophyRollups.Children.Clear();
+
+            if (awards == null
+                || awards.VisibleUserAwards == null
+                || awards.VisibleUserAwards.Count == 0)
+            {
+                RATrophyEmpty.Visibility = Visibility.Visible;
+                return;
+            }
+            RATrophyEmpty.Visibility = Visibility.Collapsed;
+
+            var font = (System.Windows.Media.FontFamily)FindResource("PrimaryFont");
+            var bgTertiary = (System.Windows.Media.Brush)FindResource("BgTertiaryBrush");
+            var textMuted = (System.Windows.Media.Brush)FindResource("TextMutedBrush");
+
+            // Rollup chips: only show counts > 0. Mastery / Completion /
+            // Beaten Hardcore / Beaten Softcore — the four canonical RA award
+            // kinds, in importance order.
+            AppendRollupChip(font, _ringMastery,         "mastered",         awards.MasteryAwardsCount);
+            AppendRollupChip(font, _ringCompletion,      "completed",        awards.CompletionAwardsCount);
+            AppendRollupChip(font, _ringBeatenHardcore,  "beaten (hc)",      awards.BeatenHardcoreAwardsCount);
+            AppendRollupChip(font, _ringBeatenSoftcore,  "beaten",           awards.BeatenSoftcoreAwardsCount);
+
+            // Badge wall: most-recent first, cap at 100 so a thousand-award
+            // user doesn't render an enormous visual tree all at once.
+            var sorted = awards.VisibleUserAwards
+                .OrderByDescending(a => a.AwardedAt ?? "")
+                .Take(100)
+                .ToList();
+            foreach (var a in sorted)
+                RATrophyWall.Items.Add(BuildTrophyTile(a, bgTertiary));
+
+            if (awards.VisibleUserAwards.Count > sorted.Count)
+            {
+                RATrophyWall.Items.Add(new TextBlock
+                {
+                    Text = $"+ {awards.VisibleUserAwards.Count - sorted.Count} older awards",
+                    FontFamily = font,
+                    FontSize = 11,
+                    Foreground = textMuted,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(8, 6, 8, 6),
+                });
+            }
+        }
+
+        private void AppendRollupChip(System.Windows.Media.FontFamily font,
+                                       System.Windows.Media.Brush ringColor,
+                                       string label, int count)
+        {
+            if (count <= 0) return;
+            var pill = new Border
+            {
+                CornerRadius = new CornerRadius(10),
+                Padding = new Thickness(10, 3, 10, 3),
+                Margin = new Thickness(6, 0, 0, 0),
+                Background = ringColor,
+                Opacity = 0.92,
+            };
+            pill.Child = new TextBlock
+            {
+                Text = $"{count} {label}",
+                FontFamily = font,
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = System.Windows.Media.Brushes.Black,
+            };
+            RATrophyRollups.Children.Add(pill);
+        }
+
+        private UIElement BuildTrophyTile(Models.RAVisibleAward award, System.Windows.Media.Brush bgFallback)
+        {
+            // Award-type → ring color. Mastery (hardcore 100%) gets gold, the
+            // softcore equivalent silver, and the beaten awards bronze/muted.
+            (System.Windows.Media.Brush ring, string label) classify = award.AwardType switch
+            {
+                "Mastery/Completion" => award.AwardDataExtra == 1
+                    ? (_ringMastery, "Mastered")
+                    : (_ringCompletion, "Completed"),
+                "Game Beaten" => award.AwardDataExtra == 1
+                    ? (_ringBeatenHardcore, "Beaten (Hardcore)")
+                    : (_ringBeatenSoftcore, "Beaten"),
+                _ => (bgFallback, award.AwardType ?? "Award"),
+            };
+
+            const double TileSize = 60;
+            const double Margin = 4;
+
+            var border = new Border
+            {
+                Width = TileSize, Height = TileSize,
+                Margin = new Thickness(Margin),
+                CornerRadius = new CornerRadius(8),
+                Background = bgFallback,
+                BorderBrush = classify.ring,
+                BorderThickness = new Thickness(2),
+                ClipToBounds = true,
+            };
+
+            if (!string.IsNullOrEmpty(award.ImageIcon))
+            {
+                try
+                {
+                    string trimmed = award.ImageIcon!.Trim();
+                    string url = trimmed.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                        ? trimmed
+                        : "https://media.retroachievements.org" + trimmed;
+                    var bmp = new System.Windows.Media.Imaging.BitmapImage();
+                    bmp.BeginInit();
+                    bmp.UriSource = new Uri(url);
+                    bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                    bmp.EndInit();
+                    border.Child = new System.Windows.Controls.Image
+                    {
+                        Source = bmp,
+                        Stretch = System.Windows.Media.Stretch.UniformToFill,
+                    };
+                }
+                catch { }
+            }
+
+            // Tooltip with full context — title, console, kind, date
+            var tip = new System.Text.StringBuilder();
+            tip.AppendLine(award.Title ?? "Untitled");
+            if (!string.IsNullOrEmpty(award.ConsoleName))
+            {
+                tip.Append(award.ConsoleName);
+                tip.Append("  ·  ");
+            }
+            tip.AppendLine(classify.label);
+            if (!string.IsNullOrWhiteSpace(award.AwardedAt))
+            {
+                if (DateTime.TryParse(award.AwardedAt, System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
+                        out var dt))
+                    tip.Append(dt.ToLocalTime().ToString("MMM d, yyyy"));
+                else
+                    tip.Append(award.AwardedAt);
+            }
+            border.ToolTip = tip.ToString().TrimEnd();
+            return border;
         }
 
         private static string FormatTimeAgo(string isoDate)

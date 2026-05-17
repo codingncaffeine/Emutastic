@@ -1954,6 +1954,51 @@
                                 </StackPanel>
                             </Border>
 
+                            <!-- C. Trophy case ──────────────────────────────── -->
+                            <Grid Margin="0,18,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0"
+                                           Text="TROPHY CASE"
+                                           FontFamily="{StaticResource PrimaryFont}"
+                                           FontSize="10"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextMutedBrush}"
+                                           VerticalAlignment="Center"
+                                           Margin="2,0,0,0"/>
+                                <StackPanel x:Name="RATrophyRollups"
+                                            Grid.Column="2"
+                                            Orientation="Horizontal"
+                                            VerticalAlignment="Center"/>
+                            </Grid>
+                            <Border x:Name="RATrophyCard"
+                                    Background="{DynamicResource BgSecondaryBrush}"
+                                    BorderBrush="{DynamicResource BorderSubtleBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="10"
+                                    Padding="16">
+                                <StackPanel>
+                                    <ItemsControl x:Name="RATrophyWall">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel Orientation="Horizontal"/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                    </ItemsControl>
+                                    <TextBlock x:Name="RATrophyEmpty"
+                                               Text="No awards yet. Beat or master a RetroAchievements-supported game to start filling your shelf."
+                                               FontFamily="{StaticResource PrimaryFont}"
+                                               FontSize="12"
+                                               Foreground="{DynamicResource TextMutedBrush}"
+                                               TextAlignment="Center"
+                                               Padding="0,12,0,12"
+                                               Visibility="Collapsed"/>
+                                </StackPanel>
+                            </Border>
+
                             <!-- Logged-out / no-key placeholder for the whole tab -->
                             <Border x:Name="RAUnconfiguredCard"
                                     Background="{DynamicResource BgSecondaryBrush}"
