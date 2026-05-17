@@ -37,7 +37,12 @@
                     <RowDefinition Height="345"/>
                     <!-- Art: 460×345 = 4:3 -->
                     <RowDefinition Height="*"/>
-                    <!-- Info -->
+                    <!-- Info (scrolls when content overflows; e.g. arcade
+                         games with both a description and a full RA panel
+                         would otherwise push the action buttons off the
+                         card) -->
+                    <RowDefinition Height="Auto"/>
+                    <!-- Action buttons (always pinned to the bottom) -->
                 </Grid.RowDefinitions>
 
                 <!-- Art area -->
@@ -135,8 +140,16 @@
                     </Grid>
                 </Border>
 
-                <!-- Info area -->
-                <StackPanel Grid.Row="1" Margin="24,20,24,24">
+                <!-- Info area (scrollable so RA / description content can grow
+                     without overlapping or pushing out the pinned action
+                     buttons in Row 2). The internal StackPanel keeps all
+                     existing children unchanged. -->
+                <ScrollViewer Grid.Row="1"
+                              Margin="24,20,24,0"
+                              Style="{StaticResource MinimalScrollViewer}"
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
+                <StackPanel>
 
                     <!-- Title -->
                     <TextBlock x:Name="GameTitle"
@@ -317,37 +330,39 @@
                                    Visibility="Collapsed"/>
                     </StackPanel>
 
-                    <!-- Action buttons -->
-                    <Grid Margin="0,16,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-
-                        <Button Grid.Column="0"
-        Content="▶   Play Now"
-        Style="{StaticResource PlayButtonStyle}"
-        Height="42"
-        Margin="0,0,8,0"
-        Click="PlayButton_Click"/>
-                        <Button Grid.Column="1"
-                                Content="♡  Favorite"
-                                Style="{StaticResource SecondaryButtonStyle}"
-                                Height="42"
-                                Margin="0,0,8,0"
-                                x:Name="FavoriteButton"
-                                Click="FavoriteButton_Click"/>
-
-                        <Button Grid.Column="2"
-                                Content="⋯"
-                                Style="{StaticResource SecondaryButtonStyle}"
-                                Height="42"
-                                Width="42"
-                                Click="MoreButton_Click"/>
-                    </Grid>
-
                 </StackPanel>
+                </ScrollViewer>
+
+                <!-- Action buttons (pinned bottom row, always visible
+                     regardless of how much info content sits above). -->
+                <Grid Grid.Row="2" Margin="24,16,24,24">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Button Grid.Column="0"
+                            Content="▶   Play Now"
+                            Style="{StaticResource PlayButtonStyle}"
+                            Height="42"
+                            Margin="0,0,8,0"
+                            Click="PlayButton_Click"/>
+                    <Button Grid.Column="1"
+                            Content="♡  Favorite"
+                            Style="{StaticResource SecondaryButtonStyle}"
+                            Height="42"
+                            Margin="0,0,8,0"
+                            x:Name="FavoriteButton"
+                            Click="FavoriteButton_Click"/>
+
+                    <Button Grid.Column="2"
+                            Content="⋯"
+                            Style="{StaticResource SecondaryButtonStyle}"
+                            Height="42"
+                            Width="42"
+                            Click="MoreButton_Click"/>
+                </Grid>
             </Grid>
         </Border>
     </Grid>
