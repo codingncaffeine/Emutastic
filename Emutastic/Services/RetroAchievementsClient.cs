@@ -33,7 +33,26 @@ namespace Emutastic.Services
         private IntPtr _videoRamPtr;
         private uint _videoRamSize;
 
-        private static readonly HttpClient _http = new();
+        // Identifies us to RA's server. RA's hardcore policy:
+        //   * Missing / unrecognized User-Agent → server downgrades hardcore
+        //     unlocks to softcore (or returns 'emulator unknown' when
+        //     hardcore is explicitly enabled).
+        //   * Even with a valid UA, the emulator name must be on RA's
+        //     approved list for hardcore unlocks to actually count.
+        // Format per RA's hardcore-compliance docs:
+        //   "EmulatorName/v1.0.0 (OSName 10.0)"
+        // We append rc_client_get_user_agent_clause's string later if rcheevos
+        // exposes one; the static UA below covers the per-emulator portion
+        // that the server keys on.
+        private static readonly HttpClient _http = CreateRcheevosHttp();
+
+        private static HttpClient CreateRcheevosHttp()
+        {
+            var http = new HttpClient();
+            http.DefaultRequestHeaders.UserAgent.Clear();
+            http.DefaultRequestHeaders.UserAgent.ParseAdd(EmutasticUserAgent.Build());
+            return http;
+        }
 
         /// <summary>Fired on the emulation thread when an achievement is triggered.</summary>
         public event Action<AchievementInfo>? AchievementTriggered;

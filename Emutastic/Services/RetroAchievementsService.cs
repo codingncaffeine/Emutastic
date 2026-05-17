@@ -32,7 +32,17 @@ namespace Emutastic.Services
         // Single shared HttpClient per .NET guidance — never disposed for the
         // lifetime of the app. 15s is generous; the API is normally <500ms
         // but the host occasionally degrades during nightly DB regenerations.
-        private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(15) };
+        // User-Agent identifies us to RA — same string the rcheevos bridge
+        // sends, so the server sees a consistent client across both surfaces.
+        private static readonly HttpClient _http = BuildHttp();
+
+        private static HttpClient BuildHttp()
+        {
+            var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+            http.DefaultRequestHeaders.UserAgent.Clear();
+            http.DefaultRequestHeaders.UserAgent.ParseAdd(EmutasticUserAgent.Build());
+            return http;
+        }
 
         // Cap concurrent Web API calls at 2 to stay polite — the API host is
         // a community service, not a CDN. Library-wide batch refreshes can
