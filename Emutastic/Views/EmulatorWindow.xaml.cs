@@ -313,6 +313,11 @@ namespace Emutastic.Views
 
         // RetroAchievements
         private RetroAchievementsClient? _raClient;
+        // Snapshot of HardcoreMode taken when _raClient was created. Re-reading
+        // config live would let a user open Preferences mid-game and silently
+        // relax the gates — using a snapshot makes the running session's HC
+        // status stable until the next launch, matching RA's session model.
+        private bool _raHardcoreActive;
 
         // Overlay HUD
         private bool _isPaused = false;
@@ -1531,6 +1536,7 @@ namespace Emutastic.Views
 
                 // ── RetroAchievements ─────────────────────────────────────────────
                 InitRetroAchievements();
+                ApplyHardcoreHudVisibility();
 
                 double fps = _core.AvInfo.timing.fps;
                 if (double.IsNaN(fps) || double.IsInfinity(fps) || fps <= 0 || fps > 1000) fps = 60;
@@ -1796,7 +1802,16 @@ namespace Emutastic.Views
                 // checkpoint yet (mupen64plus starts its own EmuThread during retro_load_game).
                 if (_pendingLoadStatePath != null)
                 {
-                    if (File.Exists(_pendingLoadStatePath))
+                    // RA hardcore-compliance: refuse pending state loads (e.g. user
+                    // double-clicked a state in the save browser). Mirrors the
+                    // RequestLoad gate so the rule applies regardless of entry point.
+                    if (IsHardcoreActive())
+                    {
+                        System.Diagnostics.Trace.WriteLine($"Pending load refused — hardcore mode active: {_pendingLoadStatePath}");
+                        _transientMsg    = "Save state loading is disabled in hardcore mode";
+                        _transientExpiry = DateTime.Now.AddSeconds(4);
+                    }
+                    else if (File.Exists(_pendingLoadStatePath))
                     {
                         try
                         {
@@ -5565,6 +5580,15 @@ namespace Emutastic.Views
         /// <summary>Request a load by file path from the UI thread.</summary>
         private void RequestLoad(string statePath, string name)
         {
+            // RA hardcore-compliance: loading save states is an auto-fail blocker
+            // per https://docs.retroachievements.org/general/hardcore-compliance-requirements.html.
+            // Saves continue to work — creating states is permitted, only loading is blocked.
+            if (IsHardcoreActive())
+            {
+                _transientMsg    = "Save state loading is disabled in hardcore mode";
+                _transientExpiry = DateTime.Now.AddSeconds(4);
+                return;
+            }
             if (IsSaveStateUnreliable())
             {
                 _transientMsg    = "Save states are disabled for MAME 2003-Plus (unreliable per-game)";
@@ -5808,6 +5832,15 @@ namespace Emutastic.Views
 
         private void LoadStateBtn_Click(object sender, RoutedEventArgs e)
         {
+            // RA hardcore-compliance: defense-in-depth. The button is hidden when
+            // hardcore is active, but a programmatic invocation or a stale state
+            // would still fall through here without this guard.
+            if (IsHardcoreActive())
+            {
+                _transientMsg    = "Save state loading is disabled in hardcore mode";
+                _transientExpiry = DateTime.Now.AddSeconds(4);
+                return;
+            }
             if (LoadPickerPanel.Visibility == Visibility.Visible)
             {
                 LoadPickerPanel.Visibility = Visibility.Collapsed;
@@ -5985,6 +6018,41 @@ namespace Emutastic.Views
 
         // ── RetroAchievements initialization ─────────────────────────────────
 
+        /// <summary>
+        /// True when an RA session is live AND was launched in hardcore mode.
+        /// All hardcore gates (save-state load, cheats, HUD indicator) read
+        /// from this. _raClient being null means RA didn't initialize for this
+        /// launch — no creds, unsupported console, login failed — so there's
+        /// no hardcore session to enforce against and the gates relax.
+        ///
+        /// The HardcoreMode value is snapshotted at <see cref="InitRetroAchievements"/>
+        /// time rather than re-read live; see _raHardcoreActive comment.
+        /// </summary>
+        private bool IsHardcoreActive() => _raClient != null && _raHardcoreActive;
+
+        /// <summary>
+        /// Hides in-HUD affordances that don't apply in hardcore: the Load
+        /// State buttons (loads are blocked) and the Cheats button (cheat
+        /// codes can't apply). Called once after RA init completes; visibility
+        /// is fixed for the session because <see cref="_raHardcoreActive"/>
+        /// is snapshotted at launch.
+        /// </summary>
+        private void ApplyHardcoreHudVisibility()
+        {
+            if (!IsHardcoreActive()) return;
+            try
+            {
+                if (LoadStateBtn != null) LoadStateBtn.Visibility = Visibility.Collapsed;
+                if (LoadStateHoverBtn != null) LoadStateHoverBtn.Visibility = Visibility.Collapsed;
+                if (OverlayCheatsBtn != null) OverlayCheatsBtn.Visibility = Visibility.Collapsed;
+                // RA compliance Section E: hardcore state must be visibly indicated
+                // during play. Lives in the persistent status bar, not the fading
+                // overlay, so it's always on screen.
+                if (HardcoreIndicator != null) HardcoreIndicator.Visibility = Visibility.Visible;
+            }
+            catch { /* HUD elements may be unavailable in unusual init orderings */ }
+        }
+
         private void InitRetroAchievements()
         {
             try
@@ -6012,6 +6080,7 @@ namespace Emutastic.Views
                 }
 
                 _raClient = new RetroAchievementsClient();
+                _raHardcoreActive = raConfig.HardcoreMode;
                 _raClient.Initialize(_core, raConfig.HardcoreMode);
 
                 // Subscribe to events — marshal to UI thread for toast display
@@ -6075,6 +6144,11 @@ namespace Emutastic.Views
                 string? gameTitle = _raClient.GetGameTitle();
                 int raGameId = _raClient.GetGameId();
                 System.Diagnostics.Trace.WriteLine($"[RA] Game identified: {gameTitle} (id={raGameId})");
+                Emutastic.Services.RaLog.Write(
+                    $"launch identified: localId={_game.Id} console={_game.Console} " +
+                    $"title=\"{_game.Title}\" raGameId={raGameId} raTitle=\"{gameTitle}\" " +
+                    $"existingRAGameId={_game.RAGameId} dbNull={(_db == null)} " +
+                    $"dbPath=\"{_db?.DbPath ?? "<null>"}\" portable={AppPaths.IsPortable}");
 
                 // Cache the RA game ID on the Game row so the detail card's
                 // Web API fetch can skip the hash-resolve roundtrip on every
@@ -6083,11 +6157,27 @@ namespace Emutastic.Views
                 if (raGameId > 0 && _game.RAGameId != raGameId)
                 {
                     _game.RAGameId = raGameId;
-                    try { _db?.UpdateRAGameId(_game.Id, raGameId); }
-                    catch (Exception ex)
+                    if (_db == null)
                     {
-                        System.Diagnostics.Trace.WriteLine($"[RA] Failed to persist RAGameId: {ex.Message}");
+                        Emutastic.Services.RaLog.Write($"persist SKIPPED: _db is null — RAGameId={raGameId} not saved for localId={_game.Id}");
                     }
+                    else
+                    {
+                        try
+                        {
+                            int rows = _db.UpdateRAGameIdReturningCount(_game.Id, raGameId);
+                            Emutastic.Services.RaLog.Write($"persist: localId={_game.Id} raGameId={raGameId} rowsAffected={rows}");
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Trace.WriteLine($"[RA] Failed to persist RAGameId: {ex.Message}");
+                            Emutastic.Services.RaLog.Write($"persist FAILED: localId={_game.Id} raGameId={raGameId} ex={ex.GetType().Name}: {ex.Message}");
+                        }
+                    }
+                }
+                else
+                {
+                    Emutastic.Services.RaLog.Write($"persist SKIPPED: raGameId={raGameId} existing={_game.RAGameId} (no change or zero)");
                 }
 
                 Dispatcher.BeginInvoke(() =>
@@ -6578,6 +6668,22 @@ namespace Emutastic.Views
         private void ApplyAllCheats(System.Collections.Generic.IList<Models.Cheat> cheats)
         {
             if (_core == null) return;
+            // RA hardcore-compliance: cheats are an auto-fail blocker in hardcore.
+            // This is the single chokepoint for every cheat-apply path —
+            // launch-time apply, in-game overlay toggle, in-game editor save,
+            // and post-state-load re-apply all funnel through here, so one gate
+            // is enough. _frontendArCheats stays empty too, which makes the
+            // per-frame ApplyFrontendArToRam a no-op even if it ran.
+            if (IsHardcoreActive())
+            {
+                _frontendArCheats = System.Array.Empty<Services.CheatService.ParsedAr>();
+                if (cheats.Count > 0)
+                {
+                    _transientMsg    = "Cheats are disabled in hardcore mode";
+                    _transientExpiry = DateTime.Now.AddSeconds(4);
+                }
+                return;
+            }
             var (coreHandled, frontendAr) = Services.CheatService.Sort(cheats, _game?.Console ?? "");
             // Volatile swap — the per-frame ApplyFrontendArToRam reads this
             // without locking; new array reference is the safe handover.

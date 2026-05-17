@@ -570,6 +570,25 @@
                                    Margin="0,0,12,0"
                                    Visibility="Collapsed"/>
 
+                        <!-- Hardcore mode indicator — RA compliance requires the
+                             hardcore state to be visibly indicated during play
+                             (Section E of the compliance doc). Persistent in the
+                             status bar so it can't be missed; visibility is set
+                             once in code-behind after RA init completes. -->
+                        <Border x:Name="HardcoreIndicator"
+                                Background="#E03535"
+                                CornerRadius="3"
+                                Padding="6,1"
+                                VerticalAlignment="Center"
+                                Margin="0,0,12,0"
+                                Visibility="Collapsed">
+                            <TextBlock Text="HARDCORE"
+                                       Foreground="White"
+                                       FontSize="10"
+                                       FontWeight="Bold"
+                                       VerticalAlignment="Center"/>
+                        </Border>
+
                         <Button x:Name="SaveStateBtn"
                                 Content="💾  Save State"
                                 Style="{StaticResource SecondaryButtonStyle}"

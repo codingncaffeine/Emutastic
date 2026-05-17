@@ -1630,7 +1630,7 @@
                                              FontWeight="Normal"
                                              Foreground="{DynamicResource TextMutedBrush}"/>
                                     </TextBlock>
-                                    <TextBlock Text="Disables save state loading, rewind, and slow-motion during gameplay. Required for hardcore achievement unlocks."
+                                    <TextBlock Text="Disables save state loading and cheat codes during gameplay. Required for hardcore achievement unlocks."
                                                FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
                                                TextWrapping="Wrap" Margin="0,4,0,0"/>
                                     <TextBlock FontSize="11"
