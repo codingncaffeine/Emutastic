@@ -1062,6 +1062,23 @@ namespace Emutastic.Services
         }
 
         /// <summary>
+        /// Marks every row with the given owner as stale (fetched_at=0)
+        /// without deleting the payloads. PeekCached calls continue to
+        /// serve the cached JSON for instant cold-paint, while
+        /// GetCachedAsync's freshness check fires a refetch on next call.
+        /// Use to force a session-start refresh without losing the
+        /// last-known state as a fallback.
+        /// </summary>
+        public void MarkRaCacheStaleByOwner(string owner)
+        {
+            using var connection = OpenConnection();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "UPDATE ra_cache SET fetched_at = 0 WHERE owner = $o;";
+            cmd.Parameters.AddWithValue("$o", owner ?? "");
+            cmd.ExecuteNonQuery();
+        }
+
+        /// <summary>
         /// Wipes every cached row tagged with the given owner. Called on RA
         /// logout / API-key change so the next sign-in doesn't see the prior
         /// user's stats.

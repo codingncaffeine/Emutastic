@@ -69,6 +69,25 @@ namespace Emutastic
             // ── Phase 1: synchronous, fast — window becomes interactive immediately ──
             _db          = new DatabaseService();   // schema init (CREATE TABLE / indexes)
 
+            // Mark the user's Achievements-tab cache rows stale so the first
+            // tab open of this session refetches profile / points / awards /
+            // recent / library-spotlight from the network. The threading
+            // pipeline makes the refetch invisible to the UI thread — we
+            // paint from disk-cached JSON instantly and upgrade when the
+            // network call lands. The in-session TTL still gates repeat
+            // refetches when the user bounces tabs without restarting.
+            try
+            {
+                if (App.Configuration != null)
+                {
+                    var raStartup = new RaDataService(
+                        App.Configuration, _db,
+                        new RetroAchievementsService(App.Configuration, _db));
+                    raStartup.MarkUserCacheStaleForFreshFetch();
+                }
+            }
+            catch { /* RA isn't configured yet, no-op */ }
+
             // Warm every Preferences-tab cache in the background so opening
             // Preferences and clicking any tab is instant — no "Loading…" ever.
             // Fire-and-forget; failures fall back to the per-tab builders.
@@ -2308,9 +2327,9 @@ namespace Emutastic
             // PeekCachedWithMeta combines the row read + JSON parse into a
             // single DB hit (we need fetched_at later for the avatar cache-
             // buster anyway).
-            var (cachedProfile, _) = ra.PeekCachedWithMeta<Models.RAUserProfile>($"user_profile:user={user}");
-            var cachedPoints  = ra.PeekCached<Models.RAUserPoints>($"user_points:user={user}");
-            var cachedRecent  = ra.PeekCached<List<Models.RAUserRecentAchievement>>($"user_recent:user={user}");
+            var (cachedProfile, _) = ra.PeekCachedWithMeta<Models.RAUserProfile>($"user_profile:v2:user={user}");
+            var cachedPoints  = ra.PeekCached<Models.RAUserPoints>($"user_points:v2:user={user}");
+            var cachedRecent  = ra.PeekCached<List<Models.RAUserRecentAchievement>>($"user_recent:v2:user={user}");
             RenderProfileCard(cachedProfile, cachedPoints);
             RenderRecentUnlocks(cachedRecent);
 
@@ -2450,7 +2469,7 @@ namespace Emutastic
                         ? trimmed
                         : "https://media.retroachievements.org" + trimmed;
 
-                    long stamp = _raData?.PeekCachedFetchedAt($"user_profile:user={fallbackUser}") ?? 0L;
+                    long stamp = _raData?.PeekCachedFetchedAt($"user_profile:v2:user={fallbackUser}") ?? 0L;
                     string sep = url.Contains('?') ? "&" : "?";
                     string bustedUrl = stamp > 0 ? $"{url}{sep}v={stamp}" : url;
 

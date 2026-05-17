@@ -228,6 +228,28 @@ namespace Emutastic.Services
         }
 
         /// <summary>
+        /// Marks every cached user-keyed payload stale on app start so the
+        /// first Achievements tab visit refetches profile / points / awards
+        /// / recent / spotlight / heatmap-today without honoring the
+        /// in-session TTL across an app-restart boundary.
+        ///
+        /// Payloads stay in the row for cold-paint fallback (PeekCached).
+        /// Global rows (Achievement-of-the-Week, recent-game-awards,
+        /// top-ten) keep their stamps because TTL behavior across restarts
+        /// is exactly what we want for them.
+        ///
+        /// Idempotent and safe to call on every MainWindow load — does
+        /// nothing if no user is configured.
+        /// </summary>
+        public void MarkUserCacheStaleForFreshFetch()
+        {
+            var user = CurrentUser();
+            if (string.IsNullOrWhiteSpace(user)) return;
+            try { _db.MarkRaCacheStaleByOwner(OwnerForUser(user)); }
+            catch (Exception ex) { Trace.WriteLine($"[RA] session-start invalidate failed: {ex.Message}"); }
+        }
+
+        /// <summary>
         /// Drops the cached Library Spotlight materialization + the recent-
         /// unlocks feed. Called from the post-emulator-exit hook so when the
         /// user finishes a play session and pops back to the Achievements
@@ -246,8 +268,8 @@ namespace Emutastic.Services
                 long zero = 0L;
                 _db.SetRaCache($"library_spotlight:v2:user={user}", OwnerForUser(user),
                     _db.GetRaCache($"library_spotlight:v2:user={user}")?.Payload ?? "", zero, 0);
-                _db.SetRaCache($"user_recent:user={user}", OwnerForUser(user),
-                    _db.GetRaCache($"user_recent:user={user}")?.Payload ?? "", zero, 0);
+                _db.SetRaCache($"user_recent:v2:user={user}", OwnerForUser(user),
+                    _db.GetRaCache($"user_recent:v2:user={user}")?.Payload ?? "", zero, 0);
             }
             catch (Exception ex) { Trace.WriteLine($"[RA] post-play invalidate failed: {ex.Message}"); }
         }
@@ -260,7 +282,7 @@ namespace Emutastic.Services
             var user = CurrentUser();
             if (user == null) return Task.FromResult<RAUserProfile?>(null);
             return GetCachedAsync<RAUserProfile>(
-                $"user_profile:user={user}",
+                $"user_profile:v2:user={user}",
                 OwnerForUser(user),
                 TtlProfile,
                 inner => _api.GetUserProfileAsync(user, inner),
@@ -273,7 +295,7 @@ namespace Emutastic.Services
             var user = CurrentUser();
             if (user == null) return Task.FromResult<RAUserPoints?>(null);
             return GetCachedAsync<RAUserPoints>(
-                $"user_points:user={user}",
+                $"user_points:v2:user={user}",
                 OwnerForUser(user),
                 TtlPoints,
                 inner => _api.GetUserPointsAsync(user, inner),
@@ -654,7 +676,7 @@ namespace Emutastic.Services
             var user = CurrentUser();
             if (user == null) return Task.FromResult<List<RAUserRecentAchievement>?>(null);
             return GetCachedAsync<List<RAUserRecentAchievement>>(
-                $"user_recent:user={user}",
+                $"user_recent:v2:user={user}",
                 OwnerForUser(user),
                 TtlRecentActivity,
                 async inner =>
