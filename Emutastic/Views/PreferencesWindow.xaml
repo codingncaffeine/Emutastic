@@ -1622,12 +1622,24 @@
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0">
-                                    <TextBlock Text="Hardcore Mode"
-                                               FontSize="14" FontWeight="SemiBold"
-                                               Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                    <TextBlock FontSize="14" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextPrimaryBrush}">
+                                        <Run Text="Hardcore Mode"/>
+                                        <Run Text=" (server approval pending)"
+                                             FontSize="11"
+                                             FontWeight="Normal"
+                                             Foreground="{DynamicResource TextMutedBrush}"/>
+                                    </TextBlock>
                                     <TextBlock Text="Disables save state loading, rewind, and slow-motion during gameplay. Required for hardcore achievement unlocks."
                                                FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
                                                TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                    <TextBlock FontSize="11"
+                                               Foreground="{DynamicResource TextMutedBrush}"
+                                               TextWrapping="Wrap" Margin="0,4,0,0">
+                                        <Run Text="Note:"/>
+                                        <Run Text=" RetroAchievements requires an emulator to be public for 6 months before approving it for hardcore. Earliest we can apply is October 2026 — until then unlocks earned here count as softcore on RA's servers."
+                                             FontStyle="Italic"/>
+                                    </TextBlock>
                                 </StackPanel>
                                 <ToggleButton x:Name="RAHardcoreToggle"
                                              Grid.Column="1"
