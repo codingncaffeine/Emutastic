@@ -193,6 +193,24 @@ namespace Emutastic.Services
         }
 
         /// <summary>
+        /// One-shot variant that returns both the deserialized payload and
+        /// the fetched_at stamp from a single DB lookup. Used on hot paths
+        /// where the caller needs both (e.g. cold-paint profile render
+        /// + avatar cache-buster) to avoid two consecutive PK reads.
+        /// </summary>
+        public (T? Payload, long FetchedAt) PeekCachedWithMeta<T>(string cacheKey) where T : class
+        {
+            try
+            {
+                var row = _db.GetRaCache(cacheKey);
+                if (row == null) return (null, 0L);
+                T? typed = string.IsNullOrEmpty(row.Payload) ? null : Deserialize<T>(row.Payload);
+                return (typed, row.FetchedAt);
+            }
+            catch { return (null, 0L); }
+        }
+
+        /// <summary>
         /// Drops every cached row for the given user. Call on RA logout or
         /// when the user changes their Web API key in Preferences so the next
         /// sign-in doesn't serve the prior user's stats.

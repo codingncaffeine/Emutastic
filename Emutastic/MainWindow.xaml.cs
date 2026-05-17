@@ -2305,10 +2305,13 @@ namespace Emutastic
             RARecentCard.Visibility = Visibility.Visible;
 
             // Paint cached state immediately. No network here — fast path.
-            var cachedProfile = ra.PeekCached<Models.RAUserProfile>($"user_profile:user={user}");
+            // PeekCachedWithMeta combines the row read + JSON parse into a
+            // single DB hit (we need fetched_at later for the avatar cache-
+            // buster anyway).
+            var (cachedProfile, _) = ra.PeekCachedWithMeta<Models.RAUserProfile>($"user_profile:user={user}");
             var cachedPoints  = ra.PeekCached<Models.RAUserPoints>($"user_points:user={user}");
             var cachedRecent  = ra.PeekCached<List<Models.RAUserRecentAchievement>>($"user_recent:user={user}");
-            RenderProfileCard(cachedProfile, cachedPoints, user);
+            RenderProfileCard(cachedProfile, cachedPoints);
             RenderRecentUnlocks(cachedRecent);
 
             // Cancel any prior in-flight fetch and kick a fresh refresh.
@@ -2355,7 +2358,7 @@ namespace Emutastic
 
                     if (ct.IsCancellationRequested) return;
                     _ = Dispatcher.BeginInvoke(new Action(() =>
-                        RenderProfileCard(profileTask.Result, pointsTask.Result, user)));
+                        RenderProfileCard(profileTask.Result, pointsTask.Result)));
 
                     // Recent unlocks (5-min TTL, ~50KB max).
                     var recent = await ra.GetRecentAsync(ct).ConfigureAwait(false);
@@ -2400,8 +2403,15 @@ namespace Emutastic
             });
         }
 
-        private void RenderProfileCard(Models.RAUserProfile? profile, Models.RAUserPoints? points, string fallbackUser)
+        // Resolves the username used for cache-key lookups + display
+        // fallback. Authoritative source is RaDataService.CurrentUser()
+        // (the config-time username); the audit caught that taking a
+        // separate fallbackUser parameter was a footgun — a future caller
+        // could pass profile.User instead, which RA returns in registered
+        // casing and would silently miss the cache-buster lookup.
+        private void RenderProfileCard(Models.RAUserProfile? profile, Models.RAUserPoints? points)
         {
+            string fallbackUser = _raData?.CurrentUser() ?? "";
             RAProfileName.Text = string.IsNullOrWhiteSpace(profile?.User) ? fallbackUser : profile!.User;
             RAProfileMotto.Text = string.IsNullOrWhiteSpace(profile?.Motto) ? "" : "“" + profile!.Motto + "”";
             RAProfileMotto.Visibility = string.IsNullOrWhiteSpace(profile?.Motto) ? Visibility.Collapsed : Visibility.Visible;
