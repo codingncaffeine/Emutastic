@@ -2304,7 +2304,10 @@ namespace Emutastic
             RenderRecentUnlocks(cachedRecent);
 
             // Cancel any prior in-flight fetch and kick a fresh refresh.
-            _raTabCts?.Cancel();
+            // Dispose the previous CTS so its callback list is released —
+            // without this we'd accumulate orphaned cancelled CTS instances
+            // on every tab click.
+            try { _raTabCts?.Cancel(); _raTabCts?.Dispose(); } catch { }
             _raTabCts = new System.Threading.CancellationTokenSource();
             var ct = _raTabCts.Token;
             _ = System.Threading.Tasks.Task.Run(async () =>
@@ -2322,17 +2325,7 @@ namespace Emutastic
                         RenderProfileCard(profileTask.Result, pointsTask.Result, user)));
 
                     // Recent unlocks (5-min TTL, ~50KB max).
-                    var recent = await ra.GetCachedAsync<List<Models.RAUserRecentAchievement>>(
-                        $"user_recent:user={user}",
-                        RaDataService.OwnerForUser(user),
-                        RaDataService.TtlRecentActivity,
-                        async inner =>
-                        {
-                            var list = await new RetroAchievementsService(App.Configuration!, _db)
-                                .GetUserRecentAchievementsAsync(user, 60 * 24 * 7, inner).ConfigureAwait(false);
-                            return list;
-                        },
-                        ct).ConfigureAwait(false);
+                    var recent = await ra.GetRecentAsync(ct).ConfigureAwait(false);
 
                     if (ct.IsCancellationRequested) return;
                     _ = Dispatcher.BeginInvoke(new Action(() => RenderRecentUnlocks(recent)));
@@ -2373,9 +2366,10 @@ namespace Emutastic
             {
                 try
                 {
-                    string url = profile!.UserPic!.StartsWith("http", StringComparison.OrdinalIgnoreCase)
-                        ? profile.UserPic!
-                        : "https://media.retroachievements.org" + profile.UserPic;
+                    string trimmed = profile!.UserPic!.Trim();
+                    string url = trimmed.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                        ? trimmed
+                        : "https://media.retroachievements.org" + trimmed;
                     var bmp = new System.Windows.Media.Imaging.BitmapImage();
                     bmp.BeginInit();
                     bmp.UriSource = new Uri(url);
@@ -2397,15 +2391,39 @@ namespace Emutastic
             }
             RARecentEmpty.Visibility = Visibility.Collapsed;
 
+            // Hoist resource lookups: FindResource walks the visual tree on
+            // every call, and a 20-row render previously did ~140 of them.
+            // Resolve once, pass into BuildRecentRow.
+            var ctx = new RecentRowContext
+            {
+                Font          = (System.Windows.Media.FontFamily)FindResource("PrimaryFont"),
+                TextPrimary   = (System.Windows.Media.Brush)FindResource("TextPrimaryBrush"),
+                TextSecondary = (System.Windows.Media.Brush)FindResource("TextSecondaryBrush"),
+                TextMuted     = (System.Windows.Media.Brush)FindResource("TextMutedBrush"),
+                BgTertiary    = (System.Windows.Media.Brush)FindResource("BgTertiaryBrush"),
+                Accent        = (System.Windows.Media.Brush)FindResource("AccentBrush"),
+            };
+
             int rendered = 0;
             foreach (var u in unlocks)
             {
-                RARecentItems.Items.Add(BuildRecentRow(u));
+                RARecentItems.Items.Add(BuildRecentRow(u, ctx));
                 if (++rendered >= 20) break;
             }
         }
 
-        private UIElement BuildRecentRow(Models.RAUserRecentAchievement u)
+        // Lookup bundle for BuildRecentRow — resolved once per render.
+        private sealed class RecentRowContext
+        {
+            public System.Windows.Media.FontFamily Font = null!;
+            public System.Windows.Media.Brush TextPrimary = null!;
+            public System.Windows.Media.Brush TextSecondary = null!;
+            public System.Windows.Media.Brush TextMuted = null!;
+            public System.Windows.Media.Brush BgTertiary = null!;
+            public System.Windows.Media.Brush Accent = null!;
+        }
+
+        private static UIElement BuildRecentRow(Models.RAUserRecentAchievement u, RecentRowContext ctx)
         {
             // Single-row layout: 32px badge + title/subtitle stack + points pill on the right.
             var row = new Grid { Margin = new Thickness(14, 10, 14, 10) };
@@ -2417,7 +2435,7 @@ namespace Emutastic
             var badgeBorder = new Border
             {
                 Width = 32, Height = 32, CornerRadius = new CornerRadius(4), ClipToBounds = true,
-                Background = (System.Windows.Media.Brush)FindResource("BgTertiaryBrush"),
+                Background = ctx.BgTertiary,
             };
             if (!string.IsNullOrEmpty(u.BadgeName))
             {
@@ -2440,10 +2458,10 @@ namespace Emutastic
             stack.Children.Add(new TextBlock
             {
                 Text = u.Title,
-                FontFamily = (System.Windows.Media.FontFamily)FindResource("PrimaryFont"),
+                FontFamily = ctx.Font,
                 FontSize = 13,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = (System.Windows.Media.Brush)FindResource("TextPrimaryBrush"),
+                Foreground = ctx.TextPrimary,
                 TextTrimming = TextTrimming.CharacterEllipsis,
             });
             string when = FormatTimeAgo(u.Date);
@@ -2452,9 +2470,9 @@ namespace Emutastic
             stack.Children.Add(new TextBlock
             {
                 Text = sub,
-                FontFamily = (System.Windows.Media.FontFamily)FindResource("PrimaryFont"),
+                FontFamily = ctx.Font,
                 FontSize = 11,
-                Foreground = (System.Windows.Media.Brush)FindResource("TextMutedBrush"),
+                Foreground = ctx.TextMuted,
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 Margin = new Thickness(0, 2, 0, 0),
             });
@@ -2462,24 +2480,21 @@ namespace Emutastic
             row.Children.Add(stack);
 
             // Points pill (hardcore unlocks get the accent tint to mark them).
+            bool hc = u.HardcoreMode == 1;
             var ptsBorder = new Border
             {
                 CornerRadius = new CornerRadius(4),
                 Padding = new Thickness(8, 3, 8, 3),
-                Background = u.HardcoreMode == 1
-                    ? (System.Windows.Media.Brush)FindResource("AccentBrush")
-                    : (System.Windows.Media.Brush)FindResource("BgTertiaryBrush"),
+                Background = hc ? ctx.Accent : ctx.BgTertiary,
                 VerticalAlignment = VerticalAlignment.Center,
             };
             ptsBorder.Child = new TextBlock
             {
                 Text = $"{u.Points} pts",
-                FontFamily = (System.Windows.Media.FontFamily)FindResource("PrimaryFont"),
+                FontFamily = ctx.Font,
                 FontSize = 11,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = u.HardcoreMode == 1
-                    ? System.Windows.Media.Brushes.White
-                    : (System.Windows.Media.Brush)FindResource("TextSecondaryBrush"),
+                Foreground = hc ? System.Windows.Media.Brushes.White : ctx.TextSecondary,
             };
             Grid.SetColumn(ptsBorder, 2);
             row.Children.Add(ptsBorder);
@@ -2494,8 +2509,16 @@ namespace Emutastic
         private static string FormatTimeAgo(string isoDate)
         {
             if (string.IsNullOrWhiteSpace(isoDate)) return "";
-            if (!DateTime.TryParse(isoDate, out var t)) return "";
-            var diff = DateTime.UtcNow - t.ToUniversalTime();
+            // RA returns "yyyy-MM-dd HH:mm:ss" without timezone — DateTime.TryParse
+            // leaves Kind=Unspecified, which ToUniversalTime() then treats as
+            // local time and offsets by the user's TZ (wrong; the value is
+            // UTC server time). AssumeUniversal+AdjustToUniversal gives us a
+            // correctly-tagged UTC DateTime.
+            if (!DateTime.TryParse(isoDate, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
+                    out var t))
+                return "";
+            var diff = DateTime.UtcNow - t;
             if (diff.TotalMinutes < 1)  return "just now";
             if (diff.TotalMinutes < 60) return $"{(int)diff.TotalMinutes}m ago";
             if (diff.TotalHours   < 24) return $"{(int)diff.TotalHours}h ago";

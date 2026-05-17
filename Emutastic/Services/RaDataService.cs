@@ -220,6 +220,30 @@ namespace Emutastic.Services
                 ct);
         }
 
+        /// <summary>
+        /// Recent unlock feed (#31). 7-day window keeps the feed populated
+        /// even for users who only play a few sessions a week; we cap render
+        /// at 20 on the UI side. Cached 5 min per user.
+        /// </summary>
+        public Task<List<RAUserRecentAchievement>?> GetRecentAsync(CancellationToken ct = default)
+        {
+            var user = CurrentUser();
+            if (user == null) return Task.FromResult<List<RAUserRecentAchievement>?>(null);
+            return GetCachedAsync<List<RAUserRecentAchievement>>(
+                $"user_recent:user={user}",
+                OwnerForUser(user),
+                TtlRecentActivity,
+                async inner =>
+                {
+                    var list = await _api.GetUserRecentAchievementsAsync(user, 60 * 24 * 7, inner).ConfigureAwait(false);
+                    // GetUserRecentAchievementsAsync never returns null, so the
+                    // empty-list-instead-of-null avoids confusing the cache
+                    // wrapper's "null = network failure" signal.
+                    return list;
+                },
+                ct);
+        }
+
         private static T? Deserialize<T>(string json) where T : class
         {
             if (string.IsNullOrWhiteSpace(json)) return null;
