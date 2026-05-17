@@ -170,9 +170,18 @@
                                     Background="{DynamicResource BgTertiaryBrush}"
                                     CornerRadius="4" Padding="8,3" Margin="0,0,6,6"
                                     Visibility="Collapsed">
+                                <!-- Cap the visible width so very long publishers
+                                     ("Square Enix Holdings Co., Ltd.") truncate
+                                     to ellipsis instead of overflowing into the
+                                     right-anchored stats cluster. Full name is
+                                     still on hover via the ToolTip. -->
                                 <TextBlock x:Name="GameDeveloper"
                                            FontFamily="{StaticResource PrimaryFont}"
-                                           FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                           FontSize="11"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"
+                                           MaxWidth="170"
+                                           TextTrimming="CharacterEllipsis"
+                                           ToolTipService.ToolTip="{Binding RelativeSource={RelativeSource Self}, Path=Text}"/>
                             </Border>
                             <Border x:Name="GenrePill"
                                     Background="{DynamicResource BgTertiaryBrush}"

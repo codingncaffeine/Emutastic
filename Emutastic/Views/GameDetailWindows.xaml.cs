@@ -21,6 +21,11 @@ namespace Emutastic.Views
         private Game _game;
         private readonly DatabaseService _db = new();
 
+        // Cancellation source for the in-flight RA refresh; cancelled on
+        // window close so a slow API response doesn't write back into a
+        // Game object after a fresh detail card has already taken over.
+        private System.Threading.CancellationTokenSource? _raRefreshCts;
+
         // Shared LibVLC instance — expensive to create, reused across all detail windows
         private static LibVLC? _libVLC;
         private LibVLCSharp.Shared.MediaPlayer? _vlcPlayer;
@@ -223,14 +228,18 @@ namespace Emutastic.Views
             RenderRetroAchievements();
 
             // Refresh if either cache is stale (no-op when fresh / no API key).
+            _raRefreshCts?.Cancel();
+            _raRefreshCts = new System.Threading.CancellationTokenSource();
+            var token = _raRefreshCts.Token;
             try
             {
                 if (App.Configuration == null) return;
                 var svc = new RetroAchievementsService(App.Configuration, _db);
-                await svc.RefreshDetailForGameAsync(_game).ConfigureAwait(true);
-                if (!IsLoaded) return;
+                await svc.RefreshDetailForGameAsync(_game, token).ConfigureAwait(true);
+                if (token.IsCancellationRequested || !IsLoaded) return;
                 RenderRetroAchievements();
             }
+            catch (OperationCanceledException) { /* window closed during fetch */ }
             catch
             {
                 // Network-side failures are already swallowed inside the
@@ -260,15 +269,27 @@ namespace Emutastic.Views
 
             RASection.Visibility = Visibility.Visible;
 
+            // Pick the unlock track that matches the user's hardcore setting.
+            // In hardcore mode the user cares about hardcore unlocks (gated on
+            // no save-states / no rewind); in softcore mode the regular column
+            // tracks every unlock. Falls back to softcore when not logged in
+            // or when no config is available.
+            bool hardcore = App.Configuration?.GetRetroAchievementsConfiguration()?.HardcoreMode == true;
+
             // Header: "12 / 47 · 1,240 pts" — pts is what the user has, not the
             // game total, when logged in. Logged-out: just "47 achievements".
-            int earned = user?.NumAwardedToUser ?? 0;
             int total  = prog.NumAchievements;
+            int earned = hardcore
+                ? (user?.NumAwardedToUserHardcore ?? 0)
+                : (user?.NumAwardedToUser ?? 0);
             int userPts = 0;
             if (user != null)
             {
                 foreach (var a in user.Achievements.Values)
-                    if (!string.IsNullOrEmpty(a.DateEarned)) userPts += a.Points;
+                {
+                    string? earnedDate = hardcore ? a.DateEarnedHardcore : a.DateEarned;
+                    if (!string.IsNullOrEmpty(earnedDate)) userPts += a.Points;
+                }
             }
 
             if (user != null)
@@ -289,14 +310,14 @@ namespace Emutastic.Views
             }
 
             // "Coming up" — top 3 unearned by ascending median time-to-unlock.
-            BuildComingUp(prog, user);
+            BuildComingUp(prog, user, hardcore);
 
             // Typical-run caption — only when sample sizes are high enough
             // to trust the median (n >= 20 is a community convention).
-            BuildTimingsCaption(prog);
+            BuildTimingsCaption(prog, hardcore);
         }
 
-        private void BuildComingUp(RAProgression prog, RAUserProgress? user)
+        private void BuildComingUp(RAProgression prog, RAUserProgress? user, bool hardcore)
         {
             ComingUpGrid.Children.Clear();
 
@@ -309,21 +330,33 @@ namespace Emutastic.Views
             }
 
             // Build a HashSet of earned achievement IDs for O(1) lookup.
+            // "Earned" is hardcore-specific when the user runs hardcore.
             var earnedIds = new HashSet<int>();
             foreach (var a in user.Achievements.Values)
-                if (!string.IsNullOrEmpty(a.DateEarned)) earnedIds.Add(a.Id);
+            {
+                string? earnedDate = hardcore ? a.DateEarnedHardcore : a.DateEarned;
+                if (!string.IsNullOrEmpty(earnedDate)) earnedIds.Add(a.Id);
+            }
 
             // Phase-1 picker: unearned, sorted ascending by community median
             // time-to-unlock (= typical players unlock these fastest), tiebreak
             // descending numAwarded (= more popular first), take 3. Skip any
             // achievement with a null/zero median — that's a no-data signal,
-            // not "instant."
+            // not "instant." Hardcore mode uses the hardcore-flavoured median
+            // and unlock count when available.
             var picks = prog.Achievements
                 .Where(a => !earnedIds.Contains(a.Id))
-                .Where(a => a.MedianTimeToUnlock.HasValue && a.MedianTimeToUnlock.Value > 0)
-                .OrderBy(a => a.MedianTimeToUnlock!.Value)
-                .ThenByDescending(a => a.NumAwarded)
+                .Select(a => new
+                {
+                    Ach = a,
+                    Median = hardcore ? (a.MedianTimeToUnlockHardcore ?? a.MedianTimeToUnlock) : a.MedianTimeToUnlock,
+                    Pop    = hardcore ? a.NumAwardedHardcore : a.NumAwarded,
+                })
+                .Where(x => x.Median.HasValue && x.Median.Value > 0)
+                .OrderBy(x => x.Median!.Value)
+                .ThenByDescending(x => x.Pop)
                 .Take(3)
+                .Select(x => x.Ach)
                 .ToList();
 
             if (picks.Count == 0)
@@ -333,7 +366,10 @@ namespace Emutastic.Views
             }
 
             foreach (var ach in picks)
-                ComingUpGrid.Children.Add(BuildBadgeTile(ach));
+            {
+                int median = (hardcore ? (ach.MedianTimeToUnlockHardcore ?? ach.MedianTimeToUnlock) : ach.MedianTimeToUnlock) ?? 0;
+                ComingUpGrid.Children.Add(BuildBadgeTile(ach, median));
+            }
 
             ComingUpSection.Visibility = Visibility.Visible;
         }
@@ -344,7 +380,7 @@ namespace Emutastic.Views
         /// median time-to-unlock caption. Hover-tooltip exposes the full
         /// description, points, and community rarity.
         /// </summary>
-        private UIElement BuildBadgeTile(RAAchievement ach)
+        private UIElement BuildBadgeTile(RAAchievement ach, int medianSec)
         {
             var panel = new StackPanel
             {
@@ -395,7 +431,7 @@ namespace Emutastic.Views
             // Time-to-unlock caption.
             var caption = new TextBlock
             {
-                Text = "~" + FormatDuration(ach.MedianTimeToUnlock ?? 0),
+                Text = "~" + FormatDuration(medianSec),
                 FontFamily = (FontFamily)FindResource("PrimaryFont"),
                 FontSize = 10,
                 Foreground = (Brush)FindResource("TextMutedBrush"),
@@ -421,14 +457,14 @@ namespace Emutastic.Views
             return panel;
         }
 
-        private void BuildTimingsCaption(RAProgression prog)
+        private void BuildTimingsCaption(RAProgression prog, bool hardcore)
         {
             // Sample-size gate — under n=20 the medians are too noisy to be
             // worth showing as a "typical run" estimate.
             const int MinSamples = 20;
-            string? beat = prog.MedianTimeToBeat.HasValue
-                        && prog.TimesUsedInBeatMedian >= MinSamples
-                ? FormatDuration(prog.MedianTimeToBeat.Value) : null;
+            int? beatSec = hardcore ? (prog.MedianTimeToBeatHardcore ?? prog.MedianTimeToBeat) : prog.MedianTimeToBeat;
+            string? beat = beatSec.HasValue && prog.TimesUsedInBeatMedian >= MinSamples
+                ? FormatDuration(beatSec.Value) : null;
             string? master = prog.MedianTimeToMaster.HasValue
                           && prog.TimesUsedInMasteryMedian >= MinSamples
                 ? FormatDuration(prog.MedianTimeToMaster.Value) : null;
@@ -555,6 +591,11 @@ namespace Emutastic.Views
 
         protected override void OnClosed(EventArgs e)
         {
+            // Cancel any in-flight RA refresh so its write-back to the Game
+            // object can't race a fresh detail card opened immediately after.
+            try { _raRefreshCts?.Cancel(); _raRefreshCts?.Dispose(); _raRefreshCts = null; }
+            catch { }
+
             if (_vlcPlayer != null)
             {
                 _vlcPlayer.Stop();
