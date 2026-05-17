@@ -172,6 +172,14 @@ namespace Emutastic.Services
             TryAddColumn(connection, "Games", "RAUserProgressJson",       "TEXT DEFAULT ''");
             TryAddColumn(connection, "Games", "RAUserProgressFetchedAt",  "INTEGER DEFAULT 0");
 
+            // Live in-game progress snapshot (Phase 2). Captured from rcheevos
+            // ACHIEVEMENT_PROGRESS_INDICATOR_UPDATE events during play and
+            // flushed once on emulator close. Lets the "Coming up" picker show
+            // achievements the player is genuinely close to unlocking
+            // (e.g. "73% · 3 of 5") rather than community-median proxies.
+            TryAddColumn(connection, "Games", "RALiveProgressJson",       "TEXT DEFAULT ''");
+            TryAddColumn(connection, "Games", "RALiveProgressFetchedAt",  "INTEGER DEFAULT 0");
+
             // One-shot migration: games whose RomPath lives in a mame2003-plus folder
             // should route to that core regardless of DAT membership. Earlier import
             // logic preferred FBNeo whenever FBNeo's DAT listed the game, even when
@@ -930,6 +938,27 @@ namespace Emutastic.Services
         }
 
         /// <summary>
+        /// Persists the live in-game progress snapshot collected during play.
+        /// Called once at emulator close (on a background Task, not the emu
+        /// thread) so the next detail-card open can read "you were 73% of
+        /// the way to X last session" from disk.
+        ///
+        /// THREAD-AFFINITY: Call from a Task-pool thread launched at game
+        /// exit, never from inside an rcheevos event callback.
+        /// </summary>
+        public void UpdateRALiveProgress(int gameId, string json, long fetchedAt)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "UPDATE Games SET RALiveProgressJson = $json, RALiveProgressFetchedAt = $ts WHERE Id = $id;";
+            cmd.Parameters.AddWithValue("$json", json ?? "");
+            cmd.Parameters.AddWithValue("$ts", fetchedAt);
+            cmd.Parameters.AddWithValue("$id", gameId);
+            cmd.ExecuteNonQuery();
+        }
+
+        /// <summary>
         /// Updates the RomPath for a single game. Used when the launcher transparently
         /// extracts a .zip whose path was stored as-is by the importer (pre-fix imports
         /// via the console-nav hint short-circuit), so the next launch is fast.
@@ -1592,7 +1621,8 @@ namespace Emutastic.Services
                 ScreenScraperArtPath, ArtworkAttempts, MetadataAttempts,
                 Developer, Publisher, Genre, Description, PreferredCore,
                 RAGameId, RAProgressionJson, RAProgressionFetchedAt,
-                RAUserProgressJson, RAUserProgressFetchedAt;
+                RAUserProgressJson, RAUserProgressFetchedAt,
+                RALiveProgressJson, RALiveProgressFetchedAt;
 
             public OrdinalMap(SqliteDataReader reader)
             {
@@ -1627,6 +1657,8 @@ namespace Emutastic.Services
                 RAProgressionFetchedAt  = TryOrd(reader, "RAProgressionFetchedAt");
                 RAUserProgressJson      = TryOrd(reader, "RAUserProgressJson");
                 RAUserProgressFetchedAt = TryOrd(reader, "RAUserProgressFetchedAt");
+                RALiveProgressJson      = TryOrd(reader, "RALiveProgressJson");
+                RALiveProgressFetchedAt = TryOrd(reader, "RALiveProgressFetchedAt");
             }
 
             private static int TryOrd(SqliteDataReader r, string col)
@@ -1671,6 +1703,8 @@ namespace Emutastic.Services
                 RAProgressionFetchedAt  = GetLong(reader, o.RAProgressionFetchedAt),
                 RAUserProgressJson      = GetStr(reader, o.RAUserProgressJson),
                 RAUserProgressFetchedAt = GetLong(reader, o.RAUserProgressFetchedAt),
+                RALiveProgressJson      = GetStr(reader, o.RALiveProgressJson),
+                RALiveProgressFetchedAt = GetLong(reader, o.RALiveProgressFetchedAt),
             };
         }
 

@@ -179,6 +179,14 @@ namespace Emutastic.Models
         public string RAUserProgressJson { get; set; } = "";
         public long RAUserProgressFetchedAt { get; set; }
 
+        // Live progress snapshot from the last play session (Phase 2).
+        // Populated by EmulatorWindow at game-exit from rcheevos
+        // PROGRESS_INDICATOR_UPDATE events. Read by the detail card to
+        // upgrade "Coming up" from community-median proxies to real
+        // "you're 73% of the way to X" progress.
+        public string RALiveProgressJson { get; set; } = "";
+        public long RALiveProgressFetchedAt { get; set; }
+
         // Lazy-deserialize the JSON on first access and invalidate when the
         // underlying string is reassigned. The fetch service mutates the JSON
         // properties from a background thread while the UI thread reads the
@@ -222,6 +230,25 @@ namespace Emutastic.Models
                         _raUserProgress = TryDeserialize<RAUserProgress>(current);
                     }
                     return _raUserProgress;
+                }
+            }
+        }
+
+        private RALiveProgress? _raLiveProgress;
+        private string? _raLiveProgressJsonCached;
+        public RALiveProgress? RALiveProgressTyped
+        {
+            get
+            {
+                string current = RALiveProgressJson;
+                lock (_raTypedLock)
+                {
+                    if (!string.Equals(_raLiveProgressJsonCached, current, StringComparison.Ordinal))
+                    {
+                        _raLiveProgressJsonCached = current;
+                        _raLiveProgress = TryDeserialize<RALiveProgress>(current);
+                    }
+                    return _raLiveProgress;
                 }
             }
         }

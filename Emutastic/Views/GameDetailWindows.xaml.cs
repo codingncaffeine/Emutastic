@@ -338,14 +338,32 @@ namespace Emutastic.Views
                 if (!string.IsNullOrEmpty(earnedDate)) earnedIds.Add(a.Id);
             }
 
-            // Phase-1 picker: unearned, sorted ascending by community median
-            // time-to-unlock (= typical players unlock these fastest), tiebreak
-            // descending numAwarded (= more popular first), take 3. Skip any
-            // achievement with a null/zero median — that's a no-data signal,
-            // not "instant." Hardcore mode uses the hardcore-flavoured median
-            // and unlock count when available.
-            var picks = prog.Achievements
+            // Phase-2 picker: prefer achievements with live in-game progress
+            // (collected by rcheevos in the user's last session). Sort live-
+            // progress hits descending by percent — "closest to unlocking
+            // right now" — and fill remaining slots with the Phase-1 web-API
+            // proxy (ascending median TTU, tiebreak descending popularity).
+            //
+            // Skip any community-median candidate with a null/zero median —
+            // that's a no-data signal, not "instant." Hardcore mode picks
+            // the hardcore-flavoured median + unlock count when available.
+            var live = _game.RALiveProgressTyped;
+            var liveMap = live?.Achievements ?? new Dictionary<int, RALiveAchievementProgress>();
+
+            var unearned = prog.Achievements
                 .Where(a => !earnedIds.Contains(a.Id))
+                .ToList();
+
+            // Bucket A: live progress > 0 (and not at 100% — that's a quirk
+            // where rcheevos fires the event right before the unlock).
+            var liveHits = unearned
+                .Where(a => liveMap.TryGetValue(a.Id, out var lp) && lp.Percent > 0 && lp.Percent < 100)
+                .OrderByDescending(a => liveMap[a.Id].Percent)
+                .ToList();
+
+            // Bucket B: web-API proxy fallback.
+            var proxyPool = unearned
+                .Where(a => !liveHits.Contains(a))
                 .Select(a => new
                 {
                     Ach = a,
@@ -355,9 +373,10 @@ namespace Emutastic.Views
                 .Where(x => x.Median.HasValue && x.Median.Value > 0)
                 .OrderBy(x => x.Median!.Value)
                 .ThenByDescending(x => x.Pop)
-                .Take(3)
                 .Select(x => x.Ach)
                 .ToList();
+
+            var picks = liveHits.Concat(proxyPool).Take(3).ToList();
 
             if (picks.Count == 0)
             {
@@ -368,7 +387,8 @@ namespace Emutastic.Views
             foreach (var ach in picks)
             {
                 int median = (hardcore ? (ach.MedianTimeToUnlockHardcore ?? ach.MedianTimeToUnlock) : ach.MedianTimeToUnlock) ?? 0;
-                ComingUpGrid.Children.Add(BuildBadgeTile(ach, median));
+                liveMap.TryGetValue(ach.Id, out var livePick);
+                ComingUpGrid.Children.Add(BuildBadgeTile(ach, median, livePick));
             }
 
             ComingUpSection.Visibility = Visibility.Visible;
@@ -376,11 +396,13 @@ namespace Emutastic.Views
 
         /// <summary>
         /// Builds a single badge tile for the "Coming up" row: badge image
-        /// (downloaded from RA's CDN), achievement title (truncated), and
-        /// median time-to-unlock caption. Hover-tooltip exposes the full
-        /// description, points, and community rarity.
+        /// (downloaded from RA's CDN), achievement title (truncated), and a
+        /// caption — live progress text when this user was making in-game
+        /// progress last session (e.g. "73% · 3 of 5"), otherwise the
+        /// community median time-to-unlock. Hover-tooltip exposes the full
+        /// description and point value.
         /// </summary>
-        private UIElement BuildBadgeTile(RAAchievement ach, int medianSec)
+        private UIElement BuildBadgeTile(RAAchievement ach, int medianSec, RALiveAchievementProgress? live)
         {
             var panel = new StackPanel
             {
@@ -428,13 +450,30 @@ namespace Emutastic.Views
             };
             panel.Children.Add(title);
 
-            // Time-to-unlock caption.
+            // Caption — live progress wins when available, accent-tinted to
+            // mark "this is your data, not community average." Falls back to
+            // the community-median ETA, muted to mark it as an estimate.
+            string captionText;
+            Brush captionBrush;
+            if (live != null && live.Percent > 0 && live.Percent < 100)
+            {
+                string pctStr = $"{live.Percent:0.#}%";
+                captionText = string.IsNullOrEmpty(live.ProgressText)
+                    ? pctStr
+                    : $"{pctStr} · {live.ProgressText}";
+                captionBrush = (Brush)FindResource("AccentBrush");
+            }
+            else
+            {
+                captionText = "~" + FormatDuration(medianSec);
+                captionBrush = (Brush)FindResource("TextMutedBrush");
+            }
             var caption = new TextBlock
             {
-                Text = "~" + FormatDuration(medianSec),
+                Text = captionText,
                 FontFamily = (FontFamily)FindResource("PrimaryFont"),
                 FontSize = 10,
-                Foreground = (Brush)FindResource("TextMutedBrush"),
+                Foreground = captionBrush,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 Margin = new Thickness(0, 1, 0, 0),
             };

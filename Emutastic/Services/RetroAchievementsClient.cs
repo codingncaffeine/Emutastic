@@ -47,6 +47,29 @@ namespace Emutastic.Services
         /// <summary>Fired for achievement progress updates (show/update/hide).</summary>
         public event Action<AchievementInfo?, bool>? ProgressIndicatorChanged;
 
+        // Live measured-progress snapshot, accumulated from PROGRESS_INDICATOR
+        // events during play. Written from the emu thread, read from the UI
+        // thread at game-exit flush time. ConcurrentDictionary handles the
+        // hot-path on the emu thread without locking.
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<int, AchievementInfo> _liveProgress = new();
+
+        /// <summary>
+        /// Snapshot of measured-progress data captured during this play
+        /// session, keyed by achievement ID. Safe to call from any thread.
+        /// EmulatorWindow flushes this on game exit so the detail card can
+        /// later show "you were 73% of the way to X" instead of community
+        /// median proxies.
+        /// </summary>
+        public IReadOnlyDictionary<int, AchievementInfo> GetLiveProgressSnapshot()
+        {
+            // Copy under the dictionary's internal coordination so a parallel
+            // emu-thread write can't be torn by the enumerator.
+            var copy = new Dictionary<int, AchievementInfo>(_liveProgress.Count);
+            foreach (var kvp in _liveProgress)
+                copy[kvp.Key] = kvp.Value;
+            return copy;
+        }
+
         public bool IsInitialized => _client != IntPtr.Zero;
         public bool IsGameLoaded => _client != IntPtr.Zero && rc_client_is_game_loaded(_client) != 0;
 
@@ -407,6 +430,12 @@ namespace Emutastic.Services
                     if (evt.achievement != IntPtr.Zero)
                     {
                         var info = ReadAchievementInfo(evt.achievement);
+                        // Capture into the live snapshot dict for end-of-session
+                        // persistence. This runs on the emu thread — the
+                        // ConcurrentDictionary keeps it lock-free, and we never
+                        // touch SQLite here (deferred to game-exit flush).
+                        if (info.Id > 0 && info.MeasuredPercent > 0)
+                            _liveProgress[(int)info.Id] = info;
                         ProgressIndicatorChanged?.Invoke(info, true);
                     }
                     break;

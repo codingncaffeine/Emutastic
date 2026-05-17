@@ -2234,6 +2234,13 @@ namespace Emutastic.Views
             catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Loop error: {ex.Message}"); }
             finally
             {
+                // Flush the live-progress snapshot BEFORE disposing the RA
+                // client (Dispose tears down the rcheevos client and the
+                // captured-progress dict goes with it). Persistence runs on a
+                // Task.Run so we never block the emu-thread teardown on a
+                // SQLite write.
+                FlushLiveProgressOnExit();
+
                 try { _raClient?.Dispose(); _raClient = null; }
                 catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"RA cleanup: {ex.Message}"); }
                 timeEndPeriod(1);
@@ -6095,6 +6102,61 @@ namespace Emutastic.Views
                 System.Diagnostics.Trace.WriteLine($"[RA] Init error: {ex.Message}");
                 try { _raClient?.Dispose(); } catch { }
                 _raClient = null;
+            }
+        }
+
+        /// <summary>
+        /// Called from the emu-loop's finally block. Snapshots the live-progress
+        /// dict accumulated during play and offloads the SQLite write to a
+        /// Task-pool thread so the emu-thread teardown never blocks on disk.
+        /// Skipped silently when RA wasn't active or no progress events fired.
+        /// </summary>
+        private void FlushLiveProgressOnExit()
+        {
+            try
+            {
+                if (_raClient == null || _game == null || _game.RAGameId <= 0) return;
+
+                var snap = _raClient.GetLiveProgressSnapshot();
+                if (snap.Count == 0) return;
+
+                bool hardcore = App.Configuration?.GetRetroAchievementsConfiguration()?.HardcoreMode == true;
+                var payload = new Emutastic.Models.RALiveProgress { Hardcore = hardcore };
+                foreach (var kvp in snap)
+                {
+                    payload.Achievements[kvp.Key] = new Emutastic.Models.RALiveAchievementProgress
+                    {
+                        Percent = kvp.Value.MeasuredPercent,
+                        ProgressText = kvp.Value.MeasuredProgress ?? "",
+                    };
+                }
+
+                string json = System.Text.Json.JsonSerializer.Serialize(payload);
+                long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                int gameId = _game.Id;
+
+                // Mirror the persisted value onto the live Game object so the
+                // detail card can read it the moment the user exits without
+                // waiting for a DB re-read.
+                _game.RALiveProgressJson = json;
+                _game.RALiveProgressFetchedAt = now;
+
+                _ = System.Threading.Tasks.Task.Run(() =>
+                {
+                    try
+                    {
+                        var db = new Services.DatabaseService();
+                        db.UpdateRALiveProgress(gameId, json, now);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Trace.WriteLine($"[RA] live-progress flush failed: {ex.Message}");
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[RA] FlushLiveProgressOnExit: {ex.Message}");
             }
         }
 

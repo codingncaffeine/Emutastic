@@ -75,6 +75,25 @@ namespace Emutastic.Models
         [JsonPropertyName("Achievements")]             public Dictionary<string, RAUserAchievement> Achievements { get; set; } = new();
     }
 
+    /// <summary>
+    /// Snapshot of live in-game progress collected from rcheevos's
+    /// ACHIEVEMENT_PROGRESS_INDICATOR_UPDATE events during a play session.
+    /// Persisted once at emulator close so the detail card can show actual
+    /// "you're 73% of the way there" progress instead of community-median
+    /// proxies. Keyed by achievement ID.
+    /// </summary>
+    public sealed class RALiveProgress
+    {
+        [JsonPropertyName("Hardcore")]    public bool Hardcore { get; set; }
+        [JsonPropertyName("Achievements")] public Dictionary<int, RALiveAchievementProgress> Achievements { get; set; } = new();
+    }
+
+    public sealed class RALiveAchievementProgress
+    {
+        [JsonPropertyName("Percent")]      public float Percent { get; set; }       // 0..100
+        [JsonPropertyName("ProgressText")] public string ProgressText { get; set; } = "";  // e.g. "3 of 5"
+    }
+
     public sealed class RAUserAchievement
     {
         [JsonPropertyName("ID")]                  public int Id { get; set; }
