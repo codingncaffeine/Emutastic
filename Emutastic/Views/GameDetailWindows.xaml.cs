@@ -744,6 +744,13 @@ namespace Emutastic.Views
                 {
                     var ra = new RetroAchievementsService(App.Configuration, _db);
                     ra.InvalidateUserProgressForGame(_game);
+
+                    // Also invalidate the Achievements tab's Library Spotlight
+                    // + recent-unlocks cache so the user sees fresh "closest
+                    // to mastering" / quick-wins right after a play session,
+                    // not 15-min-stale data.
+                    var raData = new RaDataService(App.Configuration, _db, ra);
+                    raData.InvalidatePostPlay();
                 }
 
                 // Refresh stats — EmulatorWindow updates _game.PlayCount / LastPlayed / SaveCount

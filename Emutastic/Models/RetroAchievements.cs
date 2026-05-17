@@ -453,6 +453,7 @@ namespace Emutastic.Models
         public string Title      { get; set; } = "";
         public string Console    { get; set; } = "";
         public string? ImageIcon { get; set; }       // RA image path; UI prepends host
+        public string? LocalArtPath { get; set; }    // Fallback when RA path is missing; used by "Never started" panel for tiles where we never pulled the RA icon
         public int NumAchieved   { get; set; }
         public int MaxPossible   { get; set; }
         public string Subtitle   { get; set; } = "";  // panel-specific blurb

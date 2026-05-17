@@ -192,6 +192,31 @@ namespace Emutastic.Services
             catch (Exception ex) { Trace.WriteLine($"[RA] cache wipe failed for {username}: {ex.Message}"); }
         }
 
+        /// <summary>
+        /// Drops the cached Library Spotlight materialization + the recent-
+        /// unlocks feed. Called from the post-emulator-exit hook so when the
+        /// user finishes a play session and pops back to the Achievements
+        /// tab, they see a fresh "Closest to mastering" / "Quick wins" / feed
+        /// instead of last-session stale data.
+        /// </summary>
+        public void InvalidatePostPlay()
+        {
+            var user = CurrentUser();
+            if (user == null) return;
+            try
+            {
+                // Set fetched_at=0 on the rows so the next GetCachedAsync
+                // forces a refetch but keeps the row as a fallback if the
+                // network fails.
+                long zero = 0L;
+                _db.SetRaCache($"library_spotlight:user={user}", OwnerForUser(user),
+                    _db.GetRaCache($"library_spotlight:user={user}")?.Payload ?? "", zero, 0);
+                _db.SetRaCache($"user_recent:user={user}", OwnerForUser(user),
+                    _db.GetRaCache($"user_recent:user={user}")?.Payload ?? "", zero, 0);
+            }
+            catch (Exception ex) { Trace.WriteLine($"[RA] post-play invalidate failed: {ex.Message}"); }
+        }
+
         // ── Convenience accessors (panels add more in their phases) ────────
 
         /// <summary>Profile header data (#29). Cached 1h per user.</summary>
@@ -268,12 +293,15 @@ namespace Emutastic.Services
 
                     // ── Closest to mastering ─────────────────────────────
                     // Items the user has started but not finished, sorted
-                    // by remaining achievements ascending. Top 5.
+                    // by remaining achievements ascending. Tiebreaker is
+                    // completion ratio descending (a 4/6 set wins over a
+                    // 28/30 set when both have 2 left, since the 4/6 user
+                    // is closer to a cheap mastery finish).
                     spotlight.ClosestToMastering = completion
                         .Where(p => ownedRaIds.Contains(p.GameId))
-                        .Where(p => p.NumAwarded > 0 && p.NumAwarded < p.MaxPossible && p.MaxPossible > 0)
+                        .Where(p => p.NumAwarded > 0 && p.NumAwarded < p.MaxPossible)
                         .OrderBy(p => p.MaxPossible - p.NumAwarded)
-                        .ThenByDescending(p => p.NumAwarded)
+                        .ThenByDescending(p => (double)p.NumAwarded / p.MaxPossible)
                         .Take(5)
                         .Select(p => new RASpotlightGame
                         {
@@ -311,7 +339,10 @@ namespace Emutastic.Services
 
                     // ── Never started ─────────────────────────────────────
                     // Owned games with RAGameId that don't show up in the
-                    // completion stream (= user has zero unlocks). Cap at 5.
+                    // completion stream (= user has zero unlocks). RA's
+                    // image-icon isn't in the completion response, so this
+                    // panel uses local cover art instead — looks dramatically
+                    // better than a row of empty BgTertiary squares.
                     var touchedIds = new HashSet<int>(completion.Select(p => p.GameId));
                     spotlight.NeverStarted = ownedGames.Values
                         .Where(g => !touchedIds.Contains(g.RAGameId))
@@ -322,7 +353,8 @@ namespace Emutastic.Services
                             LocalGameId = g.Id,
                             Title = g.Title,
                             Console = g.Console,
-                            ImageIcon = null,  // we use local artwork for this panel
+                            ImageIcon = null,
+                            LocalArtPath = g.DisplayArtPath,
                             NumAchieved = 0,
                             MaxPossible = 0,
                             Subtitle = "Untouched",

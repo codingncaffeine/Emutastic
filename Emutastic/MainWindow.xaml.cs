@@ -2847,27 +2847,43 @@ namespace Emutastic
                 ClipToBounds = true,
             };
             iconOuter.Child = iconInner;
-            if (!string.IsNullOrEmpty(item.ImageIcon))
+            // Prefer the local cover-art path when the spotlight item carries
+            // one (the "Never started" panel uses this fallback because RA's
+            // completion response doesn't include an image icon). Falls back
+            // to the RA image-icon URL otherwise.
+            try
             {
-                try
+                System.Windows.Media.Imaging.BitmapImage? bmp = null;
+                if (!string.IsNullOrEmpty(item.LocalArtPath) && System.IO.File.Exists(item.LocalArtPath))
+                {
+                    bmp = new System.Windows.Media.Imaging.BitmapImage();
+                    bmp.BeginInit();
+                    bmp.UriSource = new Uri(item.LocalArtPath!);
+                    bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                    bmp.EndInit();
+                }
+                else if (!string.IsNullOrEmpty(item.ImageIcon))
                 {
                     string trimmed = item.ImageIcon!.Trim();
                     string url = trimmed.StartsWith("http", StringComparison.OrdinalIgnoreCase)
                         ? trimmed
                         : "https://media.retroachievements.org" + trimmed;
-                    var bmp = new System.Windows.Media.Imaging.BitmapImage();
+                    bmp = new System.Windows.Media.Imaging.BitmapImage();
                     bmp.BeginInit();
                     bmp.UriSource = new Uri(url);
                     bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
                     bmp.EndInit();
+                }
+                if (bmp != null)
+                {
                     iconInner.Child = new System.Windows.Controls.Image
                     {
                         Source = bmp,
                         Stretch = System.Windows.Media.Stretch.UniformToFill,
                     };
                 }
-                catch { }
             }
+            catch { }
             col.Children.Add(iconOuter);
 
             // Title
@@ -3054,8 +3070,16 @@ namespace Emutastic
             {
                 var game = _db.GetGameById(localGameId);
                 if (game == null) return;
-                var detail = new Views.GameDetailWindow(game) { Owner = this };
-                detail.ShowDialog();
+                // Mirror the Library grid tile-click pattern (line ~1537):
+                // modeless Show() + _openDetailWindow tracking so the
+                // outside-click dismiss handler can close us, and so we
+                // can't stack two detail windows. Switching to ShowDialog
+                // here would block the Achievements tab and bypass the
+                // single-window invariant.
+                _openDetailWindow?.Close();
+                _openDetailWindow = new Views.GameDetailWindow(game) { Owner = this };
+                _openDetailWindow.Closed += (_, _) => { _openDetailWindow = null; };
+                _openDetailWindow.Show();
             }
             catch (Exception ex)
             {
