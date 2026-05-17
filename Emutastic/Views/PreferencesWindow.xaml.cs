@@ -4223,6 +4223,20 @@ namespace Emutastic.Views
         private void AboutOpenRepo_Click(object sender, RoutedEventArgs e)
             => OpenUrl(GitHubRepoUrl);
 
+        // Surface the privacy commitment, license, and core-license listing
+        // one click from the About panel. The privacy policy and cores pages
+        // are required by RetroAchievements' hardcore-compliance review;
+        // making them reachable in-app means users (and reviewers) don't
+        // have to know to navigate to the GitHub wiki to find them.
+        private void AboutPrivacyPolicy_Click(object sender, RoutedEventArgs e)
+            => OpenUrl("https://github.com/codingncaffeine/Emutastic/wiki/Privacy-Policy");
+
+        private void AboutLicense_Click(object sender, RoutedEventArgs e)
+            => OpenUrl("https://github.com/codingncaffeine/Emutastic/blob/main/LICENSE");
+
+        private void AboutCores_Click(object sender, RoutedEventArgs e)
+            => OpenUrl("https://github.com/codingncaffeine/Emutastic/wiki/Cores");
+
         private void AboutRecheck_Click(object sender, RoutedEventArgs e)
         {
             PreferencesCache.InvalidateGitHubLatest();

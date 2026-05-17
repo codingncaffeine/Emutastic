@@ -1919,6 +1919,29 @@
                                         Click="AboutRecheck_Click"/>
                             </StackPanel>
 
+                            <!-- Privacy & licensing links — surfaces the
+                                 commitment that Emutastic collects no
+                                 telemetry, one click from every install. -->
+                            <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                                <Button x:Name="AboutPrivacyPolicyBtn"
+                                        Content="Privacy Policy"
+                                        Style="{StaticResource SecondaryBtn}"
+                                        Padding="14,8"
+                                        Click="AboutPrivacyPolicy_Click"/>
+                                <Button x:Name="AboutLicenseBtn"
+                                        Content="License (GPL-3.0)"
+                                        Style="{StaticResource SecondaryBtn}"
+                                        Padding="14,8"
+                                        Margin="8,0,0,0"
+                                        Click="AboutLicense_Click"/>
+                                <Button x:Name="AboutCoresBtn"
+                                        Content="Cores &amp; Licenses"
+                                        Style="{StaticResource SecondaryBtn}"
+                                        Padding="14,8"
+                                        Margin="8,0,0,0"
+                                        Click="AboutCores_Click"/>
+                            </StackPanel>
+
                         </StackPanel>
                     </ScrollViewer>
                 </Grid>
