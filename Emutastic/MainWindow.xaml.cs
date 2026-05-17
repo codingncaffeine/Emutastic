@@ -2308,7 +2308,6 @@ namespace Emutastic
             var ra = GetOrCreateRaDataService();
             string? user = ra.CurrentUser();
             bool keyOk = ra.HasApiKey();
-            Services.RaLog.Write($"tab open: user={user ?? "<none>"} keyOk={keyOk}");
 
             // No username / no Web API key → friendly empty state, hide the
             // panels that depend on per-user data.
@@ -2376,12 +2375,7 @@ namespace Emutastic
                     var pointsTask  = ra.GetPointsAsync(ct);
                     await System.Threading.Tasks.Task.WhenAll(profileTask, pointsTask).ConfigureAwait(false);
 
-                    if (ct.IsCancellationRequested)
-                    {
-                        Services.RaLog.Write("refresh: cancelled after profile/points fetch");
-                        return;
-                    }
-                    Services.RaLog.Write($"refresh: profile fetch returned (profile {(profileTask.Result == null ? "NULL" : "ok")}, points {(pointsTask.Result == null ? "NULL" : "ok")}) — dispatching second render");
+                    if (ct.IsCancellationRequested) return;
                     _ = Dispatcher.BeginInvoke(new Action(() =>
                         RenderProfileCard(profileTask.Result, pointsTask.Result)));
 
@@ -2479,8 +2473,6 @@ namespace Emutastic
                     string sep = url.Contains('?') ? "&" : "?";
                     string bustedUrl = stamp > 0 ? $"{url}{sep}v={stamp}" : url;
 
-                    Services.RaLog.Write($"render avatar: stamp={stamp} url={bustedUrl}");
-
                     var bmp = new System.Windows.Media.Imaging.BitmapImage();
                     bmp.BeginInit();
                     bmp.UriSource = new Uri(bustedUrl);
@@ -2490,12 +2482,8 @@ namespace Emutastic
                 }
                 catch (Exception ex)
                 {
-                    Services.RaLog.Write($"render avatar: FAILED — {ex.Message}");
+                    System.Diagnostics.Trace.WriteLine($"[RA] render avatar failed: {ex.Message}");
                 }
-            }
-            else
-            {
-                Services.RaLog.Write($"render avatar: skipped — profile.UserPic is null/empty (profile null={profile == null})");
             }
         }
 

@@ -119,15 +119,6 @@ namespace Emutastic.Services
             long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             bool isFresh = row != null && row.FetchedAt > 0 && (now - row.FetchedAt) < row.TtlSeconds;
 
-            // Lightweight diagnostic: only log the profile/points/recent
-            // paths (where the user has actually reported stale data) so
-            // ra.log doesn't fill up with every cache hit across all panels.
-            if (cacheKey.StartsWith("user_profile:") || cacheKey.StartsWith("user_points:") || cacheKey.StartsWith("user_recent:"))
-            {
-                long age = row?.FetchedAt > 0 ? now - row.FetchedAt : -1L;
-                RaLog.Write($"cache {(isFresh ? "HIT " : "MISS")} key={cacheKey} fetched_at={row?.FetchedAt ?? 0L} age_s={age} ttl_s={row?.TtlSeconds ?? 0L}");
-            }
-
             if (isFresh && !string.IsNullOrEmpty(row!.Payload))
             {
                 T? cached = Deserialize<T>(row.Payload);
@@ -253,20 +244,19 @@ namespace Emutastic.Services
         public void MarkUserCacheStaleForFreshFetch()
         {
             var user = CurrentUser();
-            if (string.IsNullOrWhiteSpace(user))
-            {
-                RaLog.Write("session-start stale: no user configured, skipping");
-                return;
-            }
+            if (string.IsNullOrWhiteSpace(user)) return;
             try
             {
                 _db.MarkRaCacheStaleByOwner(OwnerForUser(user));
-                RaLog.Write($"session-start stale: marked owner=user:{user} rows fetched_at=0");
             }
             catch (Exception ex)
             {
-                RaLog.Write($"session-start stale: FAILED — {ex.Message}");
-                Trace.WriteLine($"[RA] session-start invalidate failed: {ex.Message}");
+                // Cache invalidation is best-effort. A failure here means the
+                // user sees up-to-15-min-old cached profile/points until the
+                // TTL expires naturally — not a correctness bug, just a
+                // latency one. Keep the trace so we can spot it if it ever
+                // happens in the wild.
+                Trace.WriteLine($"[RA] session-start cache invalidate failed: {ex.Message}");
             }
         }
 
@@ -306,15 +296,7 @@ namespace Emutastic.Services
                 $"user_profile:v2:user={user}",
                 OwnerForUser(user),
                 TtlProfile,
-                async inner =>
-                {
-                    RaLog.Write($"profile fetch: starting for user={user}");
-                    var p = await _api.GetUserProfileAsync(user, inner).ConfigureAwait(false);
-                    RaLog.Write(p == null
-                        ? "profile fetch: returned NULL (HTTP error or no key)"
-                        : $"profile fetch: ok, UserPic='{p.UserPic ?? "<none>"}' Motto='{p.Motto ?? "<none>"}'");
-                    return p;
-                },
+                inner => _api.GetUserProfileAsync(user, inner),
                 ct);
         }
 

@@ -6231,6 +6231,9 @@ namespace Emutastic.Views
                         || err.IndexOf("no sets",           StringComparison.OrdinalIgnoreCase) >= 0
                         || err.IndexOf("response contained", StringComparison.OrdinalIgnoreCase) >= 0;
                     string outcome = noAchievements ? "not_in_database" : "load_failed";
+                    Emutastic.Services.RaLog.Write(
+                        $"launch identify failed: localId={_game.Id} console={_game.Console} " +
+                        $"title=\"{_game.Title}\" outcome={outcome} err=\"{err}\"");
                     try
                     {
                         _game.RALastLaunchOutcome = outcome;
@@ -6287,10 +6290,6 @@ namespace Emutastic.Views
                             Emutastic.Services.RaLog.Write($"persist FAILED: localId={_game.Id} raGameId={raGameId} ex={ex.GetType().Name}: {ex.Message}");
                         }
                     }
-                }
-                else
-                {
-                    Emutastic.Services.RaLog.Write($"persist SKIPPED: raGameId={raGameId} existing={_game.RAGameId} (no change or zero)");
                 }
 
                 Dispatcher.BeginInvoke(() =>
