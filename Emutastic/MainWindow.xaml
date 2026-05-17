@@ -1166,9 +1166,14 @@
                                                   Tag="SaveStates"/>
                                     <ToggleButton x:Name="TabScreenshots"
                                                   Content="Screenshots"
-                                                  Style="{StaticResource TabToggleRightStyle}"
+                                                  Style="{StaticResource TabToggleMiddleStyle}"
                                                   Click="Tab_Click"
                                                   Tag="Screenshots"/>
+                                    <ToggleButton x:Name="TabAchievements"
+                                                  Content="Achievements"
+                                                  Style="{StaticResource TabToggleRightStyle}"
+                                                  Click="Tab_Click"
+                                                  Tag="Achievements"/>
                                 </StackPanel>
                             </Border>
 
@@ -1827,6 +1832,157 @@
                                        Margin="0,60,0,0"
                                        Visibility="Collapsed"/>
                             <StackPanel x:Name="SaveStatesPanel"/>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <!-- Achievements view (Phase 3b shell). Panels grow downward
+                         from the profile header. Each section can show its own
+                         skeleton / refresh state independently. -->
+                    <ScrollViewer x:Name="AchievementsView"
+                                  Grid.Row="1"
+                                  Visibility="Collapsed"
+                                  Style="{StaticResource MinimalScrollViewer}"
+                                  VerticalScrollBarVisibility="Auto"
+                                  Padding="24,18,24,24">
+                        <StackPanel x:Name="AchievementsPanel" MaxWidth="1100" HorizontalAlignment="Stretch">
+                            <!-- A. Profile header card ─────────────────────── -->
+                            <Border x:Name="RAProfileCard"
+                                    Background="{DynamicResource BgSecondaryBrush}"
+                                    BorderBrush="{DynamicResource BorderSubtleBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="10"
+                                    Padding="20,18,20,18"
+                                    Margin="0,0,0,18">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- Avatar (64px round; placeholder until data lands) -->
+                                    <Border Grid.Column="0"
+                                            Width="64" Height="64"
+                                            CornerRadius="32"
+                                            Background="{DynamicResource BgTertiaryBrush}"
+                                            ClipToBounds="True">
+                                        <Image x:Name="RAProfileAvatar" Stretch="UniformToFill"/>
+                                    </Border>
+
+                                    <!-- Name + motto + member-since -->
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="16,0,16,0">
+                                        <TextBlock x:Name="RAProfileName"
+                                                   FontFamily="{StaticResource PrimaryFont}"
+                                                   FontSize="22"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource TextPrimaryBrush}"
+                                                   Text="—"/>
+                                        <TextBlock x:Name="RAProfileMotto"
+                                                   FontFamily="{StaticResource PrimaryFont}"
+                                                   FontSize="12"
+                                                   FontStyle="Italic"
+                                                   Foreground="{DynamicResource TextMutedBrush}"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Margin="0,2,0,0"/>
+                                        <TextBlock x:Name="RAProfileMemberSince"
+                                                   FontFamily="{StaticResource PrimaryFont}"
+                                                   FontSize="11"
+                                                   Foreground="{DynamicResource TextMutedBrush}"
+                                                   Margin="0,4,0,0"/>
+                                    </StackPanel>
+
+                                    <!-- Points / rank cluster -->
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <StackPanel Margin="0,0,18,0">
+                                            <TextBlock x:Name="RAProfilePoints"
+                                                       FontFamily="{StaticResource PrimaryFont}"
+                                                       FontSize="22"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                                       HorizontalAlignment="Right"
+                                                       Text="—"/>
+                                            <TextBlock Text="POINTS"
+                                                       FontFamily="{StaticResource PrimaryFont}"
+                                                       FontSize="9"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource TextMutedBrush}"
+                                                       HorizontalAlignment="Right"
+                                                       Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                        <StackPanel>
+                                            <TextBlock x:Name="RAProfileSoftcore"
+                                                       FontFamily="{StaticResource PrimaryFont}"
+                                                       FontSize="14"
+                                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                                       HorizontalAlignment="Right"
+                                                       Text="—"/>
+                                            <TextBlock Text="SOFTCORE"
+                                                       FontFamily="{StaticResource PrimaryFont}"
+                                                       FontSize="9"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource TextMutedBrush}"
+                                                       HorizontalAlignment="Right"
+                                                       Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+
+                            <!-- B. Recent activity feed ─────────────────────── -->
+                            <TextBlock Text="RECENT UNLOCKS"
+                                       FontFamily="{StaticResource PrimaryFont}"
+                                       FontSize="10"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextMutedBrush}"
+                                       Margin="2,0,0,8"/>
+                            <Border x:Name="RARecentCard"
+                                    Background="{DynamicResource BgSecondaryBrush}"
+                                    BorderBrush="{DynamicResource BorderSubtleBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="10"
+                                    Padding="0">
+                                <StackPanel>
+                                    <ItemsControl x:Name="RARecentItems"/>
+                                    <TextBlock x:Name="RARecentEmpty"
+                                               Text="No recent unlocks yet. Play a RetroAchievements-supported game to start filling this feed."
+                                               FontFamily="{StaticResource PrimaryFont}"
+                                               FontSize="12"
+                                               Foreground="{DynamicResource TextMutedBrush}"
+                                               TextAlignment="Center"
+                                               Padding="16,28,16,28"
+                                               Visibility="Collapsed"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Logged-out / no-key placeholder for the whole tab -->
+                            <Border x:Name="RAUnconfiguredCard"
+                                    Background="{DynamicResource BgSecondaryBrush}"
+                                    BorderBrush="{DynamicResource BorderSubtleBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="10"
+                                    Padding="22,18,22,18"
+                                    Margin="0,0,0,18"
+                                    Visibility="Collapsed">
+                                <StackPanel>
+                                    <TextBlock Text="🏆"
+                                               FontSize="32"
+                                               HorizontalAlignment="Center"
+                                               Margin="0,4,0,8"/>
+                                    <TextBlock Text="Connect RetroAchievements to fill this tab"
+                                               FontFamily="{StaticResource PrimaryFont}"
+                                               FontSize="14"
+                                               FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextPrimaryBrush}"
+                                               HorizontalAlignment="Center"/>
+                                    <TextBlock Text="Open Preferences → RetroAchievements and add your username, password, and Web API Key. The key unlocks the per-user stats on this screen."
+                                               FontFamily="{StaticResource PrimaryFont}"
+                                               FontSize="12"
+                                               Foreground="{DynamicResource TextMutedBrush}"
+                                               TextWrapping="Wrap"
+                                               TextAlignment="Center"
+                                               Margin="0,6,0,0"/>
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
                     </ScrollViewer>
                 </Grid>

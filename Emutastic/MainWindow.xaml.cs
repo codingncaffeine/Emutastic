@@ -25,6 +25,8 @@ namespace Emutastic
         private ImportService _importer = null!;
         private ArtworkService _artwork = null!;
         private ArtworkFetchService _artworkFetch = null!;
+        private RaDataService? _raData;
+        private System.Threading.CancellationTokenSource? _raTabCts;
         private ControllerManager? _controllerManager;
         private CoreManager _coreManager = null!;
         private Button? _selectedNavButton;
@@ -2238,12 +2240,14 @@ namespace Emutastic
         {
             if (sender is System.Windows.Controls.Primitives.ToggleButton btn && btn.Tag is string tag)
             {
-                GameContentGrid.Visibility = tag == "Library"     ? Visibility.Visible : Visibility.Collapsed;
-                SaveStatesView.Visibility  = tag == "SaveStates"  ? Visibility.Visible : Visibility.Collapsed;
-                ScreenshotsView.Visibility = tag == "Screenshots" ? Visibility.Visible : Visibility.Collapsed;
+                GameContentGrid.Visibility   = tag == "Library"      ? Visibility.Visible : Visibility.Collapsed;
+                SaveStatesView.Visibility    = tag == "SaveStates"   ? Visibility.Visible : Visibility.Collapsed;
+                ScreenshotsView.Visibility   = tag == "Screenshots"  ? Visibility.Visible : Visibility.Collapsed;
+                AchievementsView.Visibility  = tag == "Achievements" ? Visibility.Visible : Visibility.Collapsed;
 
-                if (tag == "SaveStates")  PopulateSaveStatesView();
-                if (tag == "Screenshots") PopulateScreenshotsView();
+                if (tag == "SaveStates")   PopulateSaveStatesView();
+                if (tag == "Screenshots")  PopulateScreenshotsView();
+                if (tag == "Achievements") PopulateAchievementsView();
 
                 UpdateTabStyles(tag);
             }
@@ -2251,9 +2255,252 @@ namespace Emutastic
 
         private void UpdateTabStyles(string activeTag)
         {
-            TabLibrary.IsChecked     = activeTag == "Library";
-            TabSaveStates.IsChecked  = activeTag == "SaveStates";
-            TabScreenshots.IsChecked = activeTag == "Screenshots";
+            TabLibrary.IsChecked      = activeTag == "Library";
+            TabSaveStates.IsChecked   = activeTag == "SaveStates";
+            TabScreenshots.IsChecked  = activeTag == "Screenshots";
+            TabAchievements.IsChecked = activeTag == "Achievements";
+        }
+
+        // ── Achievements tab ────────────────────────────────────────────────
+        // Reads cached payloads from RaDataService synchronously on click
+        // (instant first paint), then kicks the refresh in the background.
+        // The refresh task uses ConfigureAwait(false) end-to-end and never
+        // touches WPF state directly — it marshals via Dispatcher.BeginInvoke.
+
+        private RaDataService GetOrCreateRaDataService()
+        {
+            if (_raData == null && App.Configuration != null)
+            {
+                _raData = new RaDataService(App.Configuration, _db, new RetroAchievementsService(App.Configuration, _db));
+            }
+            return _raData!;
+        }
+
+        private void PopulateAchievementsView()
+        {
+            var ra = GetOrCreateRaDataService();
+            string? user = ra.CurrentUser();
+            bool keyOk = ra.HasApiKey();
+
+            // No username / no Web API key → friendly empty state, hide the
+            // panels that depend on per-user data.
+            if (string.IsNullOrWhiteSpace(user) || !keyOk)
+            {
+                RAUnconfiguredCard.Visibility = Visibility.Visible;
+                RAProfileCard.Visibility = Visibility.Collapsed;
+                RARecentCard.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            RAUnconfiguredCard.Visibility = Visibility.Collapsed;
+            RAProfileCard.Visibility = Visibility.Visible;
+            RARecentCard.Visibility = Visibility.Visible;
+
+            // Paint cached state immediately. No network here — fast path.
+            var cachedProfile = ra.PeekCached<Models.RAUserProfile>($"user_profile:user={user}");
+            var cachedPoints  = ra.PeekCached<Models.RAUserPoints>($"user_points:user={user}");
+            var cachedRecent  = ra.PeekCached<List<Models.RAUserRecentAchievement>>($"user_recent:user={user}");
+            RenderProfileCard(cachedProfile, cachedPoints, user);
+            RenderRecentUnlocks(cachedRecent);
+
+            // Cancel any prior in-flight fetch and kick a fresh refresh.
+            _raTabCts?.Cancel();
+            _raTabCts = new System.Threading.CancellationTokenSource();
+            var ct = _raTabCts.Token;
+            _ = System.Threading.Tasks.Task.Run(async () =>
+            {
+                try
+                {
+                    // Profile + points are the priority pair — fetch first so
+                    // the header lights up before the heavier recent feed lands.
+                    var profileTask = ra.GetProfileAsync(ct);
+                    var pointsTask  = ra.GetPointsAsync(ct);
+                    await System.Threading.Tasks.Task.WhenAll(profileTask, pointsTask).ConfigureAwait(false);
+
+                    if (ct.IsCancellationRequested) return;
+                    _ = Dispatcher.BeginInvoke(new Action(() =>
+                        RenderProfileCard(profileTask.Result, pointsTask.Result, user)));
+
+                    // Recent unlocks (5-min TTL, ~50KB max).
+                    var recent = await ra.GetCachedAsync<List<Models.RAUserRecentAchievement>>(
+                        $"user_recent:user={user}",
+                        RaDataService.OwnerForUser(user),
+                        RaDataService.TtlRecentActivity,
+                        async inner =>
+                        {
+                            var list = await new RetroAchievementsService(App.Configuration!, _db)
+                                .GetUserRecentAchievementsAsync(user, 60 * 24 * 7, inner).ConfigureAwait(false);
+                            return list;
+                        },
+                        ct).ConfigureAwait(false);
+
+                    if (ct.IsCancellationRequested) return;
+                    _ = Dispatcher.BeginInvoke(new Action(() => RenderRecentUnlocks(recent)));
+                }
+                catch (OperationCanceledException) { /* tab switched away */ }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Trace.WriteLine($"[RA] Achievements tab refresh failed: {ex.Message}");
+                }
+            });
+        }
+
+        private void RenderProfileCard(Models.RAUserProfile? profile, Models.RAUserPoints? points, string fallbackUser)
+        {
+            RAProfileName.Text = string.IsNullOrWhiteSpace(profile?.User) ? fallbackUser : profile!.User;
+            RAProfileMotto.Text = string.IsNullOrWhiteSpace(profile?.Motto) ? "" : "“" + profile!.Motto + "”";
+            RAProfileMotto.Visibility = string.IsNullOrWhiteSpace(profile?.Motto) ? Visibility.Collapsed : Visibility.Visible;
+
+            if (!string.IsNullOrWhiteSpace(profile?.MemberSince))
+            {
+                if (DateTime.TryParse(profile!.MemberSince, out var since))
+                    RAProfileMemberSince.Text = $"Member since {since:MMMM yyyy}";
+                else
+                    RAProfileMemberSince.Text = $"Member since {profile.MemberSince}";
+            }
+            else
+            {
+                RAProfileMemberSince.Text = "";
+            }
+
+            int hardcore = points?.Points ?? profile?.TotalPoints ?? 0;
+            int softcore = points?.SoftcorePoints ?? profile?.TotalSoftcorePoints ?? 0;
+            RAProfilePoints.Text   = hardcore.ToString("N0");
+            RAProfileSoftcore.Text = softcore.ToString("N0");
+
+            // Avatar — RA serves UserPic as an absolute path like "/UserPic/Foo.png".
+            if (!string.IsNullOrWhiteSpace(profile?.UserPic))
+            {
+                try
+                {
+                    string url = profile!.UserPic!.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                        ? profile.UserPic!
+                        : "https://media.retroachievements.org" + profile.UserPic;
+                    var bmp = new System.Windows.Media.Imaging.BitmapImage();
+                    bmp.BeginInit();
+                    bmp.UriSource = new Uri(url);
+                    bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                    bmp.EndInit();
+                    RAProfileAvatar.Source = bmp;
+                }
+                catch { /* leave placeholder background visible */ }
+            }
+        }
+
+        private void RenderRecentUnlocks(List<Models.RAUserRecentAchievement>? unlocks)
+        {
+            RARecentItems.Items.Clear();
+            if (unlocks == null || unlocks.Count == 0)
+            {
+                RARecentEmpty.Visibility = Visibility.Visible;
+                return;
+            }
+            RARecentEmpty.Visibility = Visibility.Collapsed;
+
+            int rendered = 0;
+            foreach (var u in unlocks)
+            {
+                RARecentItems.Items.Add(BuildRecentRow(u));
+                if (++rendered >= 20) break;
+            }
+        }
+
+        private UIElement BuildRecentRow(Models.RAUserRecentAchievement u)
+        {
+            // Single-row layout: 32px badge + title/subtitle stack + points pill on the right.
+            var row = new Grid { Margin = new Thickness(14, 10, 14, 10) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            // Badge
+            var badgeBorder = new Border
+            {
+                Width = 32, Height = 32, CornerRadius = new CornerRadius(4), ClipToBounds = true,
+                Background = (System.Windows.Media.Brush)FindResource("BgTertiaryBrush"),
+            };
+            if (!string.IsNullOrEmpty(u.BadgeName))
+            {
+                try
+                {
+                    var bmp = new System.Windows.Media.Imaging.BitmapImage();
+                    bmp.BeginInit();
+                    bmp.UriSource = new Uri($"https://media.retroachievements.org/Badge/{u.BadgeName}.png");
+                    bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                    bmp.EndInit();
+                    badgeBorder.Child = new System.Windows.Controls.Image { Source = bmp, Stretch = System.Windows.Media.Stretch.UniformToFill };
+                }
+                catch { }
+            }
+            Grid.SetColumn(badgeBorder, 0);
+            row.Children.Add(badgeBorder);
+
+            // Title + subtitle
+            var stack = new StackPanel { Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+            stack.Children.Add(new TextBlock
+            {
+                Text = u.Title,
+                FontFamily = (System.Windows.Media.FontFamily)FindResource("PrimaryFont"),
+                FontSize = 13,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = (System.Windows.Media.Brush)FindResource("TextPrimaryBrush"),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            });
+            string when = FormatTimeAgo(u.Date);
+            string sub = $"{u.GameTitle} · {u.ConsoleName}";
+            if (!string.IsNullOrWhiteSpace(when)) sub += $" · {when}";
+            stack.Children.Add(new TextBlock
+            {
+                Text = sub,
+                FontFamily = (System.Windows.Media.FontFamily)FindResource("PrimaryFont"),
+                FontSize = 11,
+                Foreground = (System.Windows.Media.Brush)FindResource("TextMutedBrush"),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Margin = new Thickness(0, 2, 0, 0),
+            });
+            Grid.SetColumn(stack, 1);
+            row.Children.Add(stack);
+
+            // Points pill (hardcore unlocks get the accent tint to mark them).
+            var ptsBorder = new Border
+            {
+                CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(8, 3, 8, 3),
+                Background = u.HardcoreMode == 1
+                    ? (System.Windows.Media.Brush)FindResource("AccentBrush")
+                    : (System.Windows.Media.Brush)FindResource("BgTertiaryBrush"),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            ptsBorder.Child = new TextBlock
+            {
+                Text = $"{u.Points} pts",
+                FontFamily = (System.Windows.Media.FontFamily)FindResource("PrimaryFont"),
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = u.HardcoreMode == 1
+                    ? System.Windows.Media.Brushes.White
+                    : (System.Windows.Media.Brush)FindResource("TextSecondaryBrush"),
+            };
+            Grid.SetColumn(ptsBorder, 2);
+            row.Children.Add(ptsBorder);
+
+            // Tooltip with full description
+            if (!string.IsNullOrEmpty(u.Description))
+                row.ToolTip = u.Description;
+
+            return row;
+        }
+
+        private static string FormatTimeAgo(string isoDate)
+        {
+            if (string.IsNullOrWhiteSpace(isoDate)) return "";
+            if (!DateTime.TryParse(isoDate, out var t)) return "";
+            var diff = DateTime.UtcNow - t.ToUniversalTime();
+            if (diff.TotalMinutes < 1)  return "just now";
+            if (diff.TotalMinutes < 60) return $"{(int)diff.TotalMinutes}m ago";
+            if (diff.TotalHours   < 24) return $"{(int)diff.TotalHours}h ago";
+            if (diff.TotalDays    < 7)  return $"{(int)diff.TotalDays}d ago";
+            return t.ToLocalTime().ToString("MMM d, yyyy");
         }
 
         private void PopulateSaveStatesView()
