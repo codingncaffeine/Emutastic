@@ -4006,7 +4006,7 @@ namespace Emutastic.Views
             RAEnabledToggle.IsChecked  = ra.Enabled;
             RAUsernameBox.Text         = ra.Username;
             RAPasswordBox.Password     = ra.Password;
-            RAApiKeyBox.Text           = ra.ApiKey;
+            RAApiKeyBox.Password       = ra.ApiKey;
             RAHardcoreToggle.IsChecked = ra.HardcoreMode;
             RATokenStatus.Text = !string.IsNullOrEmpty(ra.Token)
                 ? "Login token saved — password not required for future sessions."
@@ -4048,7 +4048,7 @@ namespace Emutastic.Views
             ra.Enabled      = RAEnabledToggle.IsChecked == true;
             ra.Username     = RAUsernameBox.Text.Trim();
             ra.Password     = RAPasswordBox.Password;
-            ra.ApiKey       = RAApiKeyBox.Text.Trim();
+            ra.ApiKey       = RAApiKeyBox.Password.Trim();
             ra.HardcoreMode = RAHardcoreToggle.IsChecked == true;
             _configService.SetRetroAchievementsConfiguration(ra);
             _ = _configService.SaveAsync();
@@ -4060,8 +4060,21 @@ namespace Emutastic.Views
         private void RAHardcore_Changed(object sender, RoutedEventArgs e)
             => SaveAchievementsSettings();
 
-        private void RAApiKey_Changed(object sender, System.Windows.Controls.TextChangedEventArgs e)
-            => SaveAchievementsSettings();
+        // Pasting the API key fires PasswordChanged once per character; debounce
+        // so we don't write a half-typed value to settings.json. 400ms after the
+        // last keystroke we commit. Cancelled and restarted on each keystroke.
+        private System.Threading.CancellationTokenSource? _raApiKeyDebounceCts;
+        private void RAApiKey_Changed(object sender, RoutedEventArgs e)
+        {
+            _raApiKeyDebounceCts?.Cancel();
+            _raApiKeyDebounceCts = new System.Threading.CancellationTokenSource();
+            var token = _raApiKeyDebounceCts.Token;
+            _ = System.Threading.Tasks.Task.Delay(400, token).ContinueWith(t =>
+            {
+                if (t.IsCanceled) return;
+                Dispatcher.Invoke(SaveAchievementsSettings);
+            }, System.Threading.Tasks.TaskScheduler.Default);
+        }
 
         private void RASaveBtn_Click(object sender, RoutedEventArgs e)
             => SaveAchievementsSettings();

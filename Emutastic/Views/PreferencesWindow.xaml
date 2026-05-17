@@ -1579,13 +1579,15 @@
                                          Style="{StaticResource DarkPasswordBox}"
                                          Margin="0,0,0,14"/>
 
-                            <!-- Web API Key -->
+                            <!-- Web API Key. Masked because anyone with this
+                                 key can read the user's RA account data
+                                 (achievements, progress, friends list). -->
                             <TextBlock Text="Web API Key" FontSize="12"
                                        Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,6"/>
-                            <TextBox x:Name="RAApiKeyBox"
-                                     Style="{StaticResource DarkTextBox}"
-                                     Margin="0,0,0,4"
-                                     TextChanged="RAApiKey_Changed"/>
+                            <PasswordBox x:Name="RAApiKeyBox"
+                                         Style="{StaticResource DarkPasswordBox}"
+                                         Margin="0,0,0,4"
+                                         PasswordChanged="RAApiKey_Changed"/>
                             <TextBlock Text="Separate from your password. Grab it from retroachievements.org → Settings → Web API Key. Used for in-app time-to-beat / achievement stats."
                                        FontSize="11"
                                        Foreground="{DynamicResource TextMutedBrush}"
