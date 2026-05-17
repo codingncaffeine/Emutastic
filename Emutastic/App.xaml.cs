@@ -68,6 +68,15 @@ namespace Emutastic
             // --portable on the command line.
             AppPaths.DetectPortableMode(e.Args);
 
+            // WPF's BitmapImage UriSource downloads go through .NET's classic
+            // WebRequest pool, which defaults to 2 connections per host. The
+            // Achievements tab's trophy case can request 100+ tiles from
+            // media.retroachievements.org at once — without this bump the
+            // download trickles in two-at-a-time and the wall takes minutes
+            // to fully paint. 12 is comfortably above the host's per-IP cap
+            // and matches what modern browsers use.
+            System.Net.ServicePointManager.DefaultConnectionLimit = 12;
+
             // Portable mode v2 (v1.3.3): cores moved from [exe]/Cores/ → [DataRoot]/Cores/
             // so the entire portable experience sits inside PortableData/. Migrate any
             // pre-existing cores from the old location on first launch with the new code.

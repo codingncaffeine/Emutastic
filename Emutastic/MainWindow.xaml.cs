@@ -2551,37 +2551,65 @@ namespace Emutastic
 
             // Rollup chips: only show counts > 0. Mastery / Completion /
             // Beaten Hardcore / Beaten Softcore — the four canonical RA award
-            // kinds, in importance order.
-            AppendRollupChip(font, _ringMastery,         "mastered",         awards.MasteryAwardsCount);
-            AppendRollupChip(font, _ringCompletion,      "completed",        awards.CompletionAwardsCount);
-            AppendRollupChip(font, _ringBeatenHardcore,  "beaten (hc)",      awards.BeatenHardcoreAwardsCount);
-            AppendRollupChip(font, _ringBeatenSoftcore,  "beaten",           awards.BeatenSoftcoreAwardsCount);
+            // kinds, in importance order. Foreground per chip so the
+            // dark-muted "beaten" pill stays legible (black-on-gray fails
+            // contrast; white-on-gray reads fine).
+            AppendRollupChip(font, _ringMastery,        System.Windows.Media.Brushes.Black, "mastered",    awards.MasteryAwardsCount);
+            AppendRollupChip(font, _ringCompletion,     System.Windows.Media.Brushes.Black, "completed",   awards.CompletionAwardsCount);
+            AppendRollupChip(font, _ringBeatenHardcore, System.Windows.Media.Brushes.Black, "beaten (hc)", awards.BeatenHardcoreAwardsCount);
+            AppendRollupChip(font, _ringBeatenSoftcore, System.Windows.Media.Brushes.White, "beaten",      awards.BeatenSoftcoreAwardsCount);
 
-            // Badge wall: most-recent first, cap at 100 so a thousand-award
-            // user doesn't render an enormous visual tree all at once.
-            var sorted = awards.VisibleUserAwards
+            // Badge wall: most-recent first, filter out non-game awards (event
+            // / site badges) — those have no Mastery / Beaten classification
+            // and would render ring-less mid-shelf which looks broken. Cap
+            // at 100 so a thousand-award user doesn't render an enormous
+            // visual tree all at once. AwardedAt sorts lexicographically
+            // because RA returns "yyyy-MM-dd HH:mm:ss" — same as chronological.
+            var gameAwards = awards.VisibleUserAwards
+                .Where(a => a.AwardType == "Mastery/Completion" || a.AwardType == "Game Beaten")
                 .OrderByDescending(a => a.AwardedAt ?? "")
                 .Take(100)
                 .ToList();
-            foreach (var a in sorted)
+            foreach (var a in gameAwards)
                 RATrophyWall.Items.Add(BuildTrophyTile(a, bgTertiary));
 
-            if (awards.VisibleUserAwards.Count > sorted.Count)
+            int totalGameAwards = awards.VisibleUserAwards.Count(
+                a => a.AwardType == "Mastery/Completion" || a.AwardType == "Game Beaten");
+            if (totalGameAwards > gameAwards.Count)
             {
-                RATrophyWall.Items.Add(new TextBlock
+                // Footer label sits below the WrapPanel via the StackPanel
+                // wrapper in XAML, not inside the wall — otherwise it would
+                // wrap onto whatever row had space and look accidental.
+                var footer = new TextBlock
                 {
-                    Text = $"+ {awards.VisibleUserAwards.Count - sorted.Count} older awards",
+                    Text = $"+ {totalGameAwards - gameAwards.Count} older awards",
                     FontFamily = font,
                     FontSize = 11,
                     Foreground = textMuted,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(8, 6, 8, 6),
-                });
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    Margin = new Thickness(0, 8, 4, 0),
+                };
+                if (RATrophyCard.Child is StackPanel cardStack)
+                {
+                    // Remove any prior footer first (re-render swap).
+                    for (int i = cardStack.Children.Count - 1; i >= 0; i--)
+                        if (cardStack.Children[i] is TextBlock tb && tb.Name == "RATrophyFooter")
+                            cardStack.Children.RemoveAt(i);
+                    footer.Name = "RATrophyFooter";
+                    cardStack.Children.Add(footer);
+                }
+            }
+            else if (RATrophyCard.Child is StackPanel cardStack2)
+            {
+                for (int i = cardStack2.Children.Count - 1; i >= 0; i--)
+                    if (cardStack2.Children[i] is TextBlock tb && tb.Name == "RATrophyFooter")
+                        cardStack2.Children.RemoveAt(i);
             }
         }
 
         private void AppendRollupChip(System.Windows.Media.FontFamily font,
                                        System.Windows.Media.Brush ringColor,
+                                       System.Windows.Media.Brush foreground,
                                        string label, int count)
         {
             if (count <= 0) return;
@@ -2599,7 +2627,7 @@ namespace Emutastic
                 FontFamily = font,
                 FontSize = 11,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = System.Windows.Media.Brushes.Black,
+                Foreground = foreground,
             };
             RATrophyRollups.Children.Add(pill);
         }
@@ -2622,7 +2650,12 @@ namespace Emutastic
             const double TileSize = 60;
             const double Margin = 4;
 
-            var border = new Border
+            // Outer border = colored ring. Inner border = matching CornerRadius
+            // with ClipToBounds so the game-icon Image is actually clipped to
+            // the rounded shape (WPF's ClipToBounds on the outer Border alone
+            // clips to the rectangle, not the rounded corners — the image
+            // would punch through the rounding without the inner wrapper).
+            var outer = new Border
             {
                 Width = TileSize, Height = TileSize,
                 Margin = new Thickness(Margin),
@@ -2630,8 +2663,14 @@ namespace Emutastic
                 Background = bgFallback,
                 BorderBrush = classify.ring,
                 BorderThickness = new Thickness(2),
-                ClipToBounds = true,
             };
+            var inner = new Border
+            {
+                CornerRadius = new CornerRadius(6),  // outer 8 − 2px stroke = inner 6
+                ClipToBounds = true,
+                Background = bgFallback,
+            };
+            outer.Child = inner;
 
             if (!string.IsNullOrEmpty(award.ImageIcon))
             {
@@ -2646,7 +2685,7 @@ namespace Emutastic
                     bmp.UriSource = new Uri(url);
                     bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
                     bmp.EndInit();
-                    border.Child = new System.Windows.Controls.Image
+                    inner.Child = new System.Windows.Controls.Image
                     {
                         Source = bmp,
                         Stretch = System.Windows.Media.Stretch.UniformToFill,
@@ -2673,8 +2712,8 @@ namespace Emutastic
                 else
                     tip.Append(award.AwardedAt);
             }
-            border.ToolTip = tip.ToString().TrimEnd();
-            return border;
+            outer.ToolTip = tip.ToString().TrimEnd();
+            return outer;
         }
 
         private static string FormatTimeAgo(string isoDate)
