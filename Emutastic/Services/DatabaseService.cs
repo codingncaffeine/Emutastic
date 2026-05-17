@@ -12,6 +12,13 @@ namespace Emutastic.Services
         private readonly string _dbPath;
         private readonly string _connectionString;
 
+        /// <summary>
+        /// Absolute path of the SQLite file this service writes to. Exposed for
+        /// diagnostic logging so we can verify dev vs release builds aren't
+        /// landing on different DBs.
+        /// </summary>
+        public string DbPath => _dbPath;
+
         public DatabaseService()
         {
             try
@@ -940,13 +947,24 @@ namespace Emutastic.Services
         /// </summary>
         public void UpdateRAGameId(int gameId, int raGameId)
         {
+            UpdateRAGameIdReturningCount(gameId, raGameId);
+        }
+
+        /// <summary>
+        /// Same as <see cref="UpdateRAGameId"/> but returns the SQLite rowcount
+        /// so callers can verify the update actually matched a row. Used by the
+        /// launch path's ra.log diagnostics — rowsAffected=0 means the in-memory
+        /// Game.Id doesn't exist in the DB this connection is pointed at.
+        /// </summary>
+        public int UpdateRAGameIdReturningCount(int gameId, int raGameId)
+        {
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             var cmd = connection.CreateCommand();
             cmd.CommandText = "UPDATE Games SET RAGameId = $raId WHERE Id = $id;";
             cmd.Parameters.AddWithValue("$raId", raGameId);
             cmd.Parameters.AddWithValue("$id", gameId);
-            cmd.ExecuteNonQuery();
+            return cmd.ExecuteNonQuery();
         }
 
         /// <summary>

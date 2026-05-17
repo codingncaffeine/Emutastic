@@ -132,7 +132,7 @@ namespace Emutastic.Models
         [JsonPropertyName("Permissions")]         public int Permissions { get; set; }
         [JsonPropertyName("Untracked")]           public int Untracked { get; set; }
         [JsonPropertyName("ID")]                  public int Id { get; set; }
-        [JsonPropertyName("UserWallActive")]      public bool UserWallActive { get; set; }
+        [JsonPropertyName("UserWallActive")]      public int UserWallActive { get; set; }
         [JsonPropertyName("Motto")]               public string? Motto { get; set; }
     }
 
@@ -187,7 +187,7 @@ namespace Emutastic.Models
         [JsonPropertyName("DisplayOrder")]   public int DisplayOrder { get; set; }
         [JsonPropertyName("Title")]          public string? Title { get; set; }
         [JsonPropertyName("ConsoleName")]    public string? ConsoleName { get; set; }
-        [JsonPropertyName("Flags")]          public int Flags { get; set; }
+        [JsonPropertyName("Flags")]          public int? Flags { get; set; }
         [JsonPropertyName("ImageIcon")]      public string? ImageIcon { get; set; }
     }
 

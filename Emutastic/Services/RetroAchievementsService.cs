@@ -611,7 +611,11 @@ namespace Emutastic.Services
                     HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
                 if (!resp.IsSuccessStatusCode)
                 {
+                    string body = "";
+                    try { body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false); } catch { }
+                    if (body.Length > 240) body = body.Substring(0, 240);
                     Trace.WriteLine($"[RA] {opName} HTTP {(int)resp.StatusCode}");
+                    RaLog.Write($"http error: op={opName} status={(int)resp.StatusCode} body={body}");
                     return null;
                 }
                 string json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
@@ -619,6 +623,9 @@ namespace Emutastic.Services
                 catch (Exception ex)
                 {
                     Trace.WriteLine($"[RA] {opName} JSON parse failed: {ex.Message}");
+                    string snippet = json ?? "";
+                    if (snippet.Length > 240) snippet = snippet.Substring(0, 240);
+                    RaLog.Write($"parse failed: op={opName} err={ex.Message} json={snippet}");
                     return null;
                 }
             }
@@ -629,6 +636,7 @@ namespace Emutastic.Services
             catch (Exception ex)
             {
                 Trace.WriteLine($"[RA] {opName} failed: {ex.GetType().Name}: {ex.Message}");
+                RaLog.Write($"exception: op={opName} type={ex.GetType().Name} msg={ex.Message}");
                 return null;
             }
             finally
