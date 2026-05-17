@@ -164,6 +164,78 @@ namespace Emutastic.Models
         /// </summary>
         public int MetadataAttempts { get; set; }
 
+        // ── RetroAchievements cache ─────────────────────────────────────────
+        // RAGameId is populated at game launch from rcheevos's identify-game
+        // callback; 0 means "we haven't launched this game with RA enabled
+        // yet" and the detail card hides the RA section accordingly.
+        public int RAGameId { get; set; }
+
+        // Raw last-fetched JSON from the RA web API. Lazy-deserialized into
+        // typed views on first access via RAProgressionTyped / RAUserProgressTyped.
+        // FetchedAt is unix seconds (0 = never fetched); used for TTL gating.
+        public string RAProgressionJson { get; set; } = "";
+        public long RAProgressionFetchedAt { get; set; }
+
+        public string RAUserProgressJson { get; set; } = "";
+        public long RAUserProgressFetchedAt { get; set; }
+
+        // Lazy-deserialize the JSON on first access and invalidate when the
+        // underlying string is reassigned. Callers don't pay the parse cost
+        // until they actually read typed fields.
+        private RAProgression? _raProgression;
+        private string? _raProgressionJsonCached;
+        public RAProgression? RAProgressionTyped
+        {
+            get
+            {
+                if (!ReferenceEquals(_raProgressionJsonCached, RAProgressionJson)
+                    && _raProgressionJsonCached != RAProgressionJson)
+                {
+                    _raProgressionJsonCached = RAProgressionJson;
+                    _raProgression = TryDeserialize<RAProgression>(RAProgressionJson);
+                }
+                return _raProgression;
+            }
+        }
+
+        private RAUserProgress? _raUserProgress;
+        private string? _raUserProgressJsonCached;
+        public RAUserProgress? RAUserProgressTyped
+        {
+            get
+            {
+                if (!ReferenceEquals(_raUserProgressJsonCached, RAUserProgressJson)
+                    && _raUserProgressJsonCached != RAUserProgressJson)
+                {
+                    _raUserProgressJsonCached = RAUserProgressJson;
+                    _raUserProgress = TryDeserialize<RAUserProgress>(RAUserProgressJson);
+                }
+                return _raUserProgress;
+            }
+        }
+
+        private static readonly System.Text.Json.JsonSerializerOptions _raJsonOpts = new()
+        {
+            PropertyNameCaseInsensitive = true,
+        };
+
+        private static T? TryDeserialize<T>(string json) where T : class
+        {
+            if (string.IsNullOrWhiteSpace(json)) return null;
+            try { return System.Text.Json.JsonSerializer.Deserialize<T>(json, _raJsonOpts); }
+            catch { return null; }
+        }
+
+        /// <summary>True when the cached progression is older than <paramref name="ttl"/> or never fetched.</summary>
+        public bool IsRAProgressionStale(TimeSpan ttl)
+            => RAProgressionFetchedAt == 0
+            || (DateTimeOffset.UtcNow.ToUnixTimeSeconds() - RAProgressionFetchedAt) > (long)ttl.TotalSeconds;
+
+        /// <summary>True when the cached per-user progress is older than <paramref name="ttl"/> or never fetched.</summary>
+        public bool IsRAUserProgressStale(TimeSpan ttl)
+            => RAUserProgressFetchedAt == 0
+            || (DateTimeOffset.UtcNow.ToUnixTimeSeconds() - RAUserProgressFetchedAt) > (long)ttl.TotalSeconds;
+
         public string LastPlayedDisplay => LastPlayed.HasValue
             ? LastPlayed.Value.ToString("MMM d, yyyy")
             : "Never";

@@ -162,6 +162,16 @@ namespace Emutastic.Services
             TryAddColumn(connection, "Games", "MetadataAttempts",   "INTEGER DEFAULT 0");
             TryAddColumn(connection, "Games", "PreferredCore",      "TEXT DEFAULT ''");
 
+            // RetroAchievements cache. RAGameId is captured at launch from
+            // rcheevos's identify-game callback; the *Json columns hold the
+            // last fetched API responses; *FetchedAt are unix seconds for TTL
+            // checks (24 h for progression, 1 h for user-progress).
+            TryAddColumn(connection, "Games", "RAGameId",                 "INTEGER DEFAULT 0");
+            TryAddColumn(connection, "Games", "RAProgressionJson",        "TEXT DEFAULT ''");
+            TryAddColumn(connection, "Games", "RAProgressionFetchedAt",   "INTEGER DEFAULT 0");
+            TryAddColumn(connection, "Games", "RAUserProgressJson",       "TEXT DEFAULT ''");
+            TryAddColumn(connection, "Games", "RAUserProgressFetchedAt",  "INTEGER DEFAULT 0");
+
             // One-shot migration: games whose RomPath lives in a mame2003-plus folder
             // should route to that core regardless of DAT membership. Earlier import
             // logic preferred FBNeo whenever FBNeo's DAT listed the game, even when
@@ -1518,7 +1528,9 @@ namespace Emutastic.Services
                 CoverArtPath, BackgroundColor, AccentColor, PlayCount, SaveCount,
                 IsFavorite, Rating, Collection, LastPlayed, BoxArt3DPath,
                 ScreenScraperArtPath, ArtworkAttempts, MetadataAttempts,
-                Developer, Publisher, Genre, Description, PreferredCore;
+                Developer, Publisher, Genre, Description, PreferredCore,
+                RAGameId, RAProgressionJson, RAProgressionFetchedAt,
+                RAUserProgressJson, RAUserProgressFetchedAt;
 
             public OrdinalMap(SqliteDataReader reader)
             {
@@ -1548,6 +1560,11 @@ namespace Emutastic.Services
                 Genre       = TryOrd(reader, "Genre");
                 Description = TryOrd(reader, "Description");
                 PreferredCore = TryOrd(reader, "PreferredCore");
+                RAGameId                = TryOrd(reader, "RAGameId");
+                RAProgressionJson       = TryOrd(reader, "RAProgressionJson");
+                RAProgressionFetchedAt  = TryOrd(reader, "RAProgressionFetchedAt");
+                RAUserProgressJson      = TryOrd(reader, "RAUserProgressJson");
+                RAUserProgressFetchedAt = TryOrd(reader, "RAUserProgressFetchedAt");
             }
 
             private static int TryOrd(SqliteDataReader r, string col)
@@ -1587,6 +1604,11 @@ namespace Emutastic.Services
                 Genre       = GetStr(reader, o.Genre),
                 Description = GetStr(reader, o.Description),
                 PreferredCore = GetStr(reader, o.PreferredCore),
+                RAGameId                = GetInt(reader, o.RAGameId),
+                RAProgressionJson       = GetStr(reader, o.RAProgressionJson),
+                RAProgressionFetchedAt  = GetLong(reader, o.RAProgressionFetchedAt),
+                RAUserProgressJson      = GetStr(reader, o.RAUserProgressJson),
+                RAUserProgressFetchedAt = GetLong(reader, o.RAUserProgressFetchedAt),
             };
         }
 
@@ -1610,6 +1632,9 @@ namespace Emutastic.Services
 
         private static int GetInt(SqliteDataReader r, int ord)
             => ord >= 0 && !r.IsDBNull(ord) ? r.GetInt32(ord) : 0;
+
+        private static long GetLong(SqliteDataReader r, int ord)
+            => ord >= 0 && !r.IsDBNull(ord) ? r.GetInt64(ord) : 0L;
 
         private static DateTime? GetDate(SqliteDataReader r, int ord)
         {
