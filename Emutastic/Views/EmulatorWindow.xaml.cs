@@ -377,6 +377,11 @@ namespace Emutastic.Views
         private string _pendingSaveName  = "";
         private byte[]? _pendingLoadData = null;
         private string _pendingLoadName  = "";
+        // rcheevos runtime-state side-car bytes paired with the active state.
+        // Read alongside _pendingLoadData and handed to rc_client_deserialize_progress
+        // after retro_unserialize succeeds, so partial achievement progress
+        // (hit counts, measured trackers) survives the save → load round trip.
+        private byte[]? _pendingLoadCheevosBlob = null;
         private string? _pendingLoadStatePath = null;  // load on startup if set
         // CoreName captured from the .state's JSON sidecar at queue time so
         // ExecuteLoadOnEmuThread can refuse cross-core loads. Save state byte
@@ -5358,11 +5363,33 @@ namespace Emutastic.Views
             try
             {
                 string safeName = SanitizeFileName(name.Length > 0 ? name : "state");
-                string statePath = Path.Combine(_saveStatePath, safeName + ".state");
-                string pngPath   = Path.Combine(_saveStatePath, safeName + ".png");
-                string jsonPath  = Path.Combine(_saveStatePath, safeName + ".json");
+                string statePath    = Path.Combine(_saveStatePath, safeName + ".state");
+                string pngPath      = Path.Combine(_saveStatePath, safeName + ".png");
+                string jsonPath     = Path.Combine(_saveStatePath, safeName + ".json");
+                string cheevosPath  = Path.Combine(_saveStatePath, safeName + ".cheevos");
 
                 File.WriteAllBytes(statePath, data);
+
+                // Pair the libretro state with rcheevos's runtime state so
+                // achievement hit counts and measured-progress trackers survive
+                // a load (RA Section A: "Hit counts should be stored in save
+                // states"). Side-car format keeps the .state file binary-
+                // compatible with other libretro frontends — anyone loading the
+                // .state alone gets a working game with default RA progress;
+                // loading both restores partial progress too. No-op when RA
+                // isn't initialized for this session.
+                try
+                {
+                    byte[]? cheevosBlob = _raClient?.SerializeProgress();
+                    if (cheevosBlob != null && cheevosBlob.Length > 0)
+                        File.WriteAllBytes(cheevosPath, cheevosBlob);
+                    else if (File.Exists(cheevosPath))
+                        File.Delete(cheevosPath); // overwriting a previous state — stale side-car would silently restore wrong progress
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Trace.WriteLine($"[RA] Save-state cheevos side-car write failed: {ex.Message}");
+                }
 
                 // Screenshot — try in order:
                 //  1. HW cores: pre-captured _hwFlippedBuffer pixels (readback path)
@@ -5600,6 +5627,21 @@ namespace Emutastic.Views
                 _pendingLoadData         = File.ReadAllBytes(statePath);
                 _pendingLoadName         = name;
                 _pendingLoadSavedCoreName = ReadSavedCoreName(statePath);
+                // Pair the libretro state with the rcheevos progress side-car
+                // when one exists. Older states predate the side-car and load
+                // with a null blob, which DeserializeProgress treats as a no-op
+                // (current rcheevos state is left untouched).
+                _pendingLoadCheevosBlob = null;
+                try
+                {
+                    string cheevosPath = Path.ChangeExtension(statePath, ".cheevos");
+                    if (File.Exists(cheevosPath))
+                        _pendingLoadCheevosBlob = File.ReadAllBytes(cheevosPath);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Trace.WriteLine($"[RA] Cheevos side-car read failed: {ex.Message}");
+                }
                 _loadStatePending        = true;
             }
             catch (Exception ex)
@@ -5638,6 +5680,7 @@ namespace Emutastic.Views
                 _loadStateAttempts        = 0;
                 _pendingLoadData          = null;
                 _pendingLoadSavedCoreName = "";
+                _pendingLoadCheevosBlob   = null;
                 Dispatcher.BeginInvoke(() => LoadPickerPanel.Visibility = Visibility.Collapsed);
                 return;
             }
@@ -5664,6 +5707,7 @@ namespace Emutastic.Views
                 _loadStateWarmup          = 0;
                 _pendingLoadData          = null;
                 _pendingLoadSavedCoreName = "";
+                _pendingLoadCheevosBlob   = null;
                 Dispatcher.BeginInvoke(() => LoadPickerPanel.Visibility = Visibility.Collapsed);
                 return;
             }
@@ -5697,6 +5741,17 @@ namespace Emutastic.Views
             _loadStateWarmup          = 0;
             _pendingLoadData          = null;
             _pendingLoadSavedCoreName = "";
+
+            // Restore rcheevos's runtime state from the .cheevos side-car
+            // (if one was paired with this .state). Only on a successful
+            // core-side load — restoring rcheevos hits onto a failed/partial
+            // emulation state would mis-credit unlocks. Empty/missing blob
+            // is treated as a no-op by DeserializeProgress.
+            if (ok)
+            {
+                _raClient?.DeserializeProgress(_pendingLoadCheevosBlob);
+            }
+            _pendingLoadCheevosBlob = null;
 
             // After successful unserialize, re-prime the controller port-device
             // assignments for all four ports. Beetle PSX HW's FrontIO rebuilds
@@ -6079,9 +6134,32 @@ namespace Emutastic.Views
                     return;
                 }
 
+                // RA hardcore-compliance carve-out for PSP. The PPSSPP libretro
+                // core reads cheats from cheats/<DiscID>.ini directly, bypassing
+                // the libretro retro_cheat_set frontend API our ApplyAllCheats
+                // gate intercepts. libretro exposes no environment callback for
+                // the frontend to communicate hardcore state, so we can't reach
+                // into PPSSPP's cheat-load path from out here. Until upstream
+                // PPSSPP gains a hardcore-aware behavior in libretro mode, the
+                // conservative posture is to refuse to run hardcore on PSP —
+                // we drop to softcore for this session and surface a transient
+                // explaining why. Achievements still track in softcore; just
+                // not on the hardcore leaderboard.
+                bool effectiveHardcore = raConfig.HardcoreMode;
+                if (effectiveHardcore && string.Equals(_game.Console, "PSP", StringComparison.Ordinal))
+                {
+                    effectiveHardcore = false;
+                    System.Diagnostics.Trace.WriteLine("[RA] Hardcore mode refused for PSP — PPSSPP cheats path not gateable from the frontend; dropping to softcore for this session.");
+                    Dispatcher.BeginInvoke(() =>
+                    {
+                        _transientMsg = "RetroAchievements: hardcore not yet available for PSP — playing in softcore";
+                        _transientExpiry = DateTime.Now.AddSeconds(6);
+                    });
+                }
+
                 _raClient = new RetroAchievementsClient();
-                _raHardcoreActive = raConfig.HardcoreMode;
-                _raClient.Initialize(_core, raConfig.HardcoreMode);
+                _raHardcoreActive = effectiveHardcore;
+                _raClient.Initialize(_core, effectiveHardcore);
 
                 // Subscribe to events — marshal to UI thread for toast display
                 _raClient.AchievementTriggered += info =>

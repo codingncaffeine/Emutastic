@@ -256,6 +256,25 @@ namespace Emutastic.Services
         [DllImport(DLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern void rc_client_reset(IntPtr client);
 
+        // ── Runtime progress serialization ───────────────────────────────────
+        // Used to round-trip rcheevos's internal hit counts through frontend
+        // save-state save/load. Without these the core's retro_serialize only
+        // captures emulation state; achievement progress (partial unlocks,
+        // measured counters) resets to the on-disk RA-server state on every
+        // load. RA recommends preserving the in-memory state via this API.
+
+        /// <summary>Bytes required to serialize the current rcheevos runtime state.</summary>
+        [DllImport(DLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern UIntPtr rc_client_progress_size(IntPtr client);
+
+        /// <summary>Serializes runtime state into a caller-provided buffer. Returns RC_OK on success.</summary>
+        [DllImport(DLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int rc_client_serialize_progress_sized(IntPtr client, byte[] buffer, UIntPtr bufferSize);
+
+        /// <summary>Deserializes runtime state from a buffer. Returns RC_OK on success.</summary>
+        [DllImport(DLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int rc_client_deserialize_progress_sized(IntPtr client, byte[] serialized, UIntPtr serializedSize);
+
         [DllImport(DLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern int rc_client_has_achievements(IntPtr client);
 

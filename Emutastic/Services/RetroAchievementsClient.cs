@@ -245,6 +245,69 @@ namespace Emutastic.Services
                 rc_client_reset(_client);
         }
 
+        /// <summary>
+        /// Serializes rcheevos's in-memory runtime state (achievement hit counts,
+        /// measured-progress trackers, leaderboard state) into a blob that can
+        /// be paired with a libretro save state. Returns null if no game is
+        /// loaded or the rcheevos call failed; an empty array on success when
+        /// progress_size returned 0 (nothing to serialize).
+        ///
+        /// Per RA's hardcore-compliance recommendations (Section A: "Hit counts
+        /// should be stored in save states"), the frontend pairs this blob with
+        /// the core's retro_serialize bytes so partial-unlock progress survives
+        /// a save → load cycle.
+        /// </summary>
+        public byte[]? SerializeProgress()
+        {
+            if (_client == IntPtr.Zero) return null;
+            try
+            {
+                UIntPtr size = rc_client_progress_size(_client);
+                ulong sz = (ulong)size.ToUInt64();
+                if (sz == 0) return System.Array.Empty<byte>();
+                var buf = new byte[sz];
+                int rc = rc_client_serialize_progress_sized(_client, buf, size);
+                if (rc != RC_OK)
+                {
+                    System.Diagnostics.Trace.WriteLine($"[RA] rc_client_serialize_progress_sized failed: rc={rc}");
+                    return null;
+                }
+                return buf;
+            }
+            catch (System.Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[RA] SerializeProgress threw: {ex.GetType().Name}: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Restores rcheevos's runtime state from a previously-serialized blob
+        /// (see <see cref="SerializeProgress"/>). Returns true on success.
+        /// Safe to call with an empty buffer (returns false silently) — older
+        /// save states predate the side-car file, and missing data should
+        /// simply leave the current rcheevos state untouched.
+        /// </summary>
+        public bool DeserializeProgress(byte[]? blob)
+        {
+            if (_client == IntPtr.Zero || blob == null || blob.Length == 0) return false;
+            try
+            {
+                int rc = rc_client_deserialize_progress_sized(_client, blob, (UIntPtr)blob.LongLength);
+                if (rc != RC_OK)
+                {
+                    System.Diagnostics.Trace.WriteLine($"[RA] rc_client_deserialize_progress_sized failed: rc={rc}");
+                    return false;
+                }
+                return true;
+            }
+            catch (System.Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[RA] DeserializeProgress threw: {ex.GetType().Name}: {ex.Message}");
+                return false;
+            }
+        }
+
         public void UnloadGame()
         {
             if (_client != IntPtr.Zero)
