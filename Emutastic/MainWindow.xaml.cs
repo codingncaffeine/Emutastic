@@ -2319,6 +2319,11 @@ namespace Emutastic
             var cachedSpotlight = ra.PeekCached<Models.RALibrarySpotlight>($"library_spotlight:user={user}");
             RenderLibrarySpotlight(cachedSpotlight);
 
+            // Featured / Discovery — all three panels share the same cold-paint pattern.
+            RenderAchievementOfTheWeek(ra.PeekCached<Models.RAAchievementOfTheWeek>("achievement_of_the_week"));
+            RenderCommunityPulse(ra.PeekCached<List<Models.RARecentGameAward>>("recent_game_awards:c=25"));
+            RenderTopTen(ra.PeekCached<List<RaDataService.TopTenEntry>>("top_ten_users"));
+
             _ = System.Threading.Tasks.Task.Run(async () =>
             {
                 try
@@ -2348,6 +2353,21 @@ namespace Emutastic
                     var spotlight = await ra.GetLibrarySpotlightAsync(ct).ConfigureAwait(false);
                     if (ct.IsCancellationRequested) return;
                     _ = Dispatcher.BeginInvoke(new Action(() => RenderLibrarySpotlight(spotlight)));
+
+                    // Featured / Discovery (parallel fan — all three are
+                    // global, no per-user shared state).
+                    var aotwTask = ra.GetAchievementOfTheWeekAsync(ct);
+                    var pulseTask = ra.GetRecentGameAwardsAsync(25, ct);
+                    var topTenTask = ra.GetTopTenAsync(ct);
+                    await System.Threading.Tasks.Task.WhenAll(aotwTask, pulseTask, topTenTask).ConfigureAwait(false);
+
+                    if (ct.IsCancellationRequested) return;
+                    _ = Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        RenderAchievementOfTheWeek(aotwTask.Result);
+                        RenderCommunityPulse(pulseTask.Result);
+                        RenderTopTen(topTenTask.Result);
+                    }));
                 }
                 catch (OperationCanceledException) { /* tab switched away */ }
                 catch (Exception ex)
@@ -3084,6 +3104,242 @@ namespace Emutastic
             catch (Exception ex)
             {
                 System.Diagnostics.Trace.WriteLine($"[RA] OpenLocalGameDetail failed: {ex.Message}");
+            }
+        }
+
+        // ── Featured / Discovery renderers ────────────────────────────────
+
+        private Models.RAAchievementOfTheWeek? _currentAotw;
+
+        private void RenderAchievementOfTheWeek(Models.RAAchievementOfTheWeek? aotw)
+        {
+            _currentAotw = aotw;
+            if (aotw == null || aotw.Achievement == null)
+            {
+                RAOfTheWeekCard.Visibility = Visibility.Collapsed;
+                return;
+            }
+            RAOfTheWeekCard.Visibility = Visibility.Visible;
+
+            // Gold ring matches the trophy-case mastery treatment.
+            RAOfTheWeekBadgeOuter.BorderBrush = _ringMastery;
+
+            RAOfTheWeekTitle.Text = aotw.Achievement.Title ?? "";
+            RAOfTheWeekDescription.Text = aotw.Achievement.Description ?? "";
+            RAOfTheWeekGame.Text = aotw.Game?.Title is { } gt && !string.IsNullOrEmpty(gt)
+                ? $"{gt} · {aotw.Console?.Title ?? ""}".TrimEnd(' ', '·')
+                : "";
+
+            int total = aotw.TotalPlayers;
+            int unlocks = aotw.UnlocksCount;
+            int hc = aotw.UnlocksHardcoreCount;
+            if (total > 0 && unlocks > 0)
+            {
+                double pct = unlocks * 100.0 / total;
+                RAOfTheWeekStats.Text = hc > 0
+                    ? $"{unlocks:N0} of {total:N0} players ({pct:0.#}%) · {hc:N0} hardcore"
+                    : $"{unlocks:N0} of {total:N0} players ({pct:0.#}%)";
+            }
+            else
+            {
+                RAOfTheWeekStats.Text = "";
+            }
+
+            // Badge image
+            RAOfTheWeekBadgeInner.Child = null;
+            string? badge = aotw.Achievement.BadgeName;
+            if (!string.IsNullOrEmpty(badge))
+            {
+                try
+                {
+                    var bmp = new System.Windows.Media.Imaging.BitmapImage();
+                    bmp.BeginInit();
+                    bmp.UriSource = new Uri($"https://media.retroachievements.org/Badge/{badge}.png");
+                    bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                    bmp.EndInit();
+                    RAOfTheWeekBadgeInner.Child = new System.Windows.Controls.Image
+                    {
+                        Source = bmp,
+                        Stretch = System.Windows.Media.Stretch.UniformToFill,
+                    };
+                }
+                catch { }
+            }
+
+            // Play Now visible only if the AOTW's game exists in the local
+            // library (we can launch). Looked up by RAGameId match.
+            RAOfTheWeekPlay.Visibility = Visibility.Collapsed;
+            try
+            {
+                int gid = aotw.Game?.Id ?? 0;
+                if (gid > 0)
+                {
+                    var local = _db.GetAllGames().FirstOrDefault(g => g.RAGameId == gid);
+                    if (local != null)
+                    {
+                        RAOfTheWeekPlay.Tag = local.Id;
+                        RAOfTheWeekPlay.Visibility = Visibility.Visible;
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private void RAOfTheWeekPlay_Click(object sender, RoutedEventArgs e)
+        {
+            // Opens the game's detail card (where the user can hit Play Now
+            // with the existing core-routing logic). Doesn't launch the
+            // emulator directly — that'd skip console-specific prep.
+            if (sender is Button btn && btn.Tag is int localId && localId > 0)
+                OpenLocalGameDetail(localId);
+        }
+
+        private void RenderCommunityPulse(List<Models.RARecentGameAward>? awards)
+        {
+            RACommunityPulseItems.Items.Clear();
+            if (awards == null || awards.Count == 0)
+            {
+                RACommunityPulseEmpty.Visibility = Visibility.Visible;
+                return;
+            }
+            RACommunityPulseEmpty.Visibility = Visibility.Collapsed;
+
+            var font = (System.Windows.Media.FontFamily)FindResource("PrimaryFont");
+            var textPrimary = (System.Windows.Media.Brush)FindResource("TextPrimaryBrush");
+            var textMuted = (System.Windows.Media.Brush)FindResource("TextMutedBrush");
+
+            int shown = 0;
+            foreach (var a in awards)
+            {
+                RACommunityPulseItems.Items.Add(BuildCommunityPulseRow(a, font, textPrimary, textMuted));
+                if (++shown >= 12) break;
+            }
+        }
+
+        private static UIElement BuildCommunityPulseRow(Models.RARecentGameAward a,
+            System.Windows.Media.FontFamily font,
+            System.Windows.Media.Brush textPrimary,
+            System.Windows.Media.Brush textMuted)
+        {
+            // Three columns: small award-kind dot · user/game line · time-ago.
+            var row = new Grid { Margin = new Thickness(16, 4, 16, 4) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            // Award-kind color dot — mirrors the trophy-case ring scheme.
+            var ringColor = a.AwardKind switch
+            {
+                "mastered" => _ringMastery,
+                "completed" => _ringCompletion,
+                "beaten-hardcore" => _ringBeatenHardcore,
+                _ => _ringBeatenSoftcore,
+            };
+            var dot = new System.Windows.Shapes.Ellipse
+            {
+                Width = 8, Height = 8,
+                Fill = ringColor,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0),
+            };
+            Grid.SetColumn(dot, 0);
+            row.Children.Add(dot);
+
+            // User · award · game · console (one line, ellipsis if narrow).
+            var line = new TextBlock
+            {
+                FontFamily = font,
+                FontSize = 11,
+                Foreground = textPrimary,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            line.Inlines.Add(new System.Windows.Documents.Run(a.User) { FontWeight = FontWeights.SemiBold });
+            line.Inlines.Add($" {AwardKindLabel(a.AwardKind)} ");
+            line.Inlines.Add(new System.Windows.Documents.Run(a.GameTitle) { FontWeight = FontWeights.SemiBold });
+            Grid.SetColumn(line, 1);
+            row.Children.Add(line);
+
+            // Time-ago
+            var ago = new TextBlock
+            {
+                Text = FormatTimeAgo(a.AwardDate),
+                FontFamily = font,
+                FontSize = 10,
+                Foreground = textMuted,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(8, 0, 0, 0),
+            };
+            Grid.SetColumn(ago, 2);
+            row.Children.Add(ago);
+
+            row.ToolTip = $"{a.GameTitle} · {a.ConsoleName}";
+            return row;
+        }
+
+        private static string AwardKindLabel(string kind) => kind switch
+        {
+            "mastered"         => "mastered",
+            "completed"        => "completed",
+            "beaten-hardcore"  => "beat (hc)",
+            "beaten-softcore"  => "beat",
+            _                  => kind,
+        };
+
+        private void RenderTopTen(List<RaDataService.TopTenEntry>? top)
+        {
+            RATopTenItems.Items.Clear();
+            if (top == null || top.Count == 0) return;
+
+            var font = (System.Windows.Media.FontFamily)FindResource("PrimaryFont");
+            var textPrimary = (System.Windows.Media.Brush)FindResource("TextPrimaryBrush");
+            var textMuted = (System.Windows.Media.Brush)FindResource("TextMutedBrush");
+            var textSecondary = (System.Windows.Media.Brush)FindResource("TextSecondaryBrush");
+
+            int rank = 0;
+            foreach (var t in top)
+            {
+                rank++;
+                var row = new Grid { Margin = new Thickness(16, 3, 16, 3) };
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(24) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                var rankCell = new TextBlock
+                {
+                    Text = rank.ToString(),
+                    FontFamily = font,
+                    FontSize = 11,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = textMuted,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                Grid.SetColumn(rankCell, 0);
+                row.Children.Add(rankCell);
+
+                var userCell = new TextBlock
+                {
+                    Text = t.User,
+                    FontFamily = font,
+                    FontSize = 12,
+                    Foreground = textPrimary,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                Grid.SetColumn(userCell, 1);
+                row.Children.Add(userCell);
+
+                var ptsCell = new TextBlock
+                {
+                    Text = t.Points.ToString("N0"),
+                    FontFamily = font,
+                    FontSize = 11,
+                    Foreground = textSecondary,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                Grid.SetColumn(ptsCell, 2);
+                row.Children.Add(ptsCell);
+                RATopTenItems.Items.Add(row);
             }
         }
 

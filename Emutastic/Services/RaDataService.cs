@@ -426,6 +426,50 @@ namespace Emutastic.Services
                 ct).ConfigureAwait(false);
         }
 
+        /// <summary>Achievement of the Week (#3). Cached 24h, global (no per-user owner).</summary>
+        public Task<RAAchievementOfTheWeek?> GetAchievementOfTheWeekAsync(CancellationToken ct = default)
+        {
+            if (!HasApiKey()) return Task.FromResult<RAAchievementOfTheWeek?>(null);
+            return GetCachedAsync<RAAchievementOfTheWeek>(
+                "achievement_of_the_week",
+                "global",
+                TtlAchievementOfWeek,
+                inner => _api.GetAchievementOfTheWeekAsync(inner),
+                ct);
+        }
+
+        /// <summary>Recent global mastery awards (#20). Cached 5 min, global.</summary>
+        public async Task<List<RARecentGameAward>?> GetRecentGameAwardsAsync(int count = 25, CancellationToken ct = default)
+        {
+            if (!HasApiKey()) return null;
+            return await GetCachedAsync<List<RARecentGameAward>>(
+                $"recent_game_awards:c={count}",
+                "global",
+                TtlRecentGameAwards,
+                async inner =>
+                {
+                    var list = await _api.GetRecentGameAwardsAsync(null, count, inner).ConfigureAwait(false);
+                    return list;
+                },
+                ct).ConfigureAwait(false);
+        }
+
+        /// <summary>Top 10 site users (#21). Cached 24h, global.</summary>
+        public async Task<List<TopTenEntry>?> GetTopTenAsync(CancellationToken ct = default)
+        {
+            if (!HasApiKey()) return null;
+            return await GetCachedAsync<List<TopTenEntry>>(
+                "top_ten_users",
+                "global",
+                TtlTopTen,
+                async inner =>
+                {
+                    var raw = await _api.GetTopTenUsersAsync(inner).ConfigureAwait(false);
+                    return raw.Select(t => new TopTenEntry { User = t.User, Points = t.Points, RetroPoints = t.RetroPoints }).ToList();
+                },
+                ct).ConfigureAwait(false);
+        }
+
         /// <summary>Trophy case data (#22): mastery / beaten / completion awards. Cached 1h per user.</summary>
         public Task<RAUserAwards?> GetAwardsAsync(CancellationToken ct = default)
         {
@@ -461,6 +505,15 @@ namespace Emutastic.Services
                     return list;
                 },
                 ct);
+        }
+
+        // Top-10 row, materialized from the positional-array shape the API
+        // returns so we can JSON-serialize for the cache.
+        public sealed class TopTenEntry
+        {
+            public string User { get; set; } = "";
+            public int Points { get; set; }
+            public int RetroPoints { get; set; }
         }
 
         private static T? Deserialize<T>(string json) where T : class

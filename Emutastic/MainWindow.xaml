@@ -2012,6 +2012,140 @@
                                        Margin="2,22,0,8"/>
                             <StackPanel x:Name="RASpotlightStack"/>
 
+                            <!-- E. Featured / Discovery ─────────────────────────
+                                 Public-facing panels: Achievement of the Week
+                                 hero, recent community mastery ticker, and the
+                                 site's top 10 leaderboard. All TTLs long
+                                 (24h / 5min / 24h) so they're effectively free
+                                 to render on tab open. -->
+                            <TextBlock Text="FEATURED"
+                                       FontFamily="{StaticResource PrimaryFont}"
+                                       FontSize="10"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextMutedBrush}"
+                                       Margin="2,22,0,8"/>
+
+                            <!-- Achievement of the Week hero card -->
+                            <Border x:Name="RAOfTheWeekCard"
+                                    Background="{DynamicResource BgSecondaryBrush}"
+                                    BorderBrush="{DynamicResource BorderSubtleBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="10"
+                                    Padding="18"
+                                    Margin="0,0,0,14"
+                                    Visibility="Collapsed">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- Badge with gold ring (matches mastery ring color) -->
+                                    <Border x:Name="RAOfTheWeekBadgeOuter"
+                                            Grid.Column="0"
+                                            Width="84" Height="84"
+                                            CornerRadius="10"
+                                            BorderThickness="2"
+                                            Background="{DynamicResource BgTertiaryBrush}">
+                                        <Border x:Name="RAOfTheWeekBadgeInner"
+                                                CornerRadius="8"
+                                                ClipToBounds="True"/>
+                                    </Border>
+
+                                    <StackPanel Grid.Column="1" Margin="18,2,18,0" VerticalAlignment="Center">
+                                        <TextBlock Text="ACHIEVEMENT OF THE WEEK"
+                                                   FontFamily="{StaticResource PrimaryFont}"
+                                                   FontSize="10"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource AccentBrush}"/>
+                                        <TextBlock x:Name="RAOfTheWeekTitle"
+                                                   FontFamily="{StaticResource PrimaryFont}"
+                                                   FontSize="18"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource TextPrimaryBrush}"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Margin="0,2,0,0"/>
+                                        <TextBlock x:Name="RAOfTheWeekGame"
+                                                   FontFamily="{StaticResource PrimaryFont}"
+                                                   FontSize="12"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Margin="0,2,0,0"/>
+                                        <TextBlock x:Name="RAOfTheWeekDescription"
+                                                   FontFamily="{StaticResource PrimaryFont}"
+                                                   FontSize="12"
+                                                   Foreground="{DynamicResource TextMutedBrush}"
+                                                   TextWrapping="Wrap"
+                                                   Margin="0,6,0,0"/>
+                                        <TextBlock x:Name="RAOfTheWeekStats"
+                                                   FontFamily="{StaticResource PrimaryFont}"
+                                                   FontSize="11"
+                                                   Foreground="{DynamicResource TextMutedBrush}"
+                                                   Margin="0,6,0,0"/>
+                                    </StackPanel>
+
+                                    <Button x:Name="RAOfTheWeekPlay"
+                                            Grid.Column="2"
+                                            Content="▶  Play Now"
+                                            Style="{StaticResource ActionBtn}"
+                                            VerticalAlignment="Center"
+                                            Visibility="Collapsed"
+                                            Click="RAOfTheWeekPlay_Click"/>
+                                </Grid>
+                            </Border>
+
+                            <!-- Two-column row: Community Pulse + Top Ten -->
+                            <Grid Margin="0,0,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="280"/>
+                                </Grid.ColumnDefinitions>
+
+                                <Border x:Name="RACommunityPulseCard"
+                                        Grid.Column="0"
+                                        Background="{DynamicResource BgSecondaryBrush}"
+                                        BorderBrush="{DynamicResource BorderSubtleBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="10"
+                                        Margin="0,0,12,0">
+                                    <StackPanel>
+                                        <TextBlock Text="COMMUNITY PULSE"
+                                                   FontFamily="{StaticResource PrimaryFont}"
+                                                   FontSize="10"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource TextMutedBrush}"
+                                                   Margin="16,14,16,8"/>
+                                        <ItemsControl x:Name="RACommunityPulseItems"/>
+                                        <TextBlock x:Name="RACommunityPulseEmpty"
+                                                   Text="No recent awards reported."
+                                                   FontFamily="{StaticResource PrimaryFont}"
+                                                   FontSize="12"
+                                                   Foreground="{DynamicResource TextMutedBrush}"
+                                                   TextAlignment="Center"
+                                                   Padding="0,12,0,16"
+                                                   Visibility="Collapsed"/>
+                                    </StackPanel>
+                                </Border>
+
+                                <Border x:Name="RATopTenCard"
+                                        Grid.Column="1"
+                                        Background="{DynamicResource BgSecondaryBrush}"
+                                        BorderBrush="{DynamicResource BorderSubtleBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="10">
+                                    <StackPanel>
+                                        <TextBlock Text="TOP 10 SITE-WIDE"
+                                                   FontFamily="{StaticResource PrimaryFont}"
+                                                   FontSize="10"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource TextMutedBrush}"
+                                                   Margin="16,14,16,8"/>
+                                        <ItemsControl x:Name="RATopTenItems"/>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+
                             <!-- Logged-out / no-key placeholder for the whole tab -->
                             <Border x:Name="RAUnconfiguredCard"
                                     Background="{DynamicResource BgSecondaryBrush}"
