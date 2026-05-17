@@ -2424,6 +2424,13 @@ namespace Emutastic
             RAProfileSoftcore.Text = softcore.ToString("N0");
 
             // Avatar — RA serves UserPic as an absolute path like "/UserPic/Foo.png".
+            // The path stays stable across avatar changes (same filename, new
+            // bytes), and WPF's BitmapImage caches downloads by URL, so a
+            // raw URL would silently serve the previously-downloaded image
+            // even after a fresh profile JSON arrives. Stamp the URL with
+            // the cache row's fetched_at so each TTL cycle produces a new
+            // URL → forces a fresh download, while within-TTL renders reuse
+            // the same URL → WPF cache hits cheaply.
             if (!string.IsNullOrWhiteSpace(profile?.UserPic))
             {
                 try
@@ -2432,9 +2439,14 @@ namespace Emutastic
                     string url = trimmed.StartsWith("http", StringComparison.OrdinalIgnoreCase)
                         ? trimmed
                         : "https://media.retroachievements.org" + trimmed;
+
+                    long stamp = _raData?.PeekCachedFetchedAt($"user_profile:user={fallbackUser}") ?? 0L;
+                    string sep = url.Contains('?') ? "&" : "?";
+                    string bustedUrl = stamp > 0 ? $"{url}{sep}v={stamp}" : url;
+
                     var bmp = new System.Windows.Media.Imaging.BitmapImage();
                     bmp.BeginInit();
-                    bmp.UriSource = new Uri(url);
+                    bmp.UriSource = new Uri(bustedUrl);
                     bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
                     bmp.EndInit();
                     RAProfileAvatar.Source = bmp;

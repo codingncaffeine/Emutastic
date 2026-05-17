@@ -46,8 +46,11 @@ namespace Emutastic.Services
         // ── TTLs ────────────────────────────────────────────────────────────
         // Per-panel TTLs from the plan. Public so phase implementations can
         // share constants instead of re-deciding cache freshness per call.
-        public static readonly TimeSpan TtlProfile            = TimeSpan.FromHours(1);
-        public static readonly TimeSpan TtlPoints             = TimeSpan.FromHours(1);
+        // 15 min on profile + points so things like avatar changes /
+        // username edits / rank shifts surface within a tab-revisit cycle
+        // instead of waiting up to an hour. Cheap endpoints; fine to refetch.
+        public static readonly TimeSpan TtlProfile            = TimeSpan.FromMinutes(15);
+        public static readonly TimeSpan TtlPoints             = TimeSpan.FromMinutes(15);
         public static readonly TimeSpan TtlRecentActivity     = TimeSpan.FromMinutes(5);
         public static readonly TimeSpan TtlAchievementOfWeek  = TimeSpan.FromHours(24);
         public static readonly TimeSpan TtlAwards             = TimeSpan.FromHours(1);
@@ -173,6 +176,20 @@ namespace Emutastic.Services
                 return Deserialize<T>(row.Payload);
             }
             catch { return null; }
+        }
+
+        /// <summary>
+        /// Returns the unix-seconds fetched_at stamp for the given cache key,
+        /// or 0 if the row doesn't exist. Used by image-loading code to bust
+        /// the WPF BitmapImage cache when the data behind a stable URL has
+        /// changed (e.g. RA serves a user's new avatar at the same UserPic
+        /// path — same URL, new bytes; WPF caches by URL so it won't see the
+        /// new bytes without an explicit cache-buster query string).
+        /// </summary>
+        public long PeekCachedFetchedAt(string cacheKey)
+        {
+            try { return _db.GetRaCache(cacheKey)?.FetchedAt ?? 0L; }
+            catch { return 0L; }
         }
 
         /// <summary>
