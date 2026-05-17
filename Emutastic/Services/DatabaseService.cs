@@ -1117,6 +1117,26 @@ namespace Emutastic.Services
         }
 
         /// <summary>
+        /// Returns the local Games.Id for a given RA game ID, or null if no
+        /// owned game maps to that RA ID. Uses the partial index
+        /// idx_games_ra_game_id (RAGameId &gt; 0) so the lookup is O(log n)
+        /// instead of a full table scan. Used by the Achievements tab when
+        /// rendering tiles that need to launch the local game (e.g. AOTW's
+        /// Play Now button).
+        /// </summary>
+        public int? GetLocalGameIdByRAGameId(int raGameId)
+        {
+            if (raGameId <= 0) return null;
+            using var connection = OpenConnection();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT Id FROM Games WHERE RAGameId = $ra LIMIT 1;";
+            cmd.Parameters.AddWithValue("$ra", raGameId);
+            var result = cmd.ExecuteScalar();
+            if (result == null || result is DBNull) return null;
+            return Convert.ToInt32(result);
+        }
+
+        /// <summary>
         /// Returns the RA game IDs of every game in the local library that
         /// has been launched at least once with RA enabled. Used by the
         /// Achievements tab to intersect library ownership with RA's

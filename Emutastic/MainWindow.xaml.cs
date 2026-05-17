@@ -2266,6 +2266,14 @@ namespace Emutastic
         // (instant first paint), then kicks the refresh in the background.
         // The refresh task uses ConfigureAwait(false) end-to-end and never
         // touches WPF state directly — it marshals via Dispatcher.BeginInvoke.
+        //
+        // RA-config changes (username / API key edited in Preferences) are
+        // picked up automatically without an explicit hook: CurrentUser()
+        // and GetApiKey() re-read App.Configuration on every call. A new
+        // username produces different cache keys (user:Foo vs user:Bar) so
+        // the new user's cards auto-fetch on next tab open. Changing only
+        // the API key reuses the username-keyed cache rows (still valid)
+        // with the new key driving subsequent refreshes.
 
         private RaDataService GetOrCreateRaDataService()
         {
@@ -3109,11 +3117,8 @@ namespace Emutastic
 
         // ── Featured / Discovery renderers ────────────────────────────────
 
-        private Models.RAAchievementOfTheWeek? _currentAotw;
-
         private void RenderAchievementOfTheWeek(Models.RAAchievementOfTheWeek? aotw)
         {
-            _currentAotw = aotw;
             if (aotw == null || aotw.Achievement == null)
             {
                 RAOfTheWeekCard.Visibility = Visibility.Collapsed;
@@ -3167,17 +3172,18 @@ namespace Emutastic
             }
 
             // Play Now visible only if the AOTW's game exists in the local
-            // library (we can launch). Looked up by RAGameId match.
+            // library (we can launch). Indexed lookup so we don't scan
+            // every game row on every render.
             RAOfTheWeekPlay.Visibility = Visibility.Collapsed;
             try
             {
                 int gid = aotw.Game?.Id ?? 0;
                 if (gid > 0)
                 {
-                    var local = _db.GetAllGames().FirstOrDefault(g => g.RAGameId == gid);
-                    if (local != null)
+                    int? localId = _db.GetLocalGameIdByRAGameId(gid);
+                    if (localId.HasValue && localId.Value > 0)
                     {
-                        RAOfTheWeekPlay.Tag = local.Id;
+                        RAOfTheWeekPlay.Tag = localId.Value;
                         RAOfTheWeekPlay.Visibility = Visibility.Visible;
                     }
                 }
@@ -3283,13 +3289,18 @@ namespace Emutastic
             "completed"        => "completed",
             "beaten-hardcore"  => "beat (hc)",
             "beaten-softcore"  => "beat",
-            _                  => kind,
+            _                  => "earned",   // unknown future kinds fall back to a generic verb
         };
 
         private void RenderTopTen(List<RaDataService.TopTenEntry>? top)
         {
             RATopTenItems.Items.Clear();
-            if (top == null || top.Count == 0) return;
+            if (top == null || top.Count == 0)
+            {
+                RATopTenEmpty.Visibility = Visibility.Visible;
+                return;
+            }
+            RATopTenEmpty.Visibility = Visibility.Collapsed;
 
             var font = (System.Windows.Media.FontFamily)FindResource("PrimaryFont");
             var textPrimary = (System.Windows.Media.Brush)FindResource("TextPrimaryBrush");
@@ -3303,7 +3314,7 @@ namespace Emutastic
                 var row = new Grid { Margin = new Thickness(16, 3, 16, 3) };
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(24) });
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(64) });
 
                 var rankCell = new TextBlock
                 {
@@ -3336,6 +3347,7 @@ namespace Emutastic
                     FontSize = 11,
                     Foreground = textSecondary,
                     VerticalAlignment = VerticalAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Right,
                 };
                 Grid.SetColumn(ptsCell, 2);
                 row.Children.Add(ptsCell);

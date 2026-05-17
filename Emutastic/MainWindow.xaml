@@ -2095,11 +2095,14 @@
                                 </Grid>
                             </Border>
 
-                            <!-- Two-column row: Community Pulse + Top Ten -->
+                            <!-- Two-column row: Community Pulse (flex) + Top Ten (auto).
+                                 Top Ten content is short and fixed; let it size to
+                                 content so Community Pulse doesn't get pinched at
+                                 narrow window widths. -->
                             <Grid Margin="0,0,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="280"/>
+                                    <ColumnDefinition Width="*" MinWidth="320"/>
+                                    <ColumnDefinition Width="Auto" MinWidth="240"/>
                                 </Grid.ColumnDefinitions>
 
                                 <Border x:Name="RACommunityPulseCard"
@@ -2142,6 +2145,14 @@
                                                    Foreground="{DynamicResource TextMutedBrush}"
                                                    Margin="16,14,16,8"/>
                                         <ItemsControl x:Name="RATopTenItems"/>
+                                        <TextBlock x:Name="RATopTenEmpty"
+                                                   Text="Leaderboard unavailable."
+                                                   FontFamily="{StaticResource PrimaryFont}"
+                                                   FontSize="12"
+                                                   Foreground="{DynamicResource TextMutedBrush}"
+                                                   TextAlignment="Center"
+                                                   Padding="16,8,16,16"
+                                                   Visibility="Collapsed"/>
                                     </StackPanel>
                                 </Border>
                             </Grid>
