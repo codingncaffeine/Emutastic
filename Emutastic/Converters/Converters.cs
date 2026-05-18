@@ -419,8 +419,7 @@ namespace Emutastic.Converters
                 "TG16"         => "pack://application:,,,/Assets/system_icons/TG16.jpg",
                 "TGCD"         => "pack://application:,,,/Assets/system_icons/TG16.jpg",
                 "NeoGeo"       => "pack://application:,,,/Assets/system_icons/neogeo.jpg",
-                // Falls back to the cart icon until a dedicated NGCD icon is added.
-                "NeoCD"        => "pack://application:,,,/Assets/system_icons/neogeo.jpg",
+                "NeoCD"        => "pack://application:,,,/Assets/system_icons/neogeo_cd.png",
                 "NGP"          => "pack://application:,,,/Assets/system_icons/neo geo pocket.jpg",
                 "NGPC"         => "pack://application:,,,/Assets/system_icons/neo geo pocket.jpg",
                 "3DO"          => "pack://application:,,,/Assets/system_icons/3d0.jpg",
