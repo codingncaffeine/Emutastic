@@ -93,7 +93,8 @@ namespace Emutastic.Services
                 }
 
                 if (console.Equals("NeoGeo", StringComparison.OrdinalIgnoreCase) ||
-                    console.Equals("NGP",    StringComparison.OrdinalIgnoreCase))
+                    console.Equals("NGP",    StringComparison.OrdinalIgnoreCase) ||
+                    console.Equals("NeoCD",  StringComparison.OrdinalIgnoreCase))
                     LoadClrmameproDat(datPath, console);
                 else
                     LoadDat(datPath, console, arcadeSource);

@@ -2548,6 +2548,7 @@ namespace Emutastic.Views
             ("Arcade",       "Arcade (FBNeo)",          null, "https://raw.githubusercontent.com/libretro/FBNeo/master/dats/FinalBurn%20Neo%20(ClrMame%20Pro%20XML%2C%20Arcade%20only).dat"),
             ("mame2003plus", "Arcade (MAME 2003-Plus)", null, "https://raw.githubusercontent.com/libretro/mame2003-plus-libretro/master/metadata/mame2003-plus.xml"),
             ("NeoGeo",       "Neo Geo (Geolith)",       null, "https://raw.githubusercontent.com/libretro/libretro-database/master/dat/SNK%20-%20Neo%20Geo.dat"),
+            ("NeoCD",        "Neo Geo CD",              null, "https://raw.githubusercontent.com/libretro/libretro-database/master/metadat/redump/SNK%20-%20Neo%20Geo%20CD.dat"),
             ("SegaCD", "Sega CD / Mega CD",  "mcd",  null),
             ("Saturn", "Sega Saturn",        "ss",   null),
             ("PS1",    "PlayStation",         "psx",  null),
