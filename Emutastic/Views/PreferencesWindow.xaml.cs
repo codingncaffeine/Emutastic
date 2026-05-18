@@ -4784,10 +4784,13 @@ namespace Emutastic.Views
             new("NeoGeo","Neo Geo","aes.zip","AES BIOS (required)",0,null),
 
             // Neo Geo CD (Geolith, same core, CD-mode auto-detected from content).
-            // Cart BIOS is still required because Geolith reuses it in CD mode.
+            // Cart BIOS is still required because Geolith reuses it in CD mode,
+            // and the CDZ BIOS archive (neocdz.zip — a MAME-style romset
+            // containing neocd.bin + 000-lo.lo etc.) provides the disc-side
+            // BIOS Geolith loads at CD-mode start.
             new("NeoCD","Neo Geo CD","neogeo.zip","Cart BIOS (required, same as Neo Geo)",0,null),
             new("NeoCD","Neo Geo CD","aes.zip","AES BIOS (required, same as Neo Geo)",0,null),
-            new("NeoCD","Neo Geo CD","neocd.bin","CDZ BIOS (any of: neocd.bin, front-sp1.bin, top-sp1.bin)",0,null),
+            new("NeoCD","Neo Geo CD","neocdz.zip","CDZ BIOS archive (required for CD games)",0,null),
 
             // Game Boy Advance (optional — mgba has built-in HLE BIOS)
             new("GBA","Game Boy Advance","gba_bios.bin","BIOS (optional, improves compatibility)",16384,"a860e8c0b6d573d191e4ec7db1b1e4f6"),
