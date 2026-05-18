@@ -28,7 +28,7 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 ## Supported Systems
 
 <details>
-<summary><strong>34 systems across 11 manufacturers</strong> (click to expand)</summary>
+<summary><strong>35 systems across 11 manufacturers</strong> (click to expand)</summary>
 
 | System | Tag | Core (priority order) | BIOS |
 |---|---|---|---|
@@ -58,6 +58,7 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 | Neo Geo Pocket | NGP | mednafen_ngp | No |
 | Neo Geo Pocket Color | NGPC | mednafen_ngp | No |
 | Neo Geo | NeoGeo | geolith | `neogeo.zip` + `aes.zip` |
+| Neo Geo CD ² | NeoCD | geolith | `neogeo.zip` + `aes.zip` + `neocdz.zip` |
 | Arcade | Arcade | fbneo + mame2003-plus ¹ | No |
 | Atari 2600 | Atari2600 | stella | No |
 | Atari 7800 | Atari7800 | prosystem | No |
@@ -70,6 +71,8 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 </details>
 
 ¹ Arcade routes per-game between FBNeo (primary; better controls + save states) and MAME 2003-Plus (fills FBNeo gaps — Atari vector, Sega G-80, Cinematronics, Williams pre-MK, Killer Instinct, War Gods, etc.). MAME 2003-Plus's romset expectations have drifted over time and a few drivers (Sega ST-V, Midway Vegas) aren't fully backported — your mileage will vary on those. See the [Arcade wiki page](https://github.com/codingncaffeine/Emutastic/wiki/Arcade) for known-broken hardware.
+
+² Neo Geo CD plays via Geolith with full library support (import, BIOS validation, controls, artwork from ScreenScraper/libretro thumbnails). RetroAchievements identification works; **achievement triggers won't fire during play yet** — that depends on a CD-mode byteswap shadow buffer landing in Geolith upstream. The cart side has it (shipped earlier today); the CD-side patch is pending. Cart achievements (Metal Slug, KOF, etc.) work today. See the [Neo Geo wiki page](https://github.com/codingncaffeine/Emutastic/wiki/Neo-Geo) for the current status.
 
 ---
 
