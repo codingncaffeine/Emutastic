@@ -91,6 +91,7 @@ namespace Emutastic.Services
             { "3DO",          29 },
             { "Arcade",       75 },
             { "NeoGeo",       142},
+            { "NeoCD",         70},
             { "CDi",          133},
             { "Odyssey2",     104},
         };

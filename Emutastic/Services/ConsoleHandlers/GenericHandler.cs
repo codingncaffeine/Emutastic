@@ -25,7 +25,7 @@ namespace Emutastic.Services.ConsoleHandlers
             // Nintendo handhelds
             "GB", "GBC", "GBA", "NDS", "VirtualBoy",
             // SNK
-            "NeoGeo", "NGP", "NGPC",
+            "NeoGeo", "NeoCD", "NGP", "NGPC",
             // Atari / 80s home consoles
             "Atari2600", "Atari7800", "Jaguar", "ColecoVision",
         };

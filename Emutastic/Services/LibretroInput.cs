@@ -352,6 +352,7 @@ namespace Emutastic.Services
                 // the fallback has no entry for "c" or "d" — those button
                 // presses get silently dropped (this exact bug bit us once).
                 case "NeoGeo":
+                case "NeoCD":
                     return n switch
                     {
                         "a" => JOYPAD_B, "b" => JOYPAD_A,

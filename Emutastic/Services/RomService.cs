@@ -12,16 +12,16 @@ namespace Emutastic.Services
         // Ordered by most common system first (shown that way in the picker).
         public static readonly Dictionary<string, string[]> AmbiguousExtensions = new(StringComparer.OrdinalIgnoreCase)
         {
-            { ".chd", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "3DO", "Dreamcast", "CDi" } },
-            { ".iso", new[] { "PSP", "GameCube", "3DO" } },
-            { ".cue", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "3DO", "CDi" } },
+            { ".chd", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "NeoCD", "3DO", "Dreamcast", "CDi" } },
+            { ".iso", new[] { "PSP", "GameCube", "NeoCD", "3DO" } },
+            { ".cue", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "NeoCD", "3DO", "CDi" } },
             // .m3u playlists are how the libretro disc-control interface sees a
             // multi-disc set as N images. GameCube included so auto-bundled
             // multi-disc GC titles (Resident Evil 0, Baten Kaitos, etc.) get
             // routed correctly when the folder name disambiguates. Ambiguity
             // resolved via DAT lookup, folder name, or user picker.
-            { ".m3u", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "3DO", "CDi", "GameCube", "Amiga" } },
-            { ".bin", new[] { "PS1", "SegaCD", "Saturn", "3DO", "Dreamcast", "Atari7800", "Atari2600", "Genesis", "Sega32X", "ColecoVision", "NES", "NGP" } },
+            { ".m3u", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "NeoCD", "3DO", "CDi", "GameCube", "Amiga" } },
+            { ".bin", new[] { "PS1", "SegaCD", "Saturn", "NeoCD", "3DO", "Dreamcast", "Atari7800", "Atari2600", "Genesis", "Sega32X", "ColecoVision", "NES", "NGP" } },
         };
 
         // ROM file extensions mapped to console names
@@ -99,6 +99,7 @@ namespace Emutastic.Services
             { "NGP",          "SNK"        },
             { "NGPC",         "SNK"        },
             { "NeoGeo",       "SNK"        },
+            { "NeoCD",        "SNK"        },
             { "Atari2600",    "Atari"      },
             { "Atari7800",    "Atari"      },
             { "Jaguar",       "Atari"      },
@@ -136,6 +137,7 @@ namespace Emutastic.Services
             { "NGP",         ("#1A0A1A", "#C8A951") },
             { "NGPC",        ("#1A0A1A", "#D4A843") },
             { "NeoGeo",      ("#1A0A1A", "#FFD700") },
+            { "NeoCD",       ("#1A0A1A", "#FFB347") },
             { "Arcade",      ("#0A0A0A", "#E03535") },
         };
 
@@ -250,6 +252,13 @@ namespace Emutastic.Services
             ("mame",          "Arcade"),
             ("neo geo pocket color","NGPC"),  // must come before "neo geo pocket"
             ("neo geo pocket","NGP"),         // must come before "neo geo"
+            // NeoCD aliases must come before the NeoGeo (cart) ones since
+            // every "neo geo cd" string contains "neo geo" as a substring.
+            ("neo geo cd",    "NeoCD"),
+            ("neogeo cd",     "NeoCD"),
+            ("neo-geo-cd",    "NeoCD"),
+            ("neogeocd",      "NeoCD"),
+            ("ngcd",          "NeoCD"),
             ("neo geo",       "NeoGeo"),
             ("neogeo",        "NeoGeo"),
             ("neo-geo",       "NeoGeo"),
@@ -396,6 +405,7 @@ namespace Emutastic.Services
             { "3DO",          1.09 },
             { "CDi",          1.02 },
             { "NeoGeo",       0.81 },
+            { "NeoCD",        1.00 },
             { "Arcade",       0.84 },
         };
 

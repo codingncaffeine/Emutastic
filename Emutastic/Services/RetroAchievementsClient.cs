@@ -623,6 +623,13 @@ namespace Emutastic.Services
                 // extension), so a .neo file with the canonical MAME short
                 // name (mslug3.neo) hashes identically to FBNeo's mslug3.zip.
                 "NeoGeo"       => RC_CONSOLE_ARCADE,
+                // Neo Geo CD is its own RA system with content-based hashing
+                // of the data track. End-to-end achievement triggers still
+                // depend on Geolith landing a CD-mode shadow buffer (the
+                // current cart-only patch covers MAINRAM at 64 KB; CD mode
+                // needs the full 2 MB PRAM exposed via the FBNeo-compatible
+                // byte order).
+                "NeoCD"        => RC_CONSOLE_NEO_GEO_CD,
                 "Atari2600"    => RC_CONSOLE_ATARI_2600,
                 "Atari7800"    => RC_CONSOLE_ATARI_7800,
                 "Jaguar"       => RC_CONSOLE_ATARI_JAGUAR,

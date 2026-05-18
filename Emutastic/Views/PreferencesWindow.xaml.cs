@@ -1690,7 +1690,7 @@ namespace Emutastic.Views
             ("Sony",      new[] { "PS1", "PSP" }),
             ("NEC",       new[] { "TG16", "TGCD" }),
             ("Atari",     new[] { "Atari2600", "Atari7800", "Jaguar" }),
-            ("Arcade",    new[] { "Arcade", "NeoGeo" }),
+            ("Arcade",    new[] { "Arcade", "NeoGeo", "NeoCD" }),
             ("Other",     new[] { "NGP", "ColecoVision", "Vectrex", "3DO", "CDi" }),
         };
 
@@ -4726,6 +4726,7 @@ namespace Emutastic.Views
             "TG16"         => "pack://application:,,,/Assets/system_icons/TG16.jpg",
             "TGCD"         => "pack://application:,,,/Assets/system_icons/TG16.jpg",
             "NeoGeo"       => "pack://application:,,,/Assets/system_icons/neogeo.jpg",
+            "NeoCD"        => "pack://application:,,,/Assets/system_icons/neogeo.jpg",
             "NGP"          => "pack://application:,,,/Assets/system_icons/neo geo pocket.jpg",
             "NGPC"         => "pack://application:,,,/Assets/system_icons/neo geo pocket.jpg",
             "3DO"          => "pack://application:,,,/Assets/system_icons/3d0.jpg",
@@ -4781,6 +4782,12 @@ namespace Emutastic.Views
             // Neo Geo (Geolith)
             new("NeoGeo","Neo Geo","neogeo.zip","Neo Geo BIOS (required)",0,null),
             new("NeoGeo","Neo Geo","aes.zip","AES BIOS (required)",0,null),
+
+            // Neo Geo CD (Geolith, same core, CD-mode auto-detected from content).
+            // Cart BIOS is still required because Geolith reuses it in CD mode.
+            new("NeoCD","Neo Geo CD","neogeo.zip","Cart BIOS (required, same as Neo Geo)",0,null),
+            new("NeoCD","Neo Geo CD","aes.zip","AES BIOS (required, same as Neo Geo)",0,null),
+            new("NeoCD","Neo Geo CD","neocd.bin","CDZ BIOS (any of: neocd.bin, front-sp1.bin, top-sp1.bin)",0,null),
 
             // Game Boy Advance (optional — mgba has built-in HLE BIOS)
             new("GBA","Game Boy Advance","gba_bios.bin","BIOS (optional, improves compatibility)",16384,"a860e8c0b6d573d191e4ec7db1b1e4f6"),

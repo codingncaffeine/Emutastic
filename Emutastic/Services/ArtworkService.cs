@@ -86,6 +86,7 @@ namespace Emutastic.Services
             { "3DO",          "The 3DO Company - 3DO"                          },
             { "CDi",          "Philips - CD-i"                                 },
             { "NeoGeo",       "SNK - Neo Geo"                                  },
+            { "NeoCD",        "SNK - Neo Geo CD"                               },
             { "Arcade",       "FBNeo - Arcade Games"                           },
         };
 

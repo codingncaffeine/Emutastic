@@ -75,6 +75,7 @@ namespace Emutastic.Services
             { "3DO",         new[] { "opera_libretro.dll"               }},
             { "CDi",         new[] { "same_cdi_libretro.dll"            }},
             { "NeoGeo",      new[] { "geolith_libretro.dll"              }},
+            { "NeoCD",       new[] { "geolith_libretro.dll"              }},
             { "Arcade",      new[] { "fbneo_libretro.dll",
                                      "mame2003_plus_libretro.dll"        }},
         };
@@ -123,12 +124,19 @@ namespace Emutastic.Services
                                   "scph1001.bin", "scph7001.bin"                         }},
             { "3DO",      new[] { "panafz10.bin", "panafz1j.bin", "goldstar.bin"          }},
             { "TGCD",     new[] { "syscard3.pce", "syscard2.pce", "syscard1.pce"          }},
+            // Geolith CD mode accepts any of the standard Neo Geo CD BIOS variants —
+            // front-sp1.bin (Front Loader), top-sp1.bin (Top Loader), or neocd.bin
+            // (CDZ). Match the "any of these" pattern used by other CD systems.
+            { "NeoCD",    new[] { "neocd.bin", "front-sp1.bin", "top-sp1.bin"             }},
         };
 
         // Consoles that require ALL listed files (not just any one).
         public static readonly Dictionary<string, string[]> ConsoleBiosRequireAll = new()
         {
             { "NeoGeo",   new[] { "neogeo.zip", "aes.zip" } },
+            // NeoCD still requires the standard cart BIOS (Geolith reuses it in
+            // CD mode) in addition to the CD-specific BIOS handled above.
+            { "NeoCD",    new[] { "neogeo.zip", "aes.zip" } },
         };
 
         // Core-specific BIOS requirements — keyed by substring of the core DLL name.

@@ -503,6 +503,27 @@ namespace Emutastic.Configuration
                 }
             },
 
+            // Neo Geo CD shares the cart's control layout — same buttons, same
+            // emulator (Geolith handles both via cart/CD mode detection).
+            ["NeoCD"] = new ControllerDefinition
+            {
+                Name = "Neo Geo CD",
+                ControllerImage = "/Assets/images/neogeo/neogeo_arcade_control_panel.png",
+                Buttons = new List<ButtonDefinition>
+                {
+                    new("Up",     "Up",     140,  70, ButtonType.DPad,   70, 70, GDPad),
+                    new("Down",   "Down",   140, 150, ButtonType.DPad,   70, 70, GDPad),
+                    new("Left",   "Left",   100, 110, ButtonType.DPad,   70, 70, GDPad),
+                    new("Right",  "Right",  180, 110, ButtonType.DPad,   70, 70, GDPad),
+                    new("A",      "A",      320, 130, ButtonType.Button, 35, 35, GFace),
+                    new("B",      "B",      360, 110, ButtonType.Button, 35, 35, GFace),
+                    new("C",      "C",      400, 100, ButtonType.Button, 35, 35, GFace),
+                    new("D",      "D",      440,  95, ButtonType.Button, 35, 35, GFace),
+                    new("Start",  "Start",  260, 190, ButtonType.Button, 50, 20, GSystem),
+                    new("Select", "Select", 200, 190, ButtonType.Button, 50, 20, GSystem),
+                }
+            },
+
             // ── Atari ─────────────────────────────────────────────────────────
             ["Atari2600"] = new ControllerDefinition
             {
