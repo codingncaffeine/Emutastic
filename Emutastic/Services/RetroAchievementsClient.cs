@@ -615,6 +615,14 @@ namespace Emutastic.Services
                 "TG16"         => RC_CONSOLE_PC_ENGINE,
                 "TGCD"         => RC_CONSOLE_PC_ENGINE_CD,
                 "NGP"          => RC_CONSOLE_NEOGEO_POCKET,
+                // Neo Geo carts. RA classes them under the Arcade system —
+                // there's no separate RC_CONSOLE_NEOGEO constant — and
+                // achievement sets for Neo Geo cart games (Metal Slug, KOF,
+                // etc.) live under arcade game IDs (e.g. 11750, 11771). The
+                // arcade hash is filename-based (MD5 of the base name without
+                // extension), so a .neo file with the canonical MAME short
+                // name (mslug3.neo) hashes identically to FBNeo's mslug3.zip.
+                "NeoGeo"       => RC_CONSOLE_ARCADE,
                 "Atari2600"    => RC_CONSOLE_ATARI_2600,
                 "Atari7800"    => RC_CONSOLE_ATARI_7800,
                 "Jaguar"       => RC_CONSOLE_ATARI_JAGUAR,
