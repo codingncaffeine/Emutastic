@@ -305,9 +305,18 @@ namespace Emutastic.Services
 
         private void LoadCore()
         {
-            _handle = NativeMethods.LoadLibrary(_corePath);
+            // LoadLibraryEx + LOAD_WITH_ALTERED_SEARCH_PATH so the core's own
+            // directory is searched first when resolving dependent DLLs. Lets
+            // cores ship sibling runtime DLLs alongside the .dll in Cores\
+            // without polluting the .exe directory.
+            _handle = NativeMethods.LoadLibraryEx(
+                _corePath, IntPtr.Zero, NativeMethods.LOAD_WITH_ALTERED_SEARCH_PATH);
             if (_handle == IntPtr.Zero)
-                throw new Exception($"Failed to load core: {_corePath}. Error: {Marshal.GetLastWin32Error()}");
+            {
+                int err = Marshal.GetLastWin32Error();
+                string msg = new System.ComponentModel.Win32Exception(err).Message;
+                throw new Exception($"Failed to load core: {_corePath}. Error {err}: {msg}");
+            }
 
             _retro_init = GetFunctionPointer<retro_init_t>("retro_init");
             _retro_deinit = GetFunctionPointer<retro_deinit_t>("retro_deinit");
@@ -777,6 +786,17 @@ namespace Emutastic.Services
     {
         [DllImport("kernel32.dll", SetLastError = true)]
         public static extern IntPtr LoadLibrary(string lpFileName);
+
+        // LoadLibraryEx with LOAD_WITH_ALTERED_SEARCH_PATH (0x00000008) tells
+        // the Windows loader to use the DLL's own directory as the FIRST
+        // search location when resolving its dependencies. The default
+        // LoadLibrary search starts at the .exe's directory, which means
+        // cores that ship sibling DLLs (zlib1.dll, dependency runtimes, etc.)
+        // in the Cores\ folder won't find them. Switching to LoadLibraryEx
+        // with this flag is the standard fix for plugin loaders.
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+        public static extern IntPtr LoadLibraryEx(string lpFileName, IntPtr hFile, uint dwFlags);
+        public const uint LOAD_WITH_ALTERED_SEARCH_PATH = 0x00000008;
 
         [DllImport("kernel32.dll", SetLastError = true)]
         public static extern bool FreeLibrary(IntPtr hModule);
