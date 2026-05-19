@@ -96,9 +96,89 @@ namespace Emutastic.Services
         public bool IsInitialized => _client != IntPtr.Zero;
         public bool IsGameLoaded => _client != IntPtr.Zero && rc_client_is_game_loaded(_client) != 0;
 
-        public void Initialize(LibretroCore core, bool hardcoreEnabled)
+        // Per-console virtual-to-real address translation, mirroring rcheevos's
+        // built-in _rc_memory_regions_<console> tables (src/rcheevos/consoleinfo.c).
+        // rcheevos's set authoring uses virtual addresses; descriptors map
+        // real M68K-style hardware addresses to memory pointers. The frontend
+        // is responsible for translating virtual→real before descriptor lookup.
+        //
+        // Currently only NGCD needs this — RA's set was authored with System
+        // RAM at virtual 0x000000-0x00FFFF, mapped to real 0x00100000-0x0010FFFF
+        // (the M68K work-RAM area inside PRAM, NOT PRAM offset 0 where the
+        // loaded MAIN.PRG sits). Other consoles can be added here if/when their
+        // virtual address spaces differ from descriptor real addresses.
+        private uint _virtualAddressBase;
+
+        // Cart Neo Geo only: apply XOR-1 byte-address swap on descriptor reads.
+        // RA's cart NeoGeo sets were authored against FBNeo's host-native byte
+        // stream; Geolith now exposes canonical big-endian after removing its
+        // shadow buffer. NGCD set authors used canonical layout, so the swap
+        // must be cart-only — gating by the BIGENDIAN flag alone breaks NGCD.
+        //
+        // Host-endianness note: this swap assumes a little-endian host. The
+        // libretro convention treats LE as default with RETRO_MEMDESC_BIGENDIAN
+        // marking big-endian regions; if Emutastic ever ships on a big-endian
+        // platform, the swap should be gated on (host == LE && region == BE).
+        // Windows x64 is always LE so this is fine for current targets.
+        private bool _cartByteswap;
+
+        // ── Memory descriptor table (RETRO_ENVIRONMENT_SET_MEMORY_MAPS) ──
+        // When the core publishes a memory map, we honor it for rcheevos
+        // reads. Each region carries its own virtual start address, length,
+        // pointer, and flags (including RETRO_MEMDESC_BIGENDIAN, which we
+        // apply per-region instead of via the hardcoded NeoCD check).
+        // When no map is published, OnReadMemory falls back to the legacy
+        // retro_get_memory_data linear-concat path.
+        public readonly struct MemoryRegion
+        {
+            public readonly ulong Flags;
+            public readonly IntPtr Ptr;
+            public readonly ulong Offset;
+            public readonly ulong Start;
+            public readonly ulong Len;
+            public MemoryRegion(ulong flags, IntPtr ptr, ulong offset, ulong start, ulong len)
+            { Flags = flags; Ptr = ptr; Offset = offset; Start = start; Len = len; }
+        }
+        private const ulong RETRO_MEMDESC_BIGENDIAN = 1UL << 1;
+        private MemoryRegion[]? _memoryRegions;
+
+        /// <summary>
+        /// Called by EmulatorWindow when the core publishes a memory map via
+        /// RETRO_ENVIRONMENT_SET_MEMORY_MAPS. OnReadMemory routes through
+        /// these regions in preference to the legacy retro_get_memory_data
+        /// linear address space.
+        /// </summary>
+        public void SetMemoryDescriptors(MemoryRegion[] regions)
+        {
+            _memoryRegions = regions;
+            Trace.WriteLine($"[RA] Memory descriptors registered: {regions.Length} region(s)");
+            foreach (var r in regions)
+            {
+                Trace.WriteLine($"[RA]   start=0x{r.Start:X8} len=0x{r.Len:X} flags=0x{r.Flags:X} {((r.Flags & RETRO_MEMDESC_BIGENDIAN) != 0 ? "BE" : "")}");
+            }
+        }
+
+        public void Initialize(LibretroCore core, bool hardcoreEnabled, string? consoleName = null)
         {
             _core = core;
+
+            // Per-console virtual-to-real address translation.
+            //
+            // NGCD: rcheevos's _rc_memory_regions_neo_geo_cd maps virtual
+            // 0x000000-0x00FFFF to real M68K 0x00100000-0x0010FFFF.
+            //
+            // NeoGeo cart (RC_CONSOLE_ARCADE-categorized in RA): rcheevos has
+            // no _rc_memory_regions_arcade table, but Geolith publishes cart
+            // descriptors at M68K-hardware `start = 0x100000` while RA's cart
+            // Neo Geo sets are authored against FBNeo-style flat-from-0 RAM
+            // offsets. Same +0x100000 translation reconciles the convention
+            // mismatch, until either Geolith starts publishing the cart
+            // descriptor at start=0x000000 or rcheevos adds an arcade
+            // memory regions table.
+            bool isNeoGeoFamily = string.Equals(consoleName, "NeoCD", StringComparison.Ordinal)
+                              || string.Equals(consoleName, "NeoGeo", StringComparison.Ordinal);
+            _virtualAddressBase = isNeoGeoFamily ? 0x100000u : 0u;
+            _cartByteswap = string.Equals(consoleName, "NeoGeo", StringComparison.Ordinal);
 
             _readMemoryDelegate = OnReadMemory;
             _serverCallDelegate = OnServerCall;
@@ -369,8 +449,58 @@ namespace Emutastic.Services
 
         private uint OnReadMemory(uint address, IntPtr buffer, uint numBytes, IntPtr client)
         {
-            // rcheevos uses a virtual address space. For most consoles, system RAM
-            // starts at address 0. We map linearly: system RAM first, then save RAM.
+            // Descriptor-aware path: when the core has published a memory map
+            // via RETRO_ENVIRONMENT_SET_MEMORY_MAPS, route reads through it.
+            // Each region has its own start/length/ptr; BIGENDIAN flag gates
+            // a per-read-size byteswap (replicates what RetroArch's rc_libretro
+            // does natively).
+            //
+            // rcheevos calls this with a VIRTUAL address from its per-console
+            // memory map (consoleinfo.c _rc_memory_regions_<console>). For NGCD,
+            // virtual 0x000000 maps to real M68K 0x00100000. Apply the offset
+            // before searching descriptors, since descriptor.start fields are
+            // in real M68K address space.
+            if (_memoryRegions != null && _memoryRegions.Length > 0)
+            {
+                ulong realAddress = (ulong)address + _virtualAddressBase;
+                for (int i = 0; i < _memoryRegions.Length; i++)
+                {
+                    var r = _memoryRegions[i];
+                    if (r.Ptr == IntPtr.Zero || r.Len == 0) continue;
+                    if (realAddress < r.Start) continue;
+                    ulong rel = realAddress - r.Start;
+                    if (rel >= r.Len) continue;
+
+                    ulong avail = r.Len - rel;
+                    uint toCopy = numBytes < avail ? numBytes : (uint)avail;
+
+                    // Cart Neo Geo: XOR-1 byte addresses to produce FBNeo's
+                    // host-native byte stream from Geolith's canonical big-endian
+                    // MAINRAM. NGCD set authors used canonical layout, so leave
+                    // those reads verbatim. Gated by console (_cartByteswap), not
+                    // by the BIGENDIAN flag, because cart and CD descriptors both
+                    // carry the flag but only cart needs the swap.
+                    unsafe
+                    {
+                        byte* baseSrc = (byte*)r.Ptr + (long)r.Offset;
+                        byte* dst = (byte*)buffer;
+                        if (_cartByteswap)
+                        {
+                            for (uint k = 0; k < toCopy; k++)
+                                dst[k] = baseSrc[(long)(rel + k) ^ 1L];
+                        }
+                        else
+                        {
+                            Buffer.MemoryCopy(baseSrc + (long)rel, dst, toCopy, toCopy);
+                        }
+                    }
+                    return toCopy;
+                }
+                return 0; // address not covered by any descriptor
+            }
+
+            // Legacy path: linear concat of SYSTEM_RAM then SAVE_RAM at virtual 0.
+            // Used when the core doesn't publish a memory map. Most consoles.
             IntPtr srcPtr;
             uint offset;
 
@@ -386,6 +516,7 @@ namespace Emutastic.Services
                         (byte*)srcPtr + offset,
                         (byte*)buffer,
                         toCopy, toCopy);
+
                 }
                 return toCopy;
             }

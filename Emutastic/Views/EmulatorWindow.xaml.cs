@@ -266,6 +266,12 @@ namespace Emutastic.Views
         private IntPtr _saveDirPtr    = IntPtr.Zero;
         private IntPtr _contentDirPtr = IntPtr.Zero;
 
+        // Memory descriptor regions captured from RETRO_ENVIRONMENT_SET_MEMORY_MAPS.
+        // Cores typically publish this during retro_load_game, which runs BEFORE
+        // _raClient is created (in InitRetroAchievements). Buffer here, feed to
+        // _raClient.SetMemoryDescriptors immediately after _raClient.Initialize.
+        private Services.RetroAchievementsClient.MemoryRegion[]? _pendingMemoryRegions;
+
         // Pinned callback delegates (must stay alive as long as the core is running)
         private retro_environment_t?        _envCb;
         private retro_video_refresh_t?      _videoCb;
@@ -1213,6 +1219,9 @@ namespace Emutastic.Views
                 _contentDirPtr = Marshal.StringToHGlobalAnsi(contentDir);
 
                 SeedDefaultCoreOptions();
+
+                // Clear any descriptors captured from a prior session — fresh start.
+                _pendingMemoryRegions = null;
 
                 _envCb        = OnEnvironment;
                 _videoCb      = OnVideoRefresh;
@@ -3407,8 +3416,80 @@ namespace Emutastic.Views
                     case RETRO_ENVIRONMENT_GET_TARGET_REFRESH_RATE:
                     case RETRO_ENVIRONMENT_SET_PERFORMANCE_LEVEL:
                     case RETRO_ENVIRONMENT_SET_SUBSYSTEM_INFO:
-                    case RETRO_ENVIRONMENT_SET_MEMORY_MAPS:
                         return true;
+
+                    // ------------------------------------------------------------------
+                    // Memory descriptor map — cores call this to expose their full
+                    // memory layout (regions, virtual addresses, byte-order flags) to
+                    // the frontend. RetroAchievementsClient consumes these for memory
+                    // reads when present, falling back to legacy retro_get_memory_data
+                    // when the core doesn't publish a map.
+                    //
+                    // Critical for NGCD achievements (and any other M68K-big-endian
+                    // console exposing memory via RETRO_MEMDESC_BIGENDIAN), since
+                    // those require per-region byteswap that the legacy interface
+                    // doesn't carry.
+                    // ------------------------------------------------------------------
+                    case RETRO_ENVIRONMENT_SET_MEMORY_MAPS:
+                    {
+                        if (data == IntPtr.Zero) return true;
+                        try
+                        {
+                            // struct retro_memory_map { const retro_memory_descriptor *descriptors; unsigned num_descriptors; }
+                            IntPtr descPtr  = Marshal.ReadIntPtr(data, 0);
+                            int    descCount = Marshal.ReadInt32(data, IntPtr.Size);
+                            if (descPtr == IntPtr.Zero || descCount <= 0 || descCount > 1024)
+                                return true;
+
+                            // x64 retro_memory_descriptor layout:
+                            //   uint64 flags    (offset 0)
+                            //   void*  ptr      (offset 8)
+                            //   size_t offset   (offset 16)
+                            //   size_t start    (offset 24)
+                            //   size_t select   (offset 32)
+                            //   size_t disconnect (offset 40)
+                            //   size_t len      (offset 48)
+                            //   const char* addrspace (offset 56)
+                            // Total: 64 bytes per descriptor on x64.
+                            //
+                            // We SKIP descriptors with `select != 0` — those use the
+                            // bank-mirror addressing model (SNES, NES, Genesis) which
+                            // requires (address & select) == start matching plus
+                            // disconnect-clear / len-fold logic we don't implement.
+                            // Those reads fall through to the legacy linear path and
+                            // continue working as they did pre-descriptor-aware.
+                            const int DESC_SIZE = 64;
+                            var regions = new List<Services.RetroAchievementsClient.MemoryRegion>(descCount);
+                            int skippedSelect = 0;
+                            for (int i = 0; i < descCount; i++)
+                            {
+                                IntPtr d = IntPtr.Add(descPtr, i * DESC_SIZE);
+                                ulong  flags  = (ulong)Marshal.ReadInt64(d, 0);
+                                IntPtr ptr    = Marshal.ReadIntPtr(d, 8);
+                                ulong  off    = (ulong)Marshal.ReadInt64(d, 16);
+                                ulong  start  = (ulong)Marshal.ReadInt64(d, 24);
+                                ulong  select = (ulong)Marshal.ReadInt64(d, 32);
+                                ulong  len    = (ulong)Marshal.ReadInt64(d, 48);
+                                if (select != 0) { skippedSelect++; continue; }
+                                regions.Add(new Services.RetroAchievementsClient.MemoryRegion(flags, ptr, off, start, len));
+                            }
+
+                            var arr = regions.ToArray();
+                            // _raClient is created later (in InitRetroAchievements which runs
+                            // after LoadGame returns); buffer the regions and feed them at
+                            // _raClient.Initialize time. Also feed any current instance in
+                            // case the core re-publishes mid-session (e.g. after a reset).
+                            _pendingMemoryRegions = arr;
+                            _raClient?.SetMemoryDescriptors(arr);
+                            System.Diagnostics.Trace.WriteLine(
+                                $"[ENV] SET_MEMORY_MAPS captured: {arr.Length} usable region(s), {skippedSelect} skipped (select-mirror)");
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Trace.WriteLine($"[ENV] SET_MEMORY_MAPS parse failed: {ex.Message}");
+                        }
+                        return true;
+                    }
 
                     // baseCmd 44 is shared: SET_SERIALIZATION_QUIRKS (44) and
                     // SET_HW_SHARED_CONTEXT (44 | EXPERIMENTAL). Check the flag.
@@ -6159,7 +6240,13 @@ namespace Emutastic.Views
 
                 _raClient = new RetroAchievementsClient();
                 _raHardcoreActive = effectiveHardcore;
-                _raClient.Initialize(_core, effectiveHardcore);
+                _raClient.Initialize(_core, effectiveHardcore, _game.Console);
+
+                // Replay any memory descriptors the core published during LoadGame
+                // (before _raClient existed). Without this, the descriptor-aware
+                // memory-read path is dead code and the legacy fallback runs.
+                if (_pendingMemoryRegions != null)
+                    _raClient.SetMemoryDescriptors(_pendingMemoryRegions);
 
                 // Subscribe to events — marshal to UI thread for toast display
                 _raClient.AchievementTriggered += info =>

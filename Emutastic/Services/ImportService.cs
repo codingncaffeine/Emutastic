@@ -904,7 +904,7 @@ namespace Emutastic.Services
                 Console = console,
                 Manufacturer = manufacturer,
                 RomPath = romPath,
-                OriginalSourcePath = sourcePath,
+                OriginalSourcePath = sourcePath!,
                 RomHash = string.Empty,
                 BackgroundColor = colors.bg,
                 AccentColor = colors.accent,
