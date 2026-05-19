@@ -6380,6 +6380,32 @@ namespace Emutastic.Views
             AchievementTitle.Text = title;
             AchievementDesc.Text = description;
             AchievementPoints.Text = points > 0 ? $"{points} points" : "";
+
+            // Mirror the HUD-pill reparenting pattern: on HW-rendered cores
+            // (Vulkan / OpenGL) the game render lives in a WS_POPUP overlay
+            // that covers the WPF main window. Without reparenting, the
+            // toast would draw underneath and be invisible to the user even
+            // though the unlock fires and submits server-side.
+            bool useOverlayWindow = (_vulkanOverlayHwnd != IntPtr.Zero && _vulkanPresenting)
+                                 || _glOverlayHwnd != IntPtr.Zero;
+            if (useOverlayWindow)
+            {
+                EnsureVulkanHudWindow();
+                if (AchievementToast.Parent == GameViewport)
+                {
+                    GameViewport.Children.Remove(AchievementToast);
+                    _vulkanHudGrid!.Children.Add(AchievementToast);
+                }
+                RepositionVulkanHud();
+                if (!_vulkanHudWindow!.IsVisible) _vulkanHudWindow.Show();
+                var hudHwnd = new System.Windows.Interop.WindowInteropHelper(_vulkanHudWindow).Handle;
+                if (hudHwnd != IntPtr.Zero)
+                {
+                    const uint SWP_NOMOVE = 0x0002, SWP_NOSIZE = 0x0001, SWP_NOACTIVATE = 0x0010;
+                    SetWindowPos(hudHwnd, IntPtr.Zero, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                }
+            }
+
             AchievementToast.Visibility = Visibility.Visible;
 
             var fadeIn = new System.Windows.Media.Animation.DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(250));

@@ -251,6 +251,15 @@ Emulation is handled by libretro cores maintained by their upstream authors. Emu
 | Virtual Jaguar | Virtual Jaguar team |
 | Yabause | Yabause team |
 
+### Libraries
+
+| Library | Purpose | License |
+|---|---|---|
+| [rcheevos](https://github.com/RetroAchievements/rcheevos) | RetroAchievements client | MIT |
+| [libchdr](https://github.com/rtissera/libchdr) | CHD format reader (CHD-based achievement hashing) | BSD 3-Clause |
+
+Full license texts in `NOTICES.txt`.
+
 ### Controller Illustrations
 Artwork from [OpenEmuControllerArt](https://github.com/kodi-game/OpenEmuControllerArt) (BSD 3-Clause). Not affiliated with or endorsed by OpenEmu.
 

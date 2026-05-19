@@ -107,6 +107,13 @@ namespace Emutastic.Services
             if (_client == IntPtr.Zero)
                 throw new InvalidOperationException("Failed to create rcheevos client.");
 
+            // Install our CHD-aware cdreader so achievement identification
+            // works for .chd content on every CD-based console (PS1, PS2,
+            // Saturn, SegaCD, Dreamcast, PSP, TG-CD, 3DO, NGCD, PC-FX).
+            // Non-CHD content (.cue+.bin, .gdi, .iso) continues through
+            // rcheevos's default cdreader, preserving existing behavior.
+            RcheevosChdCdReader.InstallInto(_client);
+
             // Set up logging
             _logDelegate = OnLogMessage;
             rc_client_enable_logging(_client, RC_CLIENT_LOG_LEVEL_INFO, _logDelegate);
