@@ -49,6 +49,56 @@ namespace Emutastic.Services
         // queue behind a detail-card open without causing a flood.
         private static readonly SemaphoreSlim _throttle = new(2, 2);
 
+        // Minimum gap between request *starts*. Concurrency cap alone lets
+        // requests that finish in <100ms machine-gun the API and trip the
+        // burst limiter. The pace gate serializes the start-time decision
+        // so requests fan out at most ~3/sec regardless of how fast each
+        // completes. Cache hits don't enter GetJsonAsync, so warm visits
+        // remain instant.
+        private const int MinRequestGapMs = 350;
+        private static readonly SemaphoreSlim _paceGate = new(1, 1);
+        private static DateTimeOffset _lastRequestStartUtc = DateTimeOffset.MinValue;
+
+        private static async Task EnterRequestSlotAsync(CancellationToken ct)
+        {
+            await _paceGate.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                var sinceLast = (DateTimeOffset.UtcNow - _lastRequestStartUtc).TotalMilliseconds;
+                if (sinceLast < MinRequestGapMs)
+                {
+                    int waitMs = (int)(MinRequestGapMs - sinceLast);
+                    await Task.Delay(waitMs, ct).ConfigureAwait(false);
+                }
+                _lastRequestStartUtc = DateTimeOffset.UtcNow;
+            }
+            finally { _paceGate.Release(); }
+
+            await _throttle.WaitAsync(ct).ConfigureAwait(false);
+        }
+
+        private static void LeaveRequestSlot()
+        {
+            try { _throttle.Release(); } catch { }
+        }
+
+        // Parses the Retry-After header from a 429 response. Falls back to
+        // 2s when the header is absent or unparseable. Clamped to [500ms,
+        // 5s] so a misbehaving header can't stall the UI for minutes.
+        private static int ComputeRetryAfterMs(System.Net.Http.HttpResponseMessage resp)
+        {
+            int ms = 2000;
+            try
+            {
+                if (resp.Headers.RetryAfter?.Delta is TimeSpan d)
+                    ms = (int)d.TotalMilliseconds;
+                else if (resp.Headers.RetryAfter?.Date is DateTimeOffset date)
+                    ms = (int)Math.Max(0, (date - DateTimeOffset.UtcNow).TotalMilliseconds);
+            }
+            catch { }
+            return Math.Min(Math.Max(ms, 500), 5000);
+        }
+
         private const string ApiBase = "https://retroachievements.org/API";
 
         private static readonly JsonSerializerOptions _jsonOpts = new()
@@ -350,6 +400,88 @@ namespace Emutastic.Services
             return all;
         }
 
+        // ── Leaderboards (Phase 6) ─────────────────────────────────────────
+
+        /// <summary>
+        /// API_GetGameLeaderboards.php — paginated list of leaderboards
+        /// for a game. Page size 500 (RA cap). Most games have under 100
+        /// LBs so a single page covers everything.
+        /// </summary>
+        public async Task<List<RAGameLeaderboard>> GetGameLeaderboardsAsync(
+            int raGameId, CancellationToken ct = default)
+        {
+            var all = new List<RAGameLeaderboard>();
+            if (raGameId <= 0) return all;
+            string? key = GetApiKey();
+            if (string.IsNullOrWhiteSpace(key)) return all;
+
+            const int PageSize = 500;
+            int offset = 0;
+            while (true)
+            {
+                string url = $"{ApiBase}/API_GetGameLeaderboards.php"
+                           + $"?y={Uri.EscapeDataString(key)}"
+                           + $"&i={raGameId}&c={PageSize}&o={offset}";
+                var page = await GetJsonAsync<RAGameLeaderboardsResponse>(
+                    url, "GetGameLeaderboards", ct).ConfigureAwait(false);
+                if (page == null || page.Results == null || page.Results.Count == 0) break;
+                all.AddRange(page.Results);
+                if (all.Count >= page.Total || page.Results.Count < PageSize) break;
+                offset += PageSize;
+            }
+            return all;
+        }
+
+        /// <summary>
+        /// API_GetLeaderboardEntries.php — entries for one LB, paginated.
+        /// Use small counts (e.g. 25) for "top of leaderboard" displays
+        /// and merge friend ranks from GetUserGameLeaderboardsAsync to
+        /// avoid paging the whole entry list.
+        /// </summary>
+        public Task<RALeaderboardEntriesResponse?> GetLeaderboardEntriesAsync(
+            int leaderboardId, int count = 25, int offset = 0, CancellationToken ct = default)
+        {
+            if (leaderboardId <= 0) return Task.FromResult<RALeaderboardEntriesResponse?>(null);
+            string? key = GetApiKey();
+            if (string.IsNullOrWhiteSpace(key)) return Task.FromResult<RALeaderboardEntriesResponse?>(null);
+            string url = $"{ApiBase}/API_GetLeaderboardEntries.php"
+                       + $"?y={Uri.EscapeDataString(key)}"
+                       + $"&i={leaderboardId}&c={count}&o={offset}";
+            return GetJsonAsync<RALeaderboardEntriesResponse>(url, "GetLeaderboardEntries", ct);
+        }
+
+        /// <summary>
+        /// API_GetUserGameLeaderboards.php — a single user's ranks across
+        /// every LB for one game. This is the friend-rank-discovery
+        /// primitive: one call per friend per game, instead of paging
+        /// every LB's entries hunting for them.
+        /// </summary>
+        public async Task<List<RAUserGameLeaderboard>> GetUserGameLeaderboardsAsync(
+            string username, int raGameId, CancellationToken ct = default)
+        {
+            var all = new List<RAUserGameLeaderboard>();
+            if (string.IsNullOrWhiteSpace(username) || raGameId <= 0) return all;
+            string? key = GetApiKey();
+            if (string.IsNullOrWhiteSpace(key)) return all;
+
+            const int PageSize = 500;
+            int offset = 0;
+            while (true)
+            {
+                string url = $"{ApiBase}/API_GetUserGameLeaderboards.php"
+                           + $"?y={Uri.EscapeDataString(key)}"
+                           + $"&u={Uri.EscapeDataString(username)}"
+                           + $"&i={raGameId}&c={PageSize}&o={offset}";
+                var page = await GetJsonAsync<RAUserGameLeaderboardsResponse>(
+                    url, "GetUserGameLeaderboards", ct).ConfigureAwait(false);
+                if (page == null || page.Results == null || page.Results.Count == 0) break;
+                all.AddRange(page.Results);
+                if (all.Count >= page.Total || page.Results.Count < PageSize) break;
+                offset += PageSize;
+            }
+            return all;
+        }
+
         // ── #32 GetUserRecentlyPlayedGames ─────────────────────────────────
         public async Task<List<RARecentlyPlayedGame>> GetUserRecentlyPlayedGamesAsync(
             string username, int count = 50, CancellationToken ct = default)
@@ -436,7 +568,7 @@ namespace Emutastic.Services
             if (string.IsNullOrWhiteSpace(key)) return new();
             string url = $"{ApiBase}/API_GetTopTenUsers.php?y={Uri.EscapeDataString(key)}";
 
-            await _throttle.WaitAsync(ct).ConfigureAwait(false);
+            await EnterRequestSlotAsync(ct).ConfigureAwait(false);
             try
             {
                 using var resp = await _http.GetAsync(url, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
@@ -474,7 +606,7 @@ namespace Emutastic.Services
                 Trace.WriteLine($"[RA] GetTopTenUsers failed: {ex.Message}");
                 return new();
             }
-            finally { try { _throttle.Release(); } catch { } }
+            finally { LeaveRequestSlot(); }
         }
 
         // ── #5 GetAchievementsEarnedBetween ────────────────────────────────
@@ -604,45 +736,68 @@ namespace Emutastic.Services
         private async Task<T?> GetJsonAsync<T>(string url, string opName, CancellationToken ct)
             where T : class
         {
-            await _throttle.WaitAsync(ct).ConfigureAwait(false);
-            try
+            // One retry on 429 — first hit honors Retry-After (or default
+            // 2s), second hit gives up and returns null. Pacing should
+            // prevent most 429s in the first place, so this is the safety
+            // net for genuine bursts (e.g., tab double-click) and not the
+            // primary defense.
+            for (int attempt = 0; attempt < 2; attempt++)
             {
-                using var resp = await _http.GetAsync(url,
-                    HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
-                if (!resp.IsSuccessStatusCode)
+                await EnterRequestSlotAsync(ct).ConfigureAwait(false);
+                bool released = false;
+                try
                 {
-                    string body = "";
-                    try { body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false); } catch { }
-                    if (body.Length > 240) body = body.Substring(0, 240);
-                    Trace.WriteLine($"[RA] {opName} HTTP {(int)resp.StatusCode}");
-                    RaLog.Write($"http error: op={opName} status={(int)resp.StatusCode} body={body}");
-                    return null;
+                    using var resp = await _http.GetAsync(url,
+                        HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
+
+                    if ((int)resp.StatusCode == 429 && attempt == 0)
+                    {
+                        int retryAfterMs = ComputeRetryAfterMs(resp);
+                        RaLog.Write($"[RA pacing] {opName} hit 429, retry-after={retryAfterMs}ms");
+                        // Release the concurrency slot during the wait so
+                        // other queued requests aren't blocked by our cool-down.
+                        LeaveRequestSlot();
+                        released = true;
+                        await Task.Delay(retryAfterMs, ct).ConfigureAwait(false);
+                        continue;
+                    }
+
+                    if (!resp.IsSuccessStatusCode)
+                    {
+                        string body = "";
+                        try { body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false); } catch { }
+                        if (body.Length > 240) body = body.Substring(0, 240);
+                        Trace.WriteLine($"[RA] {opName} HTTP {(int)resp.StatusCode}");
+                        RaLog.Write($"http error: op={opName} status={(int)resp.StatusCode} body={body}");
+                        return null;
+                    }
+                    string json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                    try { return JsonSerializer.Deserialize<T>(json, _jsonOpts); }
+                    catch (Exception ex)
+                    {
+                        Trace.WriteLine($"[RA] {opName} JSON parse failed: {ex.Message}");
+                        string snippet = json ?? "";
+                        if (snippet.Length > 240) snippet = snippet.Substring(0, 240);
+                        RaLog.Write($"parse failed: op={opName} err={ex.Message} json={snippet}");
+                        return null;
+                    }
                 }
-                string json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-                try { return JsonSerializer.Deserialize<T>(json, _jsonOpts); }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
                 catch (Exception ex)
                 {
-                    Trace.WriteLine($"[RA] {opName} JSON parse failed: {ex.Message}");
-                    string snippet = json ?? "";
-                    if (snippet.Length > 240) snippet = snippet.Substring(0, 240);
-                    RaLog.Write($"parse failed: op={opName} err={ex.Message} json={snippet}");
+                    Trace.WriteLine($"[RA] {opName} failed: {ex.GetType().Name}: {ex.Message}");
+                    RaLog.Write($"exception: op={opName} type={ex.GetType().Name} msg={ex.Message}");
                     return null;
                 }
+                finally
+                {
+                    if (!released) LeaveRequestSlot();
+                }
             }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                Trace.WriteLine($"[RA] {opName} failed: {ex.GetType().Name}: {ex.Message}");
-                RaLog.Write($"exception: op={opName} type={ex.GetType().Name} msg={ex.Message}");
-                return null;
-            }
-            finally
-            {
-                try { _throttle.Release(); } catch { }
-            }
+            return null;
         }
 
         /// <summary>

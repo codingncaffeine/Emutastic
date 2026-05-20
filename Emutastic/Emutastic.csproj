@@ -16,7 +16,7 @@
          use this value verbatim — if it drifts behind the latest tag, the
          About tab flags "A newer release is available" against the user's own
          locally-built copy. Bump alongside every new git tag. -->
-    <Version>1.6.8</Version>
+    <Version>1.6.9</Version>
     <ApplicationIcon>Assets\emutastic-logo.ico</ApplicationIcon>
     <!-- Suppress WinRT AOT warnings (MVVMTK0045) and PRI resource warnings — not applicable to WPF -->
     <NoWarn>$(NoWarn);MVVMTK0045</NoWarn>
@@ -94,6 +94,13 @@
     <Resource Include="Assets\banners and icons\*.ico" />
     <Resource Include="Assets\emutastic-logo.ico" />
     <Resource Include="Assets\system_icons\*.jpg" />
+    <!-- Sounds copy as loose files next to the exe. WPF MediaPlayer only
+         accepts site-of-origin or filesystem URIs — pack://application
+         resources are rejected with "Only site-of-origin pack URIs are
+         supported for media." -->
+    <Content Include="Assets\Sounds\*.mp3">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Resource Include="Assets\system_icons\*.png" />
     <Resource Include="Shaders\Compiled\*.ps" />
   </ItemGroup>

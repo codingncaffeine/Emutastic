@@ -42,6 +42,9 @@ namespace Emutastic.Configuration
         RetroAchievementsConfiguration GetRetroAchievementsConfiguration();
         void SetRetroAchievementsConfiguration(RetroAchievementsConfiguration config);
 
+        FriendsConfiguration GetFriendsConfiguration();
+        void SetFriendsConfiguration(FriendsConfiguration config);
+
         RecordingConfiguration GetRecordingConfiguration();
         void SetRecordingConfiguration(RecordingConfiguration config);
     }

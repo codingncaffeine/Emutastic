@@ -2272,6 +2272,10 @@ namespace Emutastic.Views
 
                 try { _raClient?.Dispose(); _raClient = null; }
                 catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"RA cleanup: {ex.Message}"); }
+                // Phase 6b.1: cancel the friend-rank prefetch + clear
+                // per-game caches so a subsequent game load starts clean.
+                try { _friendServiceForLb?.EndCurrentGameLbPrefetch(); }
+                catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"LB prefetch cleanup: {ex.Message}"); }
                 timeEndPeriod(1);
                 System.Diagnostics.Trace.WriteLine("Emulation loop ended");
             }
@@ -6251,11 +6255,47 @@ namespace Emutastic.Views
                 // Subscribe to events — marshal to UI thread for toast display
                 _raClient.AchievementTriggered += info =>
                 {
-                    Dispatcher.BeginInvoke(() => ShowAchievementToast(info.Title, info.Description, info.Points));
+                    Dispatcher.BeginInvoke(() =>
+                    {
+                        ShowAchievementToast(info.Title, info.Description, info.Points);
+                        try
+                        {
+                            var fcfg = App.Configuration?.GetFriendsConfiguration();
+                            if (fcfg == null)
+                            {
+                                Services.RaLog.Write($"[AchSound] FriendsConfig null — sound skipped");
+                                return;
+                            }
+                            double sinceLast = (DateTime.UtcNow - _lastAchievementSoundUtc).TotalSeconds;
+                            Services.RaLog.Write($"[AchSound] ach=[{info.Title}] soundEnabled={fcfg.LbToastSoundEnabled} cooldownSec={fcfg.LbToastCooldownSec} sinceLastSec={sinceLast:F1} volume={fcfg.LbToastSoundVolume}");
+                            if (fcfg.LbToastSoundEnabled
+                                && sinceLast >= fcfg.LbToastCooldownSec)
+                            {
+                                Services.FriendNotificationSound.Play(App.Configuration);
+                                _lastAchievementSoundUtc = DateTime.UtcNow;
+                                Services.RaLog.Write($"[AchSound] Play() invoked");
+                            }
+                            else
+                            {
+                                Services.RaLog.Write($"[AchSound] suppressed (enabled={fcfg.LbToastSoundEnabled} cooldownActive={sinceLast < fcfg.LbToastCooldownSec})");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Services.RaLog.Write($"[AchSound] EX: {ex.GetType().Name} {ex.Message}");
+                        }
+                    });
                 };
                 _raClient.GameCompleted += () =>
                 {
                     Dispatcher.BeginInvoke(() => ShowAchievementToast("Mastery!", "All achievements earned!", 0));
+                };
+                // Phase 6b.1: leaderboard SCOREBOARD post-submission. The
+                // decision (triumph vs proximity vs neither) runs against
+                // the FriendService's pre-fetched per-game friend ranks.
+                _raClient.LeaderboardScoreboardReceived += info =>
+                {
+                    Dispatcher.BeginInvoke(() => HandleLbScoreboard(info));
                 };
 
                 // Try token login first, fall back to password login
@@ -6383,6 +6423,17 @@ namespace Emutastic.Views
                 {
                     _transientMsg = $"RetroAchievements: {gameTitle}";
                 });
+
+                // Phase 6b.1: kick the friend-rank pre-fetch for this
+                // game's LBs. Fire-and-forget; the rcheevos SCOREBOARD
+                // handler will consult AllFriendLbRanks on submission.
+                // Cancelled on game close via EndCurrentGameLbPrefetch
+                // from the cleanup path.
+                if (raGameId > 0)
+                {
+                    try { GetFriendService()?.StartFriendLbPrefetch(raGameId); }
+                    catch (Exception lbex) { Emutastic.Services.RaLog.Write($"[LbPrefetch] kick EX: {lbex.Message}"); }
+                }
             }
             catch (DllNotFoundException)
             {
@@ -6461,6 +6512,180 @@ namespace Emutastic.Views
         }
 
         private DispatcherTimer? _achievementToastTimer;
+
+        // ── Phase 6b.1: leaderboard SCOREBOARD handling ──────────────────
+        // Per-LB cooldown to prevent burst spam in shmup/pinball sessions
+        // where the user submits many scores in close succession. Each LB
+        // can toast at most once per LbToastCooldownSec window.
+        private readonly System.Collections.Generic.Dictionary<int, DateTimeOffset> _lbToastCooldown = new();
+        // Cooldown for the achievement-unlock chime. Shares
+        // LbToastCooldownSec so rapid unlock chains don't pile up.
+        private DateTime _lastAchievementSoundUtc = DateTime.MinValue;
+        private FriendService? _friendServiceForLb;
+
+        // Lazy fetch of FriendService — same lazy ctor pattern MainWindow
+        // uses; lets us read friend list + pre-fetched LB ranks without
+        // pulling it through every layer of EmulatorWindow construction.
+        private FriendService? GetFriendService()
+        {
+            if (_friendServiceForLb != null) return _friendServiceForLb;
+            try
+            {
+                if (App.Configuration != null && _db != null)
+                {
+                    _friendServiceForLb = new FriendService(App.Configuration, _db,
+                        new RetroAchievementsService(App.Configuration, _db));
+                }
+            }
+            catch { /* leave null — handler short-circuits */ }
+            return _friendServiceForLb;
+        }
+
+        private void HandleLbScoreboard(RetroAchievementsClient.LbScoreboardInfo info)
+        {
+            try
+            {
+                var cfg = App.Configuration?.GetFriendsConfiguration();
+                if (cfg == null) return;
+                if (!cfg.LbToastWhenYouBeat && !cfg.LbToastForProximity) return;
+
+                // Guard against rcheevos failure submissions (info.NewRank == 0
+                // means the submit didn't land server-side). Without this,
+                // "newRank <= friendRank" trivially fires for every friend.
+                if (info.NewRank == 0)
+                {
+                    RaLog.Write($"[LbToast] new_rank=0 (failed submit?) — skipping");
+                    return;
+                }
+
+                // Cooldown gate + opportunistic prune of stale entries.
+                var now = DateTimeOffset.UtcNow;
+                var cooldownTtl = TimeSpan.FromSeconds(cfg.LbToastCooldownSec);
+                var staleThreshold = now - TimeSpan.FromSeconds(cfg.LbToastCooldownSec * 2);
+                var stale = new System.Collections.Generic.List<int>();
+                foreach (var kv in _lbToastCooldown)
+                    if (kv.Value < staleThreshold) stale.Add(kv.Key);
+                foreach (var k in stale) _lbToastCooldown.Remove(k);
+                if (_lbToastCooldown.TryGetValue(info.LeaderboardId, out var lastFired)
+                    && (now - lastFired) < cooldownTtl)
+                {
+                    RaLog.Write($"[LbToast] cooldown active for lb={info.LeaderboardId}, suppressing");
+                    return;
+                }
+
+                var svc = GetFriendService();
+                var friendRanks = svc?.AllFriendLbRanks;
+                if (svc == null || friendRanks == null || friendRanks.Count == 0)
+                {
+                    RaLog.Write($"[LbToast] no friend ranks cached — skipping (svc={(svc == null ? "null" : "ok")} ranks={friendRanks?.Count ?? 0})");
+                    return;
+                }
+
+                // Game title + console — pull from the current game record.
+                string gameTitle = _game?.Title ?? "";
+                string consoleName = _game?.Console ?? "";
+
+                // Triumph requires knowing my OLD rank too — "did I cross
+                // the friend?" is `oldRank > friendRank && newRank <= friendRank`.
+                // The pre-fetch caches both my ranks and friends' ranks
+                // at game-load; without it we'd false-positive on every
+                // submission where I'm above a friend who was ALWAYS
+                // below me.
+                var myOld = svc.GetMyLbScore(info.LeaderboardId);
+                int myOldRank = myOld?.Rank ?? int.MaxValue; // no prior entry = effectively last
+
+                // Walk all friends; collect candidates I just CROSSED
+                // (triumph) and candidates I'm close behind (proximity).
+                var triumphs = new System.Collections.Generic.List<(string user, FriendLbScore prev)>();
+                var nearMisses = new System.Collections.Generic.List<(string user, FriendLbScore other, long gap)>();
+                foreach (var kv in friendRanks)
+                {
+                    int friendUid = kv.Key;
+                    var byLb = kv.Value;
+                    if (!byLb.TryGetValue(info.LeaderboardId, out var fScore)) continue;
+                    if (fScore.Rank <= 0) continue;
+                    string fUser = svc.Friends.FirstOrDefault(f => f.UserId == friendUid)?.Username ?? "?";
+
+                    // Triumph: I was below the friend (myOldRank > fScore.Rank)
+                    // AND I'm now at or above (info.NewRank <= fScore.Rank).
+                    if (cfg.LbToastWhenYouBeat
+                        && myOldRank > fScore.Rank
+                        && info.NewRank <= fScore.Rank)
+                    {
+                        triumphs.Add((fUser, fScore));
+                    }
+
+                    // Proximity: I'm now BEHIND the friend by a small rank
+                    // gap. Phase 6b.1 uses rank gap (direction-agnostic);
+                    // score-percentage proximity needs lower_is_better
+                    // (info.LowerIsBetter now reads correctly after the
+                    // struct-layout fix; revisit if score-pct UX is
+                    // wanted). The configured pct threshold is reused as
+                    // a max rank gap for now — "within 5 ranks" maps
+                    // cleanly to "within 5%" semantics on small LBs.
+                    int rankGapThreshold = Math.Max(1, cfg.LbToastProximityPct);
+                    if (cfg.LbToastForProximity
+                        && fScore.Rank < info.NewRank
+                        && (info.NewRank - fScore.Rank) <= rankGapThreshold)
+                    {
+                        long rankGap = info.NewRank - fScore.Rank;
+                        nearMisses.Add((fUser, fScore, rankGap));
+                    }
+                }
+
+                // Update my cached rank after the comparison so the next
+                // submission compares against the post-submission baseline.
+                svc.UpdateMyLbRank(info.LeaderboardId, info.NewRank, info.SubmittedScore);
+
+                if (triumphs.Count == 0 && nearMisses.Count == 0)
+                {
+                    RaLog.Write($"[LbToast] no candidates for lb={info.LeaderboardId} (rank=#{info.NewRank})");
+                    return;
+                }
+
+                _lbToastCooldown[info.LeaderboardId] = now;
+
+                // Defend the title string if rcheevos somehow gave us an
+                // empty one (the event ALWAYS includes the leaderboard
+                // pointer per rc_client semantics, but the IntPtr.Zero
+                // guard at marshal time can produce ""). Better to ship
+                // "this LB" than a dangling preposition.
+                string lbTitleDisplay = string.IsNullOrWhiteSpace(info.LbTitle)
+                    ? "this leaderboard" : info.LbTitle;
+
+                if (triumphs.Count > 0)
+                {
+                    var first = triumphs[0];
+                    // Centralized copy via FriendsCopy. The multi-friend
+                    // case falls outside the helper's per-friend shape;
+                    // build inline with "and N others" suffix.
+                    string headline, subline;
+                    if (triumphs.Count == 1)
+                        (headline, subline) = FriendsCopy.LbTriumphYou(first.user, lbTitleDisplay, gameTitle, consoleName);
+                    else
+                    {
+                        headline = $"You beat {first.user} and {triumphs.Count - 1} other{(triumphs.Count > 2 ? "s" : "")} on {lbTitleDisplay}";
+                        subline = string.IsNullOrEmpty(consoleName) ? gameTitle : $"{gameTitle} · {consoleName}";
+                    }
+                    RaLog.Write($"[LbToast] TRIUMPH lb={info.LeaderboardId} title=[{lbTitleDisplay}] passed={triumphs.Count}");
+                    ShowAchievementToast(headline, subline, 0);
+                    FriendNotificationSound.Play(App.Configuration);
+                }
+                else if (nearMisses.Count > 0)
+                {
+                    var closest = nearMisses.OrderBy(n => n.gap).First();
+                    string gapDesc = $"{closest.gap} rank{(closest.gap == 1 ? "" : "s")}";
+                    var (headline, subline) = FriendsCopy.LbProximity(closest.user, gapDesc, lbTitleDisplay, gameTitle, consoleName);
+                    RaLog.Write($"[LbToast] PROXIMITY lb={info.LeaderboardId} title=[{lbTitleDisplay}] closest={closest.user} gap={closest.gap}");
+                    ShowAchievementToast(headline, subline, 0);
+                    // No sound on proximity — informational, not celebratory.
+                }
+            }
+            catch (Exception ex)
+            {
+                RaLog.Write($"[LbToast] HandleLbScoreboard EX: {ex.GetType().Name} {ex.Message}");
+            }
+        }
 
         private void ShowAchievementToast(string title, string description, uint points)
         {
@@ -6832,6 +7057,68 @@ namespace Emutastic.Views
         private void OverlayAddCheat_Click(object sender, RoutedEventArgs e)
         {
             OpenCheatEditor(-1);
+        }
+
+        private void OverlayImportCheats_Click(object sender, RoutedEventArgs e)
+        {
+            if (_game == null) return;
+
+            if (!Services.CheatDatabaseService.IsInstalled())
+            {
+                MessageBox.Show(this,
+                    "The cheats database hasn't been downloaded yet.\n\n" +
+                    "Open Preferences → Cores / Extras and click Download next to \"Cheats Database\".",
+                    "No Database",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            var result = Services.CheatDatabaseService.LookupForGame(_game);
+            if (result == null)
+            {
+                MessageBox.Show(this,
+                    "No cheats found in the database for this game.\n\n" +
+                    "The database is matched by ROM filename, so renames or " +
+                    "non-standard filenames may miss.",
+                    "No Cheats Available",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            // Dedupe against what's already loaded (matched by code — titles
+            // can differ between user-entered and DB versions).
+            var existingCodes = new System.Collections.Generic.HashSet<string>(
+                _cheats.Select(c => c.Code), System.StringComparer.OrdinalIgnoreCase);
+            int added = 0;
+            foreach (var c in result.Cheats)
+            {
+                if (existingCodes.Contains(c.Code)) continue;
+                _cheats.Add(c);
+                added++;
+            }
+
+            try { Services.CheatService.Save(_game, _cheats); }
+            catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Cheat save failed: {ex.Message}"); }
+
+            // Live-apply via the emu-thread pending flag. Imported cheats
+            // arrive disabled-by-default, so this is effectively a no-op
+            // until the user toggles them — but we still queue the apply
+            // so reset semantics are consistent with Add/Edit.
+            lock (_cheatsApplyLock)
+            {
+                _cheatsApplyPayload = new System.Collections.Generic.List<Models.Cheat>(_cheats);
+                _cheatsApplyPending = true;
+            }
+
+            RefreshCheatsList();
+
+            string msg = added > 0
+                ? $"Imported {added} cheat(s).\nAll are disabled by default — toggle the ones you want."
+                : "All matching cheats from the database are already in your list.";
+            MessageBox.Show(this, msg, "Cheats Imported",
+                MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
         private void OpenCheatEditor(int existingIndex)

@@ -395,6 +395,10 @@
                                         Content="Add Cheat…"
                                         Style="{StaticResource OverlayMenuItemStyle}"
                                         Click="OverlayAddCheat_Click"/>
+                                <Button x:Name="OverlayImportCheatsBtn"
+                                        Content="Import from Database…"
+                                        Style="{StaticResource OverlayMenuItemStyle}"
+                                        Click="OverlayImportCheats_Click"/>
                                 <TextBlock x:Name="CheatsUnsupportedHint"
                                            Visibility="Collapsed"
                                            Text="This core does not support cheats."

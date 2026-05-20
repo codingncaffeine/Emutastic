@@ -1,9 +1,11 @@
 ﻿using Microsoft.Win32;
+using Emutastic.Configuration;
 using Emutastic.Models;
 using Emutastic.Services;
 using Emutastic.ViewModels;
 using Emutastic.Views;
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
@@ -11,9 +13,12 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using System.Runtime.InteropServices;
 
 namespace Emutastic
@@ -26,6 +31,16 @@ namespace Emutastic
         private ArtworkService _artwork = null!;
         private ArtworkFetchService _artworkFetch = null!;
         private RaDataService? _raData;
+        private FriendService? _friendService;
+        // Friend Detail Windows are non-modal and multiple can be open
+        // simultaneously, but only ONE per friend — clicking a friend
+        // who already has a window open focuses the existing one
+        // instead of opening a duplicate. Keyed by FriendEntry.UserId.
+        private readonly Dictionary<int, Views.FriendDetailWindow> _friendDetailWindows = new();
+        // Brief-card popup follows the GameDetail dismiss pattern from
+        // feedback_game_detail_dismiss.md — closes via OnPreviewMouseDown
+        // on MainWindow alongside _openDetailWindow.
+        private Views.FriendBriefCard? _openFriendBrief;
         private System.Threading.CancellationTokenSource? _raTabCts;
         private ControllerManager? _controllerManager;
         private CoreManager _coreManager = null!;
@@ -806,7 +821,33 @@ namespace Emutastic
         protected override void OnPreviewMouseDown(MouseButtonEventArgs e)
         {
             _openDetailWindow?.Close();
+            // Friend brief card uses the same dismiss model — closes on
+            // any click that lands outside it. The brief card itself
+            // marks events as handled when it wants to stay open, so
+            // closing here is unconditional.
+            try { _openFriendBrief?.CloseBrief(); } catch { }
+            _openFriendBrief = null;
             base.OnPreviewMouseDown(e);
+        }
+
+        // Releases the FriendService's DispatcherTimer reference on app
+        // close. Without this the polling timer keeps a Dispatcher
+        // root and the service (plus its event-subscription chain back
+        // to this window) doesn't get GC'd.
+        protected override void OnClosed(EventArgs e)
+        {
+            try
+            {
+                if (_friendService != null)
+                {
+                    _friendService.FriendListChanged -= OnFriendsChanged;
+                    _friendService.ActivityReceived  -= OnFriendActivity;
+                    _friendService.FriendLbImproved  -= OnFriendLbImproved;
+                    _friendService.StopPolling();
+                }
+            }
+            catch { /* shutdown path */ }
+            base.OnClosed(e);
         }
 
         // ── Drag and drop ──
@@ -2303,6 +2344,20 @@ namespace Emutastic
             return _raData!;
         }
 
+        // Lazy-constructed Friends service. Phase 2+ wiring binds the
+        // Friends sub-tab to its FriendListChanged event; Phase 3 starts
+        // the DispatcherTimer poll here.
+        private FriendService GetOrCreateFriendService()
+        {
+            if (_friendService == null && App.Configuration != null)
+            {
+                _friendService = new FriendService(
+                    App.Configuration, _db,
+                    new RetroAchievementsService(App.Configuration, _db));
+            }
+            return _friendService!;
+        }
+
         private void PopulateAchievementsView()
         {
             var ra = GetOrCreateRaDataService();
@@ -2310,19 +2365,44 @@ namespace Emutastic
             bool keyOk = ra.HasApiKey();
 
             // No username / no Web API key → friendly empty state, hide the
-            // panels that depend on per-user data.
+            // panels that depend on per-user data. Friends sub-tab gets its
+            // own placeholder (same condition) since lookups need the key.
             if (string.IsNullOrWhiteSpace(user) || !keyOk)
             {
                 RAUnconfiguredCard.Visibility = Visibility.Visible;
                 RAProfileCard.Visibility = Visibility.Collapsed;
                 RARecentCard.Visibility = Visibility.Collapsed;
+                FriendsUnconfiguredCard.Visibility = Visibility.Visible;
+                FriendsListCard.Visibility = Visibility.Collapsed;
+                FriendsAddButton.IsEnabled = false;
                 return;
             }
 
             RAUnconfiguredCard.Visibility = Visibility.Collapsed;
             RAProfileCard.Visibility = Visibility.Visible;
             RARecentCard.Visibility = Visibility.Visible;
+            FriendsUnconfiguredCard.Visibility = Visibility.Collapsed;
+            FriendsListCard.Visibility = Visibility.Visible;
+            FriendsAddButton.IsEnabled = true;
 
+            // Initial Friends-tab paint + subscribe to state change events.
+            // RefreshFriendsView reads the local list synchronously from
+            // config + cache; no network here.
+            RefreshFriendsView();
+            RefreshFriendsActivity();
+            var friends = GetOrCreateFriendService();
+            friends.FriendListChanged -= OnFriendsChanged;
+            friends.FriendListChanged += OnFriendsChanged;
+            friends.ActivityReceived  -= OnFriendActivity;
+            friends.ActivityReceived  += OnFriendActivity;
+            friends.FriendLbImproved  -= OnFriendLbImproved;
+            friends.FriendLbImproved  += OnFriendLbImproved;
+            // Polling starts here (idempotent). DispatcherTimer lives on
+            // the UI thread; the Tick handler offloads network work via
+            // Task.Run and marshals state back through FriendListChanged.
+            friends.StartPolling();
+
+            // Restore Expander state from config (persisted across sessions).
             // Paint cached state immediately. No network here — fast path.
             // PeekCachedWithMeta combines the row read + JSON parse into a
             // single DB hit (we need fetched_at later for the avatar cache-
@@ -2332,6 +2412,12 @@ namespace Emutastic
             var cachedRecent  = ra.PeekCached<List<Models.RAUserRecentAchievement>>($"user_recent:v2:user={user}");
             RenderProfileCard(cachedProfile, cachedPoints);
             RenderRecentUnlocks(cachedRecent);
+
+            // Cold-paint the two new top-row panels from the cached spotlight
+            // snapshot (already materialized in RaDataService — no joins).
+            var cachedSpotlightTopRow = ra.PeekCached<Models.RALibrarySpotlight>($"library_spotlight:v2:user={user}");
+            RenderInProgressTop5(cachedSpotlightTopRow);
+            RenderRecentlyPlayedTop5(cachedSpotlightTopRow);
 
             // Cancel any prior in-flight fetch and kick a fresh refresh.
             // Dispose the previous CTS so its callback list is released —
@@ -2391,9 +2477,16 @@ namespace Emutastic
                     _ = Dispatcher.BeginInvoke(new Action(() => RenderTrophyCase(awards)));
 
                     // Library Spotlight (15-min TTL, materialized in service).
+                    // Same snapshot feeds the new top-row Closest-to-Mastering
+                    // + Recently-Played panels and the lower spotlight strip.
                     var spotlight = await ra.GetLibrarySpotlightAsync(ct).ConfigureAwait(false);
                     if (ct.IsCancellationRequested) return;
-                    _ = Dispatcher.BeginInvoke(new Action(() => RenderLibrarySpotlight(spotlight)));
+                    _ = Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        RenderInProgressTop5(spotlight);
+                        RenderRecentlyPlayedTop5(spotlight);
+                        RenderLibrarySpotlight(spotlight);
+                    }));
 
                     // Featured / Discovery + heatmap (parallel fan — none
                     // share per-user state; heatmap's typical cost is
@@ -2485,6 +2578,156 @@ namespace Emutastic
                     System.Diagnostics.Trace.WriteLine($"[RA] render avatar failed: {ex.Message}");
                 }
             }
+        }
+
+        // ── Compact top-row: Closest to Mastering ──────────────────────────
+        // First 8 in-progress games sorted by smallest remaining-achievement
+        // gap (the same order RaDataService computes for the spotlight).
+        private void RenderInProgressTop5(Models.RALibrarySpotlight? spotlight)
+        {
+            RAInProgressItems.Items.Clear();
+            var items = spotlight?.ClosestToMastering;
+            if (items == null || items.Count == 0)
+            {
+                RAInProgressEmpty.Visibility = Visibility.Visible;
+                return;
+            }
+            RAInProgressEmpty.Visibility = Visibility.Collapsed;
+
+            var ctx = BuildMiniRowContext();
+            int rendered = 0;
+            foreach (var g in items)
+            {
+                RAInProgressItems.Items.Add(BuildSpotlightMiniRow(g, ctx));
+                if (++rendered >= 8) break;
+            }
+        }
+
+        // ── Compact top-row: Recently Played ───────────────────────────────
+        // The RA "recently played" list (most-recent-first), capped at 8.
+        private void RenderRecentlyPlayedTop5(Models.RALibrarySpotlight? spotlight)
+        {
+            RARecentPlayedItems.Items.Clear();
+            var items = spotlight?.ContinueWhereLeftOff;
+            if (items == null || items.Count == 0)
+            {
+                RARecentPlayedEmpty.Visibility = Visibility.Visible;
+                return;
+            }
+            RARecentPlayedEmpty.Visibility = Visibility.Collapsed;
+
+            var ctx = BuildMiniRowContext();
+            int rendered = 0;
+            foreach (var g in items)
+            {
+                RARecentPlayedItems.Items.Add(BuildSpotlightMiniRow(g, ctx));
+                if (++rendered >= 8) break;
+            }
+        }
+
+        private RecentRowContext BuildMiniRowContext() => new RecentRowContext
+        {
+            Font          = (System.Windows.Media.FontFamily)FindResource("PrimaryFont"),
+            TextPrimary   = (System.Windows.Media.Brush)FindResource("TextPrimaryBrush"),
+            TextSecondary = (System.Windows.Media.Brush)FindResource("TextSecondaryBrush"),
+            TextMuted     = (System.Windows.Media.Brush)FindResource("TextMutedBrush"),
+            BgTertiary    = (System.Windows.Media.Brush)FindResource("BgTertiaryBrush"),
+            Accent        = (System.Windows.Media.Brush)FindResource("AccentBrush"),
+        };
+
+        // Single mini-row for the top-row spotlight panels. 36px icon +
+        // title/subtitle stack + percentage chip. Matches the visual rhythm
+        // of BuildRecentRow so the three top-row cards read as a family.
+        private static UIElement BuildSpotlightMiniRow(Models.RASpotlightGame g, RecentRowContext ctx)
+        {
+            var row = new Grid { Margin = new Thickness(12, 8, 12, 8) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            // Game icon (36px square, rounded). Falls back to grey square
+            // when no RA icon path is available — never throws on a bad URL.
+            var iconBorder = new Border
+            {
+                Width = 36, Height = 36, CornerRadius = new CornerRadius(4), ClipToBounds = true,
+                Background = ctx.BgTertiary,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            if (!string.IsNullOrEmpty(g.ImageIcon))
+            {
+                try
+                {
+                    var bmp = new System.Windows.Media.Imaging.BitmapImage();
+                    bmp.BeginInit();
+                    bmp.UriSource = new Uri($"https://media.retroachievements.org{g.ImageIcon}");
+                    bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                    bmp.EndInit();
+                    iconBorder.Child = new System.Windows.Controls.Image
+                    {
+                        Source = bmp,
+                        Stretch = System.Windows.Media.Stretch.UniformToFill,
+                    };
+                }
+                catch { }
+            }
+            Grid.SetColumn(iconBorder, 0);
+            row.Children.Add(iconBorder);
+
+            // Title + subtitle
+            var stack = new StackPanel
+            {
+                Margin = new Thickness(10, 0, 6, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            stack.Children.Add(new TextBlock
+            {
+                Text = g.Title,
+                FontFamily = ctx.Font,
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = ctx.TextPrimary,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            });
+            stack.Children.Add(new TextBlock
+            {
+                Text = g.Subtitle,
+                FontFamily = ctx.Font,
+                FontSize = 11,
+                Foreground = ctx.TextMuted,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Margin = new Thickness(0, 2, 0, 0),
+            });
+            Grid.SetColumn(stack, 1);
+            row.Children.Add(stack);
+
+            // Percentage chip (right-aligned). MaxPossible can legitimately
+            // be 0 on the "Recently Played" path for new RA-tagged games
+            // before the user unlocks anything — show "—" rather than NaN.
+            string pctText = "—";
+            if (g.MaxPossible > 0)
+            {
+                int pct = (int)Math.Round(100.0 * g.NumAchieved / g.MaxPossible);
+                pctText = $"{pct}%";
+            }
+            var pctBorder = new Border
+            {
+                CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(7, 2, 7, 2),
+                Background = ctx.BgTertiary,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            pctBorder.Child = new TextBlock
+            {
+                Text = pctText,
+                FontFamily = ctx.Font,
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = ctx.TextSecondary,
+            };
+            Grid.SetColumn(pctBorder, 2);
+            row.Children.Add(pctBorder);
+
+            return row;
         }
 
         private void RenderRecentUnlocks(List<Models.RAUserRecentAchievement>? unlocks)
@@ -2835,9 +3078,10 @@ namespace Emutastic
                 TextSecondary = textSecondary, TextMuted = textMuted,
             };
 
-            AppendSpotlightGamePanel("CLOSEST TO MASTERING", spotlight.ClosestToMastering, ctx);
+            // Closest-to-Mastering and Continue-Where-Left-Off moved into the
+            // top-row compact panels (RenderInProgressTop5 + RenderRecentlyPlayedTop5).
+            // The lower spotlight strip keeps the other three angles.
             AppendSpotlightQuickWinsPanel("QUICK WINS", spotlight.QuickWins, ctx);
-            AppendSpotlightGamePanel("CONTINUE WHERE YOU LEFT OFF", spotlight.ContinueWhereLeftOff, ctx);
             AppendSpotlightGamePanel("OWNED BUT NEVER STARTED", spotlight.NeverStarted, ctx);
             AppendSpotlightGamePanel("WISHLIST YOU OWN", spotlight.WishlistOwned, ctx);
 
@@ -3273,6 +3517,709 @@ namespace Emutastic
             // emulator directly — that'd skip console-specific prep.
             if (sender is Button btn && btn.Tag is int localId && localId > 0)
                 OpenLocalGameDetail(localId);
+        }
+
+        // ── Achievements: Friends sub-tab ─────────────────────────────────
+
+        // Debounces RefreshFriendsView calls during RefreshAllAsync —
+        // FriendService fires FriendListChanged per friend per cycle,
+        // which would rebuild the visual tree N times for a single
+        // poll burst. Coalesce to one refresh after 150ms of quiet.
+        private DispatcherTimer? _friendsRefreshDebounce;
+
+        private void OnFriendsChanged(object? sender, EventArgs e)
+        {
+            // FriendService can fire from any thread; marshal to UI.
+            // Guard against shutdown — BeginInvoke after dispatcher
+            // shutdown throws TaskCanceledException. Matches the pattern
+            // at MainWindow:268 / :279 elsewhere in the file.
+            if (Dispatcher.HasShutdownStarted) return;
+            try
+            {
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (_friendsRefreshDebounce == null)
+                    {
+                        _friendsRefreshDebounce = new DispatcherTimer
+                        {
+                            Interval = TimeSpan.FromMilliseconds(150),
+                        };
+                        _friendsRefreshDebounce.Tick += (_, __) =>
+                        {
+                            _friendsRefreshDebounce!.Stop();
+                            RefreshFriendsView();
+                            RefreshFriendsActivity();
+                        };
+                    }
+                    _friendsRefreshDebounce.Stop();
+                    _friendsRefreshDebounce.Start();
+                }));
+            }
+            catch { }
+        }
+
+        // Phase 6b.2 — "friend beat your score" toast from polling diff.
+        // Fires once per friend per poll cycle that produced improvements.
+        // CRITICAL: this event is raised from FriendService's poll thread
+        // (NOT the UI thread), so we MUST marshal to the UI thread before
+        // touching ToastStack or any other WPF surface. async/await would
+        // resume on whatever SyncContext was captured at the entry — on
+        // a poll thread that's the ThreadPool, NOT WPF's dispatcher.
+        // Wrapping the whole handler in Dispatcher.BeginInvoke is the
+        // only safe pattern; the existing OnFriendActivity does this too.
+        private void OnFriendLbImproved(object? sender, FriendService.FriendLbImprovementEvent ev)
+        {
+            if (Dispatcher.HasShutdownStarted) return;
+            try { Dispatcher.BeginInvoke(new Action(async () => await HandleFriendLbImprovedOnUi(ev))); }
+            catch { }
+        }
+
+        // Per-game cache of MY OWN LB ranks (rank-by-LB-id). 30-minute TTL
+        // — long enough to avoid 20-friends-in-one-cycle pile-up of
+        // identical fetches, short enough that I see my own progress
+        // reflected after I play between sessions.
+        private readonly Dictionary<int, (Dictionary<int, int> ranks, DateTime fetchedUtc)> _myLbRanksByGame = new();
+        // Sound cooldown across all "friend beat you" toasts (any LB).
+        // Without this, a friend who improves on 10 LBs in one cycle
+        // would play the chime 10 times.
+        private DateTime _lastFriendBeatSoundUtc = DateTime.MinValue;
+
+        private async System.Threading.Tasks.Task HandleFriendLbImprovedOnUi(FriendService.FriendLbImprovementEvent ev)
+        {
+            try
+            {
+                var cfg = App.Configuration?.GetFriendsConfiguration();
+                if (cfg == null || !cfg.LbToastWhenBeaten) return;
+
+                string? myUser = null;
+                try { myUser = App.Configuration?.GetRetroAchievementsConfiguration()?.Username; }
+                catch { }
+                if (string.IsNullOrWhiteSpace(myUser)) return;
+
+                // Use cached my-ranks if fresh (30min TTL). Without
+                // caching, 20 friends improving on the same game in one
+                // poll cycle would issue 20 identical HTTP calls.
+                Dictionary<int, int>? myRankByLb = null;
+                if (_myLbRanksByGame.TryGetValue(ev.GameId, out var cached)
+                    && (DateTime.UtcNow - cached.fetchedUtc) < TimeSpan.FromMinutes(30))
+                {
+                    myRankByLb = cached.ranks;
+                }
+                if (myRankByLb == null)
+                {
+                    var raSvc = new Services.RetroAchievementsService(App.Configuration!, _db);
+                    try
+                    {
+                        var myBoards = await raSvc.GetUserGameLeaderboardsAsync(myUser, ev.GameId).ConfigureAwait(true);
+                        myRankByLb = new Dictionary<int, int>(myBoards.Count);
+                        foreach (var b in myBoards)
+                        {
+                            if (b.UserEntry != null && b.UserEntry.Rank > 0)
+                                myRankByLb[b.Id] = b.UserEntry.Rank;
+                        }
+                        _myLbRanksByGame[ev.GameId] = (myRankByLb, DateTime.UtcNow);
+                    }
+                    catch (Exception fetchEx)
+                    {
+                        Services.RaLog.Write($"[Phase6b.2] my LB fetch failed game={ev.GameId}: {fetchEx.Message}");
+                        return;
+                    }
+                }
+
+                // For each improvement: did the friend's new rank cross
+                // mine? Triggers when their new rank <= my rank AND
+                // their old rank > my rank (or they had no prior entry).
+                var passes = new List<(string lbTitle, int newRank, int myRank)>();
+                foreach (var imp in ev.Improvements)
+                {
+                    if (!myRankByLb.TryGetValue(imp.LeaderboardId, out int myRank)) continue;
+                    // Friend now at or above my rank, was below before.
+                    if (imp.NewRank <= myRank && imp.OldRank > myRank)
+                    {
+                        // Use the LB id as a fallback title for now — the
+                        // polling endpoint doesn't include LB titles
+                        // per-entry. Phase 6b.3 polish: fetch
+                        // GetGameLeaderboards once per game and cache
+                        // the title map.
+                        passes.Add(($"LB #{imp.LeaderboardId}", imp.NewRank, myRank));
+                    }
+                }
+
+                if (passes.Count == 0) return;
+                var top = passes[0];
+                Services.RaLog.Write($"[LbToast] FRIEND BEAT ME friend={ev.FriendUsername} lb={top.lbTitle} their=#{top.newRank} mine=#{top.myRank} (and {passes.Count - 1} other(s))");
+
+                // Surface as a toast in the main toast stack (Phase 4
+                // surface). Click would deep-link to the friend's LB
+                // tab — see ShowFriendLbToast.
+                ShowFriendLbBeatYouToast(ev.FriendUserId, ev.FriendUsername, top.lbTitle, ev.GameId, passes.Count);
+
+                // Sound cooldown: a single chime per N seconds across all
+                // friends. Prevents the 20-friends-improving-at-once
+                // pile-up. Visual toasts are NOT cooldown-gated here —
+                // they get capped by the toast stack's 4-visible limit.
+                if (cfg.LbToastSoundEnabled
+                    && (DateTime.UtcNow - _lastFriendBeatSoundUtc).TotalSeconds >= cfg.LbToastCooldownSec)
+                {
+                    Services.FriendNotificationSound.Play(App.Configuration);
+                    _lastFriendBeatSoundUtc = DateTime.UtcNow;
+                }
+            }
+            catch (Exception ex)
+            {
+                Services.RaLog.Write($"[Phase6b.2] HandleFriendLbImprovedOnUi EX: {ex.GetType().Name} {ex.Message}");
+            }
+        }
+
+        private void ShowFriendLbBeatYouToast(int friendUserId, string friendName, string lbTitle, int raGameId, int passCount)
+        {
+            var toast = new Border
+            {
+                Background = (Brush)FindResource("BgSecondaryBrush"),
+                BorderBrush = (Brush)FindResource("AccentBrush"),
+                BorderThickness = new Thickness(0, 0, 0, 2),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(14, 11, 14, 11),
+                Margin = new Thickness(0, 0, 0, 8),
+                MinWidth = 280,
+                MaxWidth = 360,
+                Cursor = System.Windows.Input.Cursors.Hand,
+                Tag = (friendUserId, raGameId),
+            };
+
+            var stack = new StackPanel();
+            var headline = new TextBlock
+            {
+                FontFamily = (FontFamily)FindResource("PrimaryFont"),
+                FontSize = 13,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = (Brush)FindResource("TextPrimaryBrush"),
+                TextWrapping = TextWrapping.Wrap,
+            };
+            headline.Inlines.Add(new Run(friendName) { FontWeight = FontWeights.Bold });
+            headline.Inlines.Add($" just beat your score on {lbTitle}");
+            stack.Children.Add(headline);
+            if (passCount > 1)
+            {
+                stack.Children.Add(new TextBlock
+                {
+                    Text = $"+{passCount - 1} other leaderboard{(passCount > 2 ? "s" : "")} as well",
+                    FontFamily = (FontFamily)FindResource("PrimaryFont"),
+                    FontSize = 10,
+                    Foreground = (Brush)FindResource("TextMutedBrush"),
+                    Margin = new Thickness(0, 3, 0, 0),
+                });
+            }
+            toast.Child = stack;
+
+            toast.MouseLeftButtonUp += (s, e) =>
+            {
+                if (s is Border b && b.Tag is ValueTuple<int, int> tag)
+                {
+                    OpenFriendDetail(tag.Item1);
+                    // Phase 5/6 already set up the LB tab + game picker.
+                    // Pre-selection requires NavigateToLeaderboard which
+                    // is the deferred Phase 6b polish — for now opening
+                    // the detail window is the click destination.
+                }
+                ToastStack.Children.Remove(toast);
+                e.Handled = true;
+            };
+
+            ToastStack.Children.Insert(0, toast);
+            while (ToastStack.Children.Count > 4)
+                ToastStack.Children.RemoveAt(ToastStack.Children.Count - 1);
+
+            // 12s — longer than achievement toasts because LB events
+            // carry more weight and the user might be mid-game.
+            var dismissTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(12) };
+            dismissTimer.Tick += (_, __) =>
+            {
+                dismissTimer.Stop();
+                try { ToastStack.Children.Remove(toast); } catch { }
+            };
+            dismissTimer.Start();
+        }
+
+        private void OnFriendActivity(object? sender, FriendActivityEntry entry)
+        {
+            // Mirror OnFriendsChanged — same debounce coalesces both
+            // signal sources into a single visual refresh.
+            OnFriendsChanged(sender, EventArgs.Empty);
+
+            // Toast (gated by ToastOnUnlock setting). Marshal to UI
+            // thread; FriendService can fire from any thread.
+            if (Dispatcher.HasShutdownStarted) return;
+            try
+            {
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    var cfg = App.Configuration?.GetFriendsConfiguration();
+                    if (cfg == null || !cfg.ToastOnUnlock) return;
+                    if (cfg.HardcoreOnlyToast && entry.Unlock.HardcoreMode == 0) return;
+                    ShowFriendToast(entry);
+                }));
+            }
+            catch { }
+        }
+
+        private void ShowFriendToast(FriendActivityEntry entry)
+        {
+            var toast = new Border
+            {
+                Background = (Brush)FindResource("BgSecondaryBrush"),
+                BorderBrush = (Brush)FindResource("AccentBrush"),
+                BorderThickness = new Thickness(0, 0, 0, 2),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(12, 10, 12, 10),
+                Margin = new Thickness(0, 0, 0, 8),
+                MinWidth = 260,
+                MaxWidth = 340,
+                Cursor = System.Windows.Input.Cursors.Hand,
+                Tag = entry.FriendUserId,
+            };
+
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            var badge = new Border
+            {
+                Width = 36, Height = 36,
+                CornerRadius = new CornerRadius(4),
+                Background = (Brush)FindResource("BgTertiaryBrush"),
+                ClipToBounds = true,
+                VerticalAlignment = VerticalAlignment.Top,
+            };
+            if (!string.IsNullOrEmpty(entry.Unlock.BadgeName))
+            {
+                var img = new Image { Stretch = Stretch.UniformToFill };
+                badge.Child = img;
+                Emutastic.Services.FriendImageLoader.Load(
+                    img,
+                    $"https://media.retroachievements.org/Badge/{entry.Unlock.BadgeName}.png",
+                    "toast-badge",
+                    $"user={entry.FriendUsername}");
+            }
+            Grid.SetColumn(badge, 0);
+            grid.Children.Add(badge);
+
+            var stack = new StackPanel { Margin = new Thickness(10, 0, 0, 0) };
+            var line = new TextBlock
+            {
+                FontFamily = (FontFamily)FindResource("PrimaryFont"),
+                FontSize = 12,
+                Foreground = (Brush)FindResource("TextPrimaryBrush"),
+                TextWrapping = TextWrapping.Wrap,
+            };
+            line.Inlines.Add(new Run(entry.FriendUsername) { FontWeight = FontWeights.SemiBold });
+            line.Inlines.Add($" unlocked {(entry.Unlock.HardcoreMode != 0 ? "[HC] " : "")}{entry.Unlock.Title}");
+            stack.Children.Add(line);
+            stack.Children.Add(new TextBlock
+            {
+                Text = $"{entry.Unlock.GameTitle} · {entry.Unlock.Points} pts",
+                FontFamily = (FontFamily)FindResource("PrimaryFont"),
+                FontSize = 10,
+                Foreground = (Brush)FindResource("TextMutedBrush"),
+                Margin = new Thickness(0, 2, 0, 0),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            });
+            Grid.SetColumn(stack, 1);
+            grid.Children.Add(stack);
+
+            toast.Child = grid;
+
+            // Click → open the friend's detail window
+            toast.MouseLeftButtonUp += (s, _) =>
+            {
+                if (s is Border b && b.Tag is int uid) OpenFriendDetail(uid);
+                ToastStack.Children.Remove(toast);
+            };
+
+            // Insert at top of stack (newest-first); auto-dismiss after
+            // 6 seconds. Cap visible count at 4.
+            ToastStack.Children.Insert(0, toast);
+            while (ToastStack.Children.Count > 4)
+                ToastStack.Children.RemoveAt(ToastStack.Children.Count - 1);
+
+            var dismissTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(6) };
+            dismissTimer.Tick += (_, __) =>
+            {
+                dismissTimer.Stop();
+                try { ToastStack.Children.Remove(toast); } catch { }
+            };
+            dismissTimer.Start();
+        }
+
+        private void RefreshFriendsActivity()
+        {
+            var svc = GetOrCreateFriendService();
+            var activity = svc.RecentActivity;
+            FriendsActivityItems.Items.Clear();
+
+            if (activity.Count == 0)
+            {
+                FriendsActivityCard.Visibility = Visibility.Collapsed;
+                return;
+            }
+            FriendsActivityCard.Visibility = Visibility.Visible;
+
+            // Cap rendered rows at 8 — the feed itself caps at 100 but
+            // we don't want to scroll the friends sub-tab past the
+            // friends list itself. "View All" deferred to Phase 5.
+            int max = Math.Min(activity.Count, 8);
+            for (int i = 0; i < max; i++)
+                FriendsActivityItems.Items.Add(BuildActivityRow(activity[i]));
+        }
+
+        private FrameworkElement BuildActivityRow(FriendActivityEntry entry)
+        {
+            var border = new Border
+            {
+                Padding = new Thickness(16, 6, 16, 6),
+            };
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var badge = new Border
+            {
+                Width = 28, Height = 28,
+                CornerRadius = new CornerRadius(4),
+                Background = (System.Windows.Media.Brush)FindResource("BgTertiaryBrush"),
+                ClipToBounds = true,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            if (!string.IsNullOrEmpty(entry.Unlock.BadgeName))
+            {
+                var img = new System.Windows.Controls.Image
+                {
+                    Stretch = System.Windows.Media.Stretch.UniformToFill,
+                };
+                badge.Child = img;
+                Emutastic.Services.FriendImageLoader.Load(
+                    img,
+                    $"https://media.retroachievements.org/Badge/{entry.Unlock.BadgeName}.png",
+                    "activity-badge",
+                    $"user={entry.FriendUsername} ach={entry.Unlock.AchievementId}");
+            }
+            Grid.SetColumn(badge, 0);
+            grid.Children.Add(badge);
+
+            var stack = new StackPanel { Margin = new Thickness(10, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
+            var line = new TextBlock
+            {
+                FontFamily = (System.Windows.Media.FontFamily)FindResource("PrimaryFont"),
+                FontSize = 12,
+                Foreground = (System.Windows.Media.Brush)FindResource("TextPrimaryBrush"),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            };
+            // Action-oriented framing: "FriendX unlocked <Achievement>"
+            // — name leads, achievement after. Hardcore marker prefixed.
+            string hardcore = entry.Unlock.HardcoreMode != 0 ? "[HC] " : "";
+            line.Inlines.Add(new System.Windows.Documents.Run(entry.FriendUsername)
+            {
+                FontWeight = FontWeights.SemiBold,
+            });
+            line.Inlines.Add($" unlocked {hardcore}{entry.Unlock.Title}");
+            stack.Children.Add(line);
+
+            stack.Children.Add(new TextBlock
+            {
+                Text = $"{entry.Unlock.GameTitle} · {entry.Unlock.ConsoleName}",
+                FontFamily = (System.Windows.Media.FontFamily)FindResource("PrimaryFont"),
+                FontSize = 11,
+                Foreground = (System.Windows.Media.Brush)FindResource("TextMutedBrush"),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Margin = new Thickness(0, 1, 0, 0),
+            });
+            Grid.SetColumn(stack, 1);
+            grid.Children.Add(stack);
+
+            // Relative time (best-effort — RA returns UTC without Z suffix)
+            string when = FormatRelativeTime(entry.Unlock.Date);
+            var whenTb = new TextBlock
+            {
+                Text = when,
+                FontFamily = (System.Windows.Media.FontFamily)FindResource("PrimaryFont"),
+                FontSize = 10,
+                Foreground = (System.Windows.Media.Brush)FindResource("TextMutedBrush"),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            Grid.SetColumn(whenTb, 2);
+            grid.Children.Add(whenTb);
+
+            border.Child = grid;
+            return border;
+        }
+
+        private static string FormatRelativeTime(string isoDate)
+        {
+            if (string.IsNullOrWhiteSpace(isoDate)) return "";
+            // RA returns "yyyy-MM-dd HH:mm:ss" UTC without Z. Parse as
+            // UTC explicitly to avoid local-time interpretation.
+            if (!DateTime.TryParseExact(isoDate, "yyyy-MM-dd HH:mm:ss",
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
+                out var dt))
+                return "";
+            var delta = DateTime.UtcNow - dt;
+            if (delta.TotalMinutes < 1) return "just now";
+            if (delta.TotalMinutes < 60) return $"{(int)delta.TotalMinutes}m ago";
+            if (delta.TotalHours < 24) return $"{(int)delta.TotalHours}h ago";
+            if (delta.TotalDays < 7) return $"{(int)delta.TotalDays}d ago";
+            return dt.ToLocalTime().ToString("MMM d");
+        }
+
+        private void RefreshFriendsView()
+        {
+            var svc = GetOrCreateFriendService();
+            var friends = svc.Friends;
+
+            FriendsListItems.Items.Clear();
+            FriendsHeaderLabel.Text = friends.Count == 0
+                ? "FRIENDS"
+                : $"FRIENDS ({friends.Count})";
+
+            if (friends.Count == 0)
+            {
+                FriendsListEmpty.Visibility = Visibility.Visible;
+                return;
+            }
+            FriendsListEmpty.Visibility = Visibility.Collapsed;
+
+            foreach (var f in friends)
+                FriendsListItems.Items.Add(BuildFriendRow(f, svc.GetSnapshot(f.UserId)));
+        }
+
+        private FrameworkElement BuildFriendRow(FriendEntry entry, FriendCacheSnapshot? snap)
+        {
+            var border = new Border
+            {
+                BorderBrush = (System.Windows.Media.Brush)FindResource("BorderSubtleBrush"),
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                Padding = new Thickness(14, 12, 14, 12),
+                Cursor = System.Windows.Input.Cursors.Hand,
+                Tag = entry.UserId,
+            };
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            // Avatar + unseen pip
+            var avatarBox = new Grid { Width = 48, Height = 48 };
+            var avatarBorder = new Border
+            {
+                Width = 48, Height = 48,
+                CornerRadius = new CornerRadius(24),
+                Background = (System.Windows.Media.Brush)FindResource("BgTertiaryBrush"),
+                ClipToBounds = true,
+            };
+            if (!string.IsNullOrEmpty(snap?.AvatarUrl))
+            {
+                var img = new System.Windows.Controls.Image
+                {
+                    Stretch = System.Windows.Media.Stretch.UniformToFill,
+                };
+                avatarBorder.Child = img;
+                Emutastic.Services.FriendImageLoader.Load(
+                    img,
+                    snap.AvatarUrl,
+                    "list-avatar",
+                    $"user={entry.Username}");
+            }
+            else
+            {
+                Emutastic.Services.RaLog.Write(
+                    $"[FriendImg:list-avatar] no avatar URL user={entry.Username} snap={(snap == null ? "null" : "non-null, empty AvatarUrl")}");
+            }
+            avatarBox.Children.Add(avatarBorder);
+            if (snap != null && snap.UnseenUnlockCount > 0)
+            {
+                var pip = new Border
+                {
+                    Width = 22, Height = 22,
+                    CornerRadius = new CornerRadius(11),
+                    Background = (System.Windows.Media.Brush)FindResource("AccentBrush"),
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    VerticalAlignment = VerticalAlignment.Bottom,
+                };
+                pip.Child = new TextBlock
+                {
+                    Text = snap.UnseenUnlockCount > 99 ? "99+" : snap.UnseenUnlockCount.ToString(),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Foreground = System.Windows.Media.Brushes.White,
+                    FontSize = 10,
+                    FontWeight = FontWeights.SemiBold,
+                };
+                avatarBox.Children.Add(pip);
+            }
+            Grid.SetColumn(avatarBox, 0);
+            grid.Children.Add(avatarBox);
+
+            // Name + secondary line
+            var stack = new StackPanel { Margin = new Thickness(14, 0, 14, 0), VerticalAlignment = VerticalAlignment.Center };
+            stack.Children.Add(new TextBlock
+            {
+                Text = entry.Username,
+                FontFamily = (System.Windows.Media.FontFamily)FindResource("PrimaryFont"),
+                FontSize = 14,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = (System.Windows.Media.Brush)FindResource("TextPrimaryBrush"),
+            });
+            string secondary;
+            if (entry.IsInvalid) secondary = "Account unavailable";
+            else if (entry.IsPrivate) secondary = "Profile is private";
+            else if (snap == null) secondary = "Loading…";
+            else secondary = $"{snap.PointsHardcore:N0} pts · {snap.PointsSoftcore:N0} softcore";
+            stack.Children.Add(new TextBlock
+            {
+                Text = secondary,
+                FontFamily = (System.Windows.Media.FontFamily)FindResource("PrimaryFont"),
+                FontSize = 11,
+                Foreground = (System.Windows.Media.Brush)FindResource("TextMutedBrush"),
+                Margin = new Thickness(0, 2, 0, 0),
+            });
+            Grid.SetColumn(stack, 1);
+            grid.Children.Add(stack);
+
+            // Remove button (compact, right-aligned)
+            var removeBtn = new Button
+            {
+                Content = "Remove",
+                Padding = new Thickness(10, 4, 10, 4),
+                FontSize = 11,
+                Tag = entry.UserId,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            removeBtn.Click += FriendRowRemove_Click;
+            Grid.SetColumn(removeBtn, 2);
+            grid.Children.Add(removeBtn);
+
+            border.Child = grid;
+            border.MouseLeftButtonUp += FriendRow_MouseLeftButtonUp;
+            return border;
+        }
+
+        private void FriendRow_MouseLeftButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            if (sender is Border b && b.Tag is int userId)
+            {
+                // Mark seen first so the pip clears whether the user
+                // opens the brief card or it auto-dismisses.
+                var svc = GetOrCreateFriendService();
+                svc.MarkSeen(userId);
+
+                var entry = svc.Friends.FirstOrDefault(f => f.UserId == userId);
+                if (entry == null) return;
+
+                // Close any prior brief card; show one tied to this row.
+                _openFriendBrief?.CloseBrief();
+                var snap = svc.GetSnapshot(userId);
+                var brief = new Views.FriendBriefCard(entry, snap, svc)
+                {
+                    Owner = this,
+                };
+                brief.OpenProfileRequested += (_, uid) => OpenFriendDetail(uid);
+                brief.RemoveRequested += async (_, uid) =>
+                {
+                    try { await svc.RemoveAsync(uid).ConfigureAwait(true); }
+                    catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[Friends] remove from brief failed: {ex.Message}"); }
+                };
+                // Null the field on close so a later OnPreviewMouseDown
+                // doesn't call CloseBrief on a disposed window. WPF
+                // tolerates the second Close but the field would point
+                // at stale state until the next click.
+                brief.Closed += (_, __) =>
+                {
+                    if (ReferenceEquals(_openFriendBrief, brief)) _openFriendBrief = null;
+                };
+                _openFriendBrief = brief;
+                // Position the popup near the clicked row.
+                var point = b.PointToScreen(new System.Windows.Point(0, b.ActualHeight + 4));
+                brief.Left = point.X;
+                brief.Top  = point.Y;
+                brief.Show();
+
+                e.Handled = true; // prevent immediate dismiss by OnPreviewMouseDown bubble
+            }
+        }
+
+        private void OpenFriendDetail(int userId)
+        {
+            var svc = GetOrCreateFriendService();
+            var entry = svc.Friends.FirstOrDefault(f => f.UserId == userId);
+            if (entry == null) return;
+
+            if (_friendDetailWindows.TryGetValue(userId, out var existing))
+            {
+                // Focus existing rather than opening a duplicate.
+                try
+                {
+                    if (existing.WindowState == WindowState.Minimized)
+                        existing.WindowState = WindowState.Normal;
+                    existing.Activate();
+                    existing.Focus();
+                    return;
+                }
+                catch { /* fall through and reopen */ }
+            }
+
+            var window = new Views.FriendDetailWindow(
+                entry,
+                svc,
+                new RetroAchievementsService(App.Configuration!, _db),
+                _db)
+            {
+                Owner = this,
+            };
+            window.Closed += (_, __) =>
+            {
+                _friendDetailWindows.Remove(userId);
+            };
+            _friendDetailWindows[userId] = window;
+            window.Show();
+        }
+
+        private async void FriendRowRemove_Click(object sender, RoutedEventArgs e)
+        {
+            // Button's default template consumes MouseLeftButtonUp via its
+            // own ClickMode=Release routing; e.Handled here is
+            // belt-and-suspenders so the row's MouseLeftButtonUp won't
+            // also fire if the template ever changes.
+            e.Handled = true;
+            if (sender is Button btn && btn.Tag is int userId)
+            {
+                try
+                {
+                    var svc = GetOrCreateFriendService();
+                    await svc.RemoveAsync(userId).ConfigureAwait(true);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Trace.WriteLine($"[Friends] remove failed: {ex.Message}");
+                    // FriendListChanged didn't fire; manually refresh so
+                    // the row doesn't disappear if the remove succeeded
+                    // partway through. RefreshFriendsView is idempotent.
+                    RefreshFriendsView();
+                }
+            }
+        }
+
+        private void FriendsAddButton_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new Views.AddFriendDialog
+            {
+                Owner = this,
+                FriendService = GetOrCreateFriendService(),
+            };
+            // ShowDialog is synchronous; AddAsync fires FriendListChanged
+            // on success which triggers RefreshFriendsView via
+            // OnFriendsChanged. No explicit refresh needed.
+            dialog.ShowDialog();
         }
 
         private void RenderCommunityPulse(List<Models.RARecentGameAward>? awards)

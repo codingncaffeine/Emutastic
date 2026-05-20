@@ -332,6 +332,11 @@ namespace Emutastic.Services
             // key forces a fresh materialization on next visit rather than
             // serving the prior strict-filter snapshot for up to 15 min.
             string cacheKey = $"library_spotlight:v2:user={user}";
+            // Peek the prior snapshot (if any) — used as last-good fallback
+            // when one of the parallel RA fetches below comes back empty
+            // (typically because of a 429 race). Without this, a transient
+            // error wipes the panel until the next 15-min TTL refresh lands.
+            var priorSnapshot = PeekCached<RALibrarySpotlight>(cacheKey);
             return await GetCachedAsync<RALibrarySpotlight>(
                 cacheKey,
                 OwnerForUser(user),
@@ -491,6 +496,31 @@ namespace Emutastic.Services
                         .ThenByDescending(q => q.Points)
                         .Take(10)
                         .ToList();
+
+                    // Last-good preservation. If any of the parallel fetches
+                    // came back empty but the prior snapshot had data for
+                    // that list, prefer the prior. Targets transient HTTP
+                    // failures (429s, network blips) — without this the
+                    // panel goes blank for up to 15 min until the next
+                    // refresh. The genuine-empty case (user actually has
+                    // nothing) loses one TTL window of UX correctness;
+                    // acceptable for these endpoints (recently-played,
+                    // wishlist, completion don't reset to empty in practice).
+                    if (priorSnapshot != null)
+                    {
+                        if (spotlight.ClosestToMastering.Count == 0
+                            && priorSnapshot.ClosestToMastering?.Count > 0)
+                            spotlight.ClosestToMastering = priorSnapshot.ClosestToMastering;
+                        if (spotlight.ContinueWhereLeftOff.Count == 0
+                            && priorSnapshot.ContinueWhereLeftOff?.Count > 0)
+                            spotlight.ContinueWhereLeftOff = priorSnapshot.ContinueWhereLeftOff;
+                        if (spotlight.WishlistOwned.Count == 0
+                            && priorSnapshot.WishlistOwned?.Count > 0)
+                            spotlight.WishlistOwned = priorSnapshot.WishlistOwned;
+                        if (spotlight.QuickWins.Count == 0
+                            && priorSnapshot.QuickWins?.Count > 0)
+                            spotlight.QuickWins = priorSnapshot.QuickWins;
+                    }
 
                     return spotlight;
                 },

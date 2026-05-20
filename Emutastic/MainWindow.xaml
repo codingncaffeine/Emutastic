@@ -1836,16 +1836,23 @@
                         </StackPanel>
                     </ScrollViewer>
 
-                    <!-- Achievements view (Phase 3b shell). Panels grow downward
-                         from the profile header. Each section can show its own
-                         skeleton / refresh state independently. -->
-                    <ScrollViewer x:Name="AchievementsView"
-                                  Grid.Row="1"
-                                  Visibility="Collapsed"
-                                  Style="{StaticResource MinimalScrollViewer}"
-                                  VerticalScrollBarVisibility="Auto"
-                                  Padding="24,18,24,24">
-                        <StackPanel x:Name="AchievementsPanel" MaxWidth="1100" HorizontalAlignment="Stretch">
+                    <!-- Achievements view. Sub-tabs split self-stats from
+                         friend-comparison content. Profile header stays
+                         global above the TabControl so identity is always
+                         visible; the unconfigured placeholder takes over
+                         the whole pane when RA isn't logged in. -->
+                    <Grid x:Name="AchievementsView"
+                          Grid.Row="1"
+                          Visibility="Collapsed"
+                          Margin="24,18,24,24">
+                        <Grid MaxWidth="1100" HorizontalAlignment="Stretch">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+
+                            <!-- Global header (Profile card + Unconfigured placeholder) -->
+                            <StackPanel x:Name="AchievementsHeaderPanel" Grid.Row="0">
                             <!-- A. Profile header card ─────────────────────── -->
                             <Border x:Name="RAProfileCard"
                                     Background="{DynamicResource BgSecondaryBrush}"
@@ -1928,32 +1935,135 @@
                                     </StackPanel>
                                 </Grid>
                             </Border>
+                            </StackPanel>
+                            <!-- /Global header (closed) -->
 
-                            <!-- B. Recent activity feed ─────────────────────── -->
-                            <TextBlock Text="RECENT UNLOCKS"
-                                       FontFamily="{StaticResource PrimaryFont}"
-                                       FontSize="10"
-                                       FontWeight="SemiBold"
-                                       Foreground="{DynamicResource TextMutedBrush}"
-                                       Margin="2,0,0,8"/>
-                            <Border x:Name="RARecentCard"
-                                    Background="{DynamicResource BgSecondaryBrush}"
-                                    BorderBrush="{DynamicResource BorderSubtleBrush}"
-                                    BorderThickness="1"
-                                    CornerRadius="10"
-                                    Padding="0">
-                                <StackPanel>
-                                    <ItemsControl x:Name="RARecentItems"/>
-                                    <TextBlock x:Name="RARecentEmpty"
-                                               Text="No recent unlocks yet. Play a RetroAchievements-supported game to start filling this feed."
+                            <!-- Sub-tab strip: You (self stats) / Friends (social) -->
+                            <TabControl x:Name="AchievementsSubTabs"
+                                        Grid.Row="1"
+                                        Margin="0,8,0,0"
+                                        Background="Transparent"
+                                        BorderThickness="0">
+                                <TabItem Header="You" x:Name="AchievementsYouTab">
+                                    <ScrollViewer Style="{StaticResource MinimalScrollViewer}"
+                                                  VerticalScrollBarVisibility="Auto"
+                                                  HorizontalScrollBarVisibility="Disabled">
+                                        <StackPanel x:Name="AchievementsYouPanel">
+
+                            <!-- B. Compact 3-column row ─────────────────────
+                                 Recent Unlocks (left) · Closest to Mastering
+                                 (middle) · Recently Played (right). All three
+                                 are scrollable mini-lists with the same fixed
+                                 height so the section is bounded and the
+                                 lower spotlight/featured panels stay above
+                                 the fold. -->
+                            <Grid Margin="0,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Recent Unlocks -->
+                                <StackPanel Grid.Column="0" Margin="0,0,6,0">
+                                    <TextBlock Text="RECENT UNLOCKS"
                                                FontFamily="{StaticResource PrimaryFont}"
-                                               FontSize="12"
+                                               FontSize="10"
+                                               FontWeight="SemiBold"
                                                Foreground="{DynamicResource TextMutedBrush}"
-                                               TextAlignment="Center"
-                                               Padding="16,28,16,28"
-                                               Visibility="Collapsed"/>
+                                               Margin="2,0,0,6"/>
+                                    <Border x:Name="RARecentCard"
+                                            Background="{DynamicResource BgSecondaryBrush}"
+                                            BorderBrush="{DynamicResource BorderSubtleBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="10"
+                                            Padding="0">
+                                        <Grid Height="300">
+                                            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                                          HorizontalScrollBarVisibility="Disabled"
+                                                          Style="{StaticResource MinimalScrollViewer}">
+                                                <ItemsControl x:Name="RARecentItems"/>
+                                            </ScrollViewer>
+                                            <TextBlock x:Name="RARecentEmpty"
+                                                       Text="No recent unlocks yet. Play a RetroAchievements-supported game to start filling this feed."
+                                                       FontFamily="{StaticResource PrimaryFont}"
+                                                       FontSize="12"
+                                                       Foreground="{DynamicResource TextMutedBrush}"
+                                                       TextAlignment="Center"
+                                                       TextWrapping="Wrap"
+                                                       Padding="16,0,16,0"
+                                                       VerticalAlignment="Center"
+                                                       Visibility="Collapsed"/>
+                                        </Grid>
+                                    </Border>
                                 </StackPanel>
-                            </Border>
+
+                                <!-- Closest to Mastering -->
+                                <StackPanel Grid.Column="1" Margin="6,0,6,0">
+                                    <TextBlock Text="CLOSEST TO MASTERING"
+                                               FontFamily="{StaticResource PrimaryFont}"
+                                               FontSize="10"
+                                               FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextMutedBrush}"
+                                               Margin="2,0,0,6"/>
+                                    <Border Background="{DynamicResource BgSecondaryBrush}"
+                                            BorderBrush="{DynamicResource BorderSubtleBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="10"
+                                            Padding="0">
+                                        <Grid Height="300">
+                                            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                                          HorizontalScrollBarVisibility="Disabled"
+                                                          Style="{StaticResource MinimalScrollViewer}">
+                                                <ItemsControl x:Name="RAInProgressItems"/>
+                                            </ScrollViewer>
+                                            <TextBlock x:Name="RAInProgressEmpty"
+                                                       Text="No in-progress games yet. Start a RetroAchievements set to see your closest finishes here."
+                                                       FontFamily="{StaticResource PrimaryFont}"
+                                                       FontSize="12"
+                                                       Foreground="{DynamicResource TextMutedBrush}"
+                                                       TextAlignment="Center"
+                                                       TextWrapping="Wrap"
+                                                       Padding="16,0,16,0"
+                                                       VerticalAlignment="Center"
+                                                       Visibility="Collapsed"/>
+                                        </Grid>
+                                    </Border>
+                                </StackPanel>
+
+                                <!-- Recently Played -->
+                                <StackPanel Grid.Column="2" Margin="6,0,0,0">
+                                    <TextBlock Text="RECENTLY PLAYED"
+                                               FontFamily="{StaticResource PrimaryFont}"
+                                               FontSize="10"
+                                               FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextMutedBrush}"
+                                               Margin="2,0,0,6"/>
+                                    <Border Background="{DynamicResource BgSecondaryBrush}"
+                                            BorderBrush="{DynamicResource BorderSubtleBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="10"
+                                            Padding="0">
+                                        <Grid Height="300">
+                                            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                                          HorizontalScrollBarVisibility="Disabled"
+                                                          Style="{StaticResource MinimalScrollViewer}">
+                                                <ItemsControl x:Name="RARecentPlayedItems"/>
+                                            </ScrollViewer>
+                                            <TextBlock x:Name="RARecentPlayedEmpty"
+                                                       Text="No recent play sessions on RetroAchievements yet."
+                                                       FontFamily="{StaticResource PrimaryFont}"
+                                                       FontSize="12"
+                                                       Foreground="{DynamicResource TextMutedBrush}"
+                                                       TextAlignment="Center"
+                                                       TextWrapping="Wrap"
+                                                       Padding="16,0,16,0"
+                                                       VerticalAlignment="Center"
+                                                       Visibility="Collapsed"/>
+                                        </Grid>
+                                    </Border>
+                                </StackPanel>
+                            </Grid>
 
                             <!-- C. Trophy case ──────────────────────────────── -->
                             <Grid Margin="0,18,0,8">
@@ -2244,11 +2354,126 @@
                                                Margin="0,6,0,0"/>
                                 </StackPanel>
                             </Border>
-                        </StackPanel>
-                    </ScrollViewer>
+                                        </StackPanel>
+                                    </ScrollViewer>
+                                </TabItem>
+
+                                <!-- ── Friends sub-tab ─────────────────────── -->
+                                <TabItem Header="Friends" x:Name="AchievementsFriendsTab">
+                                    <ScrollViewer Style="{StaticResource MinimalScrollViewer}"
+                                                  VerticalScrollBarVisibility="Auto"
+                                                  HorizontalScrollBarVisibility="Disabled">
+                                        <StackPanel x:Name="AchievementsFriendsPanel" Margin="0,8,0,0">
+
+                                            <!-- Header strip: count + Add Friend button -->
+                                            <Grid Margin="2,0,0,8">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock x:Name="FriendsHeaderLabel"
+                                                           Grid.Column="0"
+                                                           Text="FRIENDS"
+                                                           FontFamily="{StaticResource PrimaryFont}"
+                                                           FontSize="10"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="{DynamicResource TextMutedBrush}"
+                                                           VerticalAlignment="Center"/>
+                                                <Button x:Name="FriendsAddButton"
+                                                        Grid.Column="1"
+                                                        Content="+ Add Friend"
+                                                        Padding="12,4"
+                                                        FontFamily="{StaticResource PrimaryFont}"
+                                                        FontSize="11"
+                                                        Click="FriendsAddButton_Click"/>
+                                            </Grid>
+
+                                            <!-- Mini activity feed (last few unlocks across friends) -->
+                                            <Border x:Name="FriendsActivityCard"
+                                                    Background="{DynamicResource BgSecondaryBrush}"
+                                                    BorderBrush="{DynamicResource BorderSubtleBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="10"
+                                                    Margin="0,0,0,12"
+                                                    Visibility="Collapsed">
+                                                <StackPanel>
+                                                    <TextBlock Text="RECENT FRIEND ACTIVITY"
+                                                               FontFamily="{StaticResource PrimaryFont}"
+                                                               FontSize="10"
+                                                               FontWeight="SemiBold"
+                                                               Foreground="{DynamicResource TextMutedBrush}"
+                                                               Margin="16,12,16,6"/>
+                                                    <ItemsControl x:Name="FriendsActivityItems"/>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <!-- Friend list / empty state -->
+                                            <Border x:Name="FriendsListCard"
+                                                    Background="{DynamicResource BgSecondaryBrush}"
+                                                    BorderBrush="{DynamicResource BorderSubtleBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="10"
+                                                    Padding="0">
+                                                <StackPanel>
+                                                    <ItemsControl x:Name="FriendsListItems"/>
+                                                    <TextBlock x:Name="FriendsListEmpty"
+                                                               Text="No friends yet. Click + Add Friend above to follow another RetroAchievements user. You'll see their unlocks here as they happen."
+                                                               FontFamily="{StaticResource PrimaryFont}"
+                                                               FontSize="12"
+                                                               Foreground="{DynamicResource TextMutedBrush}"
+                                                               TextAlignment="Center"
+                                                               TextWrapping="Wrap"
+                                                               Padding="24,32,24,32"
+                                                               Visibility="Visible"/>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <!-- Logged-out / no-key placeholder mirrors the You tab -->
+                                            <Border x:Name="FriendsUnconfiguredCard"
+                                                    Background="{DynamicResource BgSecondaryBrush}"
+                                                    BorderBrush="{DynamicResource BorderSubtleBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="10"
+                                                    Padding="22,18,22,18"
+                                                    Margin="0,12,0,0"
+                                                    Visibility="Collapsed">
+                                                <StackPanel>
+                                                    <TextBlock Text="Connect RetroAchievements to use Friends"
+                                                               FontFamily="{StaticResource PrimaryFont}"
+                                                               FontSize="13"
+                                                               FontWeight="SemiBold"
+                                                               Foreground="{DynamicResource TextPrimaryBrush}"
+                                                               HorizontalAlignment="Center"/>
+                                                    <TextBlock Text="Add your username and Web API Key in Preferences → RetroAchievements to look up other users."
+                                                               FontFamily="{StaticResource PrimaryFont}"
+                                                               FontSize="12"
+                                                               Foreground="{DynamicResource TextMutedBrush}"
+                                                               TextWrapping="Wrap"
+                                                               TextAlignment="Center"
+                                                               Margin="0,6,0,0"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </StackPanel>
+                                    </ScrollViewer>
+                                </TabItem>
+                            </TabControl>
+                        </Grid>
+                    </Grid>
                 </Grid>
 
             </Grid>
+
+            <!-- ── TOAST OVERLAY (bottom-right friend activity stack) ──
+                 Each toast is a Border injected by code-behind that
+                 auto-dismisses after 6s. Stacks vertically newest-on-top.
+                 Sits above all main content via Panel.ZIndex. -->
+            <StackPanel x:Name="ToastStack"
+                        Grid.Row="1"
+                        Panel.ZIndex="100"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Bottom"
+                        Margin="0,0,18,18"
+                        IsHitTestVisible="True"/>
 
             <!-- ── BANNER (bottom-left transient: import progress or notification) ── -->
             <Border x:Name="BannerBorder"

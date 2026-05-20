@@ -23,11 +23,15 @@ namespace Emutastic.Services
         public const uint RC_CLIENT_EVENT_ACHIEVEMENT_PROGRESS_INDICATOR_SHOW = 7;
         public const uint RC_CLIENT_EVENT_ACHIEVEMENT_PROGRESS_INDICATOR_HIDE = 8;
         public const uint RC_CLIENT_EVENT_ACHIEVEMENT_PROGRESS_INDICATOR_UPDATE = 9;
+        public const uint RC_CLIENT_EVENT_LEADERBOARD_SCOREBOARD = 13;
         public const uint RC_CLIENT_EVENT_RESET = 14;
         public const uint RC_CLIENT_EVENT_GAME_COMPLETED = 15;
         public const uint RC_CLIENT_EVENT_SERVER_ERROR = 16;
         public const uint RC_CLIENT_EVENT_DISCONNECTED = 17;
         public const uint RC_CLIENT_EVENT_RECONNECTED = 18;
+
+        // RC_CLIENT_LEADERBOARD_DISPLAY_SIZE — rc_client.h:591
+        public const int RC_CLIENT_LEADERBOARD_DISPLAY_SIZE = 24;
 
         // ── Log levels ───────────────────────────────────────────────────────
         public const int RC_CLIENT_LOG_LEVEL_NONE = 0;
@@ -135,6 +139,41 @@ namespace Emutastic.Services
             public IntPtr hash;            // const char*
             public IntPtr badge_name;      // const char*
             public IntPtr badge_url;       // const char*
+        }
+
+        // rc_client.h:593-601 — rc_client_leaderboard_t
+        // ALL THREE leading fields are pointers (const char*), NOT inline
+        // arrays. tracker_value is also a pointer. There is no `bucket`
+        // field. Getting the layout wrong silently shifts every field
+        // after the bad one — lower_is_better reads garbage, etc.
+        [StructLayout(LayoutKind.Sequential)]
+        public struct rc_client_leaderboard_t
+        {
+            public IntPtr title;           // const char*
+            public IntPtr description;     // const char*
+            public IntPtr tracker_value;   // const char*
+            public uint id;
+            public byte state;
+            public byte format;
+            public byte lower_is_better;   // non-zero = time-based / lower=better
+        }
+
+        // rc_client.h:714-730 — rc_client_leaderboard_scoreboard_t.
+        // submitted_score and best_score are FIXED-SIZE char arrays
+        // (24 bytes each), NOT pointers. Mirror the badge_name pattern
+        // above. Wrong layout = silent data corruption.
+        [StructLayout(LayoutKind.Sequential)]
+        public struct rc_client_leaderboard_scoreboard_t
+        {
+            public uint leaderboard_id;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = RC_CLIENT_LEADERBOARD_DISPLAY_SIZE)]
+            public byte[] submitted_score;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = RC_CLIENT_LEADERBOARD_DISPLAY_SIZE)]
+            public byte[] best_score;
+            public uint new_rank;
+            public uint num_entries;
+            public IntPtr top_entries;     // rc_client_leaderboard_scoreboard_entry_t* — unused for toast
+            public uint num_top_entries;
         }
 
         [StructLayout(LayoutKind.Sequential)]

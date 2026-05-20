@@ -432,6 +432,63 @@ namespace Emutastic.Models
         public Dictionary<string, int> Buckets { get; set; } = new();
     }
 
+    // ── Leaderboards (Phase 6) ──────────────────────────────────────────
+
+    // API_GetGameLeaderboards.php — paginated list of LBs for a game.
+    // Response wraps Results+Total like other paginated endpoints.
+    public sealed class RAGameLeaderboardsResponse
+    {
+        [JsonPropertyName("Count")]   public int Count { get; set; }
+        [JsonPropertyName("Total")]   public int Total { get; set; }
+        [JsonPropertyName("Results")] public List<RAGameLeaderboard> Results { get; set; } = new();
+    }
+
+    public sealed class RAGameLeaderboard
+    {
+        [JsonPropertyName("ID")]          public int Id { get; set; }
+        [JsonPropertyName("RankAsc")]     public bool RankAsc { get; set; }
+        [JsonPropertyName("Title")]       public string Title { get; set; } = "";
+        [JsonPropertyName("Description")] public string Description { get; set; } = "";
+        [JsonPropertyName("Format")]      public string Format { get; set; } = "";    // SCORE, TIME, MILLISECS, ...
+        [JsonPropertyName("TopEntry")]    public RALeaderboardEntry? TopEntry { get; set; }
+    }
+
+    // API_GetLeaderboardEntries.php — entry rows on one LB.
+    public sealed class RALeaderboardEntriesResponse
+    {
+        [JsonPropertyName("Count")]   public int Count { get; set; }
+        [JsonPropertyName("Total")]   public int Total { get; set; }
+        [JsonPropertyName("Results")] public List<RALeaderboardEntry> Results { get; set; } = new();
+    }
+
+    public sealed class RALeaderboardEntry
+    {
+        [JsonPropertyName("User")]          public string User { get; set; } = "";
+        [JsonPropertyName("Rank")]          public int Rank { get; set; }
+        [JsonPropertyName("Score")]         public long Score { get; set; }
+        [JsonPropertyName("FormattedScore")]public string FormattedScore { get; set; } = "";
+        [JsonPropertyName("DateSubmitted")] public string DateSubmitted { get; set; } = "";
+    }
+
+    // API_GetUserGameLeaderboards.php — a user's ranks across every LB
+    // for one game. The friend-rank-across-all-LBs primitive that
+    // lets us avoid paging full LB entry lists.
+    public sealed class RAUserGameLeaderboardsResponse
+    {
+        [JsonPropertyName("Count")]   public int Count { get; set; }
+        [JsonPropertyName("Total")]   public int Total { get; set; }
+        [JsonPropertyName("Results")] public List<RAUserGameLeaderboard> Results { get; set; } = new();
+    }
+
+    public sealed class RAUserGameLeaderboard
+    {
+        [JsonPropertyName("ID")]              public int Id { get; set; }
+        [JsonPropertyName("Title")]           public string Title { get; set; } = "";
+        [JsonPropertyName("Description")]     public string Description { get; set; } = "";
+        [JsonPropertyName("Format")]          public string Format { get; set; } = "";
+        [JsonPropertyName("UserEntry")]       public RALeaderboardEntry? UserEntry { get; set; }
+    }
+
     // ── Library Spotlight (materialized) ────────────────────────────────────
     // Pre-computed cross-reference of RA Web API data with the local library
     // for the Achievements tab's "across all my games" panels. Materialized

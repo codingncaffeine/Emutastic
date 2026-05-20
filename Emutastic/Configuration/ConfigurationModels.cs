@@ -211,6 +211,51 @@ namespace Emutastic.Configuration
         public bool HardcoreMode { get; set; } = false;
     }
 
+    // RetroAchievements friends configuration — list membership + polling
+    // prefs. Per-friend mutable state (cached profile snapshot, unseen
+    // counter) lives in SQLite ra_cache under key "friend:{userId}" instead,
+    // so the config file isn't hot-churned by every poll cycle.
+    public class FriendsConfiguration : ConfigurationBase
+    {
+        public List<FriendEntry> Friends { get; set; } = new();
+        public bool PollingEnabled       { get; set; } = true;
+        public int  PollIntervalMin      { get; set; } = 5;
+        public bool ToastOnUnlock        { get; set; } = true;
+        public bool HardcoreOnlyToast    { get; set; } = false;
+        public bool RecentUnlocksExpanded { get; set; } = true;
+
+        // Phase 6b — Leaderboard toasts. Defaults err toward enabled with
+        // sound, since the feature is opt-in by virtue of being in the
+        // friends list at all.
+        public bool LbToastWhenYouBeat   { get; set; } = true;
+        public bool LbToastWhenBeaten    { get; set; } = true;
+        public bool LbToastForProximity  { get; set; } = false;
+        public int  LbToastProximityPct  { get; set; } = 5;
+        public int  LbToastCooldownSec   { get; set; } = 30;
+        public bool LbToastSoundEnabled  { get; set; } = true;
+        public int  LbToastSoundVolume   { get; set; } = 85; // 0-100
+    }
+
+    // List-membership row. The integer UserId from RA's GetUserProfile
+    // response is the stable PK; Username is refreshed every poll cycle
+    // since RA allows username changes.
+    public class FriendEntry
+    {
+        public int    UserId   { get; set; }
+        public string Username { get; set; } = "";
+        // ISO-8601 timestamp of the most-recent unlock we've already
+        // surfaced; new unlocks are anything with Date > this.
+        public string LastSeenUnlockDate   { get; set; } = "";
+        // First-poll suppression: true between AddAsync and the first
+        // successful HTTP 200 poll. While set, the poll seeds
+        // LastSeenUnlockDate without firing notifications.
+        public bool   JustAdded            { get; set; } = true;
+        public bool   IsPrivate            { get; set; }
+        public bool   IsInvalid            { get; set; }
+        public int    ConsecutiveFailures  { get; set; }
+        public string LastError            { get; set; } = "";
+    }
+
     // Video snap provider configuration
     public class SnapConfiguration : ConfigurationBase
     {

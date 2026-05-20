@@ -1,0 +1,122 @@
+<Window x:Class="Emutastic.Views.AddFriendDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Add Friend"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Width="420" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner">
+
+    <Border Background="{DynamicResource BgSecondaryBrush}"
+            BorderBrush="{DynamicResource BorderNormalBrush}"
+            BorderThickness="1"
+            CornerRadius="10">
+        <StackPanel Margin="24">
+            <TextBlock Text="Add Friend"
+                       FontFamily="{StaticResource PrimaryFont}"
+                       FontSize="15"
+                       FontWeight="SemiBold"
+                       Foreground="{DynamicResource TextPrimaryBrush}"
+                       Margin="0,0,0,12"/>
+
+            <TextBlock Text="Enter a RetroAchievements username:"
+                       FontFamily="{StaticResource PrimaryFont}"
+                       FontSize="12"
+                       Foreground="{DynamicResource TextSecondaryBrush}"
+                       Margin="0,0,0,6"/>
+
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="UsernameInput"
+                         Grid.Column="0"
+                         FontFamily="{StaticResource PrimaryFont}"
+                         FontSize="13"
+                         Padding="8,6"
+                         Background="{DynamicResource BgTertiaryBrush}"
+                         BorderBrush="{DynamicResource BorderSubtleBrush}"
+                         Foreground="{DynamicResource TextPrimaryBrush}"
+                         KeyDown="UsernameInput_KeyDown"/>
+                <Button x:Name="LookupBtn"
+                        Grid.Column="1"
+                        Content="Lookup"
+                        Padding="14,6"
+                        Margin="8,0,0,0"
+                        Click="LookupBtn_Click"/>
+            </Grid>
+
+            <!-- Preview card (populated after a successful lookup) -->
+            <Border x:Name="PreviewCard"
+                    Background="{DynamicResource BgTertiaryBrush}"
+                    BorderBrush="{DynamicResource BorderSubtleBrush}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="12"
+                    Margin="0,14,0,0"
+                    Visibility="Collapsed">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Border Grid.Column="0"
+                            Width="48" Height="48"
+                            CornerRadius="24"
+                            Background="{DynamicResource BgSecondaryBrush}"
+                            ClipToBounds="True">
+                        <Image x:Name="PreviewAvatar" Stretch="UniformToFill"/>
+                    </Border>
+                    <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
+                        <TextBlock x:Name="PreviewName"
+                                   FontFamily="{StaticResource PrimaryFont}"
+                                   FontSize="14"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextPrimaryBrush}"/>
+                        <TextBlock x:Name="PreviewPoints"
+                                   FontFamily="{StaticResource PrimaryFont}"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource TextMutedBrush}"
+                                   Margin="0,2,0,0"/>
+                        <TextBlock x:Name="PreviewMotto"
+                                   FontFamily="{StaticResource PrimaryFont}"
+                                   FontSize="11"
+                                   FontStyle="Italic"
+                                   Foreground="{DynamicResource TextMutedBrush}"
+                                   TextTrimming="CharacterEllipsis"
+                                   Margin="0,2,0,0"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <TextBlock x:Name="ErrorText"
+                       FontFamily="{StaticResource PrimaryFont}"
+                       FontSize="11"
+                       Foreground="{DynamicResource AccentBrush}"
+                       TextWrapping="Wrap"
+                       Margin="0,8,0,0"
+                       Visibility="Collapsed"/>
+
+            <StackPanel Orientation="Horizontal"
+                        HorizontalAlignment="Right"
+                        Margin="0,20,0,0">
+                <Button x:Name="CancelBtn"
+                        Content="Cancel"
+                        Style="{StaticResource SecondaryButtonStyle}"
+                        Padding="16,8"
+                        Margin="0,0,8,0"
+                        Click="Cancel_Click"/>
+                <Button x:Name="AddBtn"
+                        Content="Add Friend"
+                        Style="{StaticResource PlayButtonStyle}"
+                        Padding="16,8"
+                        IsEnabled="False"
+                        Click="Add_Click"/>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>

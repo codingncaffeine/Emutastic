@@ -66,6 +66,39 @@ namespace Emutastic.Services
         /// <summary>Fired for achievement progress updates (show/update/hide).</summary>
         public event Action<AchievementInfo?, bool>? ProgressIndicatorChanged;
 
+        /// <summary>
+        /// Fired on the emulation thread when rcheevos delivers a leaderboard
+        /// scoreboard post-submission (Phase 6b — used for "you beat friend X"
+        /// toasts). Subscribers MUST marshal to the UI thread before touching
+        /// any WPF surface.
+        /// </summary>
+        public event Action<LbScoreboardInfo>? LeaderboardScoreboardReceived;
+
+        /// <summary>
+        /// Marshaled view of a SCOREBOARD event — pointer-free, safe to retain
+        /// past the rcheevos callback boundary. SubmittedScore / BestScore are
+        /// the display strings (e.g. "01:23.45" or "1,240,500"); the integer
+        /// rank field is what we compare against pre-fetched friend ranks.
+        /// </summary>
+        public sealed record LbScoreboardInfo(
+            int LeaderboardId,
+            int NewRank,
+            string SubmittedScore,
+            string BestScore,
+            string LbTitle,
+            bool LowerIsBetter);
+
+        // Decode a fixed-size UTF-8 byte buffer (the rcheevos display
+        // string format used by submitted_score / best_score / etc.).
+        // Stops at the first 0x00 — those buffers are null-padded.
+        private static string DecodeFixed(byte[] buf)
+        {
+            if (buf == null) return "";
+            int len = 0;
+            while (len < buf.Length && buf[len] != 0) len++;
+            return System.Text.Encoding.UTF8.GetString(buf, 0, len);
+        }
+
         // Live measured-progress snapshot, accumulated from PROGRESS_INDICATOR
         // events during play. Written from the emu thread, read from the UI
         // thread at game-exit flush time. ConcurrentDictionary handles the
@@ -766,6 +799,30 @@ namespace Emutastic.Services
 
                 case RC_CLIENT_EVENT_ACHIEVEMENT_PROGRESS_INDICATOR_HIDE:
                     ProgressIndicatorChanged?.Invoke(null, false);
+                    break;
+
+                case RC_CLIENT_EVENT_LEADERBOARD_SCOREBOARD:
+                    if (evt.leaderboard_scoreboard != IntPtr.Zero)
+                    {
+                        var sb = Marshal.PtrToStructure<rc_client_leaderboard_scoreboard_t>(evt.leaderboard_scoreboard);
+                        string lbTitle = "";
+                        bool lowerIsBetter = false;
+                        if (evt.leaderboard != IntPtr.Zero)
+                        {
+                            var lb = Marshal.PtrToStructure<rc_client_leaderboard_t>(evt.leaderboard);
+                            lbTitle = PtrToStringUTF8(lb.title) ?? "";
+                            lowerIsBetter = lb.lower_is_better != 0;
+                        }
+                        var info = new LbScoreboardInfo(
+                            LeaderboardId: (int)sb.leaderboard_id,
+                            NewRank: (int)sb.new_rank,
+                            SubmittedScore: DecodeFixed(sb.submitted_score),
+                            BestScore: DecodeFixed(sb.best_score),
+                            LbTitle: lbTitle,
+                            LowerIsBetter: lowerIsBetter);
+                        RaLog.Write($"[RA] LB scoreboard lb={info.LeaderboardId} title=[{info.LbTitle}] rank=#{info.NewRank} submitted=[{info.SubmittedScore}] best=[{info.BestScore}] lib={info.LowerIsBetter}");
+                        LeaderboardScoreboardReceived?.Invoke(info);
+                    }
                     break;
 
                 case RC_CLIENT_EVENT_GAME_COMPLETED:
