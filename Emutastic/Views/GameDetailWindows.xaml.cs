@@ -273,12 +273,30 @@ namespace Emutastic.Views
             // alongside RAGameId.
             if (prog == null || prog.NumAchievements <= 0)
             {
-                string status = (_game.RAGameId > 0, _game.RALastLaunchOutcome) switch
+                // Distinguish four states for an identified game (RAGameId > 0):
+                //   - RAGameId >= 1_000_000_000: RA's "unsupported version"
+                //     placeholder ID (1B+base_game_id). The server returns 404
+                //     on every endpoint for these because no set is authored
+                //     against this specific ROM hash — even though the game
+                //     family is known. Don't say "Fetching…" — nothing will
+                //     ever come.
+                //   - prog non-null with NumAchievements == 0: server returned
+                //     a real response and the game has zero authored
+                //     achievements (e.g. Dungeon Explorer II, Bonanza Bros.).
+                //   - prog null: fetch hasn't completed yet or stored response
+                //     was empty; legitimately "Fetching…".
+                //   - RAGameId == 0: never identified, distinct from the above.
+                bool identified  = _game.RAGameId > 0;
+                bool unsupported = _game.RAGameId >= 1_000_000_000;
+                bool emptySet    = prog != null && prog.NumAchievements <= 0;
+                string status = (identified, unsupported, emptySet, _game.RALastLaunchOutcome) switch
                 {
-                    (true, _)               => "Fetching achievement data…",
-                    (false, "not_in_database") => "No achievements available for this game",
-                    (false, "load_failed")     => "RetroAchievements identification failed — try relaunching",
-                    _                          => "Not checked yet — launch this game with RetroAchievements enabled",
+                    (true,  true,  _,    _)                  => "This ROM dump isn't on the RetroAchievements database — try a different release",
+                    (true,  false, true, _)                  => "No achievements authored for this game yet",
+                    (true,  false, false, _)                 => "Fetching achievement data…",
+                    (false, _,     _,    "not_in_database") => "RetroAchievements doesn't recognize this ROM hash — try a Redump-matching dump",
+                    (false, _,     _,    "load_failed")     => "RetroAchievements identification failed — try relaunching",
+                    _                                         => "Not checked yet — launch this game with RetroAchievements enabled",
                 };
                 RASection.Visibility = Visibility.Visible;
                 RAProgressLabel.Text = status;

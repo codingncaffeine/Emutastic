@@ -320,13 +320,17 @@ namespace Emutastic.Converters
 
     public class ConsoleToArtHeightConverter : IMultiValueConverter
     {
-        // values[0] = Console (string), values[1] = CardWidth (double, the parent Border's
-        //             Width DP — i.e. the LibraryCardWidth resource value, NOT ActualWidth.
-        //             Binding to ActualWidth caused art-height to be computed against a
-        //             stale/zero value during VirtualizingWrapPanel recycling on H/V
-        //             spacing changes, and ClipToBounds on the art Border then sliced the
-        //             image. Stable Width input keeps both inner and outer Border heights
-        //             derived from the same constant.),
+        // values[0] = Console (string)
+        // values[1] = CardWidth (double, the parent Border's Width DP — i.e. the
+        //             LibraryCardWidth resource value, NOT ActualWidth).
+        //             During VirtualizingWrapPanel realize/recycle passes
+        //             triggered by margin changes (H/V spacing slider), this
+        //             binding can transiently resolve to 0 before the
+        //             DynamicResource settles. When that happens we fall back
+        //             to looking the resource up directly on each Convert call
+        //             so the height never collapses to zero — and we hard-min
+        //             the final value to 1px so ClipToBounds on the inner art
+        //             Border can't slice the image invisible.
         // values[2] = IsMixedView (bool) — when true, use uniform height so mixed-console
         //             views don't clip taller box art
         private const double MixedViewRatio = 0.73; // DVD keepcase — most common shape
@@ -334,10 +338,28 @@ namespace Emutastic.Converters
         public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
         {
             string console   = values.Length > 0 ? (values[0] as string ?? "") : "";
-            double cardWidth = values.Length > 1 && values[1] is double d ? d : 148.0;
+            double cardWidth = values.Length > 1 && values[1] is double d ? d : 0.0;
             bool   isMixed   = values.Length > 2 && values[2] is bool b && b;
-            double ratio     = isMixed ? MixedViewRatio : RomService.GetBoxRatio(console);
-            return Math.Round(cardWidth / ratio);
+
+            // Race-condition guard: if the bound Width is zero/NaN (transient
+            // during layout) look up the resource directly. If that still
+            // fails, fall back to the historical hard default of 148.
+            if (!(cardWidth > 0.0) || double.IsNaN(cardWidth))
+            {
+                if (System.Windows.Application.Current?.TryFindResource("LibraryCardWidth")
+                    is double r && r > 0.0)
+                {
+                    cardWidth = r;
+                }
+                else
+                {
+                    cardWidth = 148.0;
+                }
+            }
+
+            double ratio = isMixed ? MixedViewRatio : RomService.GetBoxRatio(console);
+            if (!(ratio > 0.0) || double.IsNaN(ratio)) ratio = 0.73;
+            return Math.Max(1.0, Math.Round(cardWidth / ratio));
         }
 
         public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)

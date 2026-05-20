@@ -58,6 +58,7 @@ namespace Emutastic.Services
         public static readonly uint CDROM_TRACK_METADATA2_TAG = MakeFourCc('C', 'H', 'T', '2');
         public static readonly uint GDROM_TRACK_METADATA_TAG  = MakeFourCc('C', 'H', 'G', 'D');
         public static readonly uint HARD_DISK_METADATA_TAG    = MakeFourCc('G', 'D', 'D', 'D');
+        public static readonly uint DVD_METADATA_TAG          = MakeFourCc('D', 'V', 'D', ' ');
 
         private static uint MakeFourCc(char a, char b, char c, char d)
             => ((uint)a << 24) | ((uint)b << 16) | ((uint)c << 8) | d;

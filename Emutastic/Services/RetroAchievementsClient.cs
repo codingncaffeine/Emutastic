@@ -102,12 +102,42 @@ namespace Emutastic.Services
         // real M68K-style hardware addresses to memory pointers. The frontend
         // is responsible for translating virtual→real before descriptor lookup.
         //
-        // Currently only NGCD needs this — RA's set was authored with System
-        // RAM at virtual 0x000000-0x00FFFF, mapped to real 0x00100000-0x0010FFFF
-        // (the M68K work-RAM area inside PRAM, NOT PRAM offset 0 where the
-        // loaded MAIN.PRG sits). Other consoles can be added here if/when their
-        // virtual address spaces differ from descriptor real addresses.
+        // _virtualAddressBase covers consoles whose virtual space is a single
+        // contiguous run with a fixed offset to physical (NGCD, NeoGeo cart).
+        // _virtualMap is the multi-region form for consoles whose virtual
+        // address space has discontinuous physical bases (SegaCD: M68K RAM at
+        // 0xFF0000, CD PRG RAM at 0x80020000, Word RAM at 0x200000).
         private uint _virtualAddressBase;
+        private readonly struct VirtualRegion
+        {
+            public readonly uint VirtStart;   // inclusive
+            public readonly uint VirtEnd;     // inclusive
+            public readonly ulong PhysStart;
+            public VirtualRegion(uint vs, uint ve, ulong ps) { VirtStart = vs; VirtEnd = ve; PhysStart = ps; }
+        }
+        private VirtualRegion[]? _virtualMap;
+
+        // rcheevos's per-console virtual memory layouts copied from
+        // consoleinfo.c. Add new consoles here as they're brought up.
+        // Source of truth: rcheevos `_rc_memory_regions_<console>` tables.
+        private static readonly VirtualRegion[] _vmap_segacd = new[]
+        {
+            new VirtualRegion(0x000000u, 0x00FFFFu, 0x00FF0000UL), // 68000 RAM
+            new VirtualRegion(0x010000u, 0x08FFFFu, 0x80020000UL), // CD PRG RAM (banked into $020000-$03FFFF physically)
+            new VirtualRegion(0x090000u, 0x0AFFFFu, 0x00200000UL), // CD Word RAM
+        };
+        private static readonly VirtualRegion[] _vmap_megadrive = new[]
+        {
+            new VirtualRegion(0x000000u, 0x00FFFFu, 0x00FF0000UL), // System RAM
+            new VirtualRegion(0x010000u, 0x01FFFFu, 0x00000000UL), // Cartridge RAM (SRAM)
+        };
+        private static readonly VirtualRegion[] _vmap_gamecube = new[]
+        {
+            // 24MB System RAM at PowerPC real address 0x80000000
+            // (Dolphin libretro publishes the descriptor at this address
+            // with RETRO_MEMDESC_BIGENDIAN). rcheevos consoleinfo.c:519.
+            new VirtualRegion(0x00000000u, 0x017FFFFFu, 0x80000000UL),
+        };
 
         // Cart Neo Geo only: apply XOR-1 byte-address swap on descriptor reads.
         // RA's cart NeoGeo sets were authored against FBNeo's host-native byte
@@ -150,11 +180,35 @@ namespace Emutastic.Services
         /// </summary>
         public void SetMemoryDescriptors(MemoryRegion[] regions)
         {
+            bool wasUnset = _memoryRegions == null || _memoryRegions.Length == 0;
             _memoryRegions = regions;
             Trace.WriteLine($"[RA] Memory descriptors registered: {regions.Length} region(s)");
             foreach (var r in regions)
             {
                 Trace.WriteLine($"[RA]   start=0x{r.Start:X8} len=0x{r.Len:X} flags=0x{r.Flags:X} {((r.Flags & RETRO_MEMDESC_BIGENDIAN) != 0 ? "BE" : "")}");
+            }
+
+            // Dolphin/GameCube (and any future HW core that boots lazily)
+            // publishes SET_MEMORY_MAPS during the first retro_run frame,
+            // not synchronously during retro_load_game. By the time we get
+            // here, rcheevos has already validated every achievement
+            // address against an empty memory map and disabled the
+            // whole set as "unsupported". Reload the game now that the
+            // descriptors are in place so addresses re-validate.
+            if (wasUnset && _client != IntPtr.Zero && _lastRomPath != null
+                && rc_client_is_game_loaded(_client) != 0)
+            {
+                Trace.WriteLine("[RA] Descriptors arrived post-load; reloading game to re-arm achievements");
+                _reloadCallbackDelegate = (result, errorPtr, client, userdata) =>
+                {
+                    string? msg = PtrToStringUTF8(errorPtr);
+                    Trace.WriteLine($"[RA] Post-descriptor reload result={result} err={msg}");
+                };
+                rc_client_unload_game(_client);
+                rc_client_begin_identify_and_load_game(
+                    _client, _lastConsoleId, _lastRomPath,
+                    IntPtr.Zero, UIntPtr.Zero,
+                    _reloadCallbackDelegate, IntPtr.Zero);
             }
         }
 
@@ -180,6 +234,19 @@ namespace Emutastic.Services
             _virtualAddressBase = isNeoGeoFamily ? 0x100000u : 0u;
             _cartByteswap = string.Equals(consoleName, "NeoGeo", StringComparison.Ordinal);
 
+            // Multi-region virtual maps for consoles whose virtual space
+            // doesn't collapse to a single offset (SegaCD's RAM regions
+            // live at non-contiguous M68K physical bases). Takes precedence
+            // over _virtualAddressBase in OnReadMemory.
+            _virtualMap = consoleName switch
+            {
+                "SegaCD"            => _vmap_segacd,
+                "Genesis"           => _vmap_megadrive,
+                "MegaDrive"         => _vmap_megadrive,
+                "GameCube"          => _vmap_gamecube,
+                _                    => null,
+            };
+
             _readMemoryDelegate = OnReadMemory;
             _serverCallDelegate = OnServerCall;
 
@@ -188,8 +255,8 @@ namespace Emutastic.Services
                 throw new InvalidOperationException("Failed to create rcheevos client.");
 
             // Install our CHD-aware cdreader so achievement identification
-            // works for .chd content on every CD-based console (PS1, PS2,
-            // Saturn, SegaCD, Dreamcast, PSP, TG-CD, 3DO, NGCD, PC-FX).
+            // works for .chd content on every CD-based console (PS1,
+            // Saturn, SegaCD, Dreamcast, PSP, TG-CD, 3DO, NGCD).
             // Non-CHD content (.cue+.bin, .gdi, .iso) continues through
             // rcheevos's default cdreader, preserving existing behavior.
             RcheevosChdCdReader.InstallInto(_client);
@@ -281,6 +348,11 @@ namespace Emutastic.Services
         {
             if (_client == IntPtr.Zero) return (false, "Client not initialized.");
 
+            // Stash for late-descriptor reload (Dolphin/GameCube publishes
+            // SET_MEMORY_MAPS during the first frame, not during retro_load_game).
+            _lastRomPath = romPath;
+            _lastConsoleId = consoleId;
+
             bool completed = false;
             int resultCode = 0;
             string? errorMsg = null;
@@ -310,6 +382,11 @@ namespace Emutastic.Services
 
             return (true, null);
         }
+
+        // Stored for late-descriptor reload — see SetMemoryDescriptors.
+        private string? _lastRomPath;
+        private uint _lastConsoleId;
+        private ClientCallbackFunc? _reloadCallbackDelegate;
 
         /// <summary>Call once per emulated frame, after retro_run().</summary>
         public void DoFrame()
@@ -462,7 +539,30 @@ namespace Emutastic.Services
             // in real M68K address space.
             if (_memoryRegions != null && _memoryRegions.Length > 0)
             {
-                ulong realAddress = (ulong)address + _virtualAddressBase;
+                // Translate rcheevos virtual address → physical. Multi-region
+                // map first (SegaCD/MegaDrive), then single-offset (NGCD),
+                // then identity (most consoles publish at rcheevos's
+                // virtual addresses directly).
+                ulong realAddress;
+                if (_virtualMap != null)
+                {
+                    realAddress = ulong.MaxValue;
+                    for (int v = 0; v < _virtualMap.Length; v++)
+                    {
+                        var vr = _virtualMap[v];
+                        if (address >= vr.VirtStart && address <= vr.VirtEnd)
+                        {
+                            realAddress = vr.PhysStart + (address - vr.VirtStart);
+                            break;
+                        }
+                    }
+                    if (realAddress == ulong.MaxValue) return 0; // virtual address not in any region
+                }
+                else
+                {
+                    realAddress = (ulong)address + _virtualAddressBase;
+                }
+
                 for (int i = 0; i < _memoryRegions.Length; i++)
                 {
                     var r = _memoryRegions[i];

@@ -90,22 +90,27 @@ namespace Emutastic.Services
                     };
 
                 // ── PlayStation / PSP: Sony button names → libretro IDs ─────
+                // PSP has only L/R (one pair); PS1 has L1/R1/L2/R2. The
+                // ControllerDefinition for PSP exposes the buttons as "L"/"R"
+                // and the single analog stick as "Analog Up/Down/Left/Right".
+                // Resolver accepts both naming conventions so bindings UI and
+                // any hand-edited configs match correctly.
                 case "PS1":
                 case "PSP":
                     return n switch
                     {
                         "cross" => JOYPAD_B, "circle" => JOYPAD_A,
                         "square" => JOYPAD_Y, "triangle" => JOYPAD_X,
-                        "l1" => JOYPAD_L, "r1" => JOYPAD_R,
+                        "l1" or "l" => JOYPAD_L, "r1" or "r" => JOYPAD_R,
                         "l2" => JOYPAD_L2, "r2" => JOYPAD_R2,
                         "l3" => JOYPAD_L3, "r3" => JOYPAD_R3,
                         "select" => JOYPAD_SELECT, "start" => JOYPAD_START,
                         "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
                         "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
-                        "left analog up"    => ANALOG_LEFT_UP,
-                        "left analog down"  => ANALOG_LEFT_DOWN,
-                        "left analog left"  => ANALOG_LEFT_LEFT,
-                        "left analog right" => ANALOG_LEFT_RIGHT,
+                        "left analog up"    or "analog up"    => ANALOG_LEFT_UP,
+                        "left analog down"  or "analog down"  => ANALOG_LEFT_DOWN,
+                        "left analog left"  or "analog left"  => ANALOG_LEFT_LEFT,
+                        "left analog right" or "analog right" => ANALOG_LEFT_RIGHT,
                         "right analog up"    => ANALOG_RIGHT_UP,
                         "right analog down"  => ANALOG_RIGHT_DOWN,
                         "right analog left"  => ANALOG_RIGHT_LEFT,
