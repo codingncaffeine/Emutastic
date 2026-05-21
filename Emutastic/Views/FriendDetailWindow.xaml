@@ -347,8 +347,8 @@
                                            VerticalAlignment="Center"
                                            Margin="0,0,6,0"/>
                                 <ComboBox x:Name="CompareSortBox"
+                                          Style="{StaticResource DarkComboBox}"
                                           Width="160"
-                                          FontFamily="{StaticResource PrimaryFont}"
                                           FontSize="11"
                                           SelectedIndex="0"
                                           SelectionChanged="CompareFilter_Changed">
@@ -403,8 +403,8 @@
                                    VerticalAlignment="Center"
                                    Margin="2,0,8,0"/>
                         <ComboBox x:Name="LbGamePicker"
+                                  Style="{StaticResource DarkComboBox}"
                                   Grid.Column="1"
-                                  FontFamily="{StaticResource PrimaryFont}"
                                   FontSize="12"
                                   SelectionChanged="LbGamePicker_SelectionChanged"/>
                     </Grid>

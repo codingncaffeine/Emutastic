@@ -26,13 +26,20 @@ namespace Emutastic.Views
         // Game object after a fresh detail card has already taken over.
         private System.Threading.CancellationTokenSource? _raRefreshCts;
 
-        // Shared LibVLC instance — expensive to create, reused across all detail windows
-        private static LibVLC? _libVLC;
+        // LibVLC instance lives in VideoPlaybackService — warmed off the UI thread at
+        // app startup so the first detail-window open doesn't pay the multi-second
+        // native init cost on the dispatcher.
         private LibVLCSharp.Shared.MediaPlayer? _vlcPlayer;
         private WriteableBitmap? _videoBitmap;
         private IntPtr _videoBuffer;
         private int _videoWidth, _videoHeight;
         private bool _crossfadeDone;
+
+        // Signals OnClosed → in-flight PlaySnapVideoAsync worker that the window
+        // is gone, so the worker drops its half-constructed MediaPlayer instead
+        // of stashing it on a dead window. Volatile so the worker thread sees
+        // the UI-thread write without a memory barrier dance.
+        private volatile bool _closed;
 
         public GameDetailWindow(Game game)
         {
@@ -159,8 +166,9 @@ namespace Emutastic.Views
         {
             try
             {
-                // Show cover art immediately as a placeholder while video loads
-                ShowCoverArtPlaceholder();
+                // Show cover art immediately as a placeholder while video loads.
+                // Decode happens on a worker; UI thread only touches HeaderImage.
+                await ShowCoverArtPlaceholderAsync();
 
                 // 1 — try ScreenScraper video snap if configured
                 var snapConfig = App.Configuration?.GetSnapConfiguration();
@@ -178,7 +186,7 @@ namespace Emutastic.Views
 
                     if (cached != null)
                     {
-                        Dispatcher.Invoke(() => PlaySnapVideo(cached));
+                        await PlaySnapVideoAsync(cached);
                         return;
                     }
                 }
@@ -190,19 +198,21 @@ namespace Emutastic.Views
 
                 if (snapPath == null || !System.IO.File.Exists(snapPath)) return;
 
-                var bitmap = new BitmapImage();
-                bitmap.BeginInit();
-                bitmap.UriSource = new Uri(snapPath, UriKind.Absolute);
-                bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                bitmap.EndInit();
-                bitmap.Freeze();
-
-                Dispatcher.Invoke(() =>
+                var bitmap = await System.Threading.Tasks.Task.Run(() =>
                 {
-                    HeaderImage.Source = bitmap;
-                    HeaderImage.Visibility = Visibility.Visible;
-                    ArtPlaceholderText.Visibility = Visibility.Collapsed;
+                    var bm = new BitmapImage();
+                    bm.BeginInit();
+                    bm.UriSource = new Uri(snapPath, UriKind.Absolute);
+                    bm.CacheOption = BitmapCacheOption.OnLoad;
+                    bm.EndInit();
+                    bm.Freeze();
+                    return bm;
                 });
+
+                if (_closed) return;
+                HeaderImage.Source = bitmap;
+                HeaderImage.Visibility = Visibility.Visible;
+                ArtPlaceholderText.Visibility = Visibility.Collapsed;
             }
             catch { /* cosmetic — silently ignore */ }
         }
@@ -594,20 +604,29 @@ namespace Emutastic.Views
             return h < 100 ? $"{h:0.#}h" : $"{(int)h}h";
         }
 
-        private void ShowCoverArtPlaceholder()
+        private async System.Threading.Tasks.Task ShowCoverArtPlaceholderAsync()
         {
             string artPath = _game.DisplayArtPath;
             if (string.IsNullOrEmpty(artPath) || !System.IO.File.Exists(artPath)) return;
 
             try
             {
-                var bitmap = new BitmapImage();
-                bitmap.BeginInit();
-                bitmap.UriSource = new Uri(artPath, UriKind.Absolute);
-                bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                bitmap.EndInit();
-                bitmap.Freeze();
+                // BitmapImage decode (BeginInit→OnLoad→EndInit→Freeze) reads + decodes
+                // the file synchronously on the calling thread. Frozen bitmaps cross
+                // threads safely, so do the decode on a worker and only the assignment
+                // on UI.
+                var bitmap = await System.Threading.Tasks.Task.Run(() =>
+                {
+                    var bm = new BitmapImage();
+                    bm.BeginInit();
+                    bm.UriSource = new Uri(artPath, UriKind.Absolute);
+                    bm.CacheOption = BitmapCacheOption.OnLoad;
+                    bm.EndInit();
+                    bm.Freeze();
+                    return bm;
+                });
 
+                if (_closed) return;
                 HeaderImage.Source = bitmap;
                 HeaderImage.Stretch = Stretch.UniformToFill;
                 HeaderImage.Visibility = Visibility.Visible;
@@ -616,11 +635,15 @@ namespace Emutastic.Views
             catch { }
         }
 
-        private void PlaySnapVideo(string mp4Path)
+        private async System.Threading.Tasks.Task PlaySnapVideoAsync(string mp4Path)
         {
-            _libVLC ??= new LibVLC("--no-audio", "--no-osd", "--no-snapshot-preview");
             _crossfadeDone = false;
 
+            // ── UI thread: bitmap + buffer MUST exist before any VLC display ──
+            // callback can fire. The display callback marshals to UI and reads
+            // _videoBitmap; if VLC fires before we've assigned it, early frames
+            // drop silently and the placeholder flashes for ~30-100ms.
+            //
             // ScreenScraper snaps are typically 320x240 — use fixed format
             _videoWidth = 320;
             _videoHeight = 240;
@@ -633,59 +656,106 @@ namespace Emutastic.Views
             _videoBitmap = new WriteableBitmap(_videoWidth, _videoHeight, 96, 96, PixelFormats.Bgr32, null);
             VideoImage.Source = _videoBitmap;
 
-            _vlcPlayer = new LibVLCSharp.Shared.MediaPlayer(_libVLC);
-            _vlcPlayer.SetVideoFormat("RV32", (uint)_videoWidth, (uint)_videoHeight, (uint)stride);
+            // Capture by value for the worker / VLC callback closures.
+            IntPtr bufferPtr = _videoBuffer;
+            int width = _videoWidth, height = _videoHeight;
 
-            _vlcPlayer.SetVideoCallbacks(
-                // Lock: give VLC our buffer
-                (IntPtr opaque, IntPtr planes) =>
-                {
-                    Marshal.WriteIntPtr(planes, _videoBuffer);
-                    return IntPtr.Zero;
-                },
-                // Unlock: no-op
-                null,
-                // Display: blit to WriteableBitmap
-                (IntPtr opaque, IntPtr picture) =>
-                {
-                    Dispatcher.BeginInvoke(() =>
+            // Awaits an already-completed Task on the hot path (warmed at app
+            // startup). Only the very first call before warmup finishes can
+            // suspend — and even then we yield back to the dispatcher instead
+            // of blocking it.
+            var libVLC = await Services.VideoPlaybackService.Instance.GetLibVLCAsync();
+
+            // ── Worker thread: MediaPlayer ctor, callback wiring, Media open, Play ──
+            await System.Threading.Tasks.Task.Run(() =>
+            {
+                var player = new LibVLCSharp.Shared.MediaPlayer(libVLC);
+                player.SetVideoFormat("RV32", (uint)width, (uint)height, (uint)stride);
+
+                player.SetVideoCallbacks(
+                    // Lock: give VLC our buffer
+                    (IntPtr opaque, IntPtr planes) =>
                     {
-                        if (_videoBitmap == null || _videoBuffer == IntPtr.Zero) return;
-
-                        _videoBitmap.Lock();
-                        unsafe
+                        Marshal.WriteIntPtr(planes, bufferPtr);
+                        return IntPtr.Zero;
+                    },
+                    // Unlock: no-op
+                    null,
+                    // Display: blit to WriteableBitmap
+                    (IntPtr opaque, IntPtr picture) =>
+                    {
+                        Dispatcher.BeginInvoke(() =>
                         {
-                            Buffer.MemoryCopy(
-                                (void*)_videoBuffer, (void*)_videoBitmap.BackBuffer,
-                                stride * _videoHeight, stride * _videoHeight);
-                        }
-                        _videoBitmap.AddDirtyRect(new Int32Rect(0, 0, _videoWidth, _videoHeight));
-                        _videoBitmap.Unlock();
+                            if (_videoBitmap == null || _videoBuffer == IntPtr.Zero) return;
 
-                        // Crossfade once on first rendered frame
-                        if (!_crossfadeDone)
-                        {
-                            _crossfadeDone = true;
-                            VideoImage.Visibility = Visibility.Visible;
-                            ArtPlaceholderText.Visibility = Visibility.Collapsed;
-                            var fadeOut = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(400));
-                            fadeOut.Completed += (_, _) => HeaderImage.Visibility = Visibility.Collapsed;
-                            HeaderImage.BeginAnimation(OpacityProperty, fadeOut);
-                        }
+                            _videoBitmap.Lock();
+                            unsafe
+                            {
+                                Buffer.MemoryCopy(
+                                    (void*)_videoBuffer, (void*)_videoBitmap.BackBuffer,
+                                    stride * height, stride * height);
+                            }
+                            _videoBitmap.AddDirtyRect(new Int32Rect(0, 0, width, height));
+                            _videoBitmap.Unlock();
+
+                            // Crossfade once on first rendered frame
+                            if (!_crossfadeDone)
+                            {
+                                _crossfadeDone = true;
+                                VideoImage.Visibility = Visibility.Visible;
+                                ArtPlaceholderText.Visibility = Visibility.Collapsed;
+                                var fadeOut = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(400));
+                                fadeOut.Completed += (_, _) => HeaderImage.Visibility = Visibility.Collapsed;
+                                HeaderImage.BeginAnimation(OpacityProperty, fadeOut);
+                            }
+                        });
                     });
-                });
 
-            // Loop: when it ends, replay from the start
-            _vlcPlayer.EndReached += (_, _) =>
-                System.Threading.ThreadPool.QueueUserWorkItem(_ => _vlcPlayer?.Play());
+                // Loop: when it ends, replay from the start
+                player.EndReached += (_, _) =>
+                    System.Threading.ThreadPool.QueueUserWorkItem(_ => player.Play());
 
-            using var media = new Media(_libVLC, mp4Path, FromType.FromPath);
-            media.AddOption(":input-repeat=65535");
-            _vlcPlayer.Play(media);
+                using var media = new Media(libVLC, mp4Path, FromType.FromPath);
+                media.AddOption(":input-repeat=65535");
+
+                // Bail early if the dispatcher is gone — calling Invoke after
+                // shutdown throws and the exception escapes Task.Run.
+                if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+                {
+                    try { player.Dispose(); } catch { }
+                    return;
+                }
+
+                // Stash AND start the player inside the UI-thread critical section.
+                // OnClosed runs on UI too, so it can't interleave between the
+                // assignment and Play — without that atomicity, OnClosed could
+                // Dispose the player between the two and we'd Play on freed memory.
+                bool keep = false;
+                try
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        if (_closed) return;
+                        _vlcPlayer = player;
+                        player.Play(media);
+                        keep = true;
+                    });
+                }
+                catch (System.Threading.Tasks.TaskCanceledException) { }
+
+                if (!keep)
+                {
+                    try { player.Dispose(); } catch { }
+                }
+            });
         }
 
         protected override void OnClosed(EventArgs e)
         {
+            // Signal in-flight async work (placeholder decode, snap-video worker)
+            // to drop its results instead of writing back into a dead window.
+            _closed = true;
+
             // Cancel any in-flight RA refresh so its write-back to the Game
             // object can't race a fresh detail card opened immediately after.
             try { _raRefreshCts?.Cancel(); _raRefreshCts?.Dispose(); _raRefreshCts = null; }
@@ -697,11 +767,18 @@ namespace Emutastic.Views
                 _vlcPlayer.Dispose();
                 _vlcPlayer = null;
             }
-            if (_videoBuffer != IntPtr.Zero)
-            {
-                Marshal.FreeHGlobal(_videoBuffer);
-                _videoBuffer = IntPtr.Zero;
-            }
+
+            // VLC's display callback marshals via Dispatcher.BeginInvoke, so
+            // queued blit work items can outlive Stop()+Dispose() and run
+            // briefly after this point. Zero the bail-out guards BEFORE freeing
+            // the buffer so any in-flight callback sees them and returns instead
+            // of memcpying into freed memory.
+            _videoBitmap = null;
+            var buf = _videoBuffer;
+            _videoBuffer = IntPtr.Zero;
+            if (buf != IntPtr.Zero)
+                Marshal.FreeHGlobal(buf);
+
             base.OnClosed(e);
         }
 

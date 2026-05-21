@@ -556,6 +556,121 @@
         </Setter>
     </Style>
 
+    <!-- ── COMBOBOX (themed) ──
+         App-wide ComboBox style. PreferencesWindow.xaml has its own local
+         copy (predates this) — its keys are window-scoped so they don't
+         collide. Other windows should reference {StaticResource DarkComboBox}. -->
+    <ControlTemplate x:Key="DarkComboBoxToggle" TargetType="ToggleButton">
+        <Border x:Name="bd"
+                Background="{DynamicResource BgTertiaryBrush}"
+                BorderBrush="{DynamicResource BorderNormalBrush}"
+                BorderThickness="1"
+                CornerRadius="6">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="24"/>
+                </Grid.ColumnDefinitions>
+                <ContentPresenter Grid.Column="0"
+                                  Margin="10,0,0,0"
+                                  VerticalAlignment="Center"
+                                  HorizontalAlignment="Left"/>
+                <Path Grid.Column="1"
+                      x:Name="arrow"
+                      Data="M0,0 L4,5 L8,0"
+                      Stroke="{DynamicResource TextSecondaryBrush}"
+                      StrokeThickness="1.5"
+                      HorizontalAlignment="Center"
+                      VerticalAlignment="Center"/>
+            </Grid>
+        </Border>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="{DynamicResource BgQuaternaryBrush}"/>
+            </Trigger>
+            <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+            </Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
+    <ControlTemplate x:Key="DarkComboBoxTemplate" TargetType="ComboBox">
+        <Grid>
+            <ToggleButton Template="{StaticResource DarkComboBoxToggle}"
+                          IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
+                          Focusable="False"/>
+            <ContentPresenter IsHitTestVisible="False"
+                              Content="{TemplateBinding SelectionBoxItem}"
+                              ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                              ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
+                              Margin="11,0,28,0"
+                              VerticalAlignment="Center"
+                              HorizontalAlignment="Left"/>
+            <TextBox x:Name="PART_EditableTextBox"
+                     Visibility="Hidden"
+                     IsReadOnly="{TemplateBinding IsReadOnly}"/>
+            <Popup Placement="Bottom"
+                   IsOpen="{TemplateBinding IsDropDownOpen}"
+                   AllowsTransparency="True"
+                   Focusable="False"
+                   PopupAnimation="Slide">
+                <Grid SnapsToDevicePixels="True"
+                      MinWidth="{TemplateBinding ActualWidth}"
+                      MaxHeight="{TemplateBinding MaxDropDownHeight}">
+                    <Border Background="{DynamicResource BgTertiaryBrush}"
+                            BorderBrush="{DynamicResource BorderNormalBrush}"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Margin="0,2,0,0">
+                        <ScrollViewer Margin="4,4,4,4" SnapsToDevicePixels="True">
+                            <StackPanel IsItemsHost="True"
+                                        KeyboardNavigation.DirectionalNavigation="Contained"/>
+                        </ScrollViewer>
+                    </Border>
+                </Grid>
+            </Popup>
+        </Grid>
+    </ControlTemplate>
+
+    <Style x:Key="DarkComboBoxItem" TargetType="ComboBoxItem">
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Padding"    Value="8,5"/>
+        <Setter Property="FontSize"   Value="13"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBoxItem">
+                    <Border x:Name="bd"
+                            Background="{TemplateBinding Background}"
+                            CornerRadius="4"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource BgQuaternaryBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="DarkComboBox" TargetType="ComboBox">
+        <Setter Property="Foreground"         Value="{DynamicResource TextPrimaryBrush}"/>
+        <Setter Property="Background"         Value="{DynamicResource BgTertiaryBrush}"/>
+        <Setter Property="BorderBrush"        Value="{DynamicResource BorderNormalBrush}"/>
+        <Setter Property="BorderThickness"    Value="1"/>
+        <Setter Property="FontFamily"         Value="{StaticResource PrimaryFont}"/>
+        <Setter Property="FontSize"           Value="12"/>
+        <Setter Property="Height"             Value="30"/>
+        <Setter Property="Template"           Value="{StaticResource DarkComboBoxTemplate}"/>
+        <Setter Property="ItemContainerStyle" Value="{StaticResource DarkComboBoxItem}"/>
+    </Style>
+
     <!-- ── CONTEXT MENU ── -->
     <Style TargetType="ContextMenu">
         <Setter Property="Background"       Value="{DynamicResource BgTertiaryBrush}"/>

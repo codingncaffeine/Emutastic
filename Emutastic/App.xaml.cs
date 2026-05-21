@@ -153,6 +153,10 @@ namespace Emutastic
                 var mainWindow = new MainWindow();
                 mainWindow.Show();
                 Logger?.LogInformation("Main window shown");
+
+                // Warm LibVLC off the UI thread so the first game-detail open
+                // doesn't pay its multi-second native init cost on the dispatcher.
+                Services.VideoPlaybackService.Instance.StartWarmup();
             }
             catch (Exception ex)
             {

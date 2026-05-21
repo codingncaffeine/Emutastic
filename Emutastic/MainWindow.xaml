@@ -2382,8 +2382,8 @@
                                                 <Button x:Name="FriendsAddButton"
                                                         Grid.Column="1"
                                                         Content="+ Add Friend"
+                                                        Style="{StaticResource PlayButtonStyle}"
                                                         Padding="12,4"
-                                                        FontFamily="{StaticResource PrimaryFont}"
                                                         FontSize="11"
                                                         Click="FriendsAddButton_Click"/>
                                             </Grid>
