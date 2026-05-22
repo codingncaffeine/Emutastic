@@ -3526,7 +3526,7 @@ namespace Emutastic.Views
 
             // Clamp to valid range in case config was edited manually.
             PaddingSlider.Value  = Math.Clamp(theme.GridPadding, 8, 64);
-            SpacingSlider.Value  = Math.Clamp(theme.CardSpacing, 4, 48);
+            SpacingSlider.Value  = Math.Clamp(theme.CardSpacing, 4, 96);
             CardSizeSlider.Value = Math.Clamp(theme.CardWidth, 148, 280);
             WindowsChromeToggle.IsChecked = theme.UseWindowsChrome;
             UpdateSliderLabels();
@@ -3867,7 +3867,7 @@ namespace Emutastic.Views
         {
             var theme = _configService.GetThemeConfiguration();
             theme.GridPadding = Math.Clamp((int)PaddingSlider.Value,  8,   64);
-            theme.CardSpacing = Math.Clamp((int)SpacingSlider.Value,  4,   48);
+            theme.CardSpacing = Math.Clamp((int)SpacingSlider.Value,  4,   96);
             theme.CardWidth   = Math.Clamp((int)CardSizeSlider.Value, 148, 280);
             theme.UseWindowsChrome = WindowsChromeToggle.IsChecked == true;
 

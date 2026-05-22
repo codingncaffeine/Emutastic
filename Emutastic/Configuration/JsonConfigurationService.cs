@@ -127,6 +127,41 @@ namespace Emutastic.Configuration
             }
         }
 
+        /// <summary>
+        /// Drop any <c>ThemeConfiguration.PerConsoleSpacing</c> entries whose value
+        /// doesn't match <c>^\d{1,3},\d{1,3}$</c>. The runtime resolver in
+        /// <c>App.ResolvePerConsoleSpacing</c> falls back gracefully on bad input,
+        /// but without this scrub the bad entry sits in the JSON forever and the
+        /// fallback path runs on every grid render for that console.
+        /// </summary>
+        private void ScrubPerConsoleSpacing()
+        {
+            try
+            {
+                var dict = _data.ThemeConfiguration.PerConsoleSpacing;
+                if (dict == null || dict.Count == 0) return;
+
+                var pattern = new System.Text.RegularExpressions.Regex(@"^\d{1,3},\d{1,3}$");
+                var bad = new System.Collections.Generic.List<string>();
+                foreach (var kv in dict)
+                {
+                    if (string.IsNullOrEmpty(kv.Value) || !pattern.IsMatch(kv.Value))
+                        bad.Add(kv.Key);
+                }
+                foreach (var key in bad)
+                {
+                    System.Diagnostics.Trace.WriteLine($"[Config] Dropping malformed PerConsoleSpacing[{key}]={dict[key]}");
+                    dict.Remove(key);
+                }
+                if (bad.Count > 0)
+                    _ = SaveAsync(); // flush clean dict so malformed entries don't outlive this launch
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[Migration] ScrubPerConsoleSpacing failed: {ex.Message}");
+            }
+        }
+
         public async Task LoadAsync()
         {
             try
@@ -148,6 +183,12 @@ namespace Emutastic.Configuration
                 // under DataRoot as relative so they survive drive-letter changes.
                 // Idempotent — paths already relative or outside DataRoot pass through.
                 MigratePathsToRelative();
+
+                // Drop malformed PerConsoleSpacing entries so a corrupted config
+                // can't keep poisoning App.ResolvePerConsoleSpacing on every read.
+                // The runtime parser already falls back gracefully, but the bad
+                // entry would otherwise persist in the file forever.
+                ScrubPerConsoleSpacing();
             }
             catch (Exception ex)
             {

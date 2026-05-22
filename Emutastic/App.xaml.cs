@@ -20,6 +20,19 @@ namespace Emutastic
         /// <summary>True when first-run detected existing data at the chosen directory (no DB yet).</summary>
         public static bool FirstRunDiscoveryNeeded { get; set; }
 
+        /// <summary>
+        /// Mirror of <c>MainWindow._currentNavTag</c> when the user is on a console
+        /// view (null otherwise). Read by <see cref="ApplyLayoutResources"/> so it can
+        /// honor the active console's <c>PerConsoleSpacing</c> override even when the
+        /// trigger is a global event like prefs save or theme change.
+        ///
+        /// Without this, two writers (PreferencesWindow.ThemeSaveBtn_Click → ApplyThemeResources
+        /// and MainWindow.SpacingSliderToolbar_ValueChanged) race on LibraryCardMargin and
+        /// the global-default writer wins, silently stomping the toolbar's per-console value
+        /// until the user navigates away and back.
+        /// </summary>
+        public static string? ActiveConsoleTag { get; set; }
+
         private static Mutex? _singleInstanceMutex;
 
         protected override async void OnStartup(StartupEventArgs e)
@@ -585,19 +598,61 @@ namespace Emutastic
         /// Pushes saved theme layout values into Application.Current.Resources so that all
         /// {DynamicResource} bindings (grid padding, card spacing) update immediately.
         /// Safe to call from any thread before or after the window is shown.
+        ///
+        /// Backwards-compatible shim — all real work happens in
+        /// <see cref="ApplyLayoutResources"/>.
         /// </summary>
-        public static void ApplyThemeResources()
+        public static void ApplyThemeResources() => ApplyLayoutResources();
+
+        /// <summary>
+        /// SOLE writer of <c>LibraryGridPadding</c>, <c>LibraryCardMargin</c>, and
+        /// <c>LibraryCardWidth</c>. Reads theme config, applies safety clamps, and
+        /// when <see cref="ActiveConsoleTag"/> is set, honors that console's
+        /// <c>PerConsoleSpacing</c> override before falling back to the global
+        /// <c>CardSpacing</c>.
+        ///
+        /// Both global writers (theme apply, prefs save) and per-console writers
+        /// (toolbar H/V slider) must route through this method. Direct writes to
+        /// the three resources from anywhere else will create the multi-writer
+        /// bug class that previously stomped per-console margins on prefs save.
+        /// </summary>
+        public static void ApplyLayoutResources()
         {
             var theme = Configuration?.GetThemeConfiguration() ?? new Emutastic.Configuration.ThemeConfiguration();
 
             // Clamp to safe limits so malformed config can't break the layout.
             int padding   = Math.Clamp(theme.GridPadding, 8, 64);
-            int spacing   = Math.Clamp(theme.CardSpacing, 4, 48);
             int cardWidth = Math.Clamp(theme.CardWidth, 148, 280);
+            var (h, v)    = ResolvePerConsoleSpacing(ActiveConsoleTag);
 
             Current.Resources["LibraryGridPadding"] = new System.Windows.Thickness(padding);
-            Current.Resources["LibraryCardMargin"]  = new System.Windows.Thickness(0, 0, spacing, spacing);
+            Current.Resources["LibraryCardMargin"]  = new System.Windows.Thickness(0, 0, h, v);
             Current.Resources["LibraryCardWidth"]   = (double)cardWidth;
+        }
+
+        /// <summary>
+        /// Resolve the (H, V) spacing pair for the given console — per-console
+        /// override if one exists and parses cleanly, otherwise the global
+        /// <c>CardSpacing</c>. Single source of truth for spacing resolution
+        /// shared between <see cref="ApplyLayoutResources"/> and MainWindow's
+        /// toolbar slider handlers.
+        /// </summary>
+        public static (int H, int V) ResolvePerConsoleSpacing(string? console)
+        {
+            var theme = Configuration?.GetThemeConfiguration();
+            int globalFallback = Math.Clamp(theme?.CardSpacing ?? 20, 4, 96);
+            if (theme == null || string.IsNullOrEmpty(console))
+                return (globalFallback, globalFallback);
+
+            if (theme.PerConsoleSpacing != null
+                && theme.PerConsoleSpacing.TryGetValue(console, out var raw)
+                && raw.Split(',') is var parts && parts.Length == 2
+                && int.TryParse(parts[0], out int h)
+                && int.TryParse(parts[1], out int v))
+            {
+                return (Math.Clamp(h, 4, 96), Math.Clamp(v, 4, 96));
+            }
+            return (globalFallback, globalFallback);
         }
 
         protected override async void OnExit(ExitEventArgs e)

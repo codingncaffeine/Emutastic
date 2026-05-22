@@ -1254,7 +1254,7 @@
                                         </Grid.ColumnDefinitions>
                                         <Slider x:Name="SpacingSlider"
                                                 Grid.Column="0"
-                                                Minimum="4" Maximum="48" TickFrequency="2"
+                                                Minimum="4" Maximum="96" TickFrequency="4"
                                                 IsSnapToTickEnabled="True"
                                                 VerticalAlignment="Center"
                                                 ValueChanged="SpacingSlider_ValueChanged"/>
