@@ -293,6 +293,20 @@ namespace Emutastic.Services
             }
         }
 
+        /// <summary>
+        /// Gets the core's library version string (e.g., "0.13.0", "git")
+        /// as published by the core via retro_get_system_info.
+        /// </summary>
+        public string CoreVersion
+        {
+            get
+            {
+                if (SystemInfo.library_version != IntPtr.Zero)
+                    return Marshal.PtrToStringAnsi(SystemInfo.library_version) ?? "unknown";
+                return "unknown";
+            }
+        }
+
         public LibretroCore(string corePath)
         {
             _corePath = corePath ?? throw new ArgumentNullException(nameof(corePath));

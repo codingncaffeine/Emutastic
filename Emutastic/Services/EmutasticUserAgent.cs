@@ -15,8 +15,10 @@ namespace Emutastic.Services
     ///
     ///   EmulatorName/v1.0.0 (OSName 10.0) core_name/v0.5.0
     ///
-    /// We emit the first two parts here; the core-name suffix is appended
-    /// at game-launch time when the libretro core for the session is known.
+    /// We emit all three parts when caller supplies the core's name and
+    /// version; otherwise we emit the product + OS portion alone (used for
+    /// the public Web API client which is not bound to a particular core
+    /// load).
     ///
     /// Note: a properly-formatted UA is necessary but not sufficient for
     /// hardcore unlocks to actually count. Emutastic also has to be on RA's
@@ -34,6 +36,42 @@ namespace Emutastic.Services
         public static string Build()
         {
             return $"{ProductName}/{ResolveVersion()} ({ResolveOs()})";
+        }
+
+        /// <summary>
+        /// Returns the canonical User-Agent string with the active libretro
+        /// core's name and version appended, per RA's documented format:
+        /// <c>EmulatorName/v1.0.0 (OSName 10.0) core_name/v0.5.0</c>.
+        /// Falls back to <see cref="Build()"/> if either input is blank.
+        /// </summary>
+        public static string Build(string? coreName, string? coreVersion)
+        {
+            if (string.IsNullOrWhiteSpace(coreName) || string.IsNullOrWhiteSpace(coreVersion))
+                return Build();
+
+            // Sanitize: HTTP UA tokens can't contain spaces, slashes, or
+            // control characters. Cores like "ParaLLEl N64" need to become
+            // "ParaLLEl-N64"; versions occasionally carry whitespace too.
+            string n = Sanitize(coreName);
+            string v = Sanitize(coreVersion);
+            return $"{ProductName}/{ResolveVersion()} ({ResolveOs()}) {n}/{v}";
+        }
+
+        private static string Sanitize(string s)
+        {
+            var chars = new char[s.Length];
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                chars[i] = c switch
+                {
+                    ' ' or '\t' or '/' or '\\' or '(' or ')' or '<' or '>' or '@' or
+                    ',' or ';' or ':' or '"' or '[' or ']' or '?' or '=' or '{' or '}' => '-',
+                    _ when c < 0x20 || c >= 0x7F => '-',
+                    _ => c,
+                };
+            }
+            return new string(chars);
         }
 
         private static string ResolveVersion()

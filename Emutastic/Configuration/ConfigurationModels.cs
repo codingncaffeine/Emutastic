@@ -208,7 +208,18 @@ namespace Emutastic.Configuration
         public string Token { get; set; } = "";
         /// <summary>Web API Key from retroachievements.org settings (used for Test Connection only).</summary>
         public string ApiKey { get; set; } = "";
-        public bool HardcoreMode { get; set; } = false;
+        // Default to hardcore per RA's Section E recommendation. Existing users
+        // who saved softcore explicitly keep their preference (System.Text.Json
+        // writes the field at save time, so old configs already have the value).
+        public bool HardcoreMode { get; set; } = true;
+
+        // On startup, pull the user's retroachievements.org follow list and
+        // additively merge it into the local friends list. Default on for
+        // fresh installs; existing users keep whatever they had saved.
+        // Manual Import button works regardless. Setting takes effect on
+        // next launch (the toggle handler writes config only — sync fires
+        // exclusively from the MainWindow.OnLoaded hook).
+        public bool SyncFollowsOnLaunch { get; set; } = true;
     }
 
     // RetroAchievements friends configuration — list membership + polling
@@ -254,6 +265,25 @@ namespace Emutastic.Configuration
         public bool   IsInvalid            { get; set; }
         public int    ConsecutiveFailures  { get; set; }
         public string LastError            { get; set; } = "";
+
+        // RA stable user identifier. Populated opportunistically when a
+        // GetUsersIFollow sync or profile refresh returns it. UserId remains
+        // the actual PK (always present on every entry); Ulid is the
+        // future-proof match key for username changes. null = not yet
+        // backfilled.
+        public string? Ulid                { get; set; }
+
+        // True when the friend appears in YOUR follow list on
+        // retroachievements.org. Set by Phase 7.3/7.4 sync; cleared
+        // when they disappear from the response. Drives the "Mutual"
+        // chip in FriendBriefCard.
+        public bool   MutualFollow        { get; set; } = false;
+
+        // Per-friend toast gate. True for manually-added friends (default).
+        // RA-imported friends are inserted with false ("muted by default")
+        // so a bulk import doesn't drown the user in toasts for users they
+        // follow casually. User flips via the bell icon on FriendBriefCard.
+        public bool   ToastsEnabled       { get; set; } = true;
     }
 
     // Video snap provider configuration

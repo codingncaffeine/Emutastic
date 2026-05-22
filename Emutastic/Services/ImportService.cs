@@ -1142,7 +1142,11 @@ namespace Emutastic.Services
 
         private void ImportLog(string message)
         {
-            try { File.AppendAllText(_importLogPath, $"{DateTime.Now:HH:mm:ss.fff}  {message}\n"); }
+            try
+            {
+                LogRotation.RotateIfLarge(_importLogPath);
+                File.AppendAllText(_importLogPath, $"{DateTime.Now:HH:mm:ss.fff}  {message}\n");
+            }
             catch { }
         }
 

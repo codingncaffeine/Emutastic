@@ -70,8 +70,10 @@ namespace Emutastic.Services
             try
             {
                 string logDir = Emutastic.AppPaths.GetFolder("Logs");
+                string logPath = System.IO.Path.Combine(logDir, "recording_debug.log");
+                Emutastic.Services.LogRotation.RotateIfLarge(logPath);
                 System.IO.File.AppendAllText(
-                    System.IO.Path.Combine(logDir, "recording_debug.log"),
+                    logPath,
                     $"[{DateTime.Now:HH:mm:ss.fff}] [WGC] {msg}\n");
             }
             catch { }

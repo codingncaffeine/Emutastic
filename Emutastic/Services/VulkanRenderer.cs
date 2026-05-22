@@ -722,7 +722,12 @@ namespace Emutastic.Services
             Emutastic.AppPaths.GetFolder("Logs"), "vulkan_debug.txt");
         private static void VkLog(string msg)
         {
-            try { System.IO.File.AppendAllText(_vkLogPath, msg + "\n"); } catch { }
+            try
+            {
+                Emutastic.Services.LogRotation.RotateIfLarge(_vkLogPath);
+                System.IO.File.AppendAllText(_vkLogPath, msg + "\n");
+            }
+            catch { }
         }
 
         private void OnSetImage(IntPtr handle, IntPtr imagePtr, uint numSemaphores, IntPtr semaphores, uint srcQueueFamily)

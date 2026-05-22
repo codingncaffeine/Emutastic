@@ -440,6 +440,196 @@ namespace Emutastic.Services
         }
 
         /// <summary>
+        /// Summary of an <see cref="ApplyFollowSyncAsync"/> pass — counts
+        /// for the user-facing import banner.
+        /// </summary>
+        public sealed record FollowSyncResult(
+            int Added,          // genuinely new friends inserted (muted by default)
+            int Updated,        // existing friends whose Ulid backfilled or MutualFollow flipped to true
+            int MutualCleared,  // existing friends no longer in the follow list — MutualFollow flipped to false
+            int Failed);        // entries whose username couldn't be resolved to a UserId (renamed / deleted / private)
+
+        /// <summary>
+        /// Reconciles the local friends list with the user's current
+        /// RetroAchievements follow graph (the response from
+        /// <see cref="RetroAchievementsService.GetUsersIFollowAsync"/>).
+        ///
+        /// Match priority for each follow entry: ULID first, then
+        /// case-insensitive username. Hits backfill <c>Ulid</c> and set
+        /// <c>MutualFollow=true</c> while PRESERVING <c>ToastsEnabled</c>
+        /// (don't reset user mute choice). Misses are looked up via
+        /// <see cref="LookupAsync"/> to resolve UserId, then added with
+        /// <c>ToastsEnabled=false</c> (muted by default for RA-imports),
+        /// <c>MutualFollow=true</c>, <c>JustAdded=true</c> (suppresses the
+        /// historical-unlock toast flood on first poll). Friends absent
+        /// from the response have <c>MutualFollow</c> cleared to false but
+        /// are NEVER removed.
+        ///
+        /// Whole pass runs in a single <see cref="_writeLock"/> acquisition
+        /// so an interleaved AddAsync/RemoveAsync can't fight us. Profile
+        /// lookups happen BEFORE the lock so we don't pin it across
+        /// network calls.
+        /// </summary>
+        public async Task<FollowSyncResult> ApplyFollowSyncAsync(
+            IReadOnlyList<Models.RAUsersIFollowEntry> followed, CancellationToken ct = default)
+        {
+            if (followed == null || followed.Count == 0)
+                return new FollowSyncResult(0, 0, 0, 0);
+
+            // Pre-pass (no lock): partition each follow entry by whether it
+            // already matches an existing friend. For misses, fetch profile
+            // to resolve the integer UserId (which is FriendEntry's PK and
+            // is NOT returned by API_GetUsersIFollow).
+            var snapshot = Friends;
+            var toMutate = new List<(FriendEntry existing, Models.RAUsersIFollowEntry follow)>();
+            var toAdd    = new List<(Models.RAUsersIFollowEntry follow, LookupResult preview)>();
+            int failedCount = 0;
+
+            foreach (var f in followed)
+            {
+                if (ct.IsCancellationRequested) break;
+                FriendEntry? match = null;
+                if (!string.IsNullOrEmpty(f.Ulid))
+                    match = snapshot.FirstOrDefault(x => x.Ulid == f.Ulid);
+                if (match == null && !string.IsNullOrEmpty(f.User))
+                    match = snapshot.FirstOrDefault(x =>
+                        string.Equals(x.Username, f.User, StringComparison.OrdinalIgnoreCase));
+
+                if (match != null)
+                {
+                    toMutate.Add((match, f));
+                }
+                else
+                {
+                    var preview = await LookupAsync(f.User, ct).ConfigureAwait(false);
+                    if (preview.Success && preview.UserId != 0)
+                        toAdd.Add((f, preview));
+                    else
+                        failedCount++;
+                }
+            }
+
+            // UserId set for the "no longer in follow list → clear MutualFollow" sweep.
+            var followedUserIds = new HashSet<int>();
+            foreach (var (existing, _) in toMutate) followedUserIds.Add(existing.UserId);
+            foreach (var (_, preview)  in toAdd)    followedUserIds.Add(preview.UserId);
+
+            int added = 0, updated = 0, mutualCleared = 0;
+            await _writeLock.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                var cfg = _config.GetFriendsConfiguration();
+                var newList = new List<FriendEntry>(cfg.Friends);
+                var byId    = newList.ToDictionary(f => f.UserId);
+
+                // Apply matches: backfill Ulid + set MutualFollow to the
+                // ACTUAL mutual state from the API (IsFollowingMe). A user
+                // YOU follow who does not follow YOU back is NOT mutual.
+                // ToastsEnabled and JustAdded are left untouched.
+                foreach (var (existingSnap, follow) in toMutate)
+                {
+                    if (!byId.TryGetValue(existingSnap.UserId, out var current)) continue;
+                    bool changed = false;
+                    if (!string.IsNullOrEmpty(follow.Ulid) && current.Ulid != follow.Ulid)
+                    {
+                        current.Ulid = follow.Ulid;
+                        changed = true;
+                    }
+                    if (current.MutualFollow != follow.IsFollowingMe)
+                    {
+                        current.MutualFollow = follow.IsFollowingMe;
+                        changed = true;
+                    }
+                    if (changed) updated++;
+                }
+
+                // Apply additions: muted-by-default, mutual=true, JustAdded=true
+                // so the first poll seeds LastSeenUnlockDate without firing
+                // a flood of historical-unlock toasts.
+                foreach (var (follow, preview) in toAdd)
+                {
+                    // Skip if a concurrent AddAsync raced us between pre-pass
+                    // and lock acquisition.
+                    if (byId.ContainsKey(preview.UserId)) continue;
+                    var entry = new FriendEntry
+                    {
+                        UserId             = preview.UserId,
+                        Username           = preview.Username,
+                        Ulid               = follow.Ulid,
+                        // Honest mutual flag — only true when they follow back.
+                        MutualFollow       = follow.IsFollowingMe,
+                        ToastsEnabled      = false,
+                        JustAdded          = true,
+                        LastSeenUnlockDate = "",
+                    };
+                    newList.Add(entry);
+                    byId[preview.UserId] = entry;
+
+                    WriteCache(preview.UserId, new FriendCacheSnapshot
+                    {
+                        AvatarUrl      = preview.AvatarUrl,
+                        Motto          = preview.Motto,
+                        PointsSoftcore = preview.PointsSoftcore,
+                        PointsHardcore = preview.PointsHardcore,
+                        MemberSince    = preview.MemberSince,
+                        UpdatedAt      = DateTimeOffset.UtcNow.ToString("o"),
+                    });
+                    added++;
+                }
+
+                // Sweep: friends not present in the response lose MutualFollow.
+                // Do NOT remove them — manual-add semantics survive a sync.
+                foreach (var f in newList)
+                {
+                    if (!followedUserIds.Contains(f.UserId) && f.MutualFollow)
+                    {
+                        f.MutualFollow = false;
+                        mutualCleared++;
+                    }
+                }
+
+                cfg.Friends = newList;
+                _config.SetFriendsConfiguration(cfg);
+                await _config.SaveAsync().ConfigureAwait(false);
+            }
+            finally { _writeLock.Release(); }
+
+            FriendListChanged?.Invoke(this, EventArgs.Empty);
+            return new FollowSyncResult(added, updated, mutualCleared, failedCount);
+        }
+
+        /// <summary>
+        /// Toggles per-friend toast notifications. When false, the friend
+        /// continues to be polled and appears in the activity feed, but
+        /// <see cref="ActivityReceived"/> and <see cref="FriendLbImproved"/>
+        /// events are NOT raised for them — so no achievement toasts and
+        /// no leaderboard triumph / proximity / loss toasts.
+        ///
+        /// Mirrors the AddAsync / RemoveAsync mutation pattern: serializes
+        /// on <c>_writeLock</c>, persists immediately, fires
+        /// <see cref="FriendListChanged"/> so any open card / list rebinds.
+        /// </summary>
+        public async Task<bool> SetToastsEnabledAsync(int userId, bool enabled, CancellationToken ct = default)
+        {
+            await _writeLock.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                var cfg = _config.GetFriendsConfiguration();
+                var friend = cfg.Friends.FirstOrDefault(f => f.UserId == userId);
+                if (friend == null) return false;
+                if (friend.ToastsEnabled == enabled) return false; // no-op
+
+                friend.ToastsEnabled = enabled;
+                _config.SetFriendsConfiguration(cfg);
+                await _config.SaveAsync().ConfigureAwait(false);
+            }
+            finally { _writeLock.Release(); }
+
+            FriendListChanged?.Invoke(this, EventArgs.Empty);
+            return true;
+        }
+
+        /// <summary>
         /// Removes a friend from the list and deletes their cached snapshot.
         /// </summary>
         public async Task<bool> RemoveAsync(int userId, CancellationToken ct = default)
@@ -772,21 +962,29 @@ namespace Emutastic.Services
                 // Fire events AFTER the lock is released so foreign
                 // subscribers can't stall other writers.
                 FriendListChanged?.Invoke(this, EventArgs.Empty);
-                foreach (var e in _pendingActivityToFire)
+
+                // Per-friend toast gate: muted friends still poll (the
+                // activity feed and snapshot fields still update via
+                // FriendListChanged) but we suppress the firehose events
+                // that drive toasts.
+                if (friend.ToastsEnabled)
                 {
-                    try { ActivityReceived?.Invoke(this, e); } catch { }
-                }
-                if (lbImprovements != null && lbImprovements.Count > 0)
-                {
-                    try
+                    foreach (var e in _pendingActivityToFire)
                     {
-                        FriendLbImproved?.Invoke(this, new FriendLbImprovementEvent(
-                            FriendUserId: friend.UserId,
-                            FriendUsername: friend.Username,
-                            GameId: lbDiffGameId,
-                            Improvements: lbImprovements));
+                        try { ActivityReceived?.Invoke(this, e); } catch { }
                     }
-                    catch { /* never propagate UI subscriber exceptions */ }
+                    if (lbImprovements != null && lbImprovements.Count > 0)
+                    {
+                        try
+                        {
+                            FriendLbImproved?.Invoke(this, new FriendLbImprovementEvent(
+                                FriendUserId: friend.UserId,
+                                FriendUsername: friend.Username,
+                                GameId: lbDiffGameId,
+                                Improvements: lbImprovements));
+                        }
+                        catch { /* never propagate UI subscriber exceptions */ }
+                    }
                 }
                 return resultIncrement;
             }

@@ -4009,6 +4009,7 @@ namespace Emutastic.Views
             RAPasswordBox.Password     = ra.Password;
             RAApiKeyBox.Password       = ra.ApiKey;
             RAHardcoreToggle.IsChecked = ra.HardcoreMode;
+            RASyncFollowsToggle.IsChecked = ra.SyncFollowsOnLaunch;
             RATokenStatus.Text = !string.IsNullOrEmpty(ra.Token)
                 ? "Login token saved — password not required for future sessions."
                 : "No login token yet — password required for first login.";
@@ -4051,6 +4052,7 @@ namespace Emutastic.Views
             ra.Password     = RAPasswordBox.Password;
             ra.ApiKey       = RAApiKeyBox.Password.Trim();
             ra.HardcoreMode = RAHardcoreToggle.IsChecked == true;
+            ra.SyncFollowsOnLaunch = RASyncFollowsToggle.IsChecked == true;
             _configService.SetRetroAchievementsConfiguration(ra);
             _ = _configService.SaveAsync();
         }
@@ -4059,6 +4061,14 @@ namespace Emutastic.Views
             => SaveAchievementsSettings();
 
         private void RAHardcore_Changed(object sender, RoutedEventArgs e)
+            => SaveAchievementsSettings();
+
+        // Toggle handler: writes config only — never triggers a sync.
+        // The actual sync fires from MainWindow.OnLoaded so "takes effect
+        // next launch" is honest and predictable. Re-firing during
+        // LoadAchievementsSettings is suppressed by the _suppressAutoSave
+        // gate inside SaveAchievementsSettings.
+        private void RASyncFollows_Changed(object sender, RoutedEventArgs e)
             => SaveAchievementsSettings();
 
         // Pasting the API key fires PasswordChanged once per character; debounce

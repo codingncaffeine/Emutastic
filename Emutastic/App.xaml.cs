@@ -153,23 +153,40 @@ namespace Emutastic
                 Current.Resources["LibraryCardWidth"] = 148.0;
 
                 // Load config before showing the window so saved bounds are available.
+                var swCfg = Services.StartupTrace.Start();
                 await InitializeConfigurationAsync();
+                Services.StartupTrace.Stop("InitializeConfigurationAsync", swCfg);
 
                 // Native-assets migration runs HERE (after config load) so it sees the
                 // user's final DataRoot — including any custom data directory applied by
                 // InitializeConfigurationAsync via AppPaths.SetCustomRoot. Earlier we ran
                 // this before config and it stranded assets at the default %AppData% path
                 // whenever a user had a custom data directory configured.
+                var swMig = Services.StartupTrace.Start();
                 MigrateNativeAssetsIfNeeded();
+                Services.StartupTrace.Stop("MigrateNativeAssetsIfNeeded", swMig);
+
+                // Start the UI freeze watchdog BEFORE the main window so any
+                // freeze during the first render is logged. Diagnostic-only —
+                // delete `Services/UiFreezeWatchdog.cs` and this line when the
+                // freeze hunt is over.
+                Services.UiFreezeWatchdog.Instance.Start(Dispatcher);
+                Services.StartupTrace.Mark("watchdog_started");
 
                 Logger?.LogInformation("Creating main window...");
+                var swMainWindowCtor = Services.StartupTrace.Start();
                 var mainWindow = new MainWindow();
+                Services.StartupTrace.Stop("MainWindow.ctor", swMainWindowCtor);
+
+                var swShow = Services.StartupTrace.Start();
                 mainWindow.Show();
+                Services.StartupTrace.Stop("MainWindow.Show", swShow);
                 Logger?.LogInformation("Main window shown");
 
                 // Warm LibVLC off the UI thread so the first game-detail open
                 // doesn't pay its multi-second native init cost on the dispatcher.
                 Services.VideoPlaybackService.Instance.StartWarmup();
+                Services.StartupTrace.Mark("libvlc_warmup_kicked");
             }
             catch (Exception ex)
             {

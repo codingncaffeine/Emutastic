@@ -28,6 +28,7 @@ namespace Emutastic.Views
         private readonly FriendService _friends;
         private readonly RetroAchievementsService _api;
         private FriendEntry? _entry;
+        private bool _toastsEnabled;
 
         private readonly DatabaseService _db;
         private List<RAUserCompletionProgressItem>? _mineProgress;
@@ -50,6 +51,17 @@ namespace Emutastic.Views
 
             Title = $"{entry.Username} — Profile";
             TitleBarText.Text = Title;
+
+            _toastsEnabled = entry.ToastsEnabled;
+            ApplyToastsIcon();
+            HeaderToastsToggle.MouseEnter += (_, __) => StartBellHover();
+            HeaderToastsToggle.MouseLeave += (_, __) => StopBellHover();
+
+            // Stay in sync with the brief card popup — both write through
+            // FriendService.SetToastsEnabledAsync which fires FriendListChanged.
+            _friends.FriendListChanged += OnFriendListChanged;
+            Closed += (_, __) => _friends.FriendListChanged -= OnFriendListChanged;
+
             Loaded += async (_, __) =>
             {
                 PaintFromCache();
@@ -113,23 +125,234 @@ namespace Emutastic.Views
                 HeaderSoftcorePoints.Text = $"{snap.PointsSoftcore:N0} pts";
                 HeaderMemberSince.Text = FriendsCopy.MemberSinceDisplay(snap.MemberSince);
                 LoadAvatar(snap.AvatarUrl);
-                LastPlayedTitle.Text = string.IsNullOrEmpty(snap.LastGameTitle)
-                    ? "—" : snap.LastGameTitle;
-                LastPlayedRichPresence.Text = snap.RichPresence;
-                if (!string.IsNullOrEmpty(snap.LastGameImageIcon))
-                {
-                    LoadGameIcon(snap.LastGameImageIcon);
-                }
                 RenderStats(snap);
             }
         }
 
-        private void LoadGameIcon(string imageIconPath)
+        /// <summary>
+        /// Fetches the friend's last 5 played games and populates the
+        /// Recently Played card. Fire-and-forget; failures fall back to
+        /// "No recently played games." Empty list (private profile, brand
+        /// new account) shows the same fallback. Single HTTP call per
+        /// detail-window open — small enough to skip caching.
+        /// </summary>
+        private async Task FetchRecentlyPlayedAsync()
         {
-            string fullUrl = imageIconPath.StartsWith("http", StringComparison.OrdinalIgnoreCase)
-                ? imageIconPath
-                : "https://media.retroachievements.org" + imageIconPath;
-            FriendImageLoader.Load(LastPlayedImage, fullUrl, "detail-game-icon", "");
+            if (_entry == null) return;
+            try
+            {
+                var recent = await Task.Run(() =>
+                        _api.GetUserRecentlyPlayedGamesAsync(_entry.Username, 5))
+                    .ConfigureAwait(true);
+                RecentlyPlayedItems.Items.Clear();
+                if (recent == null || recent.Count == 0)
+                {
+                    RecentlyPlayedEmpty.Visibility = Visibility.Visible;
+                    return;
+                }
+                RecentlyPlayedEmpty.Visibility = Visibility.Collapsed;
+                foreach (var g in recent)
+                    RecentlyPlayedItems.Items.Add(BuildRecentlyPlayedRow(g));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[FriendDetail] recently played fetch failed: {ex.Message}");
+                RecentlyPlayedEmpty.Text = "Couldn't load recently played games.";
+                RecentlyPlayedEmpty.Visibility = Visibility.Visible;
+            }
+        }
+
+        private FrameworkElement BuildRecentlyPlayedRow(Models.RARecentlyPlayedGame g)
+        {
+            var border = new Border
+            {
+                Padding = new Thickness(0, 6, 0, 6),
+                BorderBrush = (System.Windows.Media.Brush)FindResource("BorderSubtleBrush"),
+                BorderThickness = new Thickness(0, 0, 0, 1),
+            };
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            // Game icon — 40x40 rounded square.
+            var iconBorder = new Border
+            {
+                Width = 40, Height = 40,
+                CornerRadius = new CornerRadius(4),
+                Background = (System.Windows.Media.Brush)FindResource("BgTertiaryBrush"),
+                ClipToBounds = true,
+            };
+            if (!string.IsNullOrEmpty(g.ImageIcon))
+            {
+                var img = new System.Windows.Controls.Image { Stretch = System.Windows.Media.Stretch.UniformToFill };
+                iconBorder.Child = img;
+                string fullUrl = g.ImageIcon.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                    ? g.ImageIcon
+                    : "https://media.retroachievements.org" + g.ImageIcon;
+                FriendImageLoader.Load(img, fullUrl, "recent-game-icon", $"game={g.Title}");
+            }
+            Grid.SetColumn(iconBorder, 0);
+
+            // Title + console + time-ago.
+            var stack = new StackPanel
+            {
+                Margin = new Thickness(10, 0, 8, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            stack.Children.Add(new TextBlock
+            {
+                Text = g.Title,
+                FontFamily = (System.Windows.Media.FontFamily)FindResource("PrimaryFont"),
+                FontSize = 13,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = (System.Windows.Media.Brush)FindResource("TextPrimaryBrush"),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            });
+            var subParts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(g.ConsoleName)) subParts.Add(g.ConsoleName);
+            string ago = FormatTimeAgo(g.LastPlayed);
+            if (!string.IsNullOrEmpty(ago)) subParts.Add(ago);
+            stack.Children.Add(new TextBlock
+            {
+                Text = string.Join(" · ", subParts),
+                FontFamily = (System.Windows.Media.FontFamily)FindResource("PrimaryFont"),
+                FontSize = 11,
+                Foreground = (System.Windows.Media.Brush)FindResource("TextMutedBrush"),
+                Margin = new Thickness(0, 2, 0, 0),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            });
+            Grid.SetColumn(stack, 1);
+
+            // Progress badge (N / M achievements).
+            if (g.NumPossibleAchievements > 0)
+            {
+                var progress = new TextBlock
+                {
+                    Text = $"{g.NumAchievedHardcore}/{g.NumPossibleAchievements}",
+                    FontFamily = (System.Windows.Media.FontFamily)FindResource("PrimaryFont"),
+                    FontSize = 11,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = (System.Windows.Media.Brush)FindResource("TextSecondaryBrush"),
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                Grid.SetColumn(progress, 2);
+                grid.Children.Add(progress);
+            }
+
+            grid.Children.Add(iconBorder);
+            grid.Children.Add(stack);
+            border.Child = grid;
+            return border;
+        }
+
+        /// <summary>
+        /// Per-friend toast toggle — same write path as the brief card's bell.
+        /// Optimistic UI: flip locally first, then write to config. If the
+        /// write fails, OnFriendListChanged (no-op when the values already
+        /// agree) leaves the local state alone.
+        /// </summary>
+        private async void HeaderToastsToggle_Click(object sender, RoutedEventArgs e)
+        {
+            if (_entry == null) return;
+            _toastsEnabled = !_toastsEnabled;
+            ApplyToastsIcon();
+            try
+            {
+                await _friends.SetToastsEnabledAsync(_entry.UserId, _toastsEnabled);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[FriendDetail] SetToastsEnabledAsync failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Cross-surface sync: when the brief card flips ToastsEnabled on
+        /// the same friend, re-read the canonical value from config and
+        /// update this window's icon + label so the two surfaces never
+        /// disagree.
+        /// </summary>
+        private void OnFriendListChanged(object? sender, EventArgs e)
+        {
+            if (_entry == null) return;
+            try
+            {
+                var live = _friends.Friends.FirstOrDefault(f => f.UserId == _entry.UserId);
+                if (live == null) return;
+                if (live.ToastsEnabled == _toastsEnabled) return; // no change for this friend
+                Dispatcher.BeginInvoke(() =>
+                {
+                    _toastsEnabled = live.ToastsEnabled;
+                    ApplyToastsIcon();
+                });
+            }
+            catch { }
+        }
+
+        private void ApplyToastsIcon()
+        {
+            HeaderToastsIcon.Kind = _toastsEnabled
+                ? MaterialDesignThemes.Wpf.PackIconKind.Bell
+                : MaterialDesignThemes.Wpf.PackIconKind.BellOff;
+            HeaderToastsLabel.Text = _toastsEnabled
+                ? "Notifications on — click to mute this friend"
+                : "Notifications off — click to enable notifications";
+            HeaderToastsToggle.ToolTip = HeaderToastsLabel.Text;
+        }
+
+        // Muted gold that reads well against the dark theme; saturated gold
+        // (#FFD700) is too garish next to our accent red.
+        private static readonly System.Windows.Media.Color BellHoverColor =
+            System.Windows.Media.Color.FromRgb(0xE0, 0xB5, 0x4B);
+
+        private void StartBellHover()
+        {
+            // Foreground swap: hold a reference to the original brush so we
+            // can restore it exactly (preserves whatever theme it resolved to).
+            HeaderToastsIcon.Foreground = new System.Windows.Media.SolidColorBrush(BellHoverColor);
+
+            // Ring animation: small back-and-forth pivot at the top of the
+            // bell (RenderTransformOrigin 0.5,0.15 in the XAML).
+            var ring = new System.Windows.Media.Animation.DoubleAnimation
+            {
+                From = -18,
+                To   =  18,
+                Duration = TimeSpan.FromMilliseconds(140),
+                AutoReverse = true,
+                RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever,
+                EasingFunction = new System.Windows.Media.Animation.SineEase
+                {
+                    EasingMode = System.Windows.Media.Animation.EasingMode.EaseInOut,
+                },
+            };
+            HeaderToastsBellRotate.BeginAnimation(
+                System.Windows.Media.RotateTransform.AngleProperty, ring);
+        }
+
+        private void StopBellHover()
+        {
+            HeaderToastsIcon.Foreground = (System.Windows.Media.Brush)FindResource("TextSecondaryBrush");
+            // Stopping the animation by passing null leaves the angle at its
+            // last animated value, so explicitly reset to upright.
+            HeaderToastsBellRotate.BeginAnimation(
+                System.Windows.Media.RotateTransform.AngleProperty, null);
+            HeaderToastsBellRotate.Angle = 0;
+        }
+
+        private static string FormatTimeAgo(string? iso)
+        {
+            if (string.IsNullOrWhiteSpace(iso)) return "";
+            if (!DateTime.TryParse(iso, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal,
+                    out var dt))
+                return "";
+            var delta = DateTime.UtcNow - dt.ToUniversalTime();
+            if (delta.TotalMinutes < 1)  return "just now";
+            if (delta.TotalMinutes < 60) return $"{(int)delta.TotalMinutes}m ago";
+            if (delta.TotalHours   < 24) return $"{(int)delta.TotalHours}h ago";
+            if (delta.TotalDays    < 30) return $"{(int)delta.TotalDays}d ago";
+            return dt.ToString("yyyy-MM-dd");
         }
 
         // Pull fresh profile + recent unlocks. Errors fall back to cache.
@@ -148,13 +371,7 @@ namespace Emutastic.Views
                     HeaderSoftcorePoints.Text = $"{profile.TotalSoftcorePoints:N0} pts";
                     HeaderMemberSince.Text = FriendsCopy.MemberSinceDisplay(profile.MemberSince ?? "");
                     LoadAvatar("https://media.retroachievements.org" + (profile.UserPic ?? ""));
-                    LastPlayedRichPresence.Text = profile.RichPresenceMsg ?? "";
 
-                    // Preserve cached LastGameTitle (RAUserProfile only
-                    // surfaces LastGameId; the human-readable title is
-                    // populated by separate calls outside this window's
-                    // scope — Phase 5 will fetch it). Don't blank it
-                    // when refreshing points.
                     var prevSnap = _friends.GetSnapshot(_entry.UserId);
                     RenderStats(new FriendCacheSnapshot
                     {
@@ -164,9 +381,12 @@ namespace Emutastic.Views
                         LastGameId     = profile.LastGameId,
                         LastGameTitle  = prevSnap?.LastGameTitle ?? "",
                     });
-                    if (!string.IsNullOrEmpty(prevSnap?.LastGameTitle))
-                        LastPlayedTitle.Text = prevSnap.LastGameTitle;
                 }
+
+                // Fire the recently-played fetch in parallel with the
+                // recent-unlocks fetch below — both hit the network and
+                // don't depend on each other.
+                _ = FetchRecentlyPlayedAsync();
             }
             catch (Exception ex)
             {

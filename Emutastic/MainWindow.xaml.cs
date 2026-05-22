@@ -81,8 +81,12 @@ namespace Emutastic
             // "no events fired").
             CtrlDiagLog($"=== MainWindow.OnLoaded — exe at {AppContext.BaseDirectory} ===");
 
+            Services.StartupTrace.Mark("MainWindow.OnLoaded.begin");
+
             // ── Phase 1: synchronous, fast — window becomes interactive immediately ──
+            var swDb = Services.StartupTrace.Start();
             _db          = new DatabaseService();   // schema init (CREATE TABLE / indexes)
+            Services.StartupTrace.Stop("DatabaseService.ctor", swDb);
 
             // Mark the user's Achievements-tab cache rows stale so the first
             // tab open of this session refetches profile / points / awards /
@@ -143,12 +147,14 @@ namespace Emutastic
                     if (visible) PopulateSaveStatesView();
                 });
             };
+            var swServices = Services.StartupTrace.Start();
             _artwork     = new ArtworkService();
             _coreManager = new CoreManager(App.Configuration!);
             _importer    = new ImportService(_db, _coreManager, App.Configuration);
             _vm          = new MainViewModel(_db);  // empty _allGames until Reload() runs
             _artworkFetch = new ArtworkFetchService(_db, _artwork, _vm);
             _vm.Navigated += OnNavigated;
+            Services.StartupTrace.Stop("ServiceCtors+ViewModel", swServices);
             _artworkFetch.BoxArt3DFetched += () =>
                 Dispatcher.Invoke(() => BoxArtTogglePanel.Visibility = Visibility.Visible);
             DataContext  = _vm;                     // _vm is now non-null; clicks work
@@ -208,11 +214,15 @@ namespace Emutastic
                 return tcs.Task;
             };
 
+            var swBounds = Services.StartupTrace.Start();
             RestoreMainWindowBounds();
             Closing += MainWindow_Closing;
+            Services.StartupTrace.Stop("RestoreMainWindowBounds", swBounds);
 
+            var swSidebar = Services.StartupTrace.Start();
             UpdateTabStyles("Library");
             RefreshCollectionsSidebar();
+            Services.StartupTrace.Stop("RefreshCollectionsSidebar", swSidebar);
 
             // Restore per-console 3D box art preferences BEFORE loading games,
             // so DisplayArtPath evaluates correctly during initial binding.
@@ -224,11 +234,18 @@ namespace Emutastic
             Game.PreferScreenScraper2D = snapCfg?.PreferScreenScraper2D == true;
 
             // ── Phase 2: load data off UI thread, then filter on UI thread ──
+            var swReload = Services.StartupTrace.Start();
             await Task.Run(() => _vm.Reload());  // GetAllGames() — stays off UI thread
-            await _vm.FilterGamesAsync();        // sort/group in background, assign on UI thread
-            ScrollLibraryToTop();
+            Services.StartupTrace.Stop("vm.Reload", swReload);
 
+            var swFilter = Services.StartupTrace.Start();
+            await _vm.FilterGamesAsync();        // sort/group in background, assign on UI thread
+            Services.StartupTrace.Stop("vm.FilterGamesAsync", swFilter);
+
+            var swPostFilter = Services.StartupTrace.Start();
+            ScrollLibraryToTop();
             UpdateBoxArtToggleVisibility();
+            Services.StartupTrace.Stop("PostFilter(Scroll+ArtToggle)", swPostFilter);
 
             // Pre-build per-console caches in the background so switching feels instant.
             _ = _vm.PreloadConsoleCachesAsync();
@@ -260,13 +277,70 @@ namespace Emutastic
                         SetStatus($"Discovered {found} save state(s)", autoClear: true));
             });
 
+            var swBg = Services.StartupTrace.Start();
             ApplyBackgroundImage();
+            Services.StartupTrace.Stop("ApplyBackgroundImage", swBg);
 
             // Background scan for stale libretro cores. Fire-and-forget — never
             // blocks startup, falls silent if the user is offline (CheckAsync
             // swallows network errors). Result surfaces in the bottom-left
             // banner as a non-blocking nudge that auto-hides after 20 seconds.
             _ = CheckCoreUpdatesAndNotifyAsync();
+
+            // RA follow-graph auto-sync (Phase 7.4). Fire-and-forget on a
+            // worker thread so a slow RA response can never block startup.
+            // Silent on missing credentials AND on network failure — failure
+            // log goes to Trace only. Manual Import button is the user-visible
+            // surface; this is just "stay current" plumbing.
+            _ = SyncFollowsIfEnabledAsync();
+
+            Services.StartupTrace.Mark("MainWindow.OnLoaded.end");
+        }
+
+        /// <summary>
+        /// One-shot at-launch reconciliation between the local friends list
+        /// and the user's retroachievements.org follow graph. Gated on the
+        /// per-user "Sync follows on launch" preference and on having
+        /// usable RA credentials. Never invoked from the Preferences toggle
+        /// handler — that path writes config only; this method is the sole
+        /// trigger so "takes effect next launch" stays honest.
+        /// </summary>
+        private async Task SyncFollowsIfEnabledAsync()
+        {
+            try
+            {
+                if (App.Configuration == null) return;
+                var ra = App.Configuration.GetRetroAchievementsConfiguration();
+                if (ra == null || !ra.Enabled
+                    || !ra.SyncFollowsOnLaunch
+                    || string.IsNullOrWhiteSpace(ra.Username)
+                    || string.IsNullOrWhiteSpace(ra.ApiKey))
+                    return;
+
+                var api = new Services.RetroAchievementsService(App.Configuration, _db);
+                var followed = await Task.Run(() => api.GetUsersIFollowAsync())
+                                         .ConfigureAwait(false);
+                if (followed == null || followed.Count == 0) return;
+
+                var friends = GetOrCreateFriendService();
+                var result = await Task.Run(() => friends.ApplyFollowSyncAsync(followed))
+                                       .ConfigureAwait(false);
+
+                // Quiet status only when something actually changed — silent
+                // otherwise so a sync against an in-sync list doesn't nag.
+                if (result.Added > 0 || result.MutualCleared > 0)
+                {
+                    var parts = new System.Collections.Generic.List<string>();
+                    if (result.Added         > 0) parts.Add($"{result.Added} new follow(s)");
+                    if (result.MutualCleared > 0) parts.Add($"{result.MutualCleared} mutual flag(s) cleared");
+                    string msg = "RA follow sync: " + string.Join(" · ", parts);
+                    await Dispatcher.BeginInvoke(() => _vm.SetStatus(msg, autoClear: true));
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[FollowSync] launch sync failed: {ex.Message}");
+            }
         }
 
         private async Task CheckCoreUpdatesAndNotifyAsync()
@@ -992,6 +1066,9 @@ namespace Emutastic
         /// </summary>
         private void OnNavigated(string tag)
         {
+            var swNav = Services.StartupTrace.Start();
+            try
+            {
             bool isConsoleView = !string.IsNullOrEmpty(tag)
                 && tag != "All Games" && tag != "Recent" && tag != "Favorites"
                 && tag != "RecentlyAdded" && !tag.StartsWith("Collection:");
@@ -1045,6 +1122,8 @@ namespace Emutastic
                     : tag;
                 _vm.ToolbarTitle = name;
             }
+            }
+            finally { Services.StartupTrace.Stop($"nav.OnNavigated[{tag}]", swNav); }
         }
 
         // ── Per-console card spacing (toolbar slider) ─────────────────────────
@@ -1384,6 +1463,7 @@ namespace Emutastic
             {
                 lock (_ctrlDiagLogLock)
                 {
+                    Services.LogRotation.RotateIfLarge(_ctrlDiagLogPath);
                     System.IO.File.AppendAllText(_ctrlDiagLogPath,
                         $"{DateTime.Now:HH:mm:ss.fff} {msg}{Environment.NewLine}");
                 }
@@ -2284,16 +2364,21 @@ namespace Emutastic
         {
             if (sender is System.Windows.Controls.Primitives.ToggleButton btn && btn.Tag is string tag)
             {
-                GameContentGrid.Visibility   = tag == "Library"      ? Visibility.Visible : Visibility.Collapsed;
-                SaveStatesView.Visibility    = tag == "SaveStates"   ? Visibility.Visible : Visibility.Collapsed;
-                ScreenshotsView.Visibility   = tag == "Screenshots"  ? Visibility.Visible : Visibility.Collapsed;
-                AchievementsView.Visibility  = tag == "Achievements" ? Visibility.Visible : Visibility.Collapsed;
+                var swTab = Services.StartupTrace.Start();
+                try
+                {
+                    GameContentGrid.Visibility   = tag == "Library"      ? Visibility.Visible : Visibility.Collapsed;
+                    SaveStatesView.Visibility    = tag == "SaveStates"   ? Visibility.Visible : Visibility.Collapsed;
+                    ScreenshotsView.Visibility   = tag == "Screenshots"  ? Visibility.Visible : Visibility.Collapsed;
+                    AchievementsView.Visibility  = tag == "Achievements" ? Visibility.Visible : Visibility.Collapsed;
 
-                if (tag == "SaveStates")   PopulateSaveStatesView();
-                if (tag == "Screenshots")  PopulateScreenshotsView();
-                if (tag == "Achievements") PopulateAchievementsView();
+                    if (tag == "SaveStates")   PopulateSaveStatesView();
+                    if (tag == "Screenshots")  PopulateScreenshotsView();
+                    if (tag == "Achievements") PopulateAchievementsView();
 
-                UpdateTabStyles(tag);
+                    UpdateTabStyles(tag);
+                }
+                finally { Services.StartupTrace.Stop($"nav.Tab[{tag}]", swTab); }
             }
         }
 
@@ -2358,7 +2443,9 @@ namespace Emutastic
                 RARecentCard.Visibility = Visibility.Collapsed;
                 FriendsUnconfiguredCard.Visibility = Visibility.Visible;
                 FriendsListCard.Visibility = Visibility.Collapsed;
+                FollowersCard.Visibility = Visibility.Collapsed;
                 FriendsAddButton.IsEnabled = false;
+                FriendsImportButton.IsEnabled = false;
                 return;
             }
 
@@ -2367,7 +2454,12 @@ namespace Emutastic
             RARecentCard.Visibility = Visibility.Visible;
             FriendsUnconfiguredCard.Visibility = Visibility.Collapsed;
             FriendsListCard.Visibility = Visibility.Visible;
+            FollowersCard.Visibility = Visibility.Visible;
             FriendsAddButton.IsEnabled = true;
+            // Don't re-enable the import button if a sync is in flight —
+            // a tab-flip during import would otherwise let the user start
+            // a second parallel sync.
+            FriendsImportButton.IsEnabled = !_friendsImportInFlight;
 
             // Initial Friends-tab paint + subscribe to state change events.
             // RefreshFriendsView reads the local list synchronously from
@@ -4204,6 +4296,243 @@ namespace Emutastic
             // on success which triggers RefreshFriendsView via
             // OnFriendsChanged. No explicit refresh needed.
             dialog.ShowDialog();
+        }
+
+        // Reentrancy gate for the Import button: PopulateAchievementsView
+        // unconditionally re-enables FriendsImportButton, so a tab-flip
+        // mid-import could otherwise let the user fire two parallel
+        // ApplyFollowSyncAsync passes. Set on entry, cleared in finally.
+        private bool _friendsImportInFlight;
+
+        // Followers disclosure state.
+        private bool _followersExpanded;
+        private bool _followersInFlight;
+
+        /// <summary>
+        /// Pulls the user's RetroAchievements follow list and reconciles it
+        /// against the local friends list. New entries are added muted —
+        /// the per-friend bell on each card toggles toasts back on.
+        /// Existing friends gain MutualFollow + Ulid backfill without
+        /// losing their notification preference.
+        /// </summary>
+        private async void FriendsImportButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (FriendsImportButton == null) return;
+            if (App.Configuration == null) return; // RA never initializes without config
+            if (_friendsImportInFlight) return;
+            _friendsImportInFlight = true;
+            FriendsImportButton.IsEnabled = false;
+            try
+            {
+                _vm.SetStatus("Importing follows from RetroAchievements…");
+                var api = new Services.RetroAchievementsService(App.Configuration, _db);
+                var followed = await Task.Run(() => api.GetUsersIFollowAsync())
+                                         .ConfigureAwait(true);
+                if (followed == null || followed.Count == 0)
+                {
+                    // Distinguish "API key/username missing" (silent fallback
+                    // returns empty list) from "RA says you have no follows."
+                    var ra = GetOrCreateRaDataService();
+                    string msg = (string.IsNullOrWhiteSpace(ra.CurrentUser()) || !ra.HasApiKey())
+                        ? "RetroAchievements isn't configured — add credentials in Preferences."
+                        : "RetroAchievements returned no follows.";
+                    _vm.SetStatus(msg, autoClear: true);
+                    return;
+                }
+
+                var friends = GetOrCreateFriendService();
+                var result = await Task.Run(() => friends.ApplyFollowSyncAsync(followed))
+                                       .ConfigureAwait(true);
+
+                var parts = new List<string>();
+                if (result.Added         > 0) parts.Add($"{result.Added} new");
+                if (result.Updated       > 0) parts.Add($"{result.Updated} updated");
+                if (result.MutualCleared > 0) parts.Add($"{result.MutualCleared} mutual flag(s) cleared");
+                if (result.Failed        > 0) parts.Add($"{result.Failed} skipped");
+                string summary = parts.Count == 0
+                    ? "Already in sync with RetroAchievements."
+                    : "Import complete — " + string.Join(" · ", parts) +
+                      (result.Added > 0 ? "  (new entries are muted — tap the bell to enable toasts)" : "");
+                _vm.SetStatus(summary, autoClear: true);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[FriendsImport] failed: {ex.Message}");
+                _vm.SetStatus("Import failed — see logs.", autoClear: true);
+            }
+            finally
+            {
+                _friendsImportInFlight = false;
+                if (FriendsImportButton != null)
+                    FriendsImportButton.IsEnabled = true;
+            }
+        }
+
+        /// <summary>
+        /// Toggles the Followers disclosure. First expand fetches the list
+        /// from RA via the public web API (cached 10 min server-side per
+        /// session); subsequent expands re-render from cache without
+        /// re-hitting the network.
+        /// </summary>
+        private async void FollowersHeader_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            _followersExpanded = !_followersExpanded;
+            FollowersContent.Visibility = _followersExpanded ? Visibility.Visible : Visibility.Collapsed;
+            FollowersHeaderCaret.Text = _followersExpanded ? "▴" : "▾";
+
+            // Only fetch on expand. Cheap idempotent re-render on collapse-expand
+            // pairs via the service's 10-min cache.
+            if (!_followersExpanded) return;
+            if (_followersInFlight) return;
+            if (App.Configuration == null) return;
+            // Skip rebuild if we already have populated rows — collapsing
+            // then re-expanding shouldn't re-flicker the avatars. (Cache
+            // would return the same payload within the 10-min TTL window
+            // anyway; this avoids the WPF Items.Clear + N image-bindings.)
+            if (FollowersListItems.Items.Count > 0) return;
+
+            _followersInFlight = true;
+            FollowersStatus.Visibility = Visibility.Visible;
+            FollowersStatus.Text = "Loading followers…";
+            FollowersListItems.Items.Clear();
+            try
+            {
+                var api = new Services.RetroAchievementsService(App.Configuration, _db);
+                var followers = await Task.Run(() => api.GetUsersFollowingMeAsync())
+                                          .ConfigureAwait(true);
+
+                // Filter out anyone already in the friends list — they
+                // can't be re-added, so showing them serves no purpose.
+                var friendUsernames = new HashSet<string>(
+                    GetOrCreateFriendService().Friends.Select(f => f.Username),
+                    StringComparer.OrdinalIgnoreCase);
+                var notYetFriends = followers
+                    .Where(f => !friendUsernames.Contains(f.User))
+                    .ToList();
+
+                FollowersHeaderLabel.Text = followers.Count > 0
+                    ? $"YOUR FOLLOWERS ({notYetFriends.Count} not yet friends)"
+                    : "YOUR FOLLOWERS";
+
+                if (notYetFriends.Count == 0)
+                {
+                    FollowersStatus.Text = followers.Count == 0
+                        ? "No one follows you on RetroAchievements yet."
+                        : "All your followers are already in your friends list.";
+                    return;
+                }
+
+                FollowersStatus.Visibility = Visibility.Collapsed;
+                foreach (var f in notYetFriends)
+                    FollowersListItems.Items.Add(BuildFollowerRow(f));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[Followers] populate failed: {ex.Message}");
+                FollowersStatus.Text = "Couldn't load followers — check your internet connection.";
+            }
+            finally
+            {
+                _followersInFlight = false;
+            }
+        }
+
+        /// <summary>
+        /// Builds one row in the Followers list — avatar + username +
+        /// "Add as Friend" button. Avatar URL is derived directly from
+        /// the username (RA's CDN convention) so no extra API call.
+        /// </summary>
+        private FrameworkElement BuildFollowerRow(Models.RAUsersFollowingMeEntry follower)
+        {
+            var border = new Border
+            {
+                BorderBrush = (System.Windows.Media.Brush)FindResource("BorderSubtleBrush"),
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                Padding = new Thickness(14, 10, 14, 10),
+            };
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var avatar = new Border
+            {
+                Width = 32, Height = 32,
+                CornerRadius = new CornerRadius(16),
+                Background = (System.Windows.Media.Brush)FindResource("BgTertiaryBrush"),
+                ClipToBounds = true,
+            };
+            var img = new System.Windows.Controls.Image
+            {
+                Stretch = System.Windows.Media.Stretch.UniformToFill,
+            };
+            avatar.Child = img;
+            // RA's UserPic CDN convention — derivable from username, no API call.
+            string avatarUrl = $"https://media.retroachievements.org/UserPic/{Uri.EscapeDataString(follower.User)}.png";
+            Emutastic.Services.FriendImageLoader.Load(img, avatarUrl, "follower-avatar", $"user={follower.User}");
+            Grid.SetColumn(avatar, 0);
+
+            var nameStack = new StackPanel
+            {
+                Orientation = Orientation.Vertical,
+                Margin = new Thickness(10, 0, 8, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            nameStack.Children.Add(new TextBlock
+            {
+                Text = follower.User,
+                FontFamily = (System.Windows.Media.FontFamily)FindResource("PrimaryFont"),
+                FontSize = 13,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = (System.Windows.Media.Brush)FindResource("TextPrimaryBrush"),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            });
+            Grid.SetColumn(nameStack, 1);
+
+            var addBtn = new Button
+            {
+                Content = "Add as Friend",
+                Style = (Style)FindResource("PlayButtonStyle"),
+                Padding = new Thickness(10, 4, 10, 4),
+                FontSize = 11,
+                VerticalAlignment = VerticalAlignment.Center,
+                Tag = follower.User,
+            };
+            addBtn.Click += FollowerAddBtn_Click;
+            Grid.SetColumn(addBtn, 2);
+
+            grid.Children.Add(avatar);
+            grid.Children.Add(nameStack);
+            grid.Children.Add(addBtn);
+            border.Child = grid;
+            return border;
+        }
+
+        private async void FollowerAddBtn_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not Button btn) return;
+            if (btn.Tag is not string username || string.IsNullOrWhiteSpace(username)) return;
+
+            btn.IsEnabled = false;
+            btn.Content = "Adding…";
+            try
+            {
+                var svc = GetOrCreateFriendService();
+                var preview = await Task.Run(() => svc.LookupAsync(username)).ConfigureAwait(true);
+                if (!preview.Success)
+                {
+                    btn.Content = "Failed";
+                    System.Diagnostics.Trace.WriteLine($"[FollowerAdd] LookupAsync failed for {username}: {preview.Error}");
+                    return;
+                }
+                bool added = await Task.Run(() => svc.AddAsync(preview)).ConfigureAwait(true);
+                btn.Content = added ? "Added" : "Already added";
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[FollowerAdd] failed for {username}: {ex.Message}");
+                btn.Content = "Failed";
+            }
         }
 
         private void RenderCommunityPulse(List<Models.RARecentGameAward>? awards)

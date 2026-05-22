@@ -54,6 +54,23 @@ namespace Emutastic.Services
             return http;
         }
 
+        /// <summary>
+        /// Updates the rcheevos HTTP client's User-Agent to include the active
+        /// libretro core's name and version. Call once per game-launch BEFORE
+        /// rcheevos login/identify so the UA on those requests reflects the
+        /// core that will produce subsequent unlock events.
+        ///
+        /// Safe to call repeatedly across sessions; passing null/blank values
+        /// reverts to the product/OS-only UA. Not thread-safe — assumes the
+        /// caller invokes this when no rcheevos request is mid-flight (true at
+        /// init time before any frames run).
+        /// </summary>
+        public static void SetCoreContext(string? coreName, string? coreVersion)
+        {
+            _http.DefaultRequestHeaders.UserAgent.Clear();
+            _http.DefaultRequestHeaders.UserAgent.ParseAdd(EmutasticUserAgent.Build(coreName, coreVersion));
+        }
+
         /// <summary>Fired on the emulation thread when an achievement is triggered.</summary>
         public event Action<AchievementInfo>? AchievementTriggered;
 

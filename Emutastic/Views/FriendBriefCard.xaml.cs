@@ -20,6 +20,7 @@ namespace Emutastic.Views
     public partial class FriendBriefCard : Window
     {
         private readonly int _userId;
+        private bool _toastsEnabled;
 
         /// <summary>Raised when the user clicks "Open Full Profile".</summary>
         public event EventHandler<int>? OpenProfileRequested;
@@ -33,11 +34,19 @@ namespace Emutastic.Views
             InitializeComponent();
             _userId = entry.UserId;
             _friends = friends;
+            _toastsEnabled = entry.ToastsEnabled;
 
             // Always set the friend's name from the entry (authoritative
             // identity). The snap can be empty/stale; the name field
             // can't.
             BriefName.Text = entry.Username;
+
+            // Mutual-follow chip and bell-toggle state both derive from the
+            // FriendEntry (config-level), not from the cache snapshot.
+            BriefMutualChip.Visibility = entry.MutualFollow ? Visibility.Visible : Visibility.Collapsed;
+            ApplyToastsIcon();
+            BriefToastsToggle.MouseEnter += (_, __) => StartBellHover();
+            BriefToastsToggle.MouseLeave += (_, __) => StopBellHover();
 
             // Re-read snap fresh from the service rather than trusting
             // the parameter, which can be stale if polling rewrote
@@ -132,6 +141,65 @@ namespace Emutastic.Views
         {
             RemoveRequested?.Invoke(this, _userId);
             CloseBrief();
+        }
+
+        private async void BriefToastsToggle_Click(object sender, RoutedEventArgs e)
+        {
+            // Optimistic UI: flip the icon immediately so the click feels
+            // responsive. The async config write reconciles in the
+            // background — if it fails the next FriendListChanged event
+            // (or a re-open of the card) will resync from the canonical
+            // FriendEntry.
+            _toastsEnabled = !_toastsEnabled;
+            ApplyToastsIcon();
+            try
+            {
+                await _friends.SetToastsEnabledAsync(_userId, _toastsEnabled);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[FriendBriefCard] SetToastsEnabledAsync failed: {ex.Message}");
+            }
+        }
+
+        private void ApplyToastsIcon()
+        {
+            BriefToastsIcon.Kind = _toastsEnabled
+                ? MaterialDesignThemes.Wpf.PackIconKind.Bell
+                : MaterialDesignThemes.Wpf.PackIconKind.BellOff;
+            BriefToastsToggle.ToolTip = _toastsEnabled
+                ? "Notifications on — click to mute this friend's toasts"
+                : "Notifications off — click to enable this friend's toasts";
+        }
+
+        private static readonly System.Windows.Media.Color BellHoverColor =
+            System.Windows.Media.Color.FromRgb(0xE0, 0xB5, 0x4B);
+
+        private void StartBellHover()
+        {
+            BriefToastsIcon.Foreground = new System.Windows.Media.SolidColorBrush(BellHoverColor);
+            var ring = new System.Windows.Media.Animation.DoubleAnimation
+            {
+                From = -18,
+                To   =  18,
+                Duration = TimeSpan.FromMilliseconds(140),
+                AutoReverse = true,
+                RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever,
+                EasingFunction = new System.Windows.Media.Animation.SineEase
+                {
+                    EasingMode = System.Windows.Media.Animation.EasingMode.EaseInOut,
+                },
+            };
+            BriefToastsBellRotate.BeginAnimation(
+                System.Windows.Media.RotateTransform.AngleProperty, ring);
+        }
+
+        private void StopBellHover()
+        {
+            BriefToastsIcon.Foreground = (System.Windows.Media.Brush)FindResource("TextSecondaryBrush");
+            BriefToastsBellRotate.BeginAnimation(
+                System.Windows.Media.RotateTransform.AngleProperty, null);
+            BriefToastsBellRotate.Angle = 0;
         }
     }
 }

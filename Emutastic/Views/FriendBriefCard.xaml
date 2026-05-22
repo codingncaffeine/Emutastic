@@ -1,6 +1,7 @@
 <Window x:Class="Emutastic.Views.FriendBriefCard"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:md="http://materialdesigninxaml.net/winfx/xaml/themes"
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent"
@@ -19,6 +20,7 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <Border Grid.Column="0"
                         Width="56" Height="56"
@@ -27,13 +29,46 @@
                         ClipToBounds="True">
                     <Image x:Name="BriefAvatar" Stretch="UniformToFill"/>
                 </Border>
-                <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
-                    <TextBlock x:Name="BriefName"
-                               FontFamily="{StaticResource PrimaryFont}"
-                               FontSize="15"
-                               FontWeight="SemiBold"
-                               Foreground="{DynamicResource TextPrimaryBrush}"
-                               TextTrimming="CharacterEllipsis"/>
+                <StackPanel Grid.Column="1" Margin="12,0,8,0" VerticalAlignment="Center">
+                    <!-- Grid (not StackPanel) so the * column gives the
+                         username TextBlock a bounded width and CharacterEllipsis
+                         actually engages. Horizontal StackPanel would give the
+                         text infinite width and the MUTUAL chip would slide
+                         off the right edge of the card on long usernames. -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="BriefName"
+                                   Grid.Column="0"
+                                   FontFamily="{StaticResource PrimaryFont}"
+                                   FontSize="15"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextPrimaryBrush}"
+                                   TextTrimming="CharacterEllipsis"
+                                   VerticalAlignment="Center"/>
+                        <!-- Mutual-follow chip: shown only when this friend
+                             appears in YOUR retroachievements.org follow list.
+                             Cheap social signal — no extra HTTP call to compute. -->
+                        <Border x:Name="BriefMutualChip"
+                                Grid.Column="1"
+                                Background="{DynamicResource BgTertiaryBrush}"
+                                BorderBrush="{DynamicResource AccentBrush}"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Padding="6,1,6,1"
+                                Margin="8,0,0,0"
+                                VerticalAlignment="Center"
+                                Visibility="Collapsed"
+                                ToolTip="You follow this user on RetroAchievements">
+                            <TextBlock Text="MUTUAL"
+                                       FontFamily="{StaticResource PrimaryFont}"
+                                       FontSize="9"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"/>
+                        </Border>
+                    </Grid>
                     <TextBlock x:Name="BriefPoints"
                                FontFamily="{StaticResource PrimaryFont}"
                                FontSize="11"
@@ -47,6 +82,35 @@
                                TextTrimming="CharacterEllipsis"
                                Margin="0,2,0,0"/>
                 </StackPanel>
+                <!-- Toast on/off toggle. Click to mute / unmute achievement
+                     and leaderboard notifications for this friend. Custom
+                     template strips WPF's default light-blue hover; hover
+                     affordance is the bell turning gold + a small ring
+                     animation (handled in code-behind). -->
+                <Button x:Name="BriefToastsToggle"
+                        Grid.Column="2"
+                        Width="28" Height="28"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Padding="0"
+                        VerticalAlignment="Top"
+                        Cursor="Hand"
+                        Click="BriefToastsToggle_Click">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <md:PackIcon x:Name="BriefToastsIcon"
+                                 Kind="Bell"
+                                 Width="18" Height="18"
+                                 Foreground="{DynamicResource TextSecondaryBrush}"
+                                 RenderTransformOrigin="0.5,0.15">
+                        <md:PackIcon.RenderTransform>
+                            <RotateTransform x:Name="BriefToastsBellRotate" Angle="0"/>
+                        </md:PackIcon.RenderTransform>
+                    </md:PackIcon>
+                </Button>
             </Grid>
 
             <Border Background="{DynamicResource BorderSubtleBrush}"

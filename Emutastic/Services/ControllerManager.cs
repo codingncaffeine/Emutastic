@@ -775,6 +775,7 @@ namespace Emutastic.Services
             {
                 lock (_ctrlDiagLogLock)
                 {
+                    LogRotation.RotateIfLarge(_ctrlDiagLogPath);
                     System.IO.File.AppendAllText(_ctrlDiagLogPath,
                         $"{DateTime.Now:HH:mm:ss.fff} {msg}{Environment.NewLine}");
                 }

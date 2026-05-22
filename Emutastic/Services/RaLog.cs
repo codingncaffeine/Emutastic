@@ -41,6 +41,7 @@ namespace Emutastic.Services
                 lock (_gate)
                 {
                     if (string.IsNullOrEmpty(Path)) return;
+                    LogRotation.RotateIfLarge(Path);
                     File.AppendAllText(Path, line);
                 }
             }

@@ -2379,13 +2379,22 @@
                                                            FontWeight="SemiBold"
                                                            Foreground="{DynamicResource TextMutedBrush}"
                                                            VerticalAlignment="Center"/>
-                                                <Button x:Name="FriendsAddButton"
-                                                        Grid.Column="1"
-                                                        Content="+ Add Friend"
-                                                        Style="{StaticResource PlayButtonStyle}"
-                                                        Padding="12,4"
-                                                        FontSize="11"
-                                                        Click="FriendsAddButton_Click"/>
+                                                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                                    <Button x:Name="FriendsImportButton"
+                                                            Content="Import from RA"
+                                                            Style="{StaticResource PlayButtonStyle}"
+                                                            Padding="12,4"
+                                                            Margin="0,0,6,0"
+                                                            FontSize="11"
+                                                            ToolTip="Import the users you follow on retroachievements.org. New entries are added muted — tap the bell on each friend card to enable toasts."
+                                                            Click="FriendsImportButton_Click"/>
+                                                    <Button x:Name="FriendsAddButton"
+                                                            Content="+ Add Friend"
+                                                            Style="{StaticResource PlayButtonStyle}"
+                                                            Padding="12,4"
+                                                            FontSize="11"
+                                                            Click="FriendsAddButton_Click"/>
+                                                </StackPanel>
                                             </Grid>
 
                                             <!-- Mini activity feed (last few unlocks across friends) -->
@@ -2425,6 +2434,63 @@
                                                                TextWrapping="Wrap"
                                                                Padding="24,32,24,32"
                                                                Visibility="Visible"/>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <!-- Your Followers (Phase 7.5) — collapsible disclosure.
+                                                 Lazy-fetched on first expand; shows only RA users who
+                                                 follow you and aren't already in your friends list. -->
+                                            <Border x:Name="FollowersCard"
+                                                    Background="{DynamicResource BgSecondaryBrush}"
+                                                    BorderBrush="{DynamicResource BorderSubtleBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="10"
+                                                    Margin="0,12,0,0"
+                                                    Visibility="Collapsed">
+                                                <StackPanel>
+                                                    <!-- Clickable header row toggles content. -->
+                                                    <Border x:Name="FollowersHeader"
+                                                            Padding="16,12,16,12"
+                                                            Cursor="Hand"
+                                                            Background="Transparent"
+                                                            MouseLeftButtonUp="FollowersHeader_Click">
+                                                        <Grid>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                            </Grid.ColumnDefinitions>
+                                                            <TextBlock x:Name="FollowersHeaderLabel"
+                                                                       Grid.Column="0"
+                                                                       Text="YOUR FOLLOWERS"
+                                                                       FontFamily="{StaticResource PrimaryFont}"
+                                                                       FontSize="10"
+                                                                       FontWeight="SemiBold"
+                                                                       Foreground="{DynamicResource TextMutedBrush}"
+                                                                       VerticalAlignment="Center"/>
+                                                            <TextBlock x:Name="FollowersHeaderCaret"
+                                                                       Grid.Column="1"
+                                                                       Text="▾"
+                                                                       FontSize="12"
+                                                                       Foreground="{DynamicResource TextMutedBrush}"
+                                                                       VerticalAlignment="Center"/>
+                                                        </Grid>
+                                                    </Border>
+                                                    <Border x:Name="FollowersContent"
+                                                            Visibility="Collapsed"
+                                                            BorderBrush="{DynamicResource BorderSubtleBrush}"
+                                                            BorderThickness="0,1,0,0">
+                                                        <StackPanel>
+                                                            <TextBlock x:Name="FollowersStatus"
+                                                                       Text=""
+                                                                       FontFamily="{StaticResource PrimaryFont}"
+                                                                       FontSize="11"
+                                                                       Foreground="{DynamicResource TextMutedBrush}"
+                                                                       TextWrapping="Wrap"
+                                                                       Padding="16,12,16,12"
+                                                                       Visibility="Collapsed"/>
+                                                            <ItemsControl x:Name="FollowersListItems"/>
+                                                        </StackPanel>
+                                                    </Border>
                                                 </StackPanel>
                                             </Border>
 

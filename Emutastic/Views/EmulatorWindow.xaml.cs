@@ -4772,6 +4772,7 @@ namespace Emutastic.Views
             {
                 string logDir = Emutastic.AppPaths.GetFolder("Logs");
                 string logPath = System.IO.Path.Combine(logDir, "recording_debug.log");
+                Emutastic.Services.LogRotation.RotateIfLarge(logPath);
                 System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] {msg}\n");
             }
             catch { }
@@ -6241,6 +6242,12 @@ namespace Emutastic.Views
                         _transientExpiry = DateTime.Now.AddSeconds(6);
                     });
                 }
+
+                // Stamp the active libretro core into the rcheevos HTTP User-Agent
+                // so RA's logs can correlate unlock requests to a specific core +
+                // version. Per RA's UA format: "Emutastic/<v> (OS) coreName/coreVersion".
+                // Must happen BEFORE the client's login/identify HTTP calls fire.
+                RetroAchievementsClient.SetCoreContext(_core.CoreName, _core.CoreVersion);
 
                 _raClient = new RetroAchievementsClient();
                 _raHardcoreActive = effectiveHardcore;

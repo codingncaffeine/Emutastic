@@ -1649,6 +1649,29 @@
                                              Unchecked="RAHardcore_Changed"/>
                             </Grid>
 
+                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,16,0,16"/>
+
+                            <Grid Margin="0,0,0,16">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Sync follows from RetroAchievements on launch"
+                                               FontSize="14" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                    <TextBlock Text="When enabled, Emutastic pulls your retroachievements.org follow list at startup and adds anyone new to your friends list. Existing friends are never removed; their notification preferences are preserved. New entries are muted by default — toggle the bell on each friend card to enable toasts. Takes effect on next launch."
+                                               FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                               TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                </StackPanel>
+                                <ToggleButton x:Name="RASyncFollowsToggle"
+                                             Grid.Column="1"
+                                             Style="{StaticResource ToggleSwitch}"
+                                             VerticalAlignment="Center"
+                                             Checked="RASyncFollows_Changed"
+                                             Unchecked="RASyncFollows_Changed"/>
+                            </Grid>
+
                             <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,0,0,0"/>
 
                         </StackPanel>

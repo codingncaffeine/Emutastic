@@ -214,6 +214,57 @@ namespace Emutastic.Models
         [JsonPropertyName("HighestAwardDate")]      public string? HighestAwardDate { get; set; }
     }
 
+    // ── API_GetUsersIFollow / API_GetUsersFollowingMe ────────────────────
+    // RA's follow-graph endpoints. Both are paginated (Count + Total +
+    // Results) and self-only (you can only query YOUR own follow lists
+    // via the public web API key). Returns sparse identity data —
+    // avatar / motto / last-online require separate per-user calls.
+    //
+    // Per feedback_ra_model_strictness.md: RA returns 0/1 for booleans, so
+    // IsFollowingMe / AmIFollowing are modeled as int (NOT bool) — a
+    // mistyped field nukes the whole deserialize via System.Text.Json
+    // strictness. Points fields are int? in case RA ever returns null
+    // for unranked users.
+    public sealed class RAUsersIFollowResponse
+    {
+        [JsonPropertyName("Count")]   public int Count { get; set; }
+        [JsonPropertyName("Total")]   public int Total { get; set; }
+        [JsonPropertyName("Results")] public List<RAUsersIFollowEntry> Results { get; set; } = new();
+    }
+
+    public sealed class RAUsersIFollowEntry
+    {
+        [JsonPropertyName("User")]           public string  User           { get; set; } = "";
+        [JsonPropertyName("ULID")]           public string? Ulid           { get; set; }
+        [JsonPropertyName("Points")]         public int?    Points         { get; set; }
+        [JsonPropertyName("PointsSoftcore")] public int?    PointsSoftcore { get; set; }
+        // True when this user (whom YOU follow) also follows YOU back.
+        // NOTE: this endpoint returns a JSON boolean (false/true), NOT the
+        // 0/1 int that some other RA endpoints use. Verified from live
+        // response payload — modeling as bool. Don't blindly trust
+        // feedback_ra_model_strictness.md for this field.
+        [JsonPropertyName("IsFollowingMe")]  public bool    IsFollowingMe  { get; set; }
+    }
+
+    public sealed class RAUsersFollowingMeResponse
+    {
+        [JsonPropertyName("Count")]   public int Count { get; set; }
+        [JsonPropertyName("Total")]   public int Total { get; set; }
+        [JsonPropertyName("Results")] public List<RAUsersFollowingMeEntry> Results { get; set; } = new();
+    }
+
+    public sealed class RAUsersFollowingMeEntry
+    {
+        [JsonPropertyName("User")]           public string  User           { get; set; } = "";
+        [JsonPropertyName("ULID")]           public string? Ulid           { get; set; }
+        [JsonPropertyName("Points")]         public int?    Points         { get; set; }
+        [JsonPropertyName("PointsSoftcore")] public int?    PointsSoftcore { get; set; }
+        // True when YOU follow this user back (the mirror of
+        // IsFollowingMe on the IFollow endpoint). JSON boolean, NOT 0/1 —
+        // same as the sibling endpoint.
+        [JsonPropertyName("AmIFollowing")]   public bool    AmIFollowing   { get; set; }
+    }
+
     // ── #32 GetUserRecentlyPlayedGames ──────────────────────────────────────
     public sealed class RARecentlyPlayedGame
     {

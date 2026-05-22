@@ -178,7 +178,9 @@ namespace Emutastic.Services
                 try
                 {
                     string logDir = AppPaths.GetFolder("Logs");
-                    File.AppendAllText(Path.Combine(logDir, "cores.log"), line + Environment.NewLine);
+                    string logPath = Path.Combine(logDir, "cores.log");
+                    LogRotation.RotateIfLarge(logPath);
+                    File.AppendAllText(logPath, line + Environment.NewLine);
                 }
                 catch { /* non-fatal */ }
             }

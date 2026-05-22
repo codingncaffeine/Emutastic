@@ -58,7 +58,11 @@ namespace Emutastic.Services
             string logPath = Path.Combine(AppPaths.DataRoot, "import_debug.log");
             void Log(string msg)
             {
-                try { File.AppendAllText(logPath, $"{DateTime.Now:HH:mm:ss.fff}  [RefreshMeta] {msg}\n"); }
+                try
+                {
+                    LogRotation.RotateIfLarge(logPath);
+                    File.AppendAllText(logPath, $"{DateTime.Now:HH:mm:ss.fff}  [RefreshMeta] {msg}\n");
+                }
                 catch { }
             }
 

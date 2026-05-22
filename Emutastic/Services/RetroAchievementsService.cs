@@ -370,6 +370,132 @@ namespace Emutastic.Services
             return GetJsonAsync<RAUserAwards>(url, "GetUserAwards", ct);
         }
 
+        // ── API_GetUsersIFollow (paginated 500/page) ────────────────────────
+        // RA's follow-graph endpoint. Self-only (the y= key gates it to YOUR
+        // follow list — there's no public way to query someone else's follows).
+        // No documented rate limit; inherits the standard throttle via
+        // GetJsonAsync.
+        //
+        // Cached in-memory with a short TTL so back-to-back calls within the
+        // same session (e.g. user clicking Import button + auto-sync racing)
+        // de-dupe to one network call. NOT persisted across restarts —
+        // the import button's "show me current follows" semantics demand
+        // fresh data on cold start. Cache key = the active username so a
+        // mid-session credential change refetches automatically.
+        //
+        // Wrapped in a sealed reference type + volatile field so reads are
+        // atomic without a lock (reference assignment IS atomic on .NET;
+        // a Nullable<value-tuple> read of this size is NOT, and could tear).
+        private sealed class IFollowCacheEntry
+        {
+            public string Username = "";
+            public DateTime ExpiryUtc;
+            public List<RAUsersIFollowEntry> Data = new();
+        }
+        private volatile IFollowCacheEntry? _iFollowCache;
+        private static readonly TimeSpan IFollowCacheTtl = TimeSpan.FromMinutes(10);
+
+        public async Task<List<RAUsersIFollowEntry>> GetUsersIFollowAsync(CancellationToken ct = default)
+        {
+            string? key = GetApiKey();
+            string? me  = GetCurrentUsername();
+            if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(me))
+                return new List<RAUsersIFollowEntry>();
+
+            // Hot path: lock-free read of the cache reference (atomic on .NET).
+            var snapshot = _iFollowCache;
+            if (snapshot != null
+                && string.Equals(snapshot.Username, me, StringComparison.OrdinalIgnoreCase)
+                && snapshot.ExpiryUtc > DateTime.UtcNow)
+            {
+                return snapshot.Data;
+            }
+
+            var all = new List<RAUsersIFollowEntry>();
+            const int PageSize = 500;
+            int offset = 0;
+            while (true)
+            {
+                string url = $"{ApiBase}/API_GetUsersIFollow.php"
+                           + $"?y={Uri.EscapeDataString(key)}"
+                           + $"&c={PageSize}&o={offset}";
+                var page = await GetJsonAsync<RAUsersIFollowResponse>(
+                    url, "GetUsersIFollow", ct).ConfigureAwait(false);
+                if (page == null || page.Results == null || page.Results.Count == 0) break;
+                all.AddRange(page.Results);
+                if (all.Count >= page.Total || page.Results.Count < PageSize) break;
+                offset += PageSize;
+            }
+
+            // Concurrent cold-misses can both reach here and assign; second
+            // write wins. Same data, same TTL — wasted network call only,
+            // no consistency issue.
+            _iFollowCache = new IFollowCacheEntry
+            {
+                Username  = me,
+                ExpiryUtc = DateTime.UtcNow + IFollowCacheTtl,
+                Data      = all,
+            };
+            return all;
+        }
+
+        // ── API_GetUsersFollowingMe (paginated 500/page) ────────────────────
+        // Sibling of GetUsersIFollow — returns the list of users who follow
+        // YOU on retroachievements.org. Same auth/pagination shape. Used by
+        // Phase 7.5's "Your Followers" disclosure panel to surface
+        // reciprocity prompts ("X follows you on RA — add as friend?").
+        //
+        // Same in-memory + ~10-min TTL cache pattern as GetUsersIFollow,
+        // keyed by username so credential changes refetch.
+        private sealed class FollowersCacheEntry
+        {
+            public string Username = "";
+            public DateTime ExpiryUtc;
+            public List<RAUsersFollowingMeEntry> Data = new();
+        }
+        private volatile FollowersCacheEntry? _followersCache;
+        private static readonly TimeSpan FollowersCacheTtl = TimeSpan.FromMinutes(10);
+
+        public async Task<List<RAUsersFollowingMeEntry>> GetUsersFollowingMeAsync(CancellationToken ct = default)
+        {
+            string? key = GetApiKey();
+            string? me  = GetCurrentUsername();
+            if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(me))
+                return new List<RAUsersFollowingMeEntry>();
+
+            var snapshot = _followersCache;
+            if (snapshot != null
+                && string.Equals(snapshot.Username, me, StringComparison.OrdinalIgnoreCase)
+                && snapshot.ExpiryUtc > DateTime.UtcNow)
+            {
+                return snapshot.Data;
+            }
+
+            var all = new List<RAUsersFollowingMeEntry>();
+            const int PageSize = 500;
+            int offset = 0;
+            while (true)
+            {
+                string url = $"{ApiBase}/API_GetUsersFollowingMe.php"
+                           + $"?y={Uri.EscapeDataString(key)}"
+                           + $"&c={PageSize}&o={offset}";
+                var page = await GetJsonAsync<RAUsersFollowingMeResponse>(
+                    url, "GetUsersFollowingMe", ct).ConfigureAwait(false);
+                if (page == null || page.Results == null || page.Results.Count == 0) break;
+                all.AddRange(page.Results);
+                if (all.Count >= page.Total || page.Results.Count < PageSize) break;
+                offset += PageSize;
+            }
+
+            _followersCache = new FollowersCacheEntry
+            {
+                Username  = me,
+                ExpiryUtc = DateTime.UtcNow + FollowersCacheTtl,
+                Data      = all,
+            };
+            return all;
+        }
+
         // ── #25 GetUserCompletionProgress (paginated 500/page) ─────────────
         // Pages internally and concatenates. Callers receive the full list.
         // Worst case for a 5000-game RA history: 10 HTTP calls @ ~500ms each
@@ -810,6 +936,13 @@ namespace Emutastic.Services
             var ra = _config?.GetRetroAchievementsConfiguration()
                   ?? App.Configuration?.GetRetroAchievementsConfiguration();
             return ra?.ApiKey;
+        }
+
+        private string? GetCurrentUsername()
+        {
+            var ra = _config?.GetRetroAchievementsConfiguration()
+                  ?? App.Configuration?.GetRetroAchievementsConfiguration();
+            return ra?.Username;
         }
     }
 
