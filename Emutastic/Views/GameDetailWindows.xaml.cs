@@ -304,7 +304,7 @@ namespace Emutastic.Views
                     (true,  true,  _,    _)                  => "This ROM dump isn't on the RetroAchievements database — try a different release",
                     (true,  false, true, _)                  => "No achievements authored for this game yet",
                     (true,  false, false, _)                 => "Fetching achievement data…",
-                    (false, _,     _,    "not_in_database") => "RetroAchievements doesn't recognize this ROM hash — try a Redump-matching dump",
+                    (false, _,     _,    "not_in_database") => UnrecognizedHashMessage(_game.Console),
                     (false, _,     _,    "load_failed")     => "RetroAchievements identification failed — try relaunching",
                     _                                         => "Not checked yet — launch this game with RetroAchievements enabled",
                 };
@@ -595,6 +595,42 @@ namespace Emutastic.Views
         ///   100800 → "28h"
         /// Designed to fit a small pill / caption without wrapping.
         /// </summary>
+        /// <summary>
+        /// Console-aware message for the "rcheevos couldn't identify this
+        /// ROM" case. The previous text universally suggested a "Redump"
+        /// dump, which only makes sense for disc-based systems — for an
+        /// Arcade ZIP or a cartridge ROM the hint is misleading. Splits
+        /// into three buckets (arcade / disc / cart) keyed off the
+        /// console tag.
+        /// </summary>
+        private static string UnrecognizedHashMessage(string console)
+        {
+            // Disc-based systems use Redump-style dumps. Anything that's
+            // typically distributed as .cue/.bin/.chd/.iso/.gdi belongs here.
+            // Source: project_segacd / project_saturn / project_3ds_status memories.
+            switch (console)
+            {
+                case "Arcade":
+                case "NeoGeo":
+                    return "RetroAchievements doesn't recognize this ROM set — RA usually targets one specific parent or clone; check retroachievements.org to confirm the title is on RA and which set is supported";
+                case "PS1":
+                case "PS2":
+                case "PSP":
+                case "Saturn":
+                case "Dreamcast":
+                case "GameCube":
+                case "SegaCD":
+                case "TGCD":
+                case "3DO":
+                case "NeoCD":
+                case "CDi":
+                case "3DS":
+                    return "RetroAchievements doesn't recognize this disc image — try a Redump-matching dump";
+                default:
+                    return "RetroAchievements doesn't recognize this ROM hash — try a No-Intro matching dump";
+            }
+        }
+
         private static string FormatDuration(int sec)
         {
             if (sec <= 0) return "—";
