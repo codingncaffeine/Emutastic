@@ -3666,6 +3666,17 @@ namespace Emutastic
             {
                 var cfg = App.Configuration?.GetFriendsConfiguration();
                 if (cfg == null || !cfg.LbToastWhenBeaten) return;
+                // RA web API doesn't expose HC/SC per LB submission; if
+                // the user asked for HC-only signal, the conservative
+                // choice is to suppress friend LB toasts wholesale rather
+                // than mis-flag a softcore score as hardcore. Matches the
+                // achievement-toast HC filter at line 3835 in spirit
+                // (that one has per-event HC info; this path doesn't).
+                if (cfg.HardcoreOnlyToast)
+                {
+                    Services.RaLog.Write($"[Phase6b.2] HardcoreOnlyToast=true; suppressing friend LB toast (mode per submission not exposed by RA web API)");
+                    return;
+                }
 
                 string? myUser = null;
                 try { myUser = App.Configuration?.GetRetroAchievementsConfiguration()?.Username; }
@@ -3819,112 +3830,14 @@ namespace Emutastic
 
         private void OnFriendActivity(object? sender, FriendActivityEntry entry)
         {
-            // Mirror OnFriendsChanged — same debounce coalesces both
-            // signal sources into a single visual refresh.
+            // Refresh the in-tab activity feed. Live per-unlock toasts were
+            // removed deliberately — at scale (10+ active friends) they
+            // turned into a constant interruption. The Friends sub-tab
+            // surfaces the same data on demand. Leaderboard toasts
+            // (triumph / proximity / beaten) and YOUR OWN achievement
+            // unlocks still fire as toasts; only the friend-unlock toast
+            // is gone.
             OnFriendsChanged(sender, EventArgs.Empty);
-
-            // Toast (gated by ToastOnUnlock setting). Marshal to UI
-            // thread; FriendService can fire from any thread.
-            if (Dispatcher.HasShutdownStarted) return;
-            try
-            {
-                Dispatcher.BeginInvoke(new Action(() =>
-                {
-                    var cfg = App.Configuration?.GetFriendsConfiguration();
-                    if (cfg == null || !cfg.ToastOnUnlock) return;
-                    if (cfg.HardcoreOnlyToast && entry.Unlock.HardcoreMode == 0) return;
-                    ShowFriendToast(entry);
-                }));
-            }
-            catch { }
-        }
-
-        private void ShowFriendToast(FriendActivityEntry entry)
-        {
-            var toast = new Border
-            {
-                Background = (Brush)FindResource("BgSecondaryBrush"),
-                BorderBrush = (Brush)FindResource("AccentBrush"),
-                BorderThickness = new Thickness(0, 0, 0, 2),
-                CornerRadius = new CornerRadius(8),
-                Padding = new Thickness(12, 10, 12, 10),
-                Margin = new Thickness(0, 0, 0, 8),
-                MinWidth = 260,
-                MaxWidth = 340,
-                Cursor = System.Windows.Input.Cursors.Hand,
-                Tag = entry.FriendUserId,
-            };
-
-            var grid = new Grid();
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-            var badge = new Border
-            {
-                Width = 36, Height = 36,
-                CornerRadius = new CornerRadius(4),
-                Background = (Brush)FindResource("BgTertiaryBrush"),
-                ClipToBounds = true,
-                VerticalAlignment = VerticalAlignment.Top,
-            };
-            if (!string.IsNullOrEmpty(entry.Unlock.BadgeName))
-            {
-                var img = new Image { Stretch = Stretch.UniformToFill };
-                badge.Child = img;
-                Emutastic.Services.FriendImageLoader.Load(
-                    img,
-                    $"https://media.retroachievements.org/Badge/{entry.Unlock.BadgeName}.png",
-                    "toast-badge",
-                    $"user={entry.FriendUsername}");
-            }
-            Grid.SetColumn(badge, 0);
-            grid.Children.Add(badge);
-
-            var stack = new StackPanel { Margin = new Thickness(10, 0, 0, 0) };
-            var line = new TextBlock
-            {
-                FontFamily = (FontFamily)FindResource("PrimaryFont"),
-                FontSize = 12,
-                Foreground = (Brush)FindResource("TextPrimaryBrush"),
-                TextWrapping = TextWrapping.Wrap,
-            };
-            line.Inlines.Add(new Run(entry.FriendUsername) { FontWeight = FontWeights.SemiBold });
-            line.Inlines.Add($" unlocked {(entry.Unlock.HardcoreMode != 0 ? "[HC] " : "")}{entry.Unlock.Title}");
-            stack.Children.Add(line);
-            stack.Children.Add(new TextBlock
-            {
-                Text = $"{entry.Unlock.GameTitle} · {entry.Unlock.Points} pts",
-                FontFamily = (FontFamily)FindResource("PrimaryFont"),
-                FontSize = 10,
-                Foreground = (Brush)FindResource("TextMutedBrush"),
-                Margin = new Thickness(0, 2, 0, 0),
-                TextTrimming = TextTrimming.CharacterEllipsis,
-            });
-            Grid.SetColumn(stack, 1);
-            grid.Children.Add(stack);
-
-            toast.Child = grid;
-
-            // Click → open the friend's detail window
-            toast.MouseLeftButtonUp += (s, _) =>
-            {
-                if (s is Border b && b.Tag is int uid) OpenFriendDetail(uid);
-                ToastStack.Children.Remove(toast);
-            };
-
-            // Insert at top of stack (newest-first); auto-dismiss after
-            // 6 seconds. Cap visible count at 4.
-            ToastStack.Children.Insert(0, toast);
-            while (ToastStack.Children.Count > 4)
-                ToastStack.Children.RemoveAt(ToastStack.Children.Count - 1);
-
-            var dismissTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(6) };
-            dismissTimer.Tick += (_, __) =>
-            {
-                dismissTimer.Stop();
-                try { ToastStack.Children.Remove(toast); } catch { }
-            };
-            dismissTimer.Start();
         }
 
         private void RefreshFriendsActivity()

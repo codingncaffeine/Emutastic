@@ -6555,6 +6555,16 @@ namespace Emutastic.Views
                 var cfg = App.Configuration?.GetFriendsConfiguration();
                 if (cfg == null) return;
                 if (!cfg.LbToastWhenYouBeat && !cfg.LbToastForProximity) return;
+                // Respect the user's "hardcore-only toasts" preference. If
+                // they've asked for HC-only signal and this session is
+                // softcore (PSP carve-out or HC disabled in this session),
+                // suppress LB toasts wholesale — matches the achievement
+                // toast behavior at MainWindow.xaml.cs:3835.
+                if (cfg.HardcoreOnlyToast && !IsHardcoreActive())
+                {
+                    RaLog.Write($"[LbToast] HardcoreOnlyToast=true and session is softcore — suppressing");
+                    return;
+                }
 
                 // Guard against rcheevos failure submissions (info.NewRank == 0
                 // means the submit didn't land server-side). Without this,
@@ -6601,6 +6611,11 @@ namespace Emutastic.Views
                 var myOld = svc.GetMyLbScore(info.LeaderboardId);
                 int myOldRank = myOld?.Rank ?? int.MaxValue; // no prior entry = effectively last
 
+                // Snapshot friend list ONCE — the svc.Friends getter
+                // re-materializes a fresh array per call, so reading it
+                // inside the loop would be O(N²) for an N-friend list.
+                var friendsByUid = svc.Friends.ToDictionary(f => f.UserId);
+
                 // Walk all friends; collect candidates I just CROSSED
                 // (triumph) and candidates I'm close behind (proximity).
                 var triumphs = new System.Collections.Generic.List<(string user, FriendLbScore prev)>();
@@ -6611,7 +6626,14 @@ namespace Emutastic.Views
                     var byLb = kv.Value;
                     if (!byLb.TryGetValue(info.LeaderboardId, out var fScore)) continue;
                     if (fScore.Rank <= 0) continue;
-                    string fUser = svc.Friends.FirstOrDefault(f => f.UserId == friendUid)?.Username ?? "?";
+                    // Per-friend mute applies symmetrically: "no notifications
+                    // about this user" means YOU beating them shouldn't toast
+                    // either. The polling path already gates at
+                    // FriendService.cs:970; this is the matching gate on the
+                    // SCOREBOARD-event path.
+                    if (!friendsByUid.TryGetValue(friendUid, out var friend)) continue;
+                    if (!friend.ToastsEnabled) continue;
+                    string fUser = friend.Username;
 
                     // Triumph: I was below the friend (myOldRank > fScore.Rank)
                     // AND I'm now at or above (info.NewRank <= fScore.Rank).
