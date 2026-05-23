@@ -45,7 +45,13 @@ namespace Emutastic.Services
                     RaLog.Write($"[ToastSound] Play SKIPPED (cfgNull={cfg == null}, enabled={cfg?.LbToastSoundEnabled})");
                     return;
                 }
-                double volume = Math.Clamp(cfg.LbToastSoundVolume, 0, 100) / 100.0;
+                // Hardcoded to full volume — there is no Preferences UI for
+                // LbToastSoundVolume so the per-user setting was effectively
+                // hidden behind a config-file edit, and 85% defaulted too
+                // quiet over emulator audio. Restore the config-driven path
+                // (Math.Clamp(cfg.LbToastSoundVolume, 0, 100) / 100.0) when a
+                // slider is added to Preferences.
+                const double volume = 1.0;
                 string path = _soundUri.LocalPath;
                 bool exists = File.Exists(path);
                 RaLog.Write($"[ToastSound] Play uri=[{_soundUri}] path=[{path}] exists={exists} vol={volume:F2}");

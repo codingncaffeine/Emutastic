@@ -244,7 +244,7 @@ namespace Emutastic.Configuration
         public int  LbToastProximityPct  { get; set; } = 5;
         public int  LbToastCooldownSec   { get; set; } = 30;
         public bool LbToastSoundEnabled  { get; set; } = true;
-        public int  LbToastSoundVolume   { get; set; } = 85; // 0-100
+        public int  LbToastSoundVolume   { get; set; } = 100; // 0-100
     }
 
     // List-membership row. The integer UserId from RA's GetUserProfile
