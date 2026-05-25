@@ -1107,6 +1107,13 @@ namespace Emutastic
                     GameContentGrid.Opacity = 1;
                 }, System.Windows.Threading.DispatcherPriority.Loaded);
             }
+            else
+            {
+                Dispatcher.InvokeAsync(() =>
+                {
+                    FindActiveScrollViewer()?.ScrollToTop();
+                }, System.Windows.Threading.DispatcherPriority.Loaded);
+            }
 
             UpdateBoxArtToggleVisibility();
             UpdateSpacingControl(tag, isConsoleView);
@@ -1931,7 +1938,15 @@ namespace Emutastic
         // ── Search ──
         private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
         {
-            if (sender is TextBox tb) _vm.SearchGames(tb.Text);
+            if (sender is not TextBox tb) return;
+            // SearchGames is async Task — fire-and-forget with a logging
+            // continuation so an exception inside the search path doesn't
+            // crash the dispatcher (async void on the VM method would).
+            _ = _vm.SearchGames(tb.Text).ContinueWith(t =>
+            {
+                if (t.IsFaulted)
+                    System.Diagnostics.Trace.WriteLine($"[Search] failed: {t.Exception?.GetBaseException().Message}");
+            }, System.Threading.Tasks.TaskScheduler.Default);
         }
 
         // ── Game card left click ──
@@ -2330,7 +2345,63 @@ namespace Emutastic
                 e.Handled = true;
                 DeleteScreenshotsWithConfirm(_selectedScreenshots.ToList());
             }
+
+            // Ctrl+F — focus the active tab's search box. Library uses the
+            // toolbar search; SaveStates/Screenshots use their pinned search.
+            if (e.Key == Key.F && Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+            {
+                TextBox? target = null;
+                if (SaveStatesView != null && SaveStatesView.Visibility == Visibility.Visible)
+                    target = SaveStatesSearchBox;
+                else if (ScreenshotsView != null && ScreenshotsView.Visibility == Visibility.Visible)
+                    target = ScreenshotsSearchBox;
+                else if (GameContentGrid != null && GameContentGrid.Visibility == Visibility.Visible)
+                    target = SearchBox;
+                if (target != null)
+                {
+                    target.Focus();
+                    target.SelectAll();
+                    e.Handled = true;
+                }
+            }
         }
+
+        // ── Search polish: × clear button + Esc-to-clear handlers ──
+        private void LibrarySearchClear_Click(object sender, RoutedEventArgs e)
+        {
+            SearchBox.Clear();
+            SearchBox.Focus();
+        }
+
+        private void SaveStatesSearchClear_Click(object sender, RoutedEventArgs e)
+        {
+            SaveStatesSearchBox.Clear();
+            SaveStatesSearchBox.Focus();
+        }
+
+        private void ScreenshotsSearchClear_Click(object sender, RoutedEventArgs e)
+        {
+            ScreenshotsSearchBox.Clear();
+            ScreenshotsSearchBox.Focus();
+        }
+
+        // Esc inside a search box clears + drops focus so keyboard navigation
+        // (Enter to open, Delete to remove, etc.) immediately works again.
+        private void SearchBox_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key == Key.Escape && sender is TextBox tb)
+            {
+                tb.Clear();
+                Keyboard.ClearFocus();
+                e.Handled = true;
+            }
+        }
+
+        private void SaveStatesSearchBox_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+            => SearchBox_PreviewKeyDown(sender, e);
+
+        private void ScreenshotsSearchBox_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+            => SearchBox_PreviewKeyDown(sender, e);
 
         private async Task ReloadAndFilterAsync()
         {
@@ -4756,13 +4827,74 @@ namespace Emutastic
             return t.ToLocalTime().ToString("MMM d, yyyy");
         }
 
+        // Search state for the Save States tab. Same debounce shape as the
+        // library search; size of data here (dozens to hundreds of states)
+        // is too small to need an off-UI Task.Run for the filter itself,
+        // but the debounce still helps because the expensive part is the
+        // WPF visual construction inside the populate loop.
+        private string _saveStatesSearchQuery = "";
+        private System.Threading.CancellationTokenSource? _saveStatesSearchCts;
+
+        private async void SaveStatesSearchBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (sender is not TextBox tb) return;
+            _saveStatesSearchCts?.Cancel();
+            var cts = new System.Threading.CancellationTokenSource();
+            _saveStatesSearchCts = cts;
+            var token = cts.Token;
+
+            _saveStatesSearchQuery = tb.Text ?? "";
+
+            try { await Task.Delay(180, token); }
+            catch (TaskCanceledException) { return; }
+            if (token.IsCancellationRequested) return;
+
+            // Wrap PopulateSaveStatesView so any populate exception (DB read
+            // failure, visual construction crash) gets logged instead of
+            // taking down the dispatcher via async-void.
+            try { PopulateSaveStatesView(); }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[SaveStatesSearch] populate failed: {ex.Message}");
+            }
+        }
+
         private void PopulateSaveStatesView()
         {
             SaveStatesPanel.Children.Clear();
             var allStates = _db.GetAllSaveStates();
 
+            // Apply the search filter BEFORE the empty-state check so an
+            // active query that matches nothing surfaces a query-specific
+            // empty-state message instead of the generic "no save states yet".
+            string rawQuery = (_saveStatesSearchQuery ?? "").Trim();
+            bool hasQuery = rawQuery.Length > 0;
+            if (hasQuery)
+            {
+                var tokens = rawQuery
+                    .Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(ViewModels.MainViewModel.NormalizeForSearch)
+                    .Where(t => t.Length > 0)
+                    .ToArray();
+                if (tokens.Length > 0)
+                {
+                    allStates = allStates.Where(s =>
+                    {
+                        string text = ViewModels.MainViewModel.NormalizeForSearch(
+                            (s.GameTitle ?? "") + "|" + (s.ConsoleName ?? "") +
+                            "|" + (s.Name ?? "") + "|" + (s.CoreName ?? ""));
+                        foreach (var t in tokens)
+                            if (!text.Contains(t, StringComparison.Ordinal)) return false;
+                        return true;
+                    }).ToList();
+                }
+            }
+
             if (allStates.Count == 0)
             {
+                SaveStatesEmptyText.Text = hasQuery
+                    ? $"No save states match \"{rawQuery}\""
+                    : "No save states yet. Press F5 or the Save State button while in a game.";
                 SaveStatesEmptyText.Visibility = Visibility.Visible;
                 return;
             }
@@ -4973,6 +5105,31 @@ namespace Emutastic
             }
         }
 
+        // Search state for the Screenshots tab. Same shape as Save States.
+        private string _screenshotsSearchQuery = "";
+        private System.Threading.CancellationTokenSource? _screenshotsSearchCts;
+
+        private async void ScreenshotsSearchBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (sender is not TextBox tb) return;
+            _screenshotsSearchCts?.Cancel();
+            var cts = new System.Threading.CancellationTokenSource();
+            _screenshotsSearchCts = cts;
+            var token = cts.Token;
+
+            _screenshotsSearchQuery = tb.Text ?? "";
+
+            try { await Task.Delay(180, token); }
+            catch (TaskCanceledException) { return; }
+            if (token.IsCancellationRequested) return;
+
+            try { PopulateScreenshotsView(); }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[ScreenshotsSearch] populate failed: {ex.Message}");
+            }
+        }
+
         private void PopulateScreenshotsView()
         {
             ScreenshotsPanel.Children.Clear();
@@ -4981,8 +5138,50 @@ namespace Emutastic
             var service     = new Services.ScreenshotService();
             var screenshots = service.GetAll();
 
+            // Apply search filter BEFORE the empty-state check so an active
+            // query that matches nothing surfaces a query-specific empty state.
+            // Filter fields per audit: GameTitle + Console + filename-without-
+            // extension (screenshots have no Name property; the filename
+            // typically carries the timestamp).
+            string rawQuery = (_screenshotsSearchQuery ?? "").Trim();
+            bool hasQuery = rawQuery.Length > 0;
+            if (hasQuery)
+            {
+                var tokens = rawQuery
+                    .Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(ViewModels.MainViewModel.NormalizeForSearch)
+                    .Where(t => t.Length > 0)
+                    .ToArray();
+                if (tokens.Length > 0)
+                {
+                    screenshots = screenshots.Where(s =>
+                    {
+                        string fname = "";
+                        try { fname = System.IO.Path.GetFileNameWithoutExtension(s.FilePath) ?? ""; }
+                        catch { }
+                        string text = ViewModels.MainViewModel.NormalizeForSearch(
+                            (s.GameTitle ?? "") + "|" + (s.Console ?? "") + "|" + fname);
+                        foreach (var t in tokens)
+                            if (!text.Contains(t, StringComparison.Ordinal)) return false;
+                        return true;
+                    }).ToList();
+                }
+            }
+
             if (screenshots.Count == 0)
             {
+                if (hasQuery)
+                {
+                    ScreenshotsEmptyIcon.Text = "⌕";
+                    ScreenshotsEmptyHeadline.Text = $"No screenshots match \"{rawQuery}\"";
+                    ScreenshotsEmptyHint.Visibility = Visibility.Collapsed;
+                }
+                else
+                {
+                    ScreenshotsEmptyIcon.Text = "📷";
+                    ScreenshotsEmptyHeadline.Text = "Screenshots will appear here when they've been saved.";
+                    ScreenshotsEmptyHint.Visibility = Visibility.Visible;
+                }
                 ScreenshotsEmptyState.Visibility = Visibility.Visible;
                 return;
             }

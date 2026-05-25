@@ -4538,7 +4538,9 @@ namespace Emutastic.Views
             if (device == RETRO_DEVICE_ANALOG)
             {
                 // Analog triggers — index=2 (RETRO_DEVICE_INDEX_ANALOG_BUTTON), id=L2(12)/R2(13).
-                // Flycast queries Dreamcast L/R triggers this way. Returns 0..32767.
+                // Flycast queries Dreamcast L/R triggers this way; Dolphin queries GC L/R
+                // triggers the same way (GC triggers map to L2/R2 in the libretro convention).
+                // Returns 0..32767.
                 if (index == RETRO_DEVICE_INDEX_ANALOG_BUTTON)
                 {
                     if (ctrl != null && ctrl.IsConnected)

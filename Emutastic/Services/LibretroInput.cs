@@ -150,13 +150,16 @@ namespace Emutastic.Services
                         _ => uint.MaxValue
                     };
 
-                // ── GameCube (Z→L2; analog via WASD/IJKL or RETRO_DEVICE_ANALOG) ─
+                // ── GameCube (Dolphin libretro) ──────────────────────────────────
+                // GC L/R are analog triggers with a digital click at full travel.
+                // Dolphin wires them to L2/R2 (analog via ANALOG_BUTTON index,
+                // digital via JOYPAD). GC Z (digital shoulder) goes to L.
                 case "GameCube":
                     return n switch
                     {
                         "a" => JOYPAD_A, "b" => JOYPAD_B,
                         "x" => JOYPAD_X, "y" => JOYPAD_Y,
-                        "l" => JOYPAD_L, "r" => JOYPAD_R, "z" => JOYPAD_L2,
+                        "l" => JOYPAD_L2, "r" => JOYPAD_R2, "z" => JOYPAD_L,
                         "start" => JOYPAD_START,
                         "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
                         "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
