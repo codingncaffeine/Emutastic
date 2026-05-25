@@ -1186,6 +1186,7 @@
                                  bar and drops a 1px shadow into the field, reinforcing
                                  the "inset into the toolbar" feel. -->
                             <Border Grid.Column="2"
+                                    x:Name="LibrarySearchBorder"
                                     BorderBrush="{StaticResource ToolbarChiselBrush}"
                                     BorderThickness="1"
                                     CornerRadius="14"
@@ -1212,6 +1213,7 @@
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
                                     <TextBlock Grid.Column="0"
                                                Text="⌕"
@@ -1219,37 +1221,77 @@
                                                Foreground="{DynamicResource TextMutedBrush}"
                                                VerticalAlignment="Center"
                                                Margin="0,0,6,0"/>
-                                    <TextBox Grid.Column="1"
-                                             x:Name="SearchBox"
-                                             Background="Transparent"
-                                             BorderThickness="0"
-                                             Foreground="{DynamicResource TextPrimaryBrush}"
-                                             CaretBrush="{DynamicResource AccentBrush}"
-                                             FontFamily="{StaticResource PrimaryFont}"
-                                             FontSize="12"
-                                             VerticalAlignment="Center"
-                                             TextChanged="SearchBox_TextChanged">
-                                        <TextBox.Style>
-                                            <Style TargetType="TextBox">
-                                                <Style.Triggers>
-                                                    <Trigger Property="Text" Value="">
-                                                        <Setter Property="Background">
-                                                            <Setter.Value>
-                                                                <VisualBrush Stretch="None" AlignmentX="Left">
-                                                                    <VisualBrush.Visual>
-                                                                        <TextBlock Text="Search games…"
-                                                                                   Foreground="{StaticResource TextMutedBrush}"
-                                                                                   FontFamily="{StaticResource PrimaryFont}"
-                                                                                   FontSize="12"/>
-                                                                    </VisualBrush.Visual>
-                                                                </VisualBrush>
-                                                            </Setter.Value>
-                                                        </Setter>
+                                    <Grid Grid.Column="1">
+                                        <TextBox x:Name="SearchBox"
+                                                 Background="Transparent"
+                                                 BorderThickness="0"
+                                                 Foreground="{DynamicResource TextPrimaryBrush}"
+                                                 CaretBrush="{DynamicResource AccentBrush}"
+                                                 FontFamily="{StaticResource PrimaryFont}"
+                                                 FontSize="12"
+                                                 VerticalAlignment="Center"
+                                                 PreviewKeyDown="SearchBox_PreviewKeyDown"
+                                                 TextChanged="SearchBox_TextChanged"/>
+                                        <TextBlock x:Name="SearchPlaceholder"
+                                                   Text="Search games…"
+                                                   Foreground="{StaticResource TextMutedBrush}"
+                                                   FontFamily="{StaticResource PrimaryFont}"
+                                                   FontSize="12"
+                                                   VerticalAlignment="Center"
+                                                   IsHitTestVisible="False">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Text, ElementName=SearchBox, Converter={StaticResource StringNotEmptyToBool}}" Value="True">
+                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </Grid>
+                                    <Button Grid.Column="2"
+                                            Click="LibrarySearchClear_Click"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            Padding="4,0"
+                                            Cursor="Hand"
+                                            Focusable="False"
+                                            ToolTip="Clear search (Esc)"
+                                            VerticalAlignment="Center"
+                                            Margin="6,0,0,0">
+                                        <Button.Template>
+                                            <ControlTemplate TargetType="Button">
+                                                <Border Background="Transparent">
+                                                    <TextBlock x:Name="ClearGlyph"
+                                                               Text="✕"
+                                                               FontSize="11"
+                                                               Foreground="{DynamicResource TextMutedBrush}"
+                                                               VerticalAlignment="Center"
+                                                               HorizontalAlignment="Center"/>
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="ClearGlyph" Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
                                                     </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Button.Template>
+                                        <Button.Style>
+                                            <Style TargetType="Button">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                <Style.Triggers>
+                                                    <MultiDataTrigger>
+                                                        <MultiDataTrigger.Conditions>
+                                                            <Condition Binding="{Binding ElementName=LibrarySearchBorder, Path=IsMouseOver}" Value="True"/>
+                                                            <Condition Binding="{Binding ElementName=SearchBox, Path=Text, Converter={StaticResource StringNotEmptyToBool}}" Value="True"/>
+                                                        </MultiDataTrigger.Conditions>
+                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                    </MultiDataTrigger>
                                                 </Style.Triggers>
                                             </Style>
-                                        </TextBox.Style>
-                                    </TextBox>
+                                        </Button.Style>
+                                    </Button>
                                 </Grid>
                             </Border>
 
@@ -1777,64 +1819,78 @@
                     </Grid>
 
                     <!-- Screenshots view -->
-                    <ScrollViewer x:Name="ScreenshotsView"
-                                  Grid.Row="1"
-                                  Visibility="Collapsed"
-                                  Style="{StaticResource MinimalScrollViewer}"
-                                  VerticalScrollBarVisibility="Auto"
-                                  Padding="16">
-                        <StackPanel>
-                            <!-- Empty state -->
-                            <StackPanel x:Name="ScreenshotsEmptyState"
-                                        HorizontalAlignment="Center"
-                                        Margin="0,60,0,0"
-                                        Visibility="Collapsed">
-                                <TextBlock Text="📷"
-                                           FontSize="48"
-                                           HorizontalAlignment="Center"
-                                           Margin="0,0,0,12"/>
-                                <TextBlock Text="Screenshots will appear here when they've been saved."
+                    <!-- Outer Grid pins the search box at top while the
+                         content scrolls. ScreenshotsView is the outer Grid
+                         so existing code-behind toggling Visibility still
+                         works against the same name. Mirrors SaveStatesView. -->
+                    <Grid x:Name="ScreenshotsView"
+                          Grid.Row="1"
+                          Visibility="Collapsed">
+                        <ScrollViewer
+                                      Style="{StaticResource MinimalScrollViewer}"
+                                      VerticalScrollBarVisibility="Auto"
+                                      Padding="16,8,16,16">
+                            <StackPanel>
+                                <!-- Empty state -->
+                                <StackPanel x:Name="ScreenshotsEmptyState"
+                                            HorizontalAlignment="Center"
+                                            Margin="0,60,0,0"
+                                            Visibility="Collapsed">
+                                    <TextBlock x:Name="ScreenshotsEmptyIcon"
+                                               Text="📷"
+                                               FontSize="48"
+                                               HorizontalAlignment="Center"
+                                               Margin="0,0,0,12"/>
+                                    <TextBlock x:Name="ScreenshotsEmptyHeadline"
+                                               Text="Screenshots will appear here when they've been saved."
+                                               FontFamily="{StaticResource PrimaryFont}"
+                                               FontSize="13"
+                                               Foreground="{DynamicResource TextMutedBrush}"
+                                               HorizontalAlignment="Center"
+                                               TextWrapping="Wrap"/>
+                                    <TextBlock x:Name="ScreenshotsEmptyHint"
+                                               Text="To take a screenshot, press Print Screen or F12 while in a game."
+                                               FontFamily="{StaticResource PrimaryFont}"
+                                               FontSize="12"
+                                               Foreground="{DynamicResource TextMutedBrush}"
+                                               HorizontalAlignment="Center"
+                                               Opacity="0.6"
+                                               Margin="0,6,0,0"/>
+                                </StackPanel>
+                                <!-- Per-game groups: each game gets a header (title left,
+                                     console right, divider styling) followed by a WrapPanel of
+                                     its screenshot cards. Same shape as SaveStatesPanel. -->
+                                <StackPanel x:Name="ScreenshotsPanel"/>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Grid>
+
+                    <!-- Save States view -->
+                    <!-- Outer Grid pins the search box at top while the
+                         content scrolls. SaveStatesView is the outer Grid
+                         so existing code-behind toggling Visibility still
+                         works against the same name. -->
+                    <Grid x:Name="SaveStatesView"
+                          Grid.Row="1"
+                          Visibility="Collapsed">
+                        <ScrollViewer
+                                      Style="{StaticResource MinimalScrollViewer}"
+                                      VerticalScrollBarVisibility="Auto"
+                                      Padding="0,8,0,16">
+                            <StackPanel>
+                                <TextBlock x:Name="SaveStatesEmptyText"
+                                           Text="No save states yet. Press F5 or the Save State button while in a game."
                                            FontFamily="{StaticResource PrimaryFont}"
                                            FontSize="13"
                                            Foreground="{DynamicResource TextMutedBrush}"
-                                           HorizontalAlignment="Center"/>
-                                <TextBlock Text="To take a screenshot, press Print Screen or F12 while in a game."
-                                           FontFamily="{StaticResource PrimaryFont}"
-                                           FontSize="12"
-                                           Foreground="{DynamicResource TextMutedBrush}"
                                            HorizontalAlignment="Center"
-                                           Opacity="0.6"
-                                           Margin="0,6,0,0"/>
+                                           Margin="0,60,0,0"
+                                           TextWrapping="Wrap"
+                                           Visibility="Collapsed"/>
+                                <StackPanel x:Name="SaveStatesPanel"/>
                             </StackPanel>
-                            <!-- Per-game groups: each game gets a header (title left,
-                                 console right, divider styling) followed by a WrapPanel of
-                                 its screenshot cards. Same shape as SaveStatesPanel. -->
-                            <StackPanel x:Name="ScreenshotsPanel"/>
-                        </StackPanel>
-                    </ScrollViewer>
-
-                    <!-- Save States view -->
-                    <!-- Vertical-only padding so the per-game header bar can run
-                         edge-to-edge (sidebar to scrollbar) without negative-margin
-                         hacks; cards and empty text get their own horizontal inset. -->
-                    <ScrollViewer x:Name="SaveStatesView"
-                                  Grid.Row="1"
-                                  Visibility="Collapsed"
-                                  Style="{StaticResource MinimalScrollViewer}"
-                                  VerticalScrollBarVisibility="Auto"
-                                  Padding="0,16,0,16">
-                        <StackPanel>
-                            <TextBlock x:Name="SaveStatesEmptyText"
-                                       Text="No save states yet. Press F5 or the Save State button while in a game."
-                                       FontFamily="{StaticResource PrimaryFont}"
-                                       FontSize="13"
-                                       Foreground="{DynamicResource TextMutedBrush}"
-                                       HorizontalAlignment="Center"
-                                       Margin="0,60,0,0"
-                                       Visibility="Collapsed"/>
-                            <StackPanel x:Name="SaveStatesPanel"/>
-                        </StackPanel>
-                    </ScrollViewer>
+                        </ScrollViewer>
+                    </Grid>
 
                     <!-- Achievements view. Sub-tabs split self-stats from
                          friend-comparison content. Profile header stays

@@ -1936,17 +1936,46 @@ namespace Emutastic
         }
 
         // ── Search ──
-        private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
+        private async void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
         {
+            if (_suppressSearchTextChanged) return;
             if (sender is not TextBox tb) return;
-            // SearchGames is async Task — fire-and-forget with a logging
-            // continuation so an exception inside the search path doesn't
-            // crash the dispatcher (async void on the VM method would).
-            _ = _vm.SearchGames(tb.Text).ContinueWith(t =>
+            string text = tb.Text ?? "";
+
+            switch (_activeTab)
             {
-                if (t.IsFaulted)
-                    System.Diagnostics.Trace.WriteLine($"[Search] failed: {t.Exception?.GetBaseException().Message}");
-            }, System.Threading.Tasks.TaskScheduler.Default);
+                case "Library":
+                    _ = _vm.SearchGames(text).ContinueWith(t =>
+                    {
+                        if (t.IsFaulted)
+                            System.Diagnostics.Trace.WriteLine($"[Search] failed: {t.Exception?.GetBaseException().Message}");
+                    }, System.Threading.Tasks.TaskScheduler.Default);
+                    break;
+
+                case "SaveStates":
+                    _saveStatesSearchCts?.Cancel();
+                    var stsCts = new System.Threading.CancellationTokenSource();
+                    _saveStatesSearchCts = stsCts;
+                    _saveStatesSearchQuery = text;
+                    try { await Task.Delay(180, stsCts.Token); }
+                    catch (TaskCanceledException) { return; }
+                    if (stsCts.Token.IsCancellationRequested) return;
+                    try { PopulateSaveStatesView(); }
+                    catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[SaveStatesSearch] populate failed: {ex.Message}"); }
+                    break;
+
+                case "Screenshots":
+                    _screenshotsSearchCts?.Cancel();
+                    var ssCts = new System.Threading.CancellationTokenSource();
+                    _screenshotsSearchCts = ssCts;
+                    _screenshotsSearchQuery = text;
+                    try { await Task.Delay(180, ssCts.Token); }
+                    catch (TaskCanceledException) { return; }
+                    if (ssCts.Token.IsCancellationRequested) return;
+                    try { PopulateScreenshotsView(); }
+                    catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[ScreenshotsSearch] populate failed: {ex.Message}"); }
+                    break;
+            }
         }
 
         // ── Game card left click ──
@@ -2346,23 +2375,13 @@ namespace Emutastic
                 DeleteScreenshotsWithConfirm(_selectedScreenshots.ToList());
             }
 
-            // Ctrl+F — focus the active tab's search box. Library uses the
-            // toolbar search; SaveStates/Screenshots use their pinned search.
-            if (e.Key == Key.F && Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+            // Ctrl+F — focus the toolbar search box (tab-aware)
+            if (e.Key == Key.F && Keyboard.Modifiers.HasFlag(ModifierKeys.Control)
+                && LibrarySearchBorder.Visibility == Visibility.Visible)
             {
-                TextBox? target = null;
-                if (SaveStatesView != null && SaveStatesView.Visibility == Visibility.Visible)
-                    target = SaveStatesSearchBox;
-                else if (ScreenshotsView != null && ScreenshotsView.Visibility == Visibility.Visible)
-                    target = ScreenshotsSearchBox;
-                else if (GameContentGrid != null && GameContentGrid.Visibility == Visibility.Visible)
-                    target = SearchBox;
-                if (target != null)
-                {
-                    target.Focus();
-                    target.SelectAll();
-                    e.Handled = true;
-                }
+                SearchBox.Focus();
+                SearchBox.SelectAll();
+                e.Handled = true;
             }
         }
 
@@ -2373,17 +2392,6 @@ namespace Emutastic
             SearchBox.Focus();
         }
 
-        private void SaveStatesSearchClear_Click(object sender, RoutedEventArgs e)
-        {
-            SaveStatesSearchBox.Clear();
-            SaveStatesSearchBox.Focus();
-        }
-
-        private void ScreenshotsSearchClear_Click(object sender, RoutedEventArgs e)
-        {
-            ScreenshotsSearchBox.Clear();
-            ScreenshotsSearchBox.Focus();
-        }
 
         // Esc inside a search box clears + drops focus so keyboard navigation
         // (Enter to open, Delete to remove, etc.) immediately works again.
@@ -2397,11 +2405,6 @@ namespace Emutastic
             }
         }
 
-        private void SaveStatesSearchBox_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
-            => SearchBox_PreviewKeyDown(sender, e);
-
-        private void ScreenshotsSearchBox_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
-            => SearchBox_PreviewKeyDown(sender, e);
 
         private async Task ReloadAndFilterAsync()
         {
@@ -2438,6 +2441,21 @@ namespace Emutastic
                 var swTab = Services.StartupTrace.Start();
                 try
                 {
+                    _suppressSearchTextChanged = true;
+                    _activeTab = tag;
+                    SearchBox.Clear();
+                    _saveStatesSearchQuery = "";
+                    _screenshotsSearchQuery = "";
+                    SearchPlaceholder.Text = tag switch
+                    {
+                        "SaveStates"   => "Search save states…",
+                        "Screenshots"  => "Search screenshots…",
+                        _              => "Search games…"
+                    };
+                    LibrarySearchBorder.Visibility = tag == "Achievements"
+                        ? Visibility.Collapsed : Visibility.Visible;
+                    _suppressSearchTextChanged = false;
+
                     GameContentGrid.Visibility   = tag == "Library"      ? Visibility.Visible : Visibility.Collapsed;
                     SaveStatesView.Visibility    = tag == "SaveStates"   ? Visibility.Visible : Visibility.Collapsed;
                     ScreenshotsView.Visibility   = tag == "Screenshots"  ? Visibility.Visible : Visibility.Collapsed;
@@ -4827,37 +4845,11 @@ namespace Emutastic
             return t.ToLocalTime().ToString("MMM d, yyyy");
         }
 
-        // Search state for the Save States tab. Same debounce shape as the
-        // library search; size of data here (dozens to hundreds of states)
-        // is too small to need an off-UI Task.Run for the filter itself,
-        // but the debounce still helps because the expensive part is the
-        // WPF visual construction inside the populate loop.
+        private string _activeTab = "Library";
+        private bool _suppressSearchTextChanged;
         private string _saveStatesSearchQuery = "";
         private System.Threading.CancellationTokenSource? _saveStatesSearchCts;
 
-        private async void SaveStatesSearchBox_TextChanged(object sender, TextChangedEventArgs e)
-        {
-            if (sender is not TextBox tb) return;
-            _saveStatesSearchCts?.Cancel();
-            var cts = new System.Threading.CancellationTokenSource();
-            _saveStatesSearchCts = cts;
-            var token = cts.Token;
-
-            _saveStatesSearchQuery = tb.Text ?? "";
-
-            try { await Task.Delay(180, token); }
-            catch (TaskCanceledException) { return; }
-            if (token.IsCancellationRequested) return;
-
-            // Wrap PopulateSaveStatesView so any populate exception (DB read
-            // failure, visual construction crash) gets logged instead of
-            // taking down the dispatcher via async-void.
-            try { PopulateSaveStatesView(); }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Trace.WriteLine($"[SaveStatesSearch] populate failed: {ex.Message}");
-            }
-        }
 
         private void PopulateSaveStatesView()
         {
@@ -5109,26 +5101,6 @@ namespace Emutastic
         private string _screenshotsSearchQuery = "";
         private System.Threading.CancellationTokenSource? _screenshotsSearchCts;
 
-        private async void ScreenshotsSearchBox_TextChanged(object sender, TextChangedEventArgs e)
-        {
-            if (sender is not TextBox tb) return;
-            _screenshotsSearchCts?.Cancel();
-            var cts = new System.Threading.CancellationTokenSource();
-            _screenshotsSearchCts = cts;
-            var token = cts.Token;
-
-            _screenshotsSearchQuery = tb.Text ?? "";
-
-            try { await Task.Delay(180, token); }
-            catch (TaskCanceledException) { return; }
-            if (token.IsCancellationRequested) return;
-
-            try { PopulateScreenshotsView(); }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Trace.WriteLine($"[ScreenshotsSearch] populate failed: {ex.Message}");
-            }
-        }
 
         private void PopulateScreenshotsView()
         {

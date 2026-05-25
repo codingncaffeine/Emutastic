@@ -281,6 +281,8 @@ namespace Emutastic.Services
             TryAddColumn(connection, "SaveStates", "CoreName",    "TEXT NOT NULL DEFAULT ''");
             TryAddColumn(connection, "SaveStates", "RomHash",     "TEXT NOT NULL DEFAULT ''");
 
+            BackfillSaveStateMetadata(connection);
+
             // One-time migration: move old Collection column data into the new join table.
             MigrateCollectionsToJoinTable(connection);
 
@@ -299,6 +301,20 @@ namespace Emutastic.Services
             // as relative so the DB survives drive-letter changes (USB on PC1=E:, PC2=F:).
             // Idempotent — paths already relative or outside DataRoot are skipped.
             RelativizePathsUnderDataRoot(connection);
+        }
+
+        private void BackfillSaveStateMetadata(SqliteConnection connection)
+        {
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = @"
+                UPDATE SaveStates
+                SET GameTitle   = (SELECT Title   FROM Games WHERE Games.Id = SaveStates.GameId),
+                    ConsoleName = (SELECT Console FROM Games WHERE Games.Id = SaveStates.GameId)
+                WHERE GameTitle = ''
+                  AND EXISTS (SELECT 1 FROM Games WHERE Games.Id = SaveStates.GameId);";
+            int rows = cmd.ExecuteNonQuery();
+            if (rows > 0)
+                System.Diagnostics.Trace.WriteLine($"[DB] Backfilled GameTitle/ConsoleName on {rows} save state(s)");
         }
 
         private void MigrateCollectionsToJoinTable(SqliteConnection connection)
