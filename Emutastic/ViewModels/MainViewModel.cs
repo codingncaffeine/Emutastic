@@ -437,7 +437,28 @@ namespace Emutastic.ViewModels
         // prevents results flicker as the user types out a longer query.
         private System.Threading.CancellationTokenSource? _searchCts;
 
-        public async void SearchGames(string query)
+        // Pre-computed lowercased searchable text per game (gameId → text).
+        // Concatenates Title + Console + Developer + Publisher + Genre + Year
+        // so search hits all of them in a single substring scan. Built lazily
+        // on first search and invalidated via InvalidateCache (which fires on
+        // every library mutation — Reload / AddGame / RefreshGame / RemoveGame).
+        // volatile so a concurrent invalidate is seen by the next search pass
+        // without a lock.
+        private volatile Dictionary<int, string>? _searchIndex;
+
+        /// <summary>
+        /// Tokenized substring search across Title + Console + Developer +
+        /// Publisher + Genre + Year. Tasks cancel on every new keystroke;
+        /// the underlying collection is snapshotted on the UI thread BEFORE
+        /// the background pass to avoid racing a concurrent import that
+        /// mutates ObservableCollection&lt;Game&gt; without a lock.
+        ///
+        /// Returns a Task so callers can observe completion / exceptions
+        /// (event handler should fire-and-forget with a logging continuation
+        /// — async void on a VM method swallows exceptions to the
+        /// SynchronizationContext and crashes the app).
+        /// </summary>
+        public async Task SearchGames(string query)
         {
             // Cancel anything in flight from the previous keystroke.
             _searchCts?.Cancel();
@@ -451,7 +472,16 @@ namespace Emutastic.ViewModels
                 return;
             }
 
-            GameCountText = "Searching…";
+            // Defer the "Searching…" status until 400ms in — for local queries
+            // this typically never fires, so the count text doesn't flash on
+            // every keystroke. ContinueWith fires on UI thread via the
+            // current sync context; cancellation suppresses the setter.
+            _ = Task.Delay(400, token).ContinueWith(_ =>
+            {
+                if (!token.IsCancellationRequested)
+                    GameCountText = "Searching…";
+            }, token, TaskContinuationOptions.OnlyOnRanToCompletion,
+               TaskScheduler.FromCurrentSynchronizationContext());
 
             // Debounce: wait briefly before actually searching. If the user keeps
             // typing within 180ms, this Task.Delay throws and we exit cleanly.
@@ -461,10 +491,13 @@ namespace Emutastic.ViewModels
 
             // Tokenize on whitespace — "zelda ocarina" should match
             // "The Legend of Zelda: Ocarina of Time" even though the words
-            // aren't adjacent in the title.
+            // aren't adjacent in the title. Normalize each token the same
+            // way the index normalizes its fields so diacritics are
+            // transparent on both sides ("pokemon" matches "Pokémon").
             var tokens = query
                 .Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries)
-                .Select(t => t.ToLowerInvariant())
+                .Select(NormalizeForSearch)
+                .Where(t => t.Length > 0)
                 .ToArray();
             if (tokens.Length == 0)
             {
@@ -472,14 +505,35 @@ namespace Emutastic.ViewModels
                 return;
             }
 
+            // Snapshot the live collection on the UI thread BEFORE the
+            // background pass — ObservableCollection<T>.GetEnumerator throws
+            // InvalidOperationException if a writer mutates the collection
+            // mid-enumeration, and writers (AddGame / RefreshGame / Reload)
+            // run on the UI thread without a lock.
+            var snapshot = _allGames.ToArray();
+
             List<Game>? filtered = null;
             try
             {
                 await Task.Run(() =>
                 {
-                    filtered = _allGames
-                        .Where(g => g != null && MatchesAllTokens(g, tokens))
-                        .ToList();
+                    var index = GetOrBuildSearchIndex(snapshot);
+                    filtered = new List<Game>(snapshot.Length);
+                    foreach (var g in snapshot)
+                    {
+                        if (g == null) continue;
+                        if (!index.TryGetValue(g.Id, out var text)) continue;
+                        bool all = true;
+                        foreach (var t in tokens)
+                        {
+                            if (!text.Contains(t, StringComparison.Ordinal))
+                            {
+                                all = false;
+                                break;
+                            }
+                        }
+                        if (all) filtered.Add(g);
+                    }
                 }, token);
             }
             catch (TaskCanceledException) { return; }
@@ -490,17 +544,104 @@ namespace Emutastic.ViewModels
             GameCountText = filtered.Count == 1 ? "1 result" : $"{filtered.Count} results";
         }
 
-        private static bool MatchesAllTokens(Game g, string[] lowerTokens)
+        /// <summary>
+        /// Returns the current search index, rebuilding it from the supplied
+        /// snapshot if it's been invalidated. Idempotent under concurrent
+        /// callers — worst case two passes both rebuild and the second write
+        /// wins (same data, no consistency issue).
+        /// </summary>
+        private Dictionary<int, string> GetOrBuildSearchIndex(Game[] snapshot)
         {
-            // Null-safe: a missing title shouldn't blow up the whole query.
-            string title   = (g.Title   ?? "").ToLowerInvariant();
-            string console = (g.Console ?? "").ToLowerInvariant();
-            foreach (var t in lowerTokens)
+            var existing = _searchIndex;
+            if (existing != null) return existing;
+
+            var built = new Dictionary<int, string>(snapshot.Length);
+            foreach (var g in snapshot)
             {
-                if (!title.Contains(t) && !console.Contains(t))
-                    return false;
+                if (g == null) continue;
+                built[g.Id] = BuildSearchableText(g);
             }
-            return true;
+            _searchIndex = built;
+            return built;
+        }
+
+        /// <summary>
+        /// Builds the per-game searchable string: lowercased concatenation
+        /// of every field we want a typed token to be able to hit. The '|'
+        /// separator prevents accidental cross-field matches (e.g. "snesx"
+        /// wouldn't match "snes" + "xevious" if they're adjacent fields).
+        /// Year is included only when &gt; 0; "0" would otherwise be a
+        /// universal match for the token "0".
+        ///
+        /// Description is intentionally excluded — multi-paragraph blurbs
+        /// from ScreenScraper/OpenVGDB inflate noise (typing "the" would
+        /// match almost everything).
+        /// </summary>
+        private static string BuildSearchableText(Game g)
+        {
+            var sb = new System.Text.StringBuilder();
+            AppendTitle(sb, g.Title);
+            AppendField(sb, g.Console);
+            AppendField(sb, g.Developer);
+            AppendField(sb, g.Publisher);
+            AppendField(sb, g.Genre);
+            if (g.Year > 0) AppendField(sb, g.Year.ToString());
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Title-specific appender: splits on '~' so regional alt-titles
+        /// (e.g. "Pokemon Yellow ~ Special Pikachu Edition") index as
+        /// independent chunks rather than carrying the literal '~' through.
+        /// Token-based substring matching already worked through the tilde
+        /// before — this is cosmetic cleanup + protects against the rare
+        /// case where a user types '~' as a literal token (would otherwise
+        /// false-positive every tilde'd title).
+        /// </summary>
+        private static void AppendTitle(System.Text.StringBuilder sb, string? title)
+        {
+            if (string.IsNullOrEmpty(title)) return;
+            // No-tilde titles produce a single-element array; behavior
+            // identical to a single AppendField call for the common case.
+            foreach (var chunk in title.Split('~', StringSplitOptions.RemoveEmptyEntries))
+            {
+                string trimmed = chunk.Trim();
+                if (trimmed.Length > 0) AppendField(sb, trimmed);
+            }
+        }
+
+        private static void AppendField(System.Text.StringBuilder sb, string? value)
+        {
+            if (string.IsNullOrEmpty(value)) return;
+            string normalized = NormalizeForSearch(value);
+            if (normalized.Length == 0) return;
+            if (sb.Length > 0) sb.Append('|');
+            sb.Append(normalized);
+        }
+
+        /// <summary>
+        /// Lowercases + strips diacritics so search is accent-blind.
+        /// `Normalize(FormD)` decomposes "é" into "e" + combining-acute;
+        /// dropping all <see cref="System.Globalization.UnicodeCategory.NonSpacingMark"/>
+        /// chars leaves just the base letters. Applied to BOTH index fields
+        /// and query tokens so "pokemon" finds "Pokémon" and "ole" finds "Olé!".
+        ///
+        /// Internal so the Save States and Screenshots search paths
+        /// (MainWindow code-behind) can normalize their inputs the same way
+        /// without duplicating the implementation.
+        /// </summary>
+        internal static string NormalizeForSearch(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return "";
+            string decomposed = value.Normalize(System.Text.NormalizationForm.FormD);
+            var sb = new System.Text.StringBuilder(decomposed.Length);
+            foreach (char c in decomposed)
+            {
+                var cat = System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c);
+                if (cat == System.Globalization.UnicodeCategory.NonSpacingMark) continue;
+                sb.Append(c);
+            }
+            return sb.ToString().ToLowerInvariant();
         }
 
         /// <summary>
@@ -592,6 +733,10 @@ namespace Emutastic.ViewModels
         {
             _filterDirty = true;
             _consoleCache.Clear();
+            // Search index is built from a snapshot of _allGames; any mutation
+            // that calls InvalidateCache (Add/Remove/Reload/RefreshGame) is also
+            // a mutation we need to re-scan for next search.
+            _searchIndex = null;
         }
 
         private void UpdateCount()

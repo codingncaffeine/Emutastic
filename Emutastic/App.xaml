@@ -18,6 +18,7 @@
             <converters:ConsoleToCardHeightConverter      x:Key="ConsoleToCardHeight"/>
             <converters:InverseBoolToVisibilityConverter   x:Key="InverseBoolToVisibility"/>
             <converters:SmartTitleCaseConverter            x:Key="SmartTitleCase"/>
+            <converters:StringNotEmptyToBoolConverter      x:Key="StringNotEmptyToBool"/>
             <!-- Theme layout resources — updated at runtime by ApplyThemeResources() -->
             <Thickness x:Key="LibraryGridPadding">28</Thickness>
             <Thickness x:Key="LibraryCardMargin">0,0,20,20</Thickness>
