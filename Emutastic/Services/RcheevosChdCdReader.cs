@@ -887,12 +887,79 @@ namespace Emutastic.Services
         // ── Installation entry point ────────────────────────────────────
 
         /// <summary>
+        // ── 3DS encryption callbacks ────────────────────────────────────
+        // 3DS NCCH/CIA hashing requires AES key derivation via the
+        // "key scrambler": NormalKey = (ROL128(KeyX, 2) XOR KeyY) + C
+        // rcheevos delegates this to the caller via the encryption struct.
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate void GetCiaNormalKeyDelegate(IntPtr key, IntPtr commonKey, int commonKeyIndex, IntPtr tid);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate void GetNcchNormalKeysDelegate(IntPtr primaryKey, IntPtr secondaryKey, IntPtr keyX, IntPtr keyY);
+
+        private static GetCiaNormalKeyDelegate? _ciaNormalKeyDel;
+        private static GetNcchNormalKeysDelegate? _ncchNormalKeysDel;
+
+        private static readonly byte[] KeyScrambleC =
+        {
+            0x1F, 0xF9, 0xE9, 0xAA, 0xC5, 0xFE, 0x04, 0x08,
+            0x02, 0x45, 0x91, 0xDC, 0x5D, 0x52, 0x76, 0x8A
+        };
+
+        private static unsafe void ScrambleKey(byte* outKey, byte* x, byte* y)
+        {
+            byte* rotated = stackalloc byte[16];
+            for (int i = 0; i < 16; i++)
+                rotated[i] = (byte)((x[i] << 2) | (x[(i + 1) % 16] >> 6));
+
+            for (int i = 0; i < 16; i++)
+                rotated[i] ^= y[i];
+
+            uint carry = 0;
+            for (int i = 15; i >= 0; i--)
+            {
+                uint sum = (uint)rotated[i] + KeyScrambleC[i] + carry;
+                outKey[i] = (byte)sum;
+                carry = sum >> 8;
+            }
+        }
+
+        private static unsafe void OnGetCiaNormalKey(IntPtr key, IntPtr commonKey, int commonKeyIndex, IntPtr tid)
+        {
+            try { ScrambleKey((byte*)key, (byte*)commonKey, (byte*)tid); }
+            catch { }
+        }
+
+        private static unsafe void OnGetNcchNormalKeys(IntPtr primaryKey, IntPtr secondaryKey, IntPtr keyX, IntPtr keyY)
+        {
+            try
+            {
+                ScrambleKey((byte*)primaryKey, (byte*)keyX, (byte*)keyY);
+                ScrambleKey((byte*)secondaryKey, (byte*)keyX, (byte*)keyY + 16);
+            }
+            catch { }
+        }
+
+        private static RcHashEncryption GetEncryptionCallbacks()
+        {
+            _ciaNormalKeyDel  ??= OnGetCiaNormalKey;
+            _ncchNormalKeysDel ??= OnGetNcchNormalKeys;
+            return new RcHashEncryption
+            {
+                get_3ds_cia_normal_key   = Marshal.GetFunctionPointerForDelegate(_ciaNormalKeyDel),
+                get_3ds_ncch_normal_keys = Marshal.GetFunctionPointerForDelegate(_ncchNormalKeysDel),
+            };
+        }
+
+        /// <summary>
         /// Builds the full <see cref="RcHashCallbacks"/> struct (filereader
-        /// + cdreader + encryption — message callbacks null) and registers
-        /// it with the given rc_client. Call once after rc_client_create.
+        /// + cdreader + encryption) and registers it with the given rc_client.
+        /// Call once after rc_client_create.
         /// After this call, CHD content identifies via libchdr-backed
         /// reading; all other extensions continue through rcheevos's
-        /// built-in default cdreader.
+        /// built-in default cdreader. 3DS content hashes via the key
+        /// scrambler callbacks.
         /// </summary>
         public static void InstallInto(IntPtr client)
         {
@@ -924,7 +991,7 @@ namespace Emutastic.Services
                     error_message   = Marshal.GetFunctionPointerForDelegate(_errorMessageDel),
                     filereader      = default,        // all-null → rcheevos uses default file I/O
                     cdreader        = GetCdreader(),
-                    encryption      = default,        // we don't ship 3DS CHD support
+                    encryption      = GetEncryptionCallbacks(),
                 };
 
                 rc_client_set_hash_callbacks(client, ref callbacks);

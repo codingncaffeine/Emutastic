@@ -390,6 +390,7 @@ namespace Emutastic.Services
                 _leftStickY  = ApplyDeadzone(gamepad.sThumbLY, (short)_analogDeadzone);
                 _rightStickX = ApplyDeadzone(gamepad.sThumbRX, (short)_analogDeadzone);
                 _rightStickY = ApplyDeadzone(gamepad.sThumbRY, (short)_analogDeadzone);
+
                 _leftTrigger  = gamepad.bLeftTrigger;
                 _rightTrigger = gamepad.bRightTrigger;
 
@@ -449,6 +450,7 @@ namespace Emutastic.Services
         private static short ApplyDeadzone(short value, short deadzone)
         {
             if (value > -deadzone && value < deadzone) return 0;
+            if (value == short.MinValue) return -short.MaxValue;
             return value;
         }
 

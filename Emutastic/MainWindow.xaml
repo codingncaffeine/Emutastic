@@ -1487,7 +1487,7 @@
                                                            VerticalAlignment="Center" HorizontalAlignment="Center"
                                                            Margin="12"
                                                            Visibility="{Binding DisplayArtPath, Converter={StaticResource NullToVisibility}}"/>
-                                                <Image Source="{Binding DisplayArtPath, Converter={StaticResource PathToImage}}"
+                                                <Image Source="{Binding DisplayArtPath, Converter={StaticResource PathToImage}, IsAsync=True}"
                                                        Stretch="Uniform"
                                                        HorizontalAlignment="Left"
                                                        VerticalAlignment="Top"
@@ -1644,7 +1644,7 @@
                                                                                    VerticalAlignment="Center" HorizontalAlignment="Center"
                                                                                    Margin="12"
                                                                                    Visibility="{Binding DisplayArtPath, Converter={StaticResource NullToVisibility}}"/>
-                                                                        <Image Source="{Binding DisplayArtPath, Converter={StaticResource PathToImage}}"
+                                                                        <Image Source="{Binding DisplayArtPath, Converter={StaticResource PathToImage}, IsAsync=True}"
                                                                                Stretch="Uniform"
                                                                                VerticalAlignment="Bottom"
                                                                                RenderOptions.BitmapScalingMode="LowQuality"

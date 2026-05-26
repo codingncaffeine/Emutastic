@@ -4537,6 +4537,7 @@ namespace Emutastic.Views
 
             if (device == RETRO_DEVICE_ANALOG)
             {
+
                 // Analog triggers — index=2 (RETRO_DEVICE_INDEX_ANALOG_BUTTON), id=L2(12)/R2(13).
                 // Flycast queries Dreamcast L/R triggers this way; Dolphin queries GC L/R
                 // triggers the same way (GC triggers map to L2/R2 in the libretro convention).
@@ -5850,8 +5851,7 @@ namespace Emutastic.Views
             {
                 try
                 {
-                    for (uint port = 0; port < 4; port++)
-                        _core.SetControllerPortDevice(port, 1 /* RETRO_DEVICE_JOYPAD */);
+                    _consoleHandler?.ConfigureControllerPorts(_core);
                     System.Diagnostics.Trace.WriteLine("[LoadState] re-primed controller ports post-unserialize");
                 }
                 catch (Exception ex)

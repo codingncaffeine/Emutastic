@@ -73,7 +73,7 @@ namespace Emutastic.Services
         public const uint RC_CONSOLE_NEO_GEO_CD = 56;
         public const uint RC_CONSOLE_PC_ENGINE_CD = 76;
         public const uint RC_CONSOLE_FAMICOM_DISK_SYSTEM = 81;
-        public const uint RC_CONSOLE_NINTENDO_3DS = 101;
+        public const uint RC_CONSOLE_NINTENDO_3DS = 62;
 
         // ── Structs ──────────────────────────────────────────────────────────
 

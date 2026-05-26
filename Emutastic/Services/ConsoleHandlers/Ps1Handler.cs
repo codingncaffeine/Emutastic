@@ -10,8 +10,16 @@ namespace Emutastic.Services.ConsoleHandlers
     /// </summary>
     public class Ps1Handler : ConsoleHandlerBase
     {
+        private const uint RETRO_DEVICE_DUALSHOCK = (2 << 8) | 5; // RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 1) = 517
+
         public override string ConsoleName => "PS1";
         public override bool UsesAnalogStick => true;
+
+        public override void ConfigureControllerPorts(LibretroCore core)
+        {
+            for (uint port = 0; port < 2; port++)
+                core.SetControllerPortDevice(port, RETRO_DEVICE_DUALSHOCK);
+        }
 
         // Request OpenGL Core context for Beetle PSX HW. The Vulkan path was
         // tried first but Beetle PSX HW's v1 create_device hands back a device
@@ -51,14 +59,12 @@ namespace Emutastic.Services.ConsoleHandlers
             // `hardware_gl` avoids the core silently selecting Vulkan and
             // failing back to software when our context isn't compatible.
             ["beetle_psx_hw_renderer"] = "hardware_gl",
-            // Disable the software framebuffer override. With software_fb
-            // enabled (the core's default!) Beetle PSX HW still runs the HW
-            // upscaler but copies the SW framebuffer at native resolution
-            // back over the displayed image — every internal-resolution
-            // setting silently becomes a no-op. Disabling it lets the HW
-            // pipeline actually drive the display, which is the whole point
-            // of using the HW core in the first place.
-            ["beetle_psx_hw_renderer_software_fb"] = "disabled",
+            // software_fb left at core default (enabled). Some games (Spyro,
+            // FF8 battles, etc.) read/write the PS1 framebuffer directly for
+            // ground textures, pause menus, and screen transitions. The SW FB
+            // path composites those at native resolution — disabling it breaks
+            // those effects. Users who want pure HW rendering can toggle it
+            // per-game in core preferences.
             // Sync CD access — the async path loses the CDC's disc handle on
             // retro_unserialize (Beetle PSX HW issue #297), causing every
             // disc-streaming game (FF8 notably) to freeze on the first read

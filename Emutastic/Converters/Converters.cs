@@ -96,9 +96,9 @@ namespace Emutastic.Converters
         //              decoded bitmaps so list virtualization recycling, console
         //              switches, and rapid scroll don't trigger re-decode.
         // The strong tier is the prefetch target for PreloadAsync.
-        private static readonly ConcurrentDictionary<string, WeakReference<BitmapImage>> _weak = new();
+        private static readonly ConcurrentDictionary<string, WeakReference<BitmapImage>> _weak = new(StringComparer.OrdinalIgnoreCase);
 
-        private const int StrongCapacity = 256;
+        private const int StrongCapacity = 1500;
         private static readonly object _strongLock = new();
         private static readonly Dictionary<string, LinkedListNode<string>> _strongIndex
             = new(StringComparer.OrdinalIgnoreCase);
@@ -181,6 +181,13 @@ namespace Emutastic.Converters
                 return bitmap;
             }
             catch { return null; }
+        }
+
+        public static bool IsCached(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return true;
+            lock (_strongLock) { if (_strong.ContainsKey(path)) return true; }
+            return _weak.TryGetValue(path, out var w) && w.TryGetTarget(out _);
         }
 
         /// <summary>

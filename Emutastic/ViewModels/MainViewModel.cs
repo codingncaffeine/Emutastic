@@ -141,10 +141,10 @@ namespace Emutastic.ViewModels
 
         public IAsyncRelayCommand<string> NavigateToConsoleCommand { get; }
         public IAsyncRelayCommand NavigateToAllGamesCommand { get; }
-        public IRelayCommand NavigateToRecentCommand { get; }
-        public IRelayCommand NavigateToFavoritesCommand { get; }
-        public IRelayCommand NavigateToRecentlyAddedCommand { get; }
-        public IRelayCommand<int> NavigateToCollectionCommand { get; }
+        public IAsyncRelayCommand NavigateToRecentCommand { get; }
+        public IAsyncRelayCommand NavigateToFavoritesCommand { get; }
+        public IAsyncRelayCommand NavigateToRecentlyAddedCommand { get; }
+        public IAsyncRelayCommand<int> NavigateToCollectionCommand { get; }
 
         public MainViewModel(DatabaseService db)
         {
@@ -152,10 +152,24 @@ namespace Emutastic.ViewModels
 
             NavigateToConsoleCommand = new AsyncRelayCommand<string>(NavigateToConsoleAsync);
             NavigateToAllGamesCommand = new AsyncRelayCommand(NavigateToAllGamesAsync);
-            NavigateToRecentCommand = new RelayCommand(NavigateToRecent);
-            NavigateToFavoritesCommand = new RelayCommand(NavigateToFavorites);
-            NavigateToRecentlyAddedCommand = new RelayCommand(NavigateToRecentlyAdded);
-            NavigateToCollectionCommand = new RelayCommand<int>(NavigateToCollection);
+            NavigateToRecentCommand = new AsyncRelayCommand(NavigateToRecentAsync);
+            NavigateToFavoritesCommand = new AsyncRelayCommand(NavigateToFavoritesAsync);
+            NavigateToRecentlyAddedCommand = new AsyncRelayCommand(NavigateToRecentlyAddedAsync);
+            NavigateToCollectionCommand = new AsyncRelayCommand<int>(NavigateToCollectionAsync);
+        }
+
+        private async Task PreloadVisibleArtworkAsync()
+        {
+            var visible = Games.Take(40).ToList();
+            int uncached = visible.Count(g =>
+                !Converters.PathToImageConverter.IsCached(g.DisplayArtPath));
+            if (uncached > 5)
+            {
+                SetStatus("Loading artwork…");
+                var paths = visible.Select(g => g.DisplayArtPath);
+                await Converters.PathToImageConverter.PreloadAsync(paths);
+                SetStatus("Loading artwork…", autoClear: true);
+            }
         }
 
         private async Task NavigateToConsoleAsync(string? tag)
@@ -166,6 +180,7 @@ namespace Emutastic.ViewModels
             SelectedConsole = tag;
             await FilterGamesAsync();
             Navigated?.Invoke(tag);
+            await PreloadVisibleArtworkAsync();
         }
 
         private async Task NavigateToAllGamesAsync()
@@ -176,27 +191,30 @@ namespace Emutastic.ViewModels
             await FilterGamesAsync();
             ToolbarTitle = "All Games";
             Navigated?.Invoke("All Games");
+            await PreloadVisibleArtworkAsync();
         }
 
-        private void NavigateToRecent()
+        private async Task NavigateToRecentAsync()
         {
             IsShowingFavorites = false;
             IsMixedView = true;
             LoadRecent(_db);
             ToolbarTitle = "Recently Played";
             Navigated?.Invoke("Recent");
+            await PreloadVisibleArtworkAsync();
         }
 
-        private void NavigateToFavorites()
+        private async Task NavigateToFavoritesAsync()
         {
             IsShowingFavorites = true;
             IsMixedView = true;
             LoadFavorites(_db);
             ToolbarTitle = "Favorites";
             Navigated?.Invoke("Favorites");
+            await PreloadVisibleArtworkAsync();
         }
 
-        private void NavigateToRecentlyAdded()
+        private async Task NavigateToRecentlyAddedAsync()
         {
             IsShowingFavorites = false;
             IsMixedView = true;
@@ -206,9 +224,10 @@ namespace Emutastic.ViewModels
             GameCountText = $"{games.Count} games";
             ToolbarTitle = "Recently Added";
             Navigated?.Invoke("RecentlyAdded");
+            await PreloadVisibleArtworkAsync();
         }
 
-        private void NavigateToCollection(int collectionId)
+        private async Task NavigateToCollectionAsync(int collectionId)
         {
             IsShowingFavorites = false;
             IsMixedView = true;
@@ -217,6 +236,7 @@ namespace Emutastic.ViewModels
             IsGroupedView = false;
             GameCountText = $"{games.Count} games";
             Navigated?.Invoke($"Collection:{collectionId}");
+            await PreloadVisibleArtworkAsync();
         }
 
         public void Reload()
