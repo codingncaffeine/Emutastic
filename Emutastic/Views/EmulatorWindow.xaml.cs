@@ -1533,6 +1533,12 @@ namespace Emutastic.Views
                 // Handler decides how many ports to configure (GameCube needs all 4).
                 _consoleHandler.ConfigureControllerPorts(_core);
 
+                // Seed display AR from the core's geometry so overlay cores (Vulkan/GL)
+                // that bypass the WriteableBitmap path still get AR correction.
+                var avGeom = _core.AvInfo.geometry;
+                if (avGeom.base_width > 0 && avGeom.base_height > 0)
+                    UpdateDisplayAspectRatio(avGeom.base_width, avGeom.base_height, avGeom.aspect_ratio);
+
                 // Load battery save (SRAM / memory card) into the core's RAM buffer.
                 // Must happen after LoadGame so the core's SRAM pointer is valid.
                 if (File.Exists(_srmPath))
@@ -2057,6 +2063,20 @@ namespace Emutastic.Views
 
         private bool _isClosing = false;
         private bool _closeStarted = false;
+
+        // ── Fullscreen ──────────────────────────────────────────────────
+        private bool _isFullscreen;
+        private WindowState _preFullscreenState;
+        private double _preFsLeft, _preFsTop, _preFsWidth, _preFsHeight;
+        private Thickness _preFsBorderThickness;
+        private CornerRadius _preFsCornerRadius;
+        private Thickness _preFsMargin;
+        private System.Windows.Media.Effects.Effect? _preFsEffect;
+        private ResizeMode _preFsResizeMode;
+        private GridLength _preFsRow0Height;
+        private GridLength _preFsRow2Height;
+        private Visibility _preFsTitleBarVisibility;
+        private System.Windows.WindowStyle _preFsWindowStyle;
         private System.Threading.Thread? _emuThread;
 
         private void SwapBuffers()
@@ -4616,7 +4636,14 @@ namespace Emutastic.Views
 
             if (hotkeyModifier)
             {
-                if (e.Key == Key.Escape) Close();
+                if (e.Key == Key.F11) { ToggleFullscreen(); e.Handled = true; return; }
+                if (e.Key == Key.Escape)
+                {
+                    if (_isFullscreen) ToggleFullscreen();
+                    else Close();
+                    e.Handled = true;
+                    return;
+                }
                 if (e.Key == Key.F5)
                 {
                     LoadPickerPanel.Visibility = Visibility.Collapsed;
@@ -6072,6 +6099,8 @@ namespace Emutastic.Views
                 }
                 OverlayHud.IsHitTestVisible = true;
             }
+            if (_isFullscreen && !_mouseCaptured)
+                Mouse.OverrideCursor = null;
             _overlayTimer?.Stop();
             _overlayTimer?.Start();
         }
@@ -6095,6 +6124,8 @@ namespace Emutastic.Views
             OverlayMenu.Visibility = Visibility.Collapsed;
             CheatsMenu.Visibility = Visibility.Collapsed;
             CloseSaveMenu();
+            if (_isFullscreen && !_mouseCaptured)
+                Mouse.OverrideCursor = System.Windows.Input.Cursors.None;
             var fade = new System.Windows.Media.Animation.DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(300));
             fade.Completed += (_, _) =>
             {
@@ -7628,9 +7659,18 @@ namespace Emutastic.Views
         private IntPtr HwndHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam,
                                  ref bool handled)
         {
+            const int WM_SYSCOMMAND  = 0x0112;
+            const int SC_MAXIMIZE    = 0xF030;
             const int WM_SIZING      = 0x0214;
             const int WMSZ_TOP       = 3;
             const int WMSZ_BOTTOM    = 6;
+
+            if (msg == WM_SYSCOMMAND && ((int)wParam & 0xFFF0) == SC_MAXIMIZE)
+            {
+                Dispatcher.BeginInvoke(() => ToggleFullscreen());
+                handled = true;
+                return IntPtr.Zero;
+            }
 
             if (msg == WM_SIZING && _displayAr > 0 && WindowState == WindowState.Normal)
             {
@@ -7710,22 +7750,97 @@ namespace Emutastic.Views
             e.Handled = true;
         }
 
+        private void ToggleFullscreen()
+        {
+            if (_isFullscreen)
+            {
+                // Exit fullscreen — restore saved state
+                WindowStyle = _preFsWindowStyle;
+                RootBorder.BorderThickness = _preFsBorderThickness;
+                RootBorder.CornerRadius = _preFsCornerRadius;
+                RootBorder.Margin = _preFsMargin;
+                RootBorder.Effect = _preFsEffect;
+                RootGrid.RowDefinitions[0].Height = _preFsRow0Height;
+                RootGrid.RowDefinitions[2].Height = _preFsRow2Height;
+                CustomTitleBar.Visibility = _preFsTitleBarVisibility;
+                ResizeMode = _preFsResizeMode;
+                WindowState = WindowState.Normal;
+                Left = _preFsLeft;
+                Top = _preFsTop;
+                Width = _preFsWidth;
+                Height = _preFsHeight;
+                if (_preFullscreenState == WindowState.Maximized)
+                    WindowState = WindowState.Maximized;
+                Topmost = false;
+                _isFullscreen = false;
+                Mouse.OverrideCursor = null;
+            }
+            else
+            {
+                // Enter fullscreen — save all state
+                _preFullscreenState = WindowState;
+                if (WindowState == WindowState.Maximized)
+                {
+                    _preFsLeft = RestoreBounds.Left;
+                    _preFsTop = RestoreBounds.Top;
+                    _preFsWidth = RestoreBounds.Width;
+                    _preFsHeight = RestoreBounds.Height;
+                }
+                else
+                {
+                    _preFsLeft = Left;
+                    _preFsTop = Top;
+                    _preFsWidth = Width;
+                    _preFsHeight = Height;
+                }
+                _preFsWindowStyle = WindowStyle;
+                _preFsBorderThickness = RootBorder.BorderThickness;
+                _preFsCornerRadius = RootBorder.CornerRadius;
+                _preFsMargin = RootBorder.Margin;
+                _preFsEffect = RootBorder.Effect;
+                _preFsResizeMode = ResizeMode;
+                _preFsRow0Height = RootGrid.RowDefinitions[0].Height;
+                _preFsRow2Height = RootGrid.RowDefinitions[2].Height;
+                _preFsTitleBarVisibility = CustomTitleBar.Visibility;
+
+                // Strip ALL chrome — works for both custom and Windows chrome paths
+                if (WindowState != WindowState.Normal)
+                    WindowState = WindowState.Normal;
+                WindowStyle = System.Windows.WindowStyle.None;
+                RootBorder.BorderThickness = new Thickness(0);
+                RootBorder.CornerRadius = new CornerRadius(0);
+                RootBorder.Margin = new Thickness(0);
+                RootBorder.Effect = null;
+                RootGrid.RowDefinitions[0].Height = new GridLength(0);
+                RootGrid.RowDefinitions[2].Height = new GridLength(0);
+                CustomTitleBar.Visibility = Visibility.Collapsed;
+                ResizeMode = ResizeMode.NoResize;
+
+                // WindowStyle.None + Maximized fills the entire screen including taskbar
+                WindowState = WindowState.Maximized;
+                Topmost = true;
+
+                _isFullscreen = true;
+            }
+        }
+
         private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             if (e.ClickCount == 2)
-                WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+                ToggleFullscreen();
             else DragMove();
         }
 
         private void MinBtn_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
-        private void MaxBtn_Click(object sender, RoutedEventArgs e)
-            => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+        private void MaxBtn_Click(object sender, RoutedEventArgs e) => ToggleFullscreen();
         private void CloseBtn_Click(object sender, RoutedEventArgs e) => Close();
 
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
             // Second pass: async cleanup finished and called Close() — let WPF proceed.
             if (_closeStarted) return;
+
+            if (_isFullscreen) ToggleFullscreen();
 
             // First pass: cancel the close, signal the emu thread, and run the blocking
             // Join + cleanup on a background thread so the WPF message pump stays live.
@@ -8002,6 +8117,25 @@ namespace Emutastic.Views
                 int vw = Math.Max(1, (int)GameViewport.ActualWidth);
                 int vh = Math.Max(1, (int)GameViewport.ActualHeight);
 
+                // AR-correct the overlay rectangle so the game pillarboxes/letterboxes
+                // instead of stretching. GameBorder's black background fills the bars.
+                if (_displayAr > 0.01)
+                {
+                    double viewportAr = (double)vw / vh;
+                    if (_displayAr > viewportAr)
+                    {
+                        int newH = Math.Max(1, (int)(vw / _displayAr));
+                        vy += (vh - newH) / 2;
+                        vh = newH;
+                    }
+                    else if (_displayAr < viewportAr)
+                    {
+                        int newW = Math.Max(1, (int)(vh * _displayAr));
+                        vx += (vw - newW) / 2;
+                        vw = newW;
+                    }
+                }
+
                 const uint SWP_NOZORDER = 0x0004;
                 const uint SWP_NOACTIVATE = 0x0010;
                 SetWindowPos(overlayHwnd, IntPtr.Zero, vx, vy, vw, vh, SWP_NOZORDER | SWP_NOACTIVATE);
@@ -8031,6 +8165,14 @@ namespace Emutastic.Views
                                 var vp = GameViewport;
                                 uint w = (uint)Math.Max(1, (int)vp.ActualWidth);
                                 uint h = (uint)Math.Max(1, (int)vp.ActualHeight);
+                                if (_displayAr > 0.01)
+                                {
+                                    double vpAr = (double)w / h;
+                                    if (_displayAr > vpAr)
+                                        h = (uint)Math.Max(1, (int)(w / _displayAr));
+                                    else if (_displayAr < vpAr)
+                                        w = (uint)Math.Max(1, (int)(h * _displayAr));
+                                }
                                 _vulkanContext.RecreateSwapchain(w, h);
                             }
                         };
