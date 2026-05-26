@@ -52,6 +52,14 @@ namespace Emutastic.Services.ConsoleHandlers
         public override bool UseDefaultFramebuffer =>
             App.Configuration?.GetEmulatorConfiguration().ResolveAmdIntelCompat() ?? false;
 
+        public override List<(string key, string label)> GetVisualOptions() => new()
+        {
+            ("beetle_psx_hw_internal_resolution", "Internal Resolution"),
+            ("beetle_psx_hw_filter", "Texture Filter"),
+            ("beetle_psx_hw_msaa", "Anti-Aliasing"),
+            ("beetle_psx_hw_depth", "Color Depth"),
+        };
+
         public override Dictionary<string, string> GetDefaultCoreOptions() => new()
         {
             // Force the OpenGL HW renderer to match our negotiated GL context.

@@ -43,6 +43,13 @@ namespace Emutastic.Services.ConsoleHandlers
         // =====================================================================
         // Core options
         // =====================================================================
+        public override List<(string key, string label)> GetVisualOptions() => new()
+        {
+            ("dolphin_efb_scale", "Internal Resolution"),
+            ("dolphin_max_anisotropy", "Anisotropic Filtering"),
+            ("dolphin_anti_aliasing", "Anti-Aliasing"),
+        };
+
         public override Dictionary<string, string> GetDefaultCoreOptions() => new()
         {
             // Single-threaded: CPU runs on retro_run thread, no shared GL context needed

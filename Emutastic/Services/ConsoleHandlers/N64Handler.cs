@@ -28,6 +28,11 @@ namespace Emutastic.Services.ConsoleHandlers
         // context_reset's GL objects (FBOs etc.) aren't visible there → black screen.
         public override bool AllowHwSharedContext => false;
 
+        public override List<(string key, string label)> GetVisualOptions() => new()
+        {
+            ("parallel-n64-parallel-rdp-upscaling", "Upscaling ⚠ restart"),
+        };
+
         public override Dictionary<string, string> GetDefaultCoreOptions() => new()
         {
             ["parallel-n64-gfxplugin"]             = "parallel",

@@ -19,6 +19,9 @@ namespace Emutastic.Services.ConsoleHandlers
             "Vectrex"        => new VectrexHandler(),
             "CDi"            => new CdiHandler(),
             "Arcade"         => new ArcadeHandler(),
+            "PSP"            => new PspHandler(),
+            "Saturn"         => new SaturnHandler(),
+            "3DS"            => new ThreeDsHandler(),
             _                => new GenericHandler(console),
         };
     }

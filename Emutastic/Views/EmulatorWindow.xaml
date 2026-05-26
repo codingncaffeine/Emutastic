@@ -264,8 +264,8 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- Core options panel (shown from overlay cog → Core Options…) -->
-                    <Border x:Name="CoreOptionsPanel"
+                    <!-- Visuals panel (shown from overlay cog → Visuals) -->
+                    <Border x:Name="VisualsPanel"
                             Visibility="Collapsed"
                             VerticalAlignment="Bottom"
                             HorizontalAlignment="Left"
@@ -278,24 +278,24 @@
                             MaxWidth="420">
                         <StackPanel Margin="10,10,10,10">
                             <Grid Margin="0,0,0,8">
-                                <TextBlock Text="Core Options"
+                                <TextBlock Text="Visuals"
                                            FontFamily="{StaticResource PrimaryFont}"
                                            FontSize="12"
                                            FontWeight="SemiBold"
                                            Foreground="{DynamicResource TextPrimaryBrush}"
                                            VerticalAlignment="Center"/>
-                                <Button x:Name="CoreOptionsDoneBtn"
+                                <Button x:Name="VisualsDoneBtn"
                                         Content="Done"
                                         HorizontalAlignment="Right"
                                         FontSize="10"
                                         Padding="10,4"
                                         Style="{StaticResource SecondaryButtonStyle}"
-                                        Click="CoreOptionsDone_Click"/>
+                                        Click="VisualsDone_Click"/>
                             </Grid>
                             <ScrollViewer MaxHeight="360"
                                           VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled">
-                                <StackPanel x:Name="CoreOptionRows" Margin="0,0,4,0"/>
+                                <StackPanel x:Name="VisualOptionRows" Margin="0,0,4,0"/>
                             </ScrollViewer>
                         </StackPanel>
                     </Border>
@@ -370,6 +370,11 @@
                                         Content="Cheats"
                                         Style="{StaticResource OverlayMenuItemStyle}"
                                         Click="OverlayCheats_Click"/>
+                                <Button x:Name="OverlayVisualsBtn"
+                                        Content="Visuals"
+                                        Visibility="Collapsed"
+                                        Style="{StaticResource OverlayMenuItemStyle}"
+                                        Click="OverlayVisuals_Click"/>
                                 <Rectangle Height="1" Fill="#33FFFFFF" Margin="6,2,6,2"/>
                                 <TextBlock x:Name="OverlayCoreLabel"
                                            Foreground="#99FFFFFF"

@@ -124,5 +124,13 @@ namespace Emutastic.Services.ConsoleHandlers
         /// Default false; opt-in per console (currently exposed for GameCube only).
         /// </summary>
         bool UseDefaultFramebuffer { get; }
+
+        /// <summary>
+        /// Returns the curated visual options to surface in the in-game cog overlay.
+        /// Each tuple is (core option key, display label). Keys are validated at
+        /// runtime against the loaded core's option set — missing keys are skipped.
+        /// Return empty list for consoles with no HW visual options.
+        /// </summary>
+        List<(string key, string label)> GetVisualOptions();
     }
 }

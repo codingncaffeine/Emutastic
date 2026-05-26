@@ -1333,7 +1333,8 @@ namespace Emutastic.Views
                     // hiding the HUD out from under them was the main "disappears mid-use" bug.
                     if (OverlayMenu.Visibility == Visibility.Visible
                         || CheatsMenu.Visibility == Visibility.Visible
-                        || SaveMenu.Visibility == Visibility.Visible)
+                        || SaveMenu.Visibility == Visibility.Visible
+                        || VisualsPanel.Visibility == Visibility.Visible)
                     {
                         _overlayTimer?.Stop();
                         _overlayTimer?.Start();
@@ -6026,6 +6027,11 @@ namespace Emutastic.Views
                     GameViewport.Children.Remove(LoadPickerPanel);
                     _vulkanHudGrid!.Children.Add(LoadPickerPanel);
                 }
+                if (VisualsPanel.Parent == GameViewport)
+                {
+                    GameViewport.Children.Remove(VisualsPanel);
+                    _vulkanHudGrid!.Children.Add(VisualsPanel);
+                }
                 // Always cancel any in-flight fade-out animation before re-showing,
                 // otherwise its Completed callback can race us back to Collapsed.
                 OverlayHud.BeginAnimation(OpacityProperty, null);
@@ -6077,7 +6083,8 @@ namespace Emutastic.Views
             // remember this rule.
             if (OverlayMenu.Visibility == Visibility.Visible
                 || CheatsMenu.Visibility == Visibility.Visible
-                || SaveMenu.Visibility == Visibility.Visible)
+                || SaveMenu.Visibility == Visibility.Visible
+                || VisualsPanel.Visibility == Visibility.Visible)
             {
                 _overlayTimer?.Stop();
                 _overlayTimer?.Start();
@@ -6970,11 +6977,16 @@ namespace Emutastic.Views
         {
             CloseSaveMenu();
             CheatsMenu.Visibility = Visibility.Collapsed;
+            VisualsPanel.Visibility = Visibility.Collapsed;
             OverlayMenu.Visibility = OverlayMenu.Visibility == Visibility.Visible
                 ? Visibility.Collapsed
                 : Visibility.Visible;
-            if (OverlayMenu.Visibility == Visibility.Visible && _game?.Console == "N64")
-                UpdatePakLabel();
+            if (OverlayMenu.Visibility == Visibility.Visible)
+            {
+                if (_game?.Console == "N64") UpdatePakLabel();
+                OverlayVisualsBtn.Visibility = (_consoleHandler?.GetVisualOptions().Count ?? 0) > 0
+                    ? Visibility.Visible : Visibility.Collapsed;
+            }
             ResetOverlayTimer();
         }
 
@@ -6982,6 +6994,7 @@ namespace Emutastic.Views
         private void OverlayCheats_Click(object sender, RoutedEventArgs e)
         {
             OverlayMenu.Visibility = Visibility.Collapsed;
+            VisualsPanel.Visibility = Visibility.Collapsed;
             CloseSaveMenu();
             RefreshCheatsList();
             CheatsMenu.Visibility = Visibility.Visible;
@@ -7481,9 +7494,72 @@ namespace Emutastic.Views
             ResetOverlayTimer();
         }
 
-        private void CoreOptionsDone_Click(object sender, RoutedEventArgs e)
+        private void VisualsDone_Click(object sender, RoutedEventArgs e)
         {
-            CoreOptionsPanel.Visibility = Visibility.Collapsed;
+            VisualsPanel.Visibility = Visibility.Collapsed;
+        }
+
+        private void OverlayVisuals_Click(object sender, RoutedEventArgs e)
+        {
+            OverlayMenu.Visibility = Visibility.Collapsed;
+            CheatsMenu.Visibility = Visibility.Collapsed;
+            CloseSaveMenu();
+            BuildVisualsPanel();
+            VisualsPanel.Visibility = Visibility.Visible;
+            ResetOverlayTimer();
+        }
+
+        private void BuildVisualsPanel()
+        {
+            VisualOptionRows.Children.Clear();
+            var options = _consoleHandler?.GetVisualOptions();
+            if (options == null || options.Count == 0) return;
+
+            var schema = _coreOptionSchema;
+            var coreName = _core != null ? Path.GetFileNameWithoutExtension(_core.CorePath) : null;
+
+            foreach (var (key, label) in options)
+            {
+                if (!_coreOptions.ContainsKey(key)) continue;
+
+                var entry = schema.Find(e => e.Key == key);
+                if (entry == null || entry.ValidValues == null || entry.ValidValues.Length == 0) continue;
+
+                var row = new System.Windows.Controls.StackPanel { Margin = new Thickness(0, 0, 0, 6) };
+
+                row.Children.Add(new System.Windows.Controls.TextBlock
+                {
+                    Text = label,
+                    FontFamily = (System.Windows.Media.FontFamily)FindResource("PrimaryFont"),
+                    FontSize = 11,
+                    Foreground = (System.Windows.Media.Brush)FindResource("TextPrimaryBrush"),
+                    Margin = new Thickness(0, 0, 0, 2),
+                });
+
+                var combo = new System.Windows.Controls.ComboBox
+                {
+                    Style = (Style)FindResource("OverlayComboBox"),
+                    ItemsSource = entry.ValidValues,
+                    Tag = key,
+                };
+
+                string current = _coreOptions.TryGetValue(key, out var cv) ? cv : entry.DefaultValue;
+                combo.SelectedItem = current;
+
+                combo.SelectionChanged += (s, args) =>
+                {
+                    if (s is System.Windows.Controls.ComboBox cb && cb.SelectedItem is string val && cb.Tag is string k)
+                    {
+                        _coreOptions[k] = val;
+                        _coreOptionsDirty = true;
+                        if (coreName != null)
+                            App.CoreOptions?.SaveValues(coreName, new Dictionary<string, string> { [k] = val });
+                    }
+                };
+
+                row.Children.Add(combo);
+                VisualOptionRows.Children.Add(row);
+            }
         }
 
         /// <summary>
@@ -7506,71 +7582,6 @@ namespace Emutastic.Views
             (_isClosing || _core == null) ? null
             : Path.GetFileNameWithoutExtension(_core.CorePath);
 
-        private void BuildCoreOptionsOverlay()
-        {
-            CoreOptionRows.Children.Clear();
-
-            string coreName = Path.GetFileNameWithoutExtension(_core.CorePath);
-            var schema = App.CoreOptions.LoadSchema(coreName);
-
-            if (schema == null || schema.Options.Count == 0)
-            {
-                CoreOptionRows.Children.Add(new TextBlock
-                {
-                    Text = "No options have been discovered for this core yet.\nRestart the game once to populate this list.",
-                    Foreground = new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x8A)),
-                    FontSize = 11,
-                    TextWrapping = TextWrapping.Wrap,
-                    Margin = new Thickness(0, 4, 0, 4)
-                });
-                return;
-            }
-
-            var style = TryFindResource("OverlayComboBox") as Style;
-            string cn = coreName;
-
-            foreach (var opt in schema.Options)
-            {
-                var row = new StackPanel { Margin = new Thickness(0, 0, 0, 10) };
-
-                row.Children.Add(new TextBlock
-                {
-                    Text = opt.Description,
-                    Foreground = new SolidColorBrush(Color.FromRgb(0xC8, 0xC8, 0xCA)),
-                    FontSize = 11,
-                    TextWrapping = TextWrapping.Wrap,
-                    Margin = new Thickness(0, 0, 0, 3)
-                });
-
-                var combo = new ComboBox { Height = 30 };
-                if (style != null) combo.Style = style;
-
-                foreach (var val in opt.ValidValues)
-                    combo.Items.Add(val);
-
-                string current = _coreOptions.TryGetValue(opt.Key, out string? cv) ? cv : opt.DefaultValue;
-                combo.SelectedItem = current;
-                if (combo.SelectedItem == null && combo.Items.Count > 0)
-                    combo.SelectedIndex = 0;
-
-                string capturedKey = opt.Key;
-                var capturedSchema = schema;
-                combo.SelectionChanged += (_, _) =>
-                {
-                    if (combo.SelectedItem is not string newVal) return;
-                    _coreOptions[capturedKey] = newVal;
-                    _coreOptionsDirty = true;
-                    // Persist only schema-declared keys to avoid saving internal handler values
-                    var schemaKeys = capturedSchema.Options.Select(o => o.Key).ToHashSet();
-                    App.CoreOptions.SaveValues(cn, _coreOptions
-                        .Where(kv => schemaKeys.Contains(kv.Key))
-                        .ToDictionary(kv => kv.Key, kv => kv.Value));
-                };
-
-                row.Children.Add(combo);
-                CoreOptionRows.Children.Add(row);
-            }
-        }
 
         // =========================================================================
         // Window chrome + AR-constrained resize
