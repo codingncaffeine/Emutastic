@@ -478,9 +478,8 @@ namespace Emutastic.ViewModels
         /// — async void on a VM method swallows exceptions to the
         /// SynchronizationContext and crashes the app).
         /// </summary>
-        public async Task SearchGames(string query)
+        public async Task SearchGames(string query, string? scopeConsole = null)
         {
-            // Cancel anything in flight from the previous keystroke.
             _searchCts?.Cancel();
             var cts = new System.Threading.CancellationTokenSource();
             _searchCts = cts;
@@ -492,10 +491,6 @@ namespace Emutastic.ViewModels
                 return;
             }
 
-            // Defer the "Searching…" status until 400ms in — for local queries
-            // this typically never fires, so the count text doesn't flash on
-            // every keystroke. ContinueWith fires on UI thread via the
-            // current sync context; cancellation suppresses the setter.
             _ = Task.Delay(400, token).ContinueWith(_ =>
             {
                 if (!token.IsCancellationRequested)
@@ -503,17 +498,10 @@ namespace Emutastic.ViewModels
             }, token, TaskContinuationOptions.OnlyOnRanToCompletion,
                TaskScheduler.FromCurrentSynchronizationContext());
 
-            // Debounce: wait briefly before actually searching. If the user keeps
-            // typing within 180ms, this Task.Delay throws and we exit cleanly.
             try { await Task.Delay(180, token); }
             catch (TaskCanceledException) { return; }
             if (token.IsCancellationRequested) return;
 
-            // Tokenize on whitespace — "zelda ocarina" should match
-            // "The Legend of Zelda: Ocarina of Time" even though the words
-            // aren't adjacent in the title. Normalize each token the same
-            // way the index normalizes its fields so diacritics are
-            // transparent on both sides ("pokemon" matches "Pokémon").
             var tokens = query
                 .Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries)
                 .Select(NormalizeForSearch)
@@ -525,19 +513,19 @@ namespace Emutastic.ViewModels
                 return;
             }
 
-            // Snapshot the live collection on the UI thread BEFORE the
-            // background pass — ObservableCollection<T>.GetEnumerator throws
-            // InvalidOperationException if a writer mutates the collection
-            // mid-enumeration, and writers (AddGame / RefreshGame / Reload)
-            // run on the UI thread without a lock.
-            var snapshot = _allGames.ToArray();
+            bool scoped = !string.IsNullOrEmpty(scopeConsole);
+            var snapshot = scoped
+                ? _allGames.Where(g => g.Console == scopeConsole).ToArray()
+                : _allGames.ToArray();
 
             List<Game>? filtered = null;
             try
             {
                 await Task.Run(() =>
                 {
-                    var index = GetOrBuildSearchIndex(snapshot);
+                    var index = scoped
+                        ? BuildSearchIndex(snapshot)
+                        : GetOrBuildSearchIndex(snapshot);
                     filtered = new List<Game>(snapshot.Length);
                     foreach (var g in snapshot)
                     {
@@ -570,17 +558,23 @@ namespace Emutastic.ViewModels
         /// callers — worst case two passes both rebuild and the second write
         /// wins (same data, no consistency issue).
         /// </summary>
-        private Dictionary<int, string> GetOrBuildSearchIndex(Game[] snapshot)
+        private static Dictionary<int, string> BuildSearchIndex(Game[] snapshot)
         {
-            var existing = _searchIndex;
-            if (existing != null) return existing;
-
             var built = new Dictionary<int, string>(snapshot.Length);
             foreach (var g in snapshot)
             {
                 if (g == null) continue;
                 built[g.Id] = BuildSearchableText(g);
             }
+            return built;
+        }
+
+        private Dictionary<int, string> GetOrBuildSearchIndex(Game[] snapshot)
+        {
+            var existing = _searchIndex;
+            if (existing != null) return existing;
+
+            var built = BuildSearchIndex(snapshot);
             _searchIndex = built;
             return built;
         }

@@ -1069,6 +1069,13 @@ namespace Emutastic
             var swNav = Services.StartupTrace.Start();
             try
             {
+            if (!string.IsNullOrEmpty(SearchBox.Text))
+            {
+                _suppressSearchTextChanged = true;
+                SearchBox.Clear();
+                _suppressSearchTextChanged = false;
+            }
+
             bool isConsoleView = !string.IsNullOrEmpty(tag)
                 && tag != "All Games" && tag != "Recent" && tag != "Favorites"
                 && tag != "RecentlyAdded" && !tag.StartsWith("Collection:");
@@ -1945,7 +1952,8 @@ namespace Emutastic
             switch (_activeTab)
             {
                 case "Library":
-                    _ = _vm.SearchGames(text).ContinueWith(t =>
+                    var scope = _vm.IsMixedView ? null : _vm.SelectedConsole;
+                    _ = _vm.SearchGames(text, scope).ContinueWith(t =>
                     {
                         if (t.IsFaulted)
                             System.Diagnostics.Trace.WriteLine($"[Search] failed: {t.Exception?.GetBaseException().Message}");
