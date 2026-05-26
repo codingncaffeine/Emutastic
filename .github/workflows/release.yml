@@ -48,6 +48,11 @@ jobs:
           dotnet publish Emutastic/Emutastic.csproj /p:PublishProfile=Release-win-x64 /p:Version=$ver
         shell: pwsh
 
+      - name: Publish Updater
+        run: |
+          dotnet publish Emutastic.Updater/Emutastic.Updater.csproj -c Release -r win-x64
+        shell: pwsh
+
       - name: Zip release
         run: |
           $version = "${{ github.ref_name }}"
@@ -56,6 +61,9 @@ jobs:
           # Single-file publish bundles README.txt into the .exe — copy it back
           # out alongside the .exe so players can actually read it.
           Copy-Item "Emutastic/README.txt" $publishDir -Force
+          # Include the updater exe alongside the main app
+          $updaterExe = Get-ChildItem -Path "Emutastic.Updater/bin/Release/net8.0/win-x64" -Filter "Emutastic.Updater.exe" -Recurse | Select-Object -First 1
+          if ($updaterExe) { Copy-Item $updaterExe.FullName $publishDir -Force }
           Compress-Archive -Path "$publishDir/*" -DestinationPath $zipName
           echo "ZIP_NAME=$zipName" >> $env:GITHUB_ENV
         shell: pwsh

@@ -374,7 +374,29 @@ namespace Emutastic
             {
                 System.Diagnostics.Trace.WriteLine($"[CoreUpdateCheck] {ex.Message}");
             }
+
+            // App update check (runs after core-update check so it doesn't compete)
+            try
+            {
+                var update = await Services.UpdateService.CheckAsync(CancellationToken.None);
+                if (update != null)
+                {
+                    _pendingAppUpdate = update;
+                    if (Dispatcher.HasShutdownStarted) return;
+                    Dispatcher.Invoke(() =>
+                    {
+                        _vm.NotificationText = $"Emutastic {update.Tag} available — click to install";
+                        _vm.IsNotification = true;
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[AppUpdateCheck] {ex.Message}");
+            }
         }
+
+        private Services.AppUpdate? _pendingAppUpdate;
 
         private void BannerBorder_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
@@ -391,6 +413,41 @@ namespace Emutastic
             if (_metadataRefreshCts != null && !_metadataRefreshCts.IsCancellationRequested)
             {
                 _metadataRefreshCts.Cancel();
+                return;
+            }
+
+            if (_pendingAppUpdate != null)
+            {
+                var update = _pendingAppUpdate;
+                var result = MessageBox.Show(
+                    $"Update to {update.Tag}?\n\nThe app will download the update and restart.",
+                    "Update Available", MessageBoxButton.OKCancel, MessageBoxImage.Information);
+                if (result != MessageBoxResult.OK) return;
+
+                _pendingAppUpdate = null;
+#pragma warning disable CS4014
+                Task.Run(async () =>
+                {
+                    try
+                    {
+                        await Services.UpdateService.ApplyAsync(update,
+                            new Progress<string>(msg => Dispatcher.BeginInvoke(() =>
+                            {
+                                _vm.NotificationText = msg;
+                                _vm.IsNotification = true;
+                            })),
+                            CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        Dispatcher.BeginInvoke(() =>
+                        {
+                            _vm.NotificationText = $"Update failed: {ex.Message}";
+                            _vm.IsNotification = true;
+                        });
+                    }
+                });
+#pragma warning restore CS4014
                 return;
             }
 

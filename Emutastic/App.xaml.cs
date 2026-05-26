@@ -90,6 +90,9 @@ namespace Emutastic
             // and matches what modern browsers use.
             System.Net.ServicePointManager.DefaultConnectionLimit = 12;
 
+            // Clean up leftover update artifacts from a previous auto-update
+            Services.UpdateService.CleanupOldFiles();
+
             // Portable mode v2 (v1.3.3): cores moved from [exe]/Cores/ → [DataRoot]/Cores/
             // so the entire portable experience sits inside PortableData/. Migrate any
             // pre-existing cores from the old location on first launch with the new code.
