@@ -27,14 +27,24 @@ GETTING STARTED
    - Download DAT files — these are important! Without them, disc images
      and some cartridge ROMs may be assigned to the wrong system or
      require manual selection during import. Grab all of them.
+   - "Update All" updates installed cores to the latest libretro
+     nightlies; run it occasionally.
 
 3. If any system requires a BIOS (Sega CD, Saturn, PlayStation, etc.),
    go to Preferences → System Files to see what's needed and where to
    place the files.
 
-4. Drag and drop ROM or disc image files onto the library window to import
-   your games, or use the Import ROMs button in the navigation bar below
-   Preferences.
+4. Drag and drop ROM, disc image, or zip files onto the library window
+   to import your games, or use the Import ROMs button in the navigation
+   bar below Preferences. Zips are auto-extracted into the data folder;
+   the original archive is left untouched.
+
+5. (Optional) Set up artwork sources in Preferences → Online Services:
+   - Sign in to ScreenScraper for the richer box-art and metadata
+     library used when you're logged in. Without an account, Emutastic
+     falls back to an offline metadata source (OpenVGDB), which has
+     less complete art coverage.
+   - Sign in to RetroAchievements (see below) to track unlocks.
 
 
 CONTROLLERS
@@ -42,6 +52,61 @@ CONTROLLERS
 Connect your controller before launching Emutastic. Button mappings are
 configurable in Preferences → Controls. Controllers are detected
 automatically — no refresh needed.
+
+
+KEYBOARD SHORTCUTS
+------------------
+In the library:
+  Ctrl+F     Focus the search box in the active tab
+  Ctrl+A     Select all visible games
+  Enter      Open the focused game's detail card
+  Delete     Remove selected games (save states are preserved) or
+             delete selected screenshots
+  Esc        Clear the search box and drop focus
+
+In a game (move the mouse to bring up the overlay):
+  Print Screen / F12   Take a screenshot
+  Esc                  Exit back to the library
+  Cog icon             Cheats, save/load state, settings
+
+
+SCREENSHOTS
+-----------
+Press Print Screen or F12 in a game to capture the current frame.
+Screenshots land in your data folder under Screenshots\<Console>\
+and show up in the Screenshots tab in the library sidebar, grouped
+per-game. Multi-select with Ctrl-click / Shift-click and press Delete
+to remove.
+
+
+SAVE STATES
+-----------
+Open the in-game overlay (move the mouse), click the cog, then
+"Save State" or "Load State". Existing states are listed in the Save
+States tab in the library sidebar, grouped per-game and previewed with
+thumbnails. Both tabs have their own search box at the top.
+
+A handful of cores can't create save states reliably and the option is
+hidden for them (e.g. PSP for RA hardcore compatibility, and a few
+arcade titles whose underlying MAME version pre-dates state support).
+
+
+THEMES
+------
+Preferences → Themes switches between bundled themes or loads an
+.emutheme file. Click "Edit" on the current theme to open the visual
+editor — live color picker, per-console accent / background overrides,
+preview as you go. Save edits under a new name; the bundled default
+theme is read-only so you always have a known-good fallback.
+
+
+BACKUPS
+-------
+Preferences → Backups zips up your library database, save states,
+battery saves, and per-game configs into a single archive — drop it on
+a USB stick or a cloud-synced folder for safekeeping. Restore from the
+same screen. Cores, BIOS files, and the ROMs themselves are not part of
+the backup (they're easy to re-download or re-import).
 
 
 BIOS FILES
@@ -197,6 +262,22 @@ games. Enable in Preferences -> Achievements:
 In-game, achievements appear as toast notifications the moment you
 unlock them. The detail card shows aggregated progress for any game
 you've launched at least once with RA enabled.
+
+Friends
+~~~~~~~
+The Achievements tab has You / Friends sub-tabs that mirror your RA
+follow graph. Click a friend to open their detail window: recently-
+played games, achievements unlocked, and a compare view for any game
+you both own. Following / unfollowing on retroachievements.org is
+reflected the next time the tab refreshes.
+
+Leaderboard toasts
+~~~~~~~~~~~~~~~~~~
+When you place on a leaderboard during play, a toast pops up with your
+rank — triumphs, ties, near-misses, and losses each get their own
+animation and (optional) sound. Toggle the sound globally with the bell
+icon in any Friend Detail window, or disable the toasts entirely in
+Preferences → Achievements.
 
 
 CORE SPECIFIC NOTES
