@@ -153,6 +153,16 @@ In-game, achievements appear as toast notifications when you unlock them.
 </details>
 
 - **Core Options** — Per-core settings (internal resolution, graphics plugins, etc.) in **Preferences → Core Options**
+- **Play Time Tracking** — The game detail card shows your total accumulated play time per game, recorded each session
+
+<details>
+<summary><strong>Cloud Sync</strong></summary>
+
+Sync battery saves and your library database across PCs using your GitHub account. Sign in with one click in **Preferences → Backups** — a private `emutastic-saves` repo is created automatically under your account. Battery saves upload on game close and download on game launch; only newer files transfer. Full bidirectional sync available via **Sync Now**.
+
+Optional **AES-256-GCM encryption** with a user-chosen passphrase — saves are encrypted before they leave your machine. Your saves repo is a normal private GitHub repo you can browse anytime. See the [Cloud Sync](https://github.com/codingncaffeine/Emutastic/wiki/Cloud-Sync) wiki page for details on encryption, storage limits, sharing saves, and troubleshooting.
+
+</details>
 
 <details>
 <summary><strong>Disk Swapping (FDS, PS1, Saturn, Sega CD)</strong></summary>
