@@ -647,38 +647,81 @@ namespace Emutastic.Services
                 }
             }
 
-            // Sync library database
+            // Sync library database — use VACUUM INTO for a consistent snapshot
+            // (raw File.ReadAllBytes on a WAL-mode DB risks partial checkpoint reads)
             try
             {
                 string dbPath = System.IO.Path.Combine(AppPaths.DataRoot, "library.db");
+                string dbRepoPath = "library.db" + encSuffix;
+
                 if (System.IO.File.Exists(dbPath))
                 {
-                    string dbRepoPath = "library.db" + encSuffix;
-                    var dbInfo = new System.IO.FileInfo(dbPath);
-                    bool dbNeedsUpload = true;
-
-                    if (_manifestCache.Files.TryGetValue(dbRepoPath, out var dbEntry)
-                        && DateTime.TryParse(dbEntry.LastModifiedUtc, null,
-                            System.Globalization.DateTimeStyles.RoundtripKind, out var dbRemoteMtime))
+                    string tempDb = System.IO.Path.Combine(
+                        System.IO.Path.GetTempPath(), $"emutastic_sync_{Guid.NewGuid():N}.db");
+                    try
                     {
-                        dbNeedsUpload = dbInfo.LastWriteTimeUtc > dbRemoteMtime;
-                    }
-
-                    if (dbNeedsUpload)
-                    {
-                        byte[] dbBytes = System.IO.File.ReadAllBytes(dbPath);
-                        if (encrypted && encKey != null) dbBytes = Encrypt(dbBytes, encKey);
-                        if (await UploadFileAsync(dbRepoPath, dbBytes, ct))
+                        using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}"))
                         {
-                            _manifestCache.Files[dbRepoPath] = new SyncFileEntry
-                            {
-                                LastModifiedUtc = dbInfo.LastWriteTimeUtc.ToString("o"),
-                                SizeBytes = dbInfo.Length
-                            };
-                            uploaded++;
-                            Trace.WriteLine("[CloudSync] Database uploaded");
+                            conn.Open();
+                            var cmd = conn.CreateCommand();
+                            cmd.CommandText = $"VACUUM INTO '{tempDb.Replace("'", "''")}'";
+                            cmd.ExecuteNonQuery();
                         }
-                        else errors++;
+
+                        var snapInfo = new System.IO.FileInfo(tempDb);
+                        bool dbNeedsUpload = true;
+
+                        if (_manifestCache.Files.TryGetValue(dbRepoPath, out var dbEntry)
+                            && DateTime.TryParse(dbEntry.LastModifiedUtc, null,
+                                System.Globalization.DateTimeStyles.RoundtripKind, out var dbRemoteMtime))
+                        {
+                            dbNeedsUpload = snapInfo.Length != dbEntry.SizeBytes
+                                || snapInfo.LastWriteTimeUtc > dbRemoteMtime;
+                        }
+
+                        if (dbNeedsUpload)
+                        {
+                            byte[] dbBytes = System.IO.File.ReadAllBytes(tempDb);
+                            if (encrypted && encKey != null) dbBytes = Encrypt(dbBytes, encKey);
+                            if (await UploadFileAsync(dbRepoPath, dbBytes, ct))
+                            {
+                                _manifestCache.Files[dbRepoPath] = new SyncFileEntry
+                                {
+                                    LastModifiedUtc = DateTime.UtcNow.ToString("o"),
+                                    SizeBytes = snapInfo.Length
+                                };
+                                uploaded++;
+                                Trace.WriteLine("[CloudSync] Database uploaded");
+                            }
+                            else errors++;
+                        }
+                    }
+                    finally
+                    {
+                        try { System.IO.File.Delete(tempDb); } catch { }
+                    }
+                }
+
+                // Download remote DB if newer than local (second-PC restore)
+                if (_manifestCache.Files.TryGetValue(dbRepoPath, out var remoteDbEntry)
+                    && DateTime.TryParse(remoteDbEntry.LastModifiedUtc, null,
+                        System.Globalization.DateTimeStyles.RoundtripKind, out var remoteDbMtime))
+                {
+                    var localDbInfo = System.IO.File.Exists(dbPath) ? new System.IO.FileInfo(dbPath) : null;
+                    bool shouldDownload = localDbInfo == null
+                        || remoteDbMtime > localDbInfo.LastWriteTimeUtc;
+
+                    if (shouldDownload)
+                    {
+                        byte[]? remoteDb = await DownloadFileAsync(dbRepoPath, ct);
+                        if (remoteDb != null && remoteDb.Length > 0)
+                        {
+                            if (encrypted && encKey != null) remoteDb = Decrypt(remoteDb, encKey);
+                            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                            System.IO.File.WriteAllBytes(dbPath, remoteDb);
+                            downloaded++;
+                            Trace.WriteLine("[CloudSync] Database downloaded from remote");
+                        }
                     }
                 }
             }
