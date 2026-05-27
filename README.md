@@ -148,7 +148,7 @@ In-game, achievements appear as toast notifications when you unlock them.
 <details>
 <summary><strong>About & Updates</strong></summary>
 
-**Preferences → About** shows the current version, build date, and credits. On open, it checks GitHub for the latest release and surfaces a download link if a newer version is available. Notification-only — no auto-installer, no telemetry.
+**Preferences → About** shows the current version, build date, and credits. On open, it checks GitHub for the latest release — if a newer version is available, you can download and install it in-app. The update is staged in a temp folder and applied by a small companion updater (`Emutastic.Updater.exe`) that replaces the running binary while the app restarts. No telemetry.
 
 </details>
 
@@ -227,6 +227,7 @@ Emulation is handled by libretro cores maintained by their upstream authors. Emu
 | DeSmuME | DeSmuME team |
 | Dolphin | Dolphin team |
 | FBNeo (FinalBurn Neo) | FBNeo team |
+| MAME 2003-Plus | MAME team / libretro contributors |
 | FCEUmm | FCEUmm team |
 | Flycast | flyinghead and contributors |
 | Gambatte | Sindre Aamås (sinamas) |
