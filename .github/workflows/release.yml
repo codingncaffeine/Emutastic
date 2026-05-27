@@ -34,6 +34,21 @@ jobs:
           Remove-Item openvgdb.zip
         shell: pwsh
 
+      - name: Generate Secrets.cs
+        run: |
+          @"
+          namespace Emutastic
+          {
+              internal static class Secrets
+              {
+                  public const string GitHubOAuthClientId = "${{ secrets.GITHUB_OAUTH_CLIENT_ID }}";
+                  public const string ScreenScraperDevId = "${{ secrets.SCREENSCRAPER_DEV_ID }}";
+                  public const string ScreenScraperDevPass = "${{ secrets.SCREENSCRAPER_DEV_PASS }}";
+              }
+          }
+          "@ | Set-Content -Path Emutastic/Secrets.cs -Encoding UTF8
+        shell: pwsh
+
       - name: Create Cores folder
         run: New-Item -ItemType Directory -Force -Path Emutastic/Cores | Out-Null
         shell: pwsh
