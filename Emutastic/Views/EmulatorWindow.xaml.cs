@@ -316,6 +316,7 @@ namespace Emutastic.Views
         private InputConfiguration? _inputConfig;
         private readonly Dictionary<Key, uint> _keyboardMappings = new();
         private DatabaseService? _db;
+        private DateTime _sessionStartUtc;
 
         // RetroAchievements
         private RetroAchievementsClient? _raClient;
@@ -1528,6 +1529,7 @@ namespace Emutastic.Views
                 _db?.UpdatePlayCount(_game.Id);
                 _game.PlayCount++;
                 _game.LastPlayed = DateTime.Now;
+                _sessionStartUtc = DateTime.UtcNow;
 
                 // Call retro_set_controller_port_device for all active ports.
                 // Handler decides how many ports to configure (GameCube needs all 4).
@@ -7878,6 +7880,21 @@ namespace Emutastic.Views
             // Stop forwarding keyboard events to the core — the core's function pointer
             // will be invalidated once retro_deinit runs, and a late key event would AV.
             _coreKeyboardEvent = null;
+
+            // Accumulate play time for this session.
+            try
+            {
+                if (_sessionStartUtc != default)
+                {
+                    int sessionSec = (int)(DateTime.UtcNow - _sessionStartUtc).TotalSeconds;
+                    if (sessionSec > 0)
+                    {
+                        _db?.UpdatePlayTime(_game.Id, sessionSec);
+                        _game.TotalPlayTimeSeconds += sessionSec;
+                    }
+                }
+            }
+            catch { }
 
             // Hide immediately so the user isn't staring at an unresponsive window
             // while the emu thread and GL cleanup finish in the background.

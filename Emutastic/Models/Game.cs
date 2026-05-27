@@ -138,6 +138,7 @@ namespace Emutastic.Models
         public string AccentColor { get; set; } = "#E03535";
         public int PlayCount { get; set; }
         public int SaveCount { get; set; }
+        public int TotalPlayTimeSeconds { get; set; }
         public bool IsFavorite { get; set; }
         private int _rating;
         public int Rating

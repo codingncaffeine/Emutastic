@@ -205,6 +205,7 @@ namespace Emutastic.Services
             // or "load_failed" (other rc_client_begin_identify_and_load_game
             // failure — bad credentials, network, etc.).
             TryAddColumn(connection, "Games", "RALastLaunchOutcome",      "TEXT DEFAULT ''");
+            TryAddColumn(connection, "Games", "TotalPlayTimeSeconds",    "INTEGER DEFAULT 0");
 
             // Speed up the Achievements-tab library cross-ref. The "across
             // every game you own, which ones are RA-tracked" lookup runs on
@@ -1324,6 +1325,21 @@ namespace Emutastic.Services
             cmd.ExecuteNonQuery();
         }
 
+        public void UpdatePlayTime(int gameId, int secondsToAdd)
+        {
+            if (secondsToAdd <= 0) return;
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = @"
+                UPDATE Games
+                SET TotalPlayTimeSeconds = TotalPlayTimeSeconds + $seconds
+                WHERE Id = $id;";
+            cmd.Parameters.AddWithValue("$seconds", secondsToAdd);
+            cmd.Parameters.AddWithValue("$id", gameId);
+            cmd.ExecuteNonQuery();
+        }
+
         public void RecalcSaveCount(int gameId)
         {
             using var connection = new SqliteConnection(_connectionString);
@@ -1901,7 +1917,7 @@ namespace Emutastic.Services
                 RAGameId, RAProgressionJson, RAProgressionFetchedAt,
                 RAUserProgressJson, RAUserProgressFetchedAt,
                 RALiveProgressJson, RALiveProgressFetchedAt,
-                RALastLaunchOutcome;
+                RALastLaunchOutcome, TotalPlayTimeSeconds;
 
             public OrdinalMap(SqliteDataReader reader)
             {
@@ -1939,6 +1955,7 @@ namespace Emutastic.Services
                 RALiveProgressJson      = TryOrd(reader, "RALiveProgressJson");
                 RALiveProgressFetchedAt = TryOrd(reader, "RALiveProgressFetchedAt");
                 RALastLaunchOutcome     = TryOrd(reader, "RALastLaunchOutcome");
+                TotalPlayTimeSeconds    = TryOrd(reader, "TotalPlayTimeSeconds");
             }
 
             private static int TryOrd(SqliteDataReader r, string col)
@@ -1986,6 +2003,7 @@ namespace Emutastic.Services
                 RALiveProgressJson      = GetStr(reader, o.RALiveProgressJson),
                 RALiveProgressFetchedAt = GetLong(reader, o.RALiveProgressFetchedAt),
                 RALastLaunchOutcome     = GetStr(reader, o.RALastLaunchOutcome),
+                TotalPlayTimeSeconds    = GetInt(reader, o.TotalPlayTimeSeconds),
             };
         }
 

@@ -287,6 +287,7 @@ namespace Emutastic.ViewModels
                 if (updated.AccentColor != "#E03535")          target.AccentColor = updated.AccentColor;
                 if (updated.PlayCount > 0)   target.PlayCount = updated.PlayCount;
                 if (updated.SaveCount > 0)   target.SaveCount = updated.SaveCount;
+                if (updated.TotalPlayTimeSeconds > 0) target.TotalPlayTimeSeconds = updated.TotalPlayTimeSeconds;
                 if (updated.IsFavorite)      target.IsFavorite = true;
                 if (updated.Rating > 0)      target.Rating = updated.Rating;
                 if (updated.LastPlayed != null) target.LastPlayed = updated.LastPlayed;

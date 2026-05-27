@@ -118,7 +118,7 @@ namespace Emutastic.Views
         }
 
         /// <summary>
-        /// Renders the inline stats pills (Times Played / Save States / Last
+        /// Renders the inline stats pills (Times Played / Play Time / Last
         /// Played) alongside the meta pills. Each pill hides when its value
         /// is zero/Never, so the right cluster doesn't get noisy for a freshly
         /// imported game.
@@ -126,7 +126,7 @@ namespace Emutastic.Views
         private void UpdateStatPills()
         {
             int plays = _game.PlayCount;
-            int saves = _game.SaveCount;
+            int totalSec = _game.TotalPlayTimeSeconds;
             bool everPlayed = _game.LastPlayed.HasValue;
 
             if (plays > 0)
@@ -139,14 +139,14 @@ namespace Emutastic.Views
                 PlayedPill.Visibility = Visibility.Collapsed;
             }
 
-            if (saves > 0)
+            if (totalSec > 0)
             {
-                StatSaves.Text = saves == 1 ? "1 save" : $"{saves} saves";
-                SavesPill.Visibility = Visibility.Visible;
+                StatPlayTime.Text = FormatDuration(totalSec);
+                PlayTimePill.Visibility = Visibility.Visible;
             }
             else
             {
-                SavesPill.Visibility = Visibility.Collapsed;
+                PlayTimePill.Visibility = Visibility.Collapsed;
             }
 
             if (everPlayed)
@@ -907,7 +907,7 @@ namespace Emutastic.Views
                     raData.InvalidatePostPlay();
                 }
 
-                // Refresh stats — EmulatorWindow updates _game.PlayCount / LastPlayed / SaveCount
+                // Refresh stats — EmulatorWindow updates _game.PlayCount / LastPlayed / TotalPlayTimeSeconds
                 // on the shared object, so the card shows accurate numbers immediately.
                 if (IsVisible) RefreshStats();
             }
