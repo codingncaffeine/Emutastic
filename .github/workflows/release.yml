@@ -41,7 +41,7 @@ jobs:
           {
               internal static class Secrets
               {
-                  public const string GitHubOAuthClientId = "${{ secrets.GITHUB_OAUTH_CLIENT_ID }}";
+                  public const string GitHubOAuthClientId = "${{ secrets.OAUTH_CLIENT_ID }}";
                   public const string ScreenScraperDevId = "${{ secrets.SCREENSCRAPER_DEV_ID }}";
                   public const string ScreenScraperDevPass = "${{ secrets.SCREENSCRAPER_DEV_PASS }}";
               }
