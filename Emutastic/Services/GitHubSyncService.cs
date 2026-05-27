@@ -647,6 +647,47 @@ namespace Emutastic.Services
                 }
             }
 
+            // Sync library database
+            try
+            {
+                string dbPath = System.IO.Path.Combine(AppPaths.DataRoot, "library.db");
+                if (System.IO.File.Exists(dbPath))
+                {
+                    string dbRepoPath = "library.db" + encSuffix;
+                    var dbInfo = new System.IO.FileInfo(dbPath);
+                    bool dbNeedsUpload = true;
+
+                    if (_manifestCache.Files.TryGetValue(dbRepoPath, out var dbEntry)
+                        && DateTime.TryParse(dbEntry.LastModifiedUtc, null,
+                            System.Globalization.DateTimeStyles.RoundtripKind, out var dbRemoteMtime))
+                    {
+                        dbNeedsUpload = dbInfo.LastWriteTimeUtc > dbRemoteMtime;
+                    }
+
+                    if (dbNeedsUpload)
+                    {
+                        byte[] dbBytes = System.IO.File.ReadAllBytes(dbPath);
+                        if (encrypted && encKey != null) dbBytes = Encrypt(dbBytes, encKey);
+                        if (await UploadFileAsync(dbRepoPath, dbBytes, ct))
+                        {
+                            _manifestCache.Files[dbRepoPath] = new SyncFileEntry
+                            {
+                                LastModifiedUtc = dbInfo.LastWriteTimeUtc.ToString("o"),
+                                SizeBytes = dbInfo.Length
+                            };
+                            uploaded++;
+                            Trace.WriteLine("[CloudSync] Database uploaded");
+                        }
+                        else errors++;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"[CloudSync] Database sync failed: {ex.Message}");
+                errors++;
+            }
+
             await SaveManifestAsync(ct);
             Trace.WriteLine($"[CloudSync] Full sync: {uploaded} up, {downloaded} down, {errors} errors");
 
