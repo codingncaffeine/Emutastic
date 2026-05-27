@@ -176,6 +176,7 @@ namespace Emutastic.Services
         private retro_system_av_info _avInfo;
 
         public string CorePath => _corePath;
+        public IntPtr NativeHandle => _handle;
 
         /// <summary>
         /// Set by Dispose() when FreeLibrary is deferred (N64/Dolphin).
@@ -752,6 +753,12 @@ namespace Emutastic.Services
                     try { NativeMethods.FreeLibrary(handle); } catch { }
             }
 
+            if (_gamePathPtr != IntPtr.Zero) { Marshal.FreeHGlobal(_gamePathPtr); _gamePathPtr = IntPtr.Zero; }
+            if (_gameDataPtr != IntPtr.Zero) { Marshal.FreeHGlobal(_gameDataPtr); _gameDataPtr = IntPtr.Zero; }
+        }
+
+        public void FreeMarshaledMemory()
+        {
             if (_gamePathPtr != IntPtr.Zero) { Marshal.FreeHGlobal(_gamePathPtr); _gamePathPtr = IntPtr.Zero; }
             if (_gameDataPtr != IntPtr.Zero) { Marshal.FreeHGlobal(_gameDataPtr); _gameDataPtr = IntPtr.Zero; }
         }

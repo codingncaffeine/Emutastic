@@ -7924,7 +7924,6 @@ namespace Emutastic.Views
                 // LibretroCore.Dispose() skips retro_unload_game (already called on emu
                 // thread) and skips retro_deinit for N64 (called on emu thread with GL
                 // context active).  Dispose() handles the post-deinit wait + FreeLibrary.
-                // Skip if load failed — already disposed on the emu thread.
                 if (!_loadFailed)
                 {
                     // _core.Dispose calls retro_deinit. For heavy 3D cores the core's
@@ -7941,6 +7940,17 @@ namespace Emutastic.Views
                     });
                     if (!disposeTask.Wait(TimeSpan.FromSeconds(5)))
                         System.Diagnostics.Trace.WriteLine("WARNING: core dispose did not complete within 5s — abandoning to let window close");
+                }
+                else if (_core != null && _core.NativeHandle != IntPtr.Zero)
+                {
+                    // Load failed — retro_deinit would AV on partially-initialized state,
+                    // but we MUST FreeLibrary so the next launch gets clean globals.
+                    // Without this, the DLL stays loaded with dirty state and the next
+                    // game on the same core crashes during retro_init.
+                    try { NativeMethods.FreeLibrary(_core.NativeHandle); }
+                    catch { }
+                    _core.FreeMarshaledMemory();
+                    System.Diagnostics.Trace.WriteLine("Load-failed cleanup: FreeLibrary on dirty DLL");
                 }
 
                 // GL context cleanup + optional DLL unload.
