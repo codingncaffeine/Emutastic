@@ -8,6 +8,9 @@ Emutastic-v*.zip
 # Claude tooling
 .claude/
 
+# Secrets — OAuth client IDs, API keys (not committed; see Secrets.cs.template)
+Emutastic/Secrets.cs
+
 # Visual Studio
 .vs/
 *.user

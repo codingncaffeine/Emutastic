@@ -286,6 +286,19 @@ namespace Emutastic.Configuration
         public bool   ToastsEnabled       { get; set; } = true;
     }
 
+    public class CloudSyncConfiguration : ConfigurationBase
+    {
+        public string GitHubTokenProtected { get; set; } = "";
+        public string GitHubUsername { get; set; } = "";
+        public bool Enabled { get; set; }
+        public bool EncryptionEnabled { get; set; }
+        public string PassphraseProtected { get; set; } = "";
+        public string SyncTiming { get; set; } = "on_close";
+        public int PeriodicIntervalMinutes { get; set; } = 15;
+        public bool SyncSaveStates { get; set; } = true;
+        public List<string> PendingUploads { get; set; } = new();
+    }
+
     // Video snap provider configuration
     public class SnapConfiguration : ConfigurationBase
     {

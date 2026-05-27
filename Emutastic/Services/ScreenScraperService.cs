@@ -17,8 +17,8 @@ namespace Emutastic.Services
     {
         private const string BaseUrl    = "https://www.screenscraper.fr/api2/";
         private const string SoftName   = "Emutastic";
-        private const string DevId      = "stragee";
-        private const string DevPass    = "REDACTED";
+        private static string DevId   => Secrets.ScreenScraperDevId;
+        private static string DevPass => Secrets.ScreenScraperDevPass;
 
         private readonly HttpClient _http;
         private readonly string     _snapCacheFolder;

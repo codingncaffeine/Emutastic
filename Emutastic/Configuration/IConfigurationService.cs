@@ -47,5 +47,8 @@ namespace Emutastic.Configuration
 
         RecordingConfiguration GetRecordingConfiguration();
         void SetRecordingConfiguration(RecordingConfiguration config);
+
+        CloudSyncConfiguration GetCloudSyncConfiguration();
+        void SetCloudSyncConfiguration(CloudSyncConfiguration config);
     }
 }

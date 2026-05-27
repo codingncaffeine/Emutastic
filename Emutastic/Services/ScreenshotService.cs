@@ -105,10 +105,6 @@ namespace Emutastic.Services
         }
 
         private static string SanitizeFileName(string s)
-        {
-            foreach (char c in Path.GetInvalidFileNameChars())
-                s = s.Replace(c, '_');
-            return s.Trim();
-        }
+            => FileNameHelper.SanitizeFileName(s);
     }
 }

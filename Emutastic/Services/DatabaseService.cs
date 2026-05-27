@@ -1851,6 +1851,26 @@ namespace Emutastic.Services
             return games;
         }
 
+        public record GameSyncInfo(string RomHash, string Console, string RomPath);
+
+        public List<GameSyncInfo> GetGamesSyncMap()
+        {
+            var result = new List<GameSyncInfo>();
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT RomHash, Console, RomPath FROM Games WHERE RomHash IS NOT NULL AND RomHash != '';";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                result.Add(new GameSyncInfo(
+                    reader.GetString(0),
+                    reader.GetString(1),
+                    AppPaths.FromStoragePath(reader.GetString(2))));
+            }
+            return result;
+        }
+
         public List<Game> GetAllGames()
         {
             var games = new List<Game>();

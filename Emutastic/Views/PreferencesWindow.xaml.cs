@@ -68,7 +68,7 @@ namespace Emutastic.Views
         private List<string> _lastKnownDevices = new();
 
         // ── Section navigation ────────────────────────────────────────────────
-        private enum PrefSection { Controls, SystemFiles, Cores, Library, Theme, Snaps, CoreOptions, Achievements, Media, About }
+        private enum PrefSection { Controls, SystemFiles, Cores, Library, Theme, Snaps, CoreOptions, Achievements, Media, Backups, About }
         private PrefSection _activeSection = PrefSection.Controls;
 
         // Lazy-tab gating: build each panel at most once per cache lifetime,
@@ -795,6 +795,9 @@ namespace Emutastic.Views
                 case "achievements":  NavAchievements.IsChecked = true; break;
                 case "media":
                 case "folders":       NavMedia.IsChecked = true; break;
+                case "backups":
+                case "backup":
+                case "cloud sync":    NavBackups.IsChecked = true; break;
                 case "about":         NavAbout.IsChecked = true; break;
             }
         }
@@ -810,6 +813,7 @@ namespace Emutastic.Views
             else if (sender == NavCoreOptions)  ShowSection(PrefSection.CoreOptions);
             else if (sender == NavAchievements) ShowSection(PrefSection.Achievements);
             else if (sender == NavMedia)        ShowSection(PrefSection.Media);
+            else if (sender == NavBackups)      ShowSection(PrefSection.Backups);
             else if (sender == NavAbout)        ShowSection(PrefSection.About);
         }
 
@@ -826,6 +830,7 @@ namespace Emutastic.Views
             PanelCoreOptions.Visibility = section == PrefSection.CoreOptions ? Visibility.Visible : Visibility.Collapsed;
             PanelAchievements.Visibility = section == PrefSection.Achievements ? Visibility.Visible : Visibility.Collapsed;
             PanelMedia.Visibility       = section == PrefSection.Media        ? Visibility.Visible : Visibility.Collapsed;
+            PanelBackups.Visibility     = section == PrefSection.Backups      ? Visibility.Visible : Visibility.Collapsed;
             PanelAbout.Visibility       = section == PrefSection.About        ? Visibility.Visible : Visibility.Collapsed;
 
             // Lazy builder dispatch — never block the dispatcher inline. The
@@ -943,6 +948,7 @@ namespace Emutastic.Views
                     case PrefSection.Snaps:       LoadSnapsSettings(); break;
                     case PrefSection.CoreOptions: BuildCoreOptionsTab(); break;
                     case PrefSection.Achievements: LoadAchievementsSettings(); break;
+                    case PrefSection.Backups:     LoadBackupsSettings(); break;
                     case PrefSection.About:       LoadAboutSettings(); break;
                     case PrefSection.Controls:    /* dispatcher-affine init lives in OnLoaded */ break;
                 }
@@ -3274,24 +3280,6 @@ namespace Emutastic.Views
             LibraryOrganizeByConsole.IsEnabled = lib.CopyToLibrary;
             LibraryCopyFiles.Checked += (_, _) => LibraryOrganizeByConsole.IsEnabled = true;
             LibraryKeepInPlace.Checked += (_, _) => LibraryOrganizeByConsole.IsEnabled = false;
-
-            // Backup folder
-            var prefs = _configService.GetUserPreferences();
-            string backupDir = prefs.BackupFolder;
-            if (string.IsNullOrEmpty(backupDir))
-            {
-                BackupFolderPathText.Text = "Not set";
-                BackupFolderPathText.Foreground = _brushTextMuted;
-                BackupNowBtn.IsEnabled = false;
-                RestoreBackupBtn.IsEnabled = false;
-            }
-            else
-            {
-                BackupFolderPathText.Text = backupDir;
-                BackupFolderPathText.Foreground = _brushText;
-                BackupNowBtn.IsEnabled = true;
-                RestoreBackupBtn.IsEnabled = true;
-            }
         }
 
         private void BrowseLibraryBtn_Click(object sender, RoutedEventArgs e)
@@ -3470,6 +3458,170 @@ namespace Emutastic.Views
             {
                 string destSubDir = System.IO.Path.Combine(destDir, System.IO.Path.GetFileName(dir));
                 CopyDirectoryRecursive(dir, destSubDir);
+            }
+        }
+
+        // ── Cloud Sync (Backups tab) ──────────────────────────────────────────
+
+        private void LoadBackupsSettings()
+        {
+            _suppressAutoSave = true;
+            try
+            {
+                // Load local backup folder path
+                var prefs = App.Configuration?.GetUserPreferences();
+                BackupFolderPathText.Text = string.IsNullOrEmpty(prefs?.BackupFolder)
+                    ? "Not set" : prefs!.BackupFolder;
+
+                // Load cloud sync state
+                var cfg = App.Configuration?.GetCloudSyncConfiguration();
+                var svc = Services.GitHubSyncService.Instance;
+
+                if (svc.IsAuthenticated && !string.IsNullOrEmpty(svc.Username))
+                {
+                    CloudSyncStatusText.Text = $"Signed in as {svc.Username}";
+                    CloudSyncSignInBtn.Content = "Sign Out";
+                    CloudSyncSettingsPanel.Visibility = Visibility.Visible;
+                }
+
+                if (cfg != null)
+                {
+                    SyncOnClose.IsChecked = cfg.SyncTiming == "on_close";
+                    SyncPeriodic.IsChecked = cfg.SyncTiming == "periodic";
+                    SyncManual.IsChecked = cfg.SyncTiming == "manual";
+                    SyncSaveStates.IsChecked = cfg.SyncSaveStates;
+                    SyncEncryptionEnabled.IsChecked = cfg.EncryptionEnabled;
+                    PassphrasePanel.Visibility = cfg.EncryptionEnabled
+                        ? Visibility.Visible : Visibility.Collapsed;
+                }
+            }
+            finally { _suppressAutoSave = false; }
+        }
+
+        private async void CloudSyncSignIn_Click(object sender, RoutedEventArgs e)
+        {
+            var svc = Services.GitHubSyncService.Instance;
+
+            if (svc.IsAuthenticated)
+            {
+                svc.SignOut();
+                CloudSyncStatusText.Text = "Not signed in";
+                CloudSyncSignInBtn.Content = "Sign in with GitHub";
+                CloudSyncSettingsPanel.Visibility = Visibility.Collapsed;
+                DeviceFlowPanel.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            try
+            {
+                CloudSyncSignInBtn.IsEnabled = false;
+                var flow = await svc.BeginDeviceFlowAsync();
+
+                DeviceFlowCodeText.Text = flow.UserCode;
+                DeviceFlowPanel.Visibility = Visibility.Visible;
+
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                    flow.VerificationUri) { UseShellExecute = true });
+
+                bool success = await svc.PollForTokenAsync(
+                    flow.DeviceCode, flow.Interval, flow.ExpiresIn);
+
+                DeviceFlowPanel.Visibility = Visibility.Collapsed;
+
+                if (success)
+                {
+                    await svc.EnsureRepoExistsAsync();
+                    await svc.RefreshShaCacheAsync();
+
+                    CloudSyncStatusText.Text = $"Signed in as {svc.Username}";
+                    CloudSyncSignInBtn.Content = "Sign Out";
+                    CloudSyncSettingsPanel.Visibility = Visibility.Visible;
+                }
+                else
+                {
+                    CloudSyncStatusText.Text = "Authorization failed or timed out";
+                }
+            }
+            catch (Exception ex)
+            {
+                DeviceFlowPanel.Visibility = Visibility.Collapsed;
+                CloudSyncStatusText.Text = $"Error: {ex.Message}";
+            }
+            finally
+            {
+                CloudSyncSignInBtn.IsEnabled = true;
+            }
+        }
+
+        private void SyncTiming_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_suppressAutoSave) return;
+            var cfg = App.Configuration?.GetCloudSyncConfiguration();
+            if (cfg == null) return;
+            if (SyncOnClose.IsChecked == true) cfg.SyncTiming = "on_close";
+            else if (SyncPeriodic.IsChecked == true) cfg.SyncTiming = "periodic";
+            else if (SyncManual.IsChecked == true) cfg.SyncTiming = "manual";
+            App.Configuration?.SetCloudSyncConfiguration(cfg);
+            _ = App.Configuration?.SaveAsync();
+        }
+
+        private void SyncSaveStates_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_suppressAutoSave) return;
+            var cfg = App.Configuration?.GetCloudSyncConfiguration();
+            if (cfg == null) return;
+            cfg.SyncSaveStates = SyncSaveStates.IsChecked == true;
+            App.Configuration?.SetCloudSyncConfiguration(cfg);
+            _ = App.Configuration?.SaveAsync();
+        }
+
+        private void SyncEncryption_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_suppressAutoSave) return;
+            var cfg = App.Configuration?.GetCloudSyncConfiguration();
+            if (cfg == null) return;
+            cfg.EncryptionEnabled = SyncEncryptionEnabled.IsChecked == true;
+            PassphrasePanel.Visibility = cfg.EncryptionEnabled
+                ? Visibility.Visible : Visibility.Collapsed;
+            App.Configuration?.SetCloudSyncConfiguration(cfg);
+            _ = App.Configuration?.SaveAsync();
+        }
+
+        private void SyncPassphraseSave_Click(object sender, RoutedEventArgs e)
+        {
+            var cfg = App.Configuration?.GetCloudSyncConfiguration();
+            if (cfg == null) return;
+            string passphrase = SyncPassphraseBox.Password;
+            if (string.IsNullOrEmpty(passphrase)) return;
+            cfg.PassphraseProtected = Services.GitHubSyncService.ProtectString(passphrase);
+            App.Configuration?.SetCloudSyncConfiguration(cfg);
+            _ = App.Configuration?.SaveAsync();
+            SyncPassphraseBox.Password = "";
+            SyncStatusText.Text = "Passphrase saved";
+        }
+
+        private async void SyncNow_Click(object sender, RoutedEventArgs e)
+        {
+            var svc = Services.GitHubSyncService.Instance;
+            if (!svc.IsAuthenticated) return;
+
+            SyncNowBtn.IsEnabled = false;
+            SyncStatusText.Text = "Syncing...";
+
+            try
+            {
+                var db = new Services.DatabaseService();
+                var result = await Task.Run(() => svc.FullSyncAsync(db));
+                SyncStatusText.Text = $"Synced at {DateTime.Now:h:mm tt} — {result.Uploaded} up, {result.Downloaded} down"
+                    + (result.Errors > 0 ? $", {result.Errors} errors" : "");
+            }
+            catch (Exception ex)
+            {
+                SyncStatusText.Text = $"Sync failed: {ex.Message}";
+            }
+            finally
+            {
+                SyncNowBtn.IsEnabled = true;
             }
         }
 

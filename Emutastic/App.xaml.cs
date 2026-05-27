@@ -190,6 +190,15 @@ namespace Emutastic
                 // doesn't pay its multi-second native init cost on the dispatcher.
                 Services.VideoPlaybackService.Instance.StartWarmup();
                 Services.StartupTrace.Mark("libvlc_warmup_kicked");
+
+                Services.GitHubSyncService.Instance.LoadFromConfig();
+                if (Services.GitHubSyncService.Instance.IsAuthenticated)
+                    _ = Task.Run(async () =>
+                    {
+                        await Services.GitHubSyncService.Instance.ValidateTokenAsync();
+                        if (Services.GitHubSyncService.Instance.IsAuthenticated)
+                            await Services.GitHubSyncService.Instance.LoadManifestAsync();
+                    });
             }
             catch (Exception ex)
             {

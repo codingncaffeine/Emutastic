@@ -1541,6 +1541,66 @@ namespace Emutastic.Views
                 if (avGeom.base_width > 0 && avGeom.base_height > 0)
                     UpdateDisplayAspectRatio(avGeom.base_width, avGeom.base_height, avGeom.aspect_ratio);
 
+                // Cloud sync: pull remote battery save if newer before loading into core.
+                if (!string.IsNullOrEmpty(_game.RomHash))
+                {
+                    try
+                    {
+                        var syncSvc = Services.GitHubSyncService.Instance;
+                        var syncCfg = App.Configuration?.GetCloudSyncConfiguration();
+                        if (syncSvc.IsAuthenticated && syncCfg is { Enabled: true })
+                        {
+                            var gameLock = syncSvc.GetGameLock(_game.RomHash);
+                            if (gameLock.Wait(5000))
+                            {
+                                try
+                                {
+                                    bool encrypted = syncCfg.EncryptionEnabled
+                                        && !string.IsNullOrEmpty(syncCfg.PassphraseProtected);
+                                    string repoPath = $"BatterySaves/{_game.Console}/{_game.RomHash}.srm"
+                                        + (encrypted ? ".enc" : "");
+
+                                    // Check manifest: only download if remote is newer than local
+                                    bool shouldDownload = true;
+                                    if (File.Exists(_srmPath)
+                                        && syncSvc.ManifestCache.Files.TryGetValue(repoPath, out var mEntry)
+                                        && DateTime.TryParse(mEntry.LastModifiedUtc, null,
+                                            System.Globalization.DateTimeStyles.RoundtripKind, out var remoteMtime))
+                                    {
+                                        shouldDownload = remoteMtime > File.GetLastWriteTimeUtc(_srmPath);
+                                    }
+
+                                    byte[]? remote = shouldDownload
+                                        ? syncSvc.DownloadFileAsync(repoPath).GetAwaiter().GetResult()
+                                        : null;
+                                    if (remote != null && remote.Length > 0)
+                                    {
+                                        if (encrypted)
+                                        {
+                                            byte[] key = Services.GitHubSyncService.DeriveKey(
+                                                Services.GitHubSyncService.UnprotectString(syncCfg.PassphraseProtected),
+                                                syncSvc.Username ?? "");
+                                            remote = Services.GitHubSyncService.Decrypt(remote, key);
+                                        }
+                                        Directory.CreateDirectory(Path.GetDirectoryName(_srmPath)!);
+                                        File.WriteAllBytes(_srmPath, remote);
+                                        System.Diagnostics.Trace.WriteLine($"[CloudSync] Downloaded remote save: {repoPath}");
+                                    }
+                                }
+                                finally { gameLock.Release(); }
+                            }
+                            else
+                            {
+                                System.Diagnostics.Trace.WriteLine("[CloudSync] Lock timeout — skipping download, using local save");
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Trace.WriteLine($"[CloudSync] Pre-launch download failed: {ex.Message}");
+                    }
+                }
+
                 // Load battery save (SRAM / memory card) into the core's RAM buffer.
                 // Must happen after LoadGame so the core's SRAM pointer is valid.
                 if (File.Exists(_srmPath))
@@ -5417,10 +5477,7 @@ namespace Emutastic.Views
         // =========================================================================
 
         private static string SanitizeFileName(string s)
-        {
-            var invalid = Path.GetInvalidFileNameChars();
-            return new string(s.Select(c => invalid.Contains(c) ? '_' : c).ToArray()).Trim();
-        }
+            => FileNameHelper.SanitizeFileName(s);
 
         /// <summary>
         /// True when the loaded core's save state support is unreliable enough that
@@ -7919,6 +7976,43 @@ namespace Emutastic.Views
                 // Allow up to 10 s for heavy cores (PPSSPP, N64) whose internal threads take time.
                 if (!(_emuThread?.Join(10000) ?? true))
                     System.Diagnostics.Trace.WriteLine("WARNING: emu thread did not exit within 10s");
+
+                // Cloud sync: upload battery save after emu thread has flushed SRAM to disk.
+                if (!_loadFailed && !string.IsNullOrEmpty(_game.RomHash)
+                    && !string.IsNullOrEmpty(_srmPath) && System.IO.File.Exists(_srmPath))
+                {
+                    var syncSvc = Services.GitHubSyncService.Instance;
+                    if (syncSvc.IsAuthenticated)
+                    {
+                        var cfg = App.Configuration?.GetCloudSyncConfiguration();
+                        if (cfg is { Enabled: true })
+                        {
+                            string repoPath = $"BatterySaves/{_game.Console}/{_game.RomHash}.srm";
+                            try
+                            {
+                                byte[] srmBytes = System.IO.File.ReadAllBytes(_srmPath);
+                                if (cfg.EncryptionEnabled && !string.IsNullOrEmpty(cfg.PassphraseProtected))
+                                {
+                                    byte[] key = Services.GitHubSyncService.DeriveKey(
+                                        Services.GitHubSyncService.UnprotectString(cfg.PassphraseProtected), syncSvc.Username ?? "");
+                                    srmBytes = Services.GitHubSyncService.Encrypt(srmBytes, key);
+                                    repoPath += ".enc";
+                                }
+                                _ = syncSvc.UploadFileAsync(repoPath, srmBytes);
+                                syncSvc.ManifestCache.Files[repoPath] = new Services.GitHubSyncService.SyncFileEntry
+                                {
+                                    LastModifiedUtc = System.IO.File.GetLastWriteTimeUtc(_srmPath).ToString("o"),
+                                    SizeBytes = new System.IO.FileInfo(_srmPath).Length
+                                };
+                                System.Diagnostics.Trace.WriteLine($"[CloudSync] Queued upload: {repoPath}");
+                            }
+                            catch (Exception ex)
+                            {
+                                System.Diagnostics.Trace.WriteLine($"[CloudSync] Upload prep failed: {ex.Message}");
+                            }
+                        }
+                    }
+                }
 
                 // retro_deinit — final core teardown.
                 // LibretroCore.Dispose() skips retro_unload_game (already called on emu

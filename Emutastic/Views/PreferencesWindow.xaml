@@ -556,6 +556,11 @@
                                  GroupName="NavGroup"
                                  Style="{StaticResource NavBtn}"
                                  Checked="NavBtn_Checked"/>
+                    <RadioButton x:Name="NavBackups"
+                                 Content="Backups"
+                                 GroupName="NavGroup"
+                                 Style="{StaticResource NavBtn}"
+                                 Checked="NavBtn_Checked"/>
                     <RadioButton x:Name="NavAbout"
                                  Content="About"
                                  GroupName="NavGroup"
@@ -812,53 +817,6 @@
                                 HorizontalAlignment="Left" Margin="0,24,0,0"
                                 Click="LibrarySaveBtn_Click"/>
 
-                        <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,24,0,16"/>
-
-                        <!-- Backup Folder -->
-                        <TextBlock Text="BACKUP FOLDER" Style="{StaticResource PrefLabel}"/>
-                        <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,0,0,8"
-                                   Foreground="{DynamicResource TextSecondaryBrush}">
-                            <Run>Set a folder to back up your battery saves, save states, and library database. </Run>
-                            <Run FontStyle="Italic">Only save data is backed up — artwork and video snaps are excluded to keep backups small.</Run>
-                        </TextBlock>
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Background="{DynamicResource BgTertiaryBrush}"
-                                    BorderBrush="{DynamicResource BorderNormalBrush}" BorderThickness="1"
-                                    CornerRadius="6" Padding="10,8">
-                                <TextBlock x:Name="BackupFolderPathText"
-                                           Text="Not set"
-                                           Foreground="{DynamicResource TextSecondaryBrush}"
-                                           FontSize="12" VerticalAlignment="Center"
-                                           TextTrimming="CharacterEllipsis"/>
-                            </Border>
-                            <Button x:Name="BrowseBackupFolderBtn" Grid.Column="1"
-                                    Content="Browse&#x2026;" Style="{StaticResource SecondaryBtn}"
-                                    Margin="8,0,0,0" Padding="14,8"
-                                    Click="BrowseBackupFolder_Click"/>
-                            <Button x:Name="ClearBackupFolderBtn" Grid.Column="2"
-                                    Content="Clear" Style="{StaticResource SecondaryBtn}"
-                                    Margin="4,0,0,0" Padding="14,8"
-                                    Click="ClearBackupFolder_Click"/>
-                        </Grid>
-                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
-                            <Button x:Name="BackupNowBtn" Content="Back Up Now"
-                                    Style="{StaticResource ActionBtn}"
-                                    Padding="14,8"
-                                    Click="BackupNow_Click"/>
-                            <Button x:Name="RestoreBackupBtn" Content="Restore from Backup…"
-                                    Style="{StaticResource SecondaryBtn}"
-                                    Margin="8,0,0,0" Padding="14,8"
-                                    Click="RestoreBackup_Click"/>
-                            <TextBlock x:Name="BackupFolderStatusText"
-                                       Foreground="{DynamicResource TextSecondaryBrush}"
-                                       FontSize="12" VerticalAlignment="Center"
-                                       Margin="12,0,0,0"/>
-                        </StackPanel>
                     </StackPanel>
                     </ScrollViewer>
                 </Grid>
@@ -1869,6 +1827,177 @@
                                 <ComboBoxItem Content="256 kbps"/>
                                 <ComboBoxItem Content="320 kbps"/>
                             </ComboBox>
+
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+
+                <!-- ── PANEL: Backups ───────────────────────────────────────── -->
+                <Grid x:Name="PanelBackups" Visibility="Collapsed">
+                    <ScrollViewer Margin="32,24,32,24" VerticalScrollBarVisibility="Auto">
+                        <StackPanel MaxWidth="560" HorizontalAlignment="Left">
+
+                            <!-- Local Backup -->
+                            <TextBlock Text="LOCAL BACKUP" Style="{StaticResource PrefLabel}"/>
+                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,0,0,12"/>
+                            <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,0,0,8"
+                                       Foreground="{DynamicResource TextSecondaryBrush}">
+                                <Run>Set a folder to back up your battery saves, save states, and library database. </Run>
+                                <Run FontStyle="Italic">Only save data is backed up — artwork and video snaps are excluded to keep backups small.</Run>
+                            </TextBlock>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0" Background="{DynamicResource BgTertiaryBrush}"
+                                        BorderBrush="{DynamicResource BorderNormalBrush}" BorderThickness="1"
+                                        CornerRadius="6" Padding="10,8">
+                                    <TextBlock x:Name="BackupFolderPathText"
+                                               Text="Not set"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                               FontSize="12" VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </Border>
+                                <Button x:Name="BrowseBackupFolderBtn" Grid.Column="1"
+                                        Content="Browse&#x2026;" Style="{StaticResource SecondaryBtn}"
+                                        Margin="8,0,0,0" Padding="14,8"
+                                        Click="BrowseBackupFolder_Click"/>
+                                <Button x:Name="ClearBackupFolderBtn" Grid.Column="2"
+                                        Content="Clear" Style="{StaticResource SecondaryBtn}"
+                                        Margin="4,0,0,0" Padding="14,8"
+                                        Click="ClearBackupFolder_Click"/>
+                            </Grid>
+                            <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                <Button x:Name="BackupNowBtn" Content="Back Up Now"
+                                        Style="{StaticResource ActionBtn}"
+                                        Padding="14,8"
+                                        Click="BackupNow_Click"/>
+                                <Button x:Name="RestoreBackupBtn" Content="Restore from Backup&#x2026;"
+                                        Style="{StaticResource SecondaryBtn}"
+                                        Margin="8,0,0,0" Padding="14,8"
+                                        Click="RestoreBackup_Click"/>
+                                <TextBlock x:Name="BackupFolderStatusText"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"
+                                           FontSize="12" VerticalAlignment="Center"
+                                           Margin="12,0,0,0"/>
+                            </StackPanel>
+
+                            <!-- Cloud Sync -->
+                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,24,0,16"/>
+                            <TextBlock Text="CLOUD SYNC (GITHUB)" Style="{StaticResource PrefLabel}"/>
+                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,0,0,12"/>
+                            <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,0,0,12"
+                                       Foreground="{DynamicResource TextSecondaryBrush}">
+                                Sync battery saves across PCs using a private GitHub repository. Sign in with your GitHub account — a private repo is created automatically.
+                            </TextBlock>
+
+                            <!-- Sign in / status -->
+                            <Border Background="{DynamicResource BgTertiaryBrush}"
+                                    BorderBrush="{DynamicResource BorderNormalBrush}" BorderThickness="1"
+                                    CornerRadius="6" Padding="14,10" Margin="0,0,0,12">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="CloudSyncStatusText"
+                                               Text="Not signed in"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                               FontSize="13" VerticalAlignment="Center"/>
+                                    <Button x:Name="CloudSyncSignInBtn"
+                                            Content="Sign in with GitHub"
+                                            Style="{StaticResource ActionBtn}"
+                                            Grid.Column="1" Padding="14,8"
+                                            Click="CloudSyncSignIn_Click"/>
+                                </Grid>
+                            </Border>
+
+                            <!-- Device flow code display (hidden until auth starts) -->
+                            <Border x:Name="DeviceFlowPanel" Visibility="Collapsed"
+                                    Background="{DynamicResource BgTertiaryBrush}"
+                                    BorderBrush="{DynamicResource BorderNormalBrush}" BorderThickness="1"
+                                    CornerRadius="6" Padding="14,14" Margin="0,0,0,12">
+                                <StackPanel HorizontalAlignment="Center">
+                                    <TextBlock Text="Enter this code on GitHub:"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                               FontSize="12" HorizontalAlignment="Center"/>
+                                    <TextBlock x:Name="DeviceFlowCodeText"
+                                               FontSize="28" FontWeight="Bold"
+                                               FontFamily="Consolas"
+                                               Foreground="{DynamicResource TextPrimaryBrush}"
+                                               HorizontalAlignment="Center" Margin="0,8,0,8"/>
+                                    <TextBlock Text="Waiting for authorization&#x2026;"
+                                               Foreground="{DynamicResource TextMutedBrush}"
+                                               FontSize="11" HorizontalAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Sync settings (visible only when signed in) -->
+                            <StackPanel x:Name="CloudSyncSettingsPanel" Visibility="Collapsed">
+                                <TextBlock Text="SYNC TIMING" Style="{StaticResource PrefLabel}" Margin="0,4,0,8"/>
+                                <RadioButton x:Name="SyncOnClose" Content="On game close (recommended)"
+                                             GroupName="SyncTiming"
+                                             Foreground="{DynamicResource TextPrimaryBrush}" FontSize="13"
+                                             IsChecked="True" Margin="0,0,0,6"
+                                             Checked="SyncTiming_Changed"/>
+                                <RadioButton x:Name="SyncPeriodic" Content="Every 15 minutes during play"
+                                             GroupName="SyncTiming"
+                                             Foreground="{DynamicResource TextPrimaryBrush}" FontSize="13"
+                                             Margin="0,0,0,6"
+                                             Checked="SyncTiming_Changed"/>
+                                <RadioButton x:Name="SyncManual" Content="Manual only"
+                                             GroupName="SyncTiming"
+                                             Foreground="{DynamicResource TextPrimaryBrush}" FontSize="13"
+                                             Margin="0,0,0,12"
+                                             Checked="SyncTiming_Changed"/>
+
+                                <TextBlock Text="WHAT TO SYNC" Style="{StaticResource PrefLabel}" Margin="0,4,0,8"/>
+                                <CheckBox x:Name="SyncBatterySaves"
+                                          Content="Battery saves (.srm)"
+                                          IsChecked="True" IsEnabled="False"
+                                          Foreground="{DynamicResource TextPrimaryBrush}" FontSize="13"
+                                          Margin="0,0,0,6"/>
+                                <CheckBox x:Name="SyncSaveStates"
+                                          Content="Save states"
+                                          Foreground="{DynamicResource TextPrimaryBrush}" FontSize="13"
+                                          Margin="0,0,0,12"
+                                          Checked="SyncSaveStates_Changed" Unchecked="SyncSaveStates_Changed"/>
+
+                                <TextBlock Text="ENCRYPTION" Style="{StaticResource PrefLabel}" Margin="0,4,0,8"/>
+                                <CheckBox x:Name="SyncEncryptionEnabled"
+                                          Content="Encrypt saves before upload"
+                                          Foreground="{DynamicResource TextPrimaryBrush}" FontSize="13"
+                                          Margin="0,0,0,8"
+                                          Checked="SyncEncryption_Changed" Unchecked="SyncEncryption_Changed"/>
+                                <StackPanel x:Name="PassphrasePanel" Visibility="Collapsed"
+                                            Orientation="Horizontal" Margin="22,0,0,12">
+                                    <PasswordBox x:Name="SyncPassphraseBox" Width="200"
+                                                 FontSize="13" Padding="8,6"
+                                                 Background="{DynamicResource BgTertiaryBrush}"
+                                                 Foreground="{DynamicResource TextPrimaryBrush}"
+                                                 BorderBrush="{DynamicResource BorderNormalBrush}"/>
+                                    <Button Content="Save" Style="{StaticResource SecondaryBtn}"
+                                            Margin="8,0,0,0" Padding="14,6"
+                                            Click="SyncPassphraseSave_Click"/>
+                                </StackPanel>
+                                <TextBlock Text="Same passphrase required on all PCs"
+                                           Foreground="{DynamicResource TextMutedBrush}"
+                                           FontSize="11" Margin="22,0,0,0"
+                                           Visibility="{Binding Visibility, ElementName=PassphrasePanel}"/>
+
+                                <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                                    <Button x:Name="SyncNowBtn" Content="Sync Now"
+                                            Style="{StaticResource ActionBtn}"
+                                            Padding="14,8"
+                                            Click="SyncNow_Click"/>
+                                    <TextBlock x:Name="SyncStatusText"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                               FontSize="12" VerticalAlignment="Center"
+                                               Margin="12,0,0,0"/>
+                                </StackPanel>
+                            </StackPanel>
 
                         </StackPanel>
                     </ScrollViewer>

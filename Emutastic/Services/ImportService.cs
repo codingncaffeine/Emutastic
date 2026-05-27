@@ -1132,10 +1132,7 @@ namespace Emutastic.Services
         }
 
         private static string SanitizeFileName(string s)
-        {
-            var invalid = Path.GetInvalidFileNameChars();
-            return new string(s.Select(c => invalid.Contains(c) ? '_' : c).ToArray()).Trim();
-        }
+            => FileNameHelper.SanitizeFileName(s);
 
         private static readonly string _importLogPath = Path.Combine(
             AppPaths.DataRoot, "import_debug.log");

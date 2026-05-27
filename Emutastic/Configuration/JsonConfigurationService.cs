@@ -27,6 +27,7 @@ namespace Emutastic.Configuration
         public RetroAchievementsConfiguration RetroAchievementsConfiguration { get; set; } = new();
         public FriendsConfiguration FriendsConfiguration { get; set; } = new();
         public RecordingConfiguration RecordingConfiguration { get; set; } = new();
+        public CloudSyncConfiguration CloudSyncConfiguration { get; set; } = new();
         public Dictionary<string, InputConfiguration> InputConfigurations { get; set; } = new();
         // Generic string→JsonElement store for arbitrary SetValue<T> callers
         public Dictionary<string, JsonElement> Extra { get; set; } = new();
@@ -294,6 +295,13 @@ namespace Emutastic.Configuration
         {
             config.LastModified = DateTime.UtcNow;
             _data.FriendsConfiguration = config;
+        }
+
+        public CloudSyncConfiguration GetCloudSyncConfiguration() => _data.CloudSyncConfiguration;
+        public void SetCloudSyncConfiguration(CloudSyncConfiguration config)
+        {
+            config.LastModified = DateTime.UtcNow;
+            _data.CloudSyncConfiguration = config;
         }
 
         // ── Generic key/value (for arbitrary callers) ─────────────────────────

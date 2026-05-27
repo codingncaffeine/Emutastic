@@ -1,0 +1,657 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Net;
+using System.Net.Http;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace Emutastic.Services
+{
+    public sealed class GitHubSyncService
+    {
+        public static GitHubSyncService Instance { get; } = new();
+
+        private static string ClientId => Secrets.GitHubOAuthClientId;
+        private const string RepoName = "emutastic-saves";
+        private const string ApiBase = "https://api.github.com";
+
+        private static readonly HttpClient Http = CreateHttpClient();
+        private volatile string? _token;
+        private string? _username;
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _shaCache = new();
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim>
+            _gameLocks = new();
+
+        private GitHubSyncService() { }
+
+        private static HttpClient CreateHttpClient()
+        {
+            var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("Emutastic/cloud-sync");
+            http.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
+            return http;
+        }
+
+        // ── Initialization ──────────────────────────────────────────────────
+
+        public bool IsAuthenticated => !string.IsNullOrEmpty(_token);
+        public string? Username => _username;
+
+        public void LoadFromConfig()
+        {
+            var cfg = App.Configuration?.GetCloudSyncConfiguration();
+            if (cfg == null) return;
+
+            _token = UnprotectString(cfg.GitHubTokenProtected);
+            _username = cfg.GitHubUsername;
+        }
+
+        private HttpRequestMessage AuthedRequest(HttpMethod method, string url)
+        {
+            var req = new HttpRequestMessage(method, url);
+            if (!string.IsNullOrEmpty(_token))
+                req.Headers.Authorization =
+                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _token);
+            return req;
+        }
+
+        public async Task<bool> ValidateTokenAsync(CancellationToken ct = default)
+        {
+            if (string.IsNullOrEmpty(_token)) return false;
+            try
+            {
+                using var req = AuthedRequest(HttpMethod.Get, $"{ApiBase}/user");
+                using var resp = await Http.SendAsync(req, ct).ConfigureAwait(false);
+                if (resp.StatusCode == HttpStatusCode.Unauthorized)
+                {
+                    _token = null;
+                    return false;
+                }
+                if (resp.IsSuccessStatusCode)
+                {
+                    string json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                    using var doc = JsonDocument.Parse(json);
+                    _username = doc.RootElement.GetProperty("login").GetString();
+                }
+                return resp.IsSuccessStatusCode;
+            }
+            catch { return false; }
+        }
+
+        // ── Device Flow ─────────────────────────────────────────────────────
+
+        public sealed record DeviceFlowStart(
+            string DeviceCode, string UserCode, string VerificationUri,
+            int ExpiresIn, int Interval);
+
+        public async Task<DeviceFlowStart> BeginDeviceFlowAsync(CancellationToken ct = default)
+        {
+            var content = new FormUrlEncodedContent(new[]
+            {
+                new KeyValuePair<string, string>("client_id", ClientId),
+                new KeyValuePair<string, string>("scope", "repo")
+            });
+            content.Headers.ContentType!.MediaType = "application/x-www-form-urlencoded";
+
+            using var req = new HttpRequestMessage(HttpMethod.Post, "https://github.com/login/device/code");
+            req.Content = content;
+            req.Headers.Accept.ParseAdd("application/json");
+
+            using var resp = await Http.SendAsync(req, ct).ConfigureAwait(false);
+            resp.EnsureSuccessStatusCode();
+
+            string json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            return new DeviceFlowStart(
+                root.GetProperty("device_code").GetString()!,
+                root.GetProperty("user_code").GetString()!,
+                root.GetProperty("verification_uri").GetString()!,
+                root.GetProperty("expires_in").GetInt32(),
+                root.GetProperty("interval").GetInt32());
+        }
+
+        public async Task<bool> PollForTokenAsync(string deviceCode, int intervalSec,
+            int expiresInSec, CancellationToken ct = default)
+        {
+            var deadline = DateTime.UtcNow.AddSeconds(expiresInSec);
+
+            while (DateTime.UtcNow < deadline && !ct.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(intervalSec), ct).ConfigureAwait(false);
+
+                var content = new FormUrlEncodedContent(new[]
+                {
+                    new KeyValuePair<string, string>("client_id", ClientId),
+                    new KeyValuePair<string, string>("device_code", deviceCode),
+                    new KeyValuePair<string, string>("grant_type",
+                        "urn:ietf:params:oauth:grant-type:device_code")
+                });
+
+                using var req = new HttpRequestMessage(HttpMethod.Post,
+                    "https://github.com/login/oauth/access_token");
+                req.Content = content;
+                req.Headers.Accept.ParseAdd("application/json");
+
+                using var resp = await Http.SendAsync(req, ct).ConfigureAwait(false);
+                string json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+
+                if (root.TryGetProperty("access_token", out var tokenProp))
+                {
+                    _token = tokenProp.GetString();
+                    await ValidateTokenAsync(ct);
+                    SaveTokenToConfig();
+                    return true;
+                }
+
+                if (root.TryGetProperty("error", out var err))
+                {
+                    string error = err.GetString() ?? "";
+                    if (error == "authorization_pending") continue;
+                    if (error == "slow_down") { intervalSec += 5; continue; }
+                    if (error == "expired_token" || error == "access_denied") return false;
+                }
+            }
+            return false;
+        }
+
+        private void SaveTokenToConfig()
+        {
+            var cfg = App.Configuration?.GetCloudSyncConfiguration() ?? new Configuration.CloudSyncConfiguration();
+            cfg.GitHubTokenProtected = ProtectString(_token ?? "");
+            cfg.GitHubUsername = _username ?? "";
+            cfg.Enabled = true;
+            App.Configuration?.SetCloudSyncConfiguration(cfg);
+            _ = App.Configuration?.SaveAsync();
+        }
+
+        public void SignOut()
+        {
+            _token = null;
+            _username = null;
+            _shaCache.Clear();
+
+            var cfg = App.Configuration?.GetCloudSyncConfiguration() ?? new Configuration.CloudSyncConfiguration();
+            cfg.GitHubTokenProtected = "";
+            cfg.GitHubUsername = "";
+            cfg.Enabled = false;
+            App.Configuration?.SetCloudSyncConfiguration(cfg);
+            _ = App.Configuration?.SaveAsync();
+        }
+
+        // ── Repo Management ─────────────────────────────────────────────────
+
+        public async Task EnsureRepoExistsAsync(CancellationToken ct = default)
+        {
+            if (string.IsNullOrEmpty(_token) || string.IsNullOrEmpty(_username)) return;
+
+            try
+            {
+                using var checkReq = AuthedRequest(HttpMethod.Get,
+                    $"{ApiBase}/repos/{_username}/{RepoName}");
+                using var check = await Http.SendAsync(checkReq, ct).ConfigureAwait(false);
+                if (check.IsSuccessStatusCode) return;
+            }
+            catch { }
+
+            try
+            {
+                string body = JsonSerializer.Serialize(new
+                {
+                    name = RepoName,
+                    @private = true,
+                    description = "Emutastic cloud saves",
+                    auto_init = false
+                });
+
+                using var req = AuthedRequest(HttpMethod.Post, $"{ApiBase}/user/repos");
+                req.Content = new StringContent(body, Encoding.UTF8, "application/json");
+
+                using var resp = await Http.SendAsync(req, ct).ConfigureAwait(false);
+                if (resp.StatusCode == HttpStatusCode.UnprocessableEntity)
+                    Trace.WriteLine("[CloudSync] Repo already exists (422)");
+                else
+                    resp.EnsureSuccessStatusCode();
+
+                Trace.WriteLine($"[CloudSync] Created repo {_username}/{RepoName}");
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"[CloudSync] Repo creation failed: {ex.Message}");
+            }
+        }
+
+        // ── SHA Cache ───────────────────────────────────────────────────────
+
+        public async Task RefreshShaCacheAsync(CancellationToken ct = default)
+        {
+            if (string.IsNullOrEmpty(_token) || string.IsNullOrEmpty(_username)) return;
+            _shaCache.Clear();
+
+            try
+            {
+                using var req = AuthedRequest(HttpMethod.Get,
+                    $"{ApiBase}/repos/{_username}/{RepoName}/git/trees/HEAD?recursive=1");
+                using var resp = await Http.SendAsync(req, ct).ConfigureAwait(false);
+
+                if (resp.StatusCode == HttpStatusCode.NotFound)
+                {
+                    Trace.WriteLine("[CloudSync] Empty repo — no commits yet");
+                    return;
+                }
+                if (!resp.IsSuccessStatusCode) return;
+
+                string json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                using var doc = JsonDocument.Parse(json);
+
+                if (doc.RootElement.TryGetProperty("tree", out var tree))
+                {
+                    foreach (var item in tree.EnumerateArray())
+                    {
+                        string path = item.GetProperty("path").GetString() ?? "";
+                        string sha = item.GetProperty("sha").GetString() ?? "";
+                        if (!string.IsNullOrEmpty(path))
+                            _shaCache[path] = sha;
+                    }
+                }
+
+                Trace.WriteLine($"[CloudSync] SHA cache loaded: {_shaCache.Count} files");
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"[CloudSync] SHA cache refresh failed: {ex.Message}");
+            }
+        }
+
+        // ── File Upload ─────────────────────────────────────────────────────
+
+        public async Task<bool> UploadFileAsync(string repoPath, byte[] fileBytes,
+            CancellationToken ct = default, bool isRetry = false)
+        {
+            if (string.IsNullOrEmpty(_token) || string.IsNullOrEmpty(_username)) return false;
+
+            try
+            {
+                string base64 = Convert.ToBase64String(fileBytes);
+                _shaCache.TryGetValue(repoPath, out string? existingSha);
+
+                var payload = new Dictionary<string, object>
+                {
+                    ["message"] = $"sync {repoPath}",
+                    ["content"] = base64
+                };
+                if (!string.IsNullOrEmpty(existingSha))
+                    payload["sha"] = existingSha;
+
+                string body = JsonSerializer.Serialize(payload);
+                using var req = AuthedRequest(HttpMethod.Put,
+                    $"{ApiBase}/repos/{_username}/{RepoName}/contents/{repoPath}");
+                req.Content = new StringContent(body, Encoding.UTF8, "application/json");
+
+                using var resp = await Http.SendAsync(req, ct).ConfigureAwait(false);
+
+                if (resp.StatusCode == HttpStatusCode.Conflict && !isRetry)
+                {
+                    await RefreshShaCacheAsync(ct);
+                    return await UploadFileAsync(repoPath, fileBytes, ct, isRetry: true);
+                }
+
+                if (resp.IsSuccessStatusCode)
+                {
+                    string respJson = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                    using var doc = JsonDocument.Parse(respJson);
+                    if (doc.RootElement.TryGetProperty("content", out var c)
+                        && c.TryGetProperty("sha", out var newSha))
+                    {
+                        _shaCache[repoPath] = newSha.GetString() ?? "";
+                    }
+                    return true;
+                }
+
+                Trace.WriteLine($"[CloudSync] Upload failed {repoPath}: {resp.StatusCode}");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"[CloudSync] Upload exception {repoPath}: {ex.Message}");
+                return false;
+            }
+        }
+
+        // ── File Download ───────────────────────────────────────────────────
+
+        public async Task<byte[]?> DownloadFileAsync(string repoPath,
+            CancellationToken ct = default)
+        {
+            if (string.IsNullOrEmpty(_token) || string.IsNullOrEmpty(_username)) return null;
+
+            try
+            {
+                using var req = AuthedRequest(HttpMethod.Get,
+                    $"{ApiBase}/repos/{_username}/{RepoName}/contents/{repoPath}");
+                using var resp = await Http.SendAsync(req, ct).ConfigureAwait(false);
+
+                if (!resp.IsSuccessStatusCode) return null;
+
+                string json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+
+                string base64 = root.GetProperty("content").GetString() ?? "";
+                base64 = base64.Replace("\n", "").Replace("\r", "");
+
+                if (root.TryGetProperty("sha", out var shaProp))
+                    _shaCache[repoPath] = shaProp.GetString() ?? "";
+
+                return Convert.FromBase64String(base64);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"[CloudSync] Download exception {repoPath}: {ex.Message}");
+                return null;
+            }
+        }
+
+        // ── Per-Game Locking ────────────────────────────────────────────────
+
+        public SemaphoreSlim GetGameLock(string romHash)
+            => _gameLocks.GetOrAdd(romHash, _ => new SemaphoreSlim(1, 1));
+
+        // ── DPAPI Token Protection ──────────────────────────────────────────
+
+        public static string ProtectString(string plaintext)
+        {
+            if (string.IsNullOrEmpty(plaintext)) return "";
+            try
+            {
+                byte[] bytes = Encoding.UTF8.GetBytes(plaintext);
+                byte[] encrypted = ProtectedData.Protect(bytes, null, DataProtectionScope.CurrentUser);
+                return Convert.ToBase64String(encrypted);
+            }
+            catch { return ""; }
+        }
+
+        public static string UnprotectString(string protectedBase64)
+        {
+            if (string.IsNullOrEmpty(protectedBase64)) return "";
+            try
+            {
+                byte[] encrypted = Convert.FromBase64String(protectedBase64);
+                byte[] bytes = ProtectedData.Unprotect(encrypted, null, DataProtectionScope.CurrentUser);
+                return Encoding.UTF8.GetString(bytes);
+            }
+            catch { return ""; }
+        }
+
+        // ── Optional Encryption ─────────────────────────────────────────────
+
+        public static byte[] Encrypt(byte[] plaintext, byte[] key)
+        {
+            byte[] nonce = RandomNumberGenerator.GetBytes(12);
+            byte[] tag = new byte[16];
+            byte[] ciphertext = new byte[plaintext.Length];
+            using var aes = new AesGcm(key, 16);
+            aes.Encrypt(nonce, plaintext, ciphertext, tag);
+            var result = new byte[12 + 16 + ciphertext.Length];
+            Buffer.BlockCopy(nonce, 0, result, 0, 12);
+            Buffer.BlockCopy(tag, 0, result, 12, 16);
+            Buffer.BlockCopy(ciphertext, 0, result, 28, ciphertext.Length);
+            return result;
+        }
+
+        public static byte[] Decrypt(byte[] blob, byte[] key)
+        {
+            if (blob.Length < 28) throw new CryptographicException("Invalid encrypted data");
+            byte[] nonce = new byte[12];
+            byte[] tag = new byte[16];
+            byte[] ciphertext = new byte[blob.Length - 28];
+            Buffer.BlockCopy(blob, 0, nonce, 0, 12);
+            Buffer.BlockCopy(blob, 12, tag, 0, 16);
+            Buffer.BlockCopy(blob, 28, ciphertext, 0, ciphertext.Length);
+            byte[] plaintext = new byte[ciphertext.Length];
+            using var aes = new AesGcm(key, 16);
+            aes.Decrypt(nonce, ciphertext, tag, plaintext);
+            return plaintext;
+        }
+
+        public static byte[] DeriveKey(string passphrase, string githubUsername)
+        {
+            byte[] salt = Encoding.UTF8.GetBytes($"emutastic-sync-{githubUsername}");
+            return Rfc2898DeriveBytes.Pbkdf2(
+                Encoding.UTF8.GetBytes(passphrase), salt, 100_000,
+                HashAlgorithmName.SHA256, 32);
+        }
+
+        // ── Manifest ────────────────────────────────────────────────────────
+
+        public class SyncManifest
+        {
+            public System.Collections.Concurrent.ConcurrentDictionary<string, SyncFileEntry> Files { get; set; } = new();
+            public int SchemaVersion { get; set; } = 1;
+        }
+
+        public class SyncFileEntry
+        {
+            public string LastModifiedUtc { get; set; } = "";
+            public long SizeBytes { get; set; }
+        }
+
+        private SyncManifest _manifestCache = new();
+
+        public SyncManifest ManifestCache => _manifestCache;
+
+        public async Task LoadManifestAsync(CancellationToken ct = default)
+        {
+            try
+            {
+                var cfg = App.Configuration?.GetCloudSyncConfiguration();
+                bool encrypted = cfg is { EncryptionEnabled: true }
+                    && !string.IsNullOrEmpty(cfg.PassphraseProtected);
+                string path = encrypted ? "manifest.json.enc" : "manifest.json";
+
+                byte[]? data = await DownloadFileAsync(path, ct);
+                if (data == null || data.Length == 0)
+                {
+                    _manifestCache = new SyncManifest();
+                    return;
+                }
+
+                if (encrypted)
+                {
+                    byte[] key = DeriveKey(
+                        UnprotectString(cfg!.PassphraseProtected), _username ?? "");
+                    data = Decrypt(data, key);
+                }
+
+                string json = Encoding.UTF8.GetString(data);
+                _manifestCache = JsonSerializer.Deserialize<SyncManifest>(json,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"[CloudSync] Manifest load failed: {ex.Message}");
+                _manifestCache = new SyncManifest();
+            }
+        }
+
+        public async Task SaveManifestAsync(CancellationToken ct = default)
+        {
+            try
+            {
+                byte[] data = Encoding.UTF8.GetBytes(
+                    JsonSerializer.Serialize(_manifestCache, new JsonSerializerOptions { WriteIndented = true }));
+
+                var cfg = App.Configuration?.GetCloudSyncConfiguration();
+                bool encrypted = cfg is { EncryptionEnabled: true }
+                    && !string.IsNullOrEmpty(cfg.PassphraseProtected);
+
+                if (encrypted)
+                {
+                    byte[] key = DeriveKey(
+                        UnprotectString(cfg!.PassphraseProtected), _username ?? "");
+                    data = Encrypt(data, key);
+                }
+
+                string path = encrypted ? "manifest.json.enc" : "manifest.json";
+                await UploadFileAsync(path, data, ct);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"[CloudSync] Manifest save failed: {ex.Message}");
+            }
+        }
+
+        // ── Bidirectional Sync ──────────────────────────────────────────────
+
+        public record SyncResult(int Uploaded, int Downloaded, int Errors);
+
+        public record LocalSaveInfo(string RepoPath, string LocalPath, DateTime LastModifiedUtc, long SizeBytes);
+
+        public static List<LocalSaveInfo> BuildLocalSaveMap(DatabaseService db)
+        {
+            var result = new List<LocalSaveInfo>();
+            var games = db.GetGamesSyncMap();
+
+            foreach (var g in games)
+            {
+                if (string.IsNullOrEmpty(g.RomHash) || string.IsNullOrEmpty(g.Console)
+                    || string.IsNullOrEmpty(g.RomPath))
+                    continue;
+
+                string batteryDir = AppPaths.GetFolder("BatterySaves", g.Console);
+                string romStem = System.IO.Path.GetFileNameWithoutExtension(g.RomPath);
+                string localPath = System.IO.Path.Combine(batteryDir,
+                    FileNameHelper.SanitizeFileName(romStem) + ".srm");
+
+                if (!System.IO.File.Exists(localPath)) continue;
+
+                var fi = new System.IO.FileInfo(localPath);
+                string repoPath = $"BatterySaves/{g.Console}/{g.RomHash}.srm";
+
+                result.Add(new LocalSaveInfo(repoPath, localPath, fi.LastWriteTimeUtc, fi.Length));
+            }
+
+            return result;
+        }
+
+        public async Task<SyncResult> FullSyncAsync(DatabaseService db,
+            CancellationToken ct = default)
+        {
+            if (!IsAuthenticated) return new SyncResult(0, 0, 0);
+
+            int uploaded = 0, downloaded = 0, errors = 0;
+
+            var cfg = App.Configuration?.GetCloudSyncConfiguration();
+            bool encrypted = cfg is { EncryptionEnabled: true }
+                && !string.IsNullOrEmpty(cfg.PassphraseProtected);
+            byte[]? encKey = encrypted
+                ? DeriveKey(UnprotectString(cfg!.PassphraseProtected), _username ?? "")
+                : null;
+
+            await RefreshShaCacheAsync(ct);
+            await LoadManifestAsync(ct);
+
+            var localSaves = BuildLocalSaveMap(db);
+            string encSuffix = encrypted ? ".enc" : "";
+
+            // Upload local files that are newer than the manifest
+            foreach (var local in localSaves)
+            {
+                if (ct.IsCancellationRequested) break;
+
+                string repoPath = local.RepoPath + encSuffix;
+                bool shouldUpload = true;
+
+                if (_manifestCache.Files.TryGetValue(repoPath, out var entry)
+                    && DateTime.TryParse(entry.LastModifiedUtc, null,
+                        System.Globalization.DateTimeStyles.RoundtripKind, out var remoteMtime))
+                {
+                    shouldUpload = local.LastModifiedUtc > remoteMtime;
+                }
+
+                if (shouldUpload)
+                {
+                    try
+                    {
+                        byte[] bytes = System.IO.File.ReadAllBytes(local.LocalPath);
+                        if (encrypted && encKey != null) bytes = Encrypt(bytes, encKey);
+                        if (await UploadFileAsync(repoPath, bytes, ct))
+                        {
+                            _manifestCache.Files[repoPath] = new SyncFileEntry
+                            {
+                                LastModifiedUtc = local.LastModifiedUtc.ToString("o"),
+                                SizeBytes = local.SizeBytes
+                            };
+                            uploaded++;
+                        }
+                        else errors++;
+                    }
+                    catch { errors++; }
+                }
+            }
+
+            // Build a lookup from repo path → local .srm path for ALL games (including never-played)
+            var allGames = db.GetGamesSyncMap();
+            var repoToLocalPath = new Dictionary<string, string>();
+            foreach (var g in allGames)
+            {
+                if (string.IsNullOrEmpty(g.RomHash) || string.IsNullOrEmpty(g.Console)) continue;
+                string batteryDir = AppPaths.GetFolder("BatterySaves", g.Console);
+                string romStem = System.IO.Path.GetFileNameWithoutExtension(g.RomPath);
+                string localPath = System.IO.Path.Combine(batteryDir,
+                    FileNameHelper.SanitizeFileName(romStem) + ".srm");
+                string rp = $"BatterySaves/{g.Console}/{g.RomHash}.srm" + encSuffix;
+                repoToLocalPath[rp] = localPath;
+            }
+
+            // Download remote files that are newer than local (or don't exist locally)
+            foreach (var (repoPath, entry) in _manifestCache.Files)
+            {
+                if (ct.IsCancellationRequested) break;
+                if (!repoPath.StartsWith("BatterySaves/")) continue;
+                if (!repoToLocalPath.TryGetValue(repoPath, out string? targetPath)) continue;
+
+                bool shouldDownload = false;
+                if (!System.IO.File.Exists(targetPath))
+                {
+                    shouldDownload = true;
+                }
+                else if (DateTime.TryParse(entry.LastModifiedUtc, null,
+                    System.Globalization.DateTimeStyles.RoundtripKind, out var remoteMtime)
+                    && remoteMtime > System.IO.File.GetLastWriteTimeUtc(targetPath))
+                {
+                    shouldDownload = true;
+                }
+
+                if (shouldDownload)
+                {
+                    try
+                    {
+                        byte[]? data = await DownloadFileAsync(repoPath, ct);
+                        if (data != null && data.Length > 0)
+                        {
+                            if (encrypted && encKey != null) data = Decrypt(data, encKey);
+                            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(targetPath)!);
+                            System.IO.File.WriteAllBytes(targetPath, data);
+                            downloaded++;
+                        }
+                    }
+                    catch { errors++; }
+                }
+            }
+
+            await SaveManifestAsync(ct);
+            Trace.WriteLine($"[CloudSync] Full sync: {uploaded} up, {downloaded} down, {errors} errors");
+
+            return new SyncResult(uploaded, downloaded, errors);
+        }
+    }
+}
+
