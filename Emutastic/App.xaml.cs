@@ -195,6 +195,9 @@ namespace Emutastic
                 if (Services.GitHubSyncService.Instance.IsAuthenticated)
                     _ = Task.Run(async () =>
                     {
+                        // Delay cloud sync init so library rendering and artwork
+                        // loading aren't competing with network calls on first launch.
+                        await Task.Delay(TimeSpan.FromSeconds(10));
                         await Services.GitHubSyncService.Instance.ValidateTokenAsync();
                         if (Services.GitHubSyncService.Instance.IsAuthenticated)
                             await Services.GitHubSyncService.Instance.LoadManifestAsync();
