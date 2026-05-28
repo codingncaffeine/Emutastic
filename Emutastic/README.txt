@@ -39,12 +39,16 @@ GETTING STARTED
    bar below Preferences. Zips are auto-extracted into the data folder;
    the original archive is left untouched.
 
-5. (Optional) Set up artwork sources in Preferences → Online Services:
-   - Sign in to ScreenScraper for the richer box-art and metadata
-     library used when you're logged in. Without an account, Emutastic
-     falls back to an offline metadata source (OpenVGDB), which has
-     less complete art coverage.
-   - Sign in to RetroAchievements (see below) to track unlocks.
+5. (Optional) Set up artwork and accounts:
+   - Preferences -> Snaps: Sign in to ScreenScraper for the richer
+     box-art and metadata library used when you're logged in. Without
+     an account, Emutastic falls back to an offline metadata source
+     (OpenVGDB), which has less complete art coverage.
+   - Preferences -> Achievements: Sign in to RetroAchievements
+     (see RETROACHIEVEMENTS section below) to track unlocks.
+   - Preferences -> Backups: Sign in to GitHub for free cloud sync of
+     battery saves and your library database across PCs (see BACKUPS
+     section below).
 
 
 CONTROLLERS
@@ -87,8 +91,7 @@ States tab in the library sidebar, grouped per-game and previewed with
 thumbnails. Both tabs have their own search box at the top.
 
 A handful of cores can't create save states reliably and the option is
-hidden for them (e.g. PSP for RA hardcore compatibility, and a few
-arcade titles whose underlying MAME version pre-dates state support).
+hidden for them.
 
 
 THEMES
@@ -102,11 +105,48 @@ theme is read-only so you always have a known-good fallback.
 
 BACKUPS
 -------
-Preferences → Backups zips up your library database, save states,
-battery saves, and per-game configs into a single archive — drop it on
-a USB stick or a cloud-synced folder for safekeeping. Restore from the
-same screen. Cores, BIOS files, and the ROMs themselves are not part of
-the backup (they're easy to re-download or re-import).
+Preferences -> Backups has two options for protecting your data:
+
+Local Backup
+~~~~~~~~~~~~
+Set a folder to back up your library database, battery saves, and
+save states. Click "Back Up Now" to copy everything to that folder —
+drop it on a USB stick or a cloud-synced folder for safekeeping.
+Restore from the same screen. Cores, BIOS files, core options, and
+the ROMs themselves are not part of the backup (cores and BIOS are
+easy to re-download, ROMs are easy to re-import).
+
+Cloud Sync (GitHub)
+~~~~~~~~~~~~~~~~~~~
+Sync your battery saves and library database across multiple PCs
+using your GitHub account. Sign in once, and a private repo called
+"emutastic-saves" is created automatically on your account.
+
+  - Battery saves upload when you close a game
+  - The newer save is pulled when you launch a game on another PC
+  - "Sync Now" runs a full bidirectional sync of all saves and
+    the library database
+
+Optional AES-256-GCM encryption with a passphrase you choose — saves
+are encrypted before they leave your machine. The passphrase never
+leaves your PC; you'll enter it once per PC.
+
+Save states are NOT included in cloud sync — they get too large for
+some consoles (PSP/PS2/GameCube states can be 250 MB+). Use the local
+backup option above for save states.
+
+For details on encryption, GitHub storage limits, and sharing saves
+with friends, see:
+   https://github.com/codingncaffeine/Emutastic/wiki/Cloud-Sync
+
+Local Backup vs Cloud Sync — which to use?
+  - Local Backup is one-shot: it copies everything to a folder when
+    you click the button. Good for periodic snapshots before a major
+    config change.
+  - Cloud Sync is continuous: battery saves transfer automatically on
+    every game close/launch. Good for keeping multiple PCs in sync.
+
+The two are independent — you can use either, neither, or both.
 
 
 BIOS FILES
@@ -238,19 +278,20 @@ games. Enable in Preferences -> Achievements:
      Sign in, find "Keys" -> "Web API Key" near the bottom, and
      paste the value into Preferences -> Achievements -> Web API Key.
 
-  3. Hardcore Mode  (optional, default OFF)
+  3. Hardcore Mode  (default ON)
      Disables save state LOADING (creating states is still allowed)
      and cheat codes during gameplay. Required by RA for "hardcore"
      achievement unlocks, which are worth more points and count
      toward the mastery badge.
 
-     Note: RA "recommends" but does not require frontends to default
-     hardcore to ON. Emutastic deliberately ships with it OFF so
-     first-run users can experiment with save states without losing
-     hardcore eligibility on their account. Flip the toggle in
-     Preferences -> Achievements -> Hardcore Mode any time. Switching
-     mid-session is not allowed by RA, so the change takes effect on
-     the next game launch.
+     Emutastic ships with Hardcore Mode ON to align with RA's
+     recommendation for new accounts. Flip the toggle off in
+     Preferences -> Achievements -> Hardcore Mode any time if you
+     want to use save state loading or cheats — note that any
+     achievement unlocks earned with hardcore off won't count toward
+     hardcore points or the mastery badge. Switching mid-session is
+     not allowed by RA, so the change takes effect on the next game
+     launch.
 
      Hardcore Mode is temporarily disabled for PSP titles regardless
      of the toggle setting — see the Hardcore Compliance wiki page
@@ -278,6 +319,15 @@ rank — triumphs, ties, near-misses, and losses each get their own
 animation and (optional) sound. Toggle the sound globally with the bell
 icon in any Friend Detail window, or disable the toasts entirely in
 Preferences → Achievements.
+
+
+UPDATES
+-------
+Preferences -> About shows the current version and checks GitHub for
+the latest release. If a new version is available, click the "Update"
+button to download and install it in-app — Emutastic stages the update
+in a temp folder, then a small companion updater replaces the running
+binary and relaunches. No manual downloads or file replacements needed.
 
 
 CORE SPECIFIC NOTES
