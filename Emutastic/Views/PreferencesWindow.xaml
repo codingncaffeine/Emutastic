@@ -1890,7 +1890,7 @@
                             <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,0,0,12"/>
                             <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,0,0,12"
                                        Foreground="{DynamicResource TextSecondaryBrush}">
-                                Sync battery saves across PCs using a private GitHub repository. Sign in with your GitHub account — a private repo is created automatically.
+                                Sync battery saves and your database file across PCs using a private GitHub repository. Sign in with your GitHub account — a private repo is created automatically.
                             </TextBlock>
 
                             <!-- Sign in / status -->
