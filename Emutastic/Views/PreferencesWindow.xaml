@@ -1953,18 +1953,6 @@
                                              Margin="0,0,0,12"
                                              Checked="SyncTiming_Changed"/>
 
-                                <TextBlock Text="WHAT TO SYNC" Style="{StaticResource PrefLabel}" Margin="0,4,0,8"/>
-                                <CheckBox x:Name="SyncBatterySaves"
-                                          Content="Battery saves (.srm)"
-                                          IsChecked="True" IsEnabled="False"
-                                          Foreground="{DynamicResource TextPrimaryBrush}" FontSize="13"
-                                          Margin="0,0,0,6"/>
-                                <CheckBox x:Name="SyncSaveStates"
-                                          Content="Save states"
-                                          Foreground="{DynamicResource TextPrimaryBrush}" FontSize="13"
-                                          Margin="0,0,0,12"
-                                          Checked="SyncSaveStates_Changed" Unchecked="SyncSaveStates_Changed"/>
-
                                 <TextBlock Text="ENCRYPTION" Style="{StaticResource PrefLabel}" Margin="0,4,0,8"/>
                                 <CheckBox x:Name="SyncEncryptionEnabled"
                                           Content="Encrypt saves before upload"

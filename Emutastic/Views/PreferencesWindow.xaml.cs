@@ -3489,7 +3489,6 @@ namespace Emutastic.Views
                     SyncOnClose.IsChecked = cfg.SyncTiming == "on_close";
                     SyncPeriodic.IsChecked = cfg.SyncTiming == "periodic";
                     SyncManual.IsChecked = cfg.SyncTiming == "manual";
-                    SyncSaveStates.IsChecked = cfg.SyncSaveStates;
                     SyncEncryptionEnabled.IsChecked = cfg.EncryptionEnabled;
                     PassphrasePanel.Visibility = cfg.EncryptionEnabled
                         ? Visibility.Visible : Visibility.Collapsed;
@@ -3565,15 +3564,7 @@ namespace Emutastic.Views
             _ = App.Configuration?.SaveAsync();
         }
 
-        private void SyncSaveStates_Changed(object sender, RoutedEventArgs e)
-        {
-            if (_suppressAutoSave) return;
-            var cfg = App.Configuration?.GetCloudSyncConfiguration();
-            if (cfg == null) return;
-            cfg.SyncSaveStates = SyncSaveStates.IsChecked == true;
-            App.Configuration?.SetCloudSyncConfiguration(cfg);
-            _ = App.Configuration?.SaveAsync();
-        }
+
 
         private void SyncEncryption_Changed(object sender, RoutedEventArgs e)
         {
