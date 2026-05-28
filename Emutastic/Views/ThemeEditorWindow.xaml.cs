@@ -113,16 +113,20 @@ namespace Emutastic.Views
             LoadThemeColors(themeId);
         }
 
-        private void LoadThemeColors(string themeId)
+        private void LoadThemeColors(string themeId, bool pristine = false)
         {
             _loading = true;
 
             // Ask ThemeService for the canonical colors so custom themes are
             // covered alongside builtins. Deep-clone via JSON so edits stay
             // local to _editColors and don't mutate the cached registry entry
-            // (which would dirty the live theme even on Cancel).
-            var src = ThemeService.Instance.GetColorsForTheme(themeId)
-                      ?? ThemeService.GetDefaultColors();
+            // (which would dirty the live theme even on Cancel). When pristine
+            // is set, bypass any user override on a built-in so Reset truly
+            // restores shipped defaults.
+            var src = pristine
+                ? ThemeService.Instance.GetPristineColorsForTheme(themeId)
+                : (ThemeService.Instance.GetColorsForTheme(themeId)
+                   ?? ThemeService.GetDefaultColors());
             _editColors = JsonSerializer.Deserialize<ThemeColors>(
                               JsonSerializer.Serialize(src)) ?? src;
 
@@ -553,15 +557,43 @@ namespace Emutastic.Views
                     }
                     else
                     {
-                        ThemeService.Instance.ApplyEditedColors(_editColors);
-                        activeId = ThemeService.Instance.ActiveThemeId;
+                        // Orphan custom id (folder/manifest missing). Require a
+                        // name so we can save as a fresh custom theme instead
+                        // of writing the "custom" sentinel into config.
+                        MessageBox.Show(
+                            "The original theme file for this id can't be found. Enter a name to save your edits as a new theme.",
+                            "Theme Editor", MessageBoxButton.OK, MessageBoxImage.Information);
+                        ThemeNameBox?.Focus();
+                        return;
                     }
+                }
+                else if (workingId.StartsWith("builtin.", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Editing a built-in: persist as an on-disk override under
+                    // the same id so the next launch picks the edits up. The
+                    // shipped defaults stay recoverable via Reset (which uses
+                    // the pristine snapshot kept in ThemeService).
+                    var displayName = ThemeService.Instance.GetAvailableThemes()
+                        .FirstOrDefault(t => t.Id == workingId).Name ?? workingId;
+                    if (!ThemeService.Instance.SaveBuiltinOverride(workingId, displayName, _editColors))
+                    {
+                        MessageBox.Show("Could not save your edits to this built-in theme.",
+                            "Theme Editor", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        return;
+                    }
+                    ThemeService.Instance.LoadAndApplyTheme(workingId);
+                    activeId = workingId;
                 }
                 else
                 {
-                    // Editing a built-in without saving: apply in-memory only.
-                    ThemeService.Instance.ApplyEditedColors(_editColors);
-                    activeId = ThemeService.Instance.ActiveThemeId;
+                    // Unknown working id (e.g. legacy "custom" sentinel from
+                    // an older version). Don't write it back to config —
+                    // require a name so the edits land as a real custom theme.
+                    MessageBox.Show(
+                        "This theme's id isn't recognized (it may be from an older version). Enter a name to save your edits as a new theme.",
+                        "Theme Editor", MessageBoxButton.OK, MessageBoxImage.Information);
+                    ThemeNameBox?.Focus();
+                    return;
                 }
             }
 
@@ -605,14 +637,42 @@ namespace Emutastic.Views
             string targetName = ThemeService.Instance.GetAvailableThemes()
                 .FirstOrDefault(t => t.Id == targetId).Name ?? targetId;
 
-            var result = MessageBox.Show(
-                $"Discard unsaved changes and reset all colors to \"{targetName}\"?",
-                "Reset Theme", MessageBoxButton.YesNo, MessageBoxImage.Question);
-            if (result == MessageBoxResult.Yes)
+            // For a built-in with a saved override, "Reset" means restore
+            // shipped defaults — not reload the override that's currently active.
+            bool isBuiltinWithOverride =
+                targetId.StartsWith("builtin.", StringComparison.OrdinalIgnoreCase)
+                && ThemeService.Instance.HasBuiltinOverride(targetId);
+
+            string prompt = isBuiltinWithOverride
+                ? $"Discard your saved edits to \"{targetName}\" and restore the original shipped colors?"
+                : $"Discard unsaved changes and reset all colors to \"{targetName}\"?";
+
+            var result = MessageBox.Show(prompt, "Reset Theme",
+                MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (result != MessageBoxResult.Yes) return;
+
+            if (isBuiltinWithOverride)
+                ThemeService.Instance.RemoveBuiltinOverride(targetId);
+
+            // Always re-apply so the live theme matches what Reset shows in the
+            // editor — otherwise a prior in-session Apply leaves stale colors
+            // in Application.Current.Resources and the Reset prompt's promise
+            // ("reset all colors to X") would be a lie for the visible UI.
+            ThemeService.Instance.LoadAndApplyTheme(targetId);
+
+            // Persist the active id too. LoadAndApplyTheme mutates it in
+            // memory; without saving, the next launch would revert to whatever
+            // theme was active before Reset, undoing the user's intent.
+            if (App.Configuration != null)
             {
-                LoadThemeColors(targetId);
-                SelectComboById(targetId);
+                var theme = App.Configuration.GetThemeConfiguration();
+                theme.ActiveThemeId = targetId;
+                App.Configuration.SetThemeConfiguration(theme);
+                _ = App.Configuration.SaveAsync();
             }
+
+            LoadThemeColors(targetId, pristine: isBuiltinWithOverride);
+            SelectComboById(targetId);
         }
 
         private void ExportBtn_Click(object sender, RoutedEventArgs e)

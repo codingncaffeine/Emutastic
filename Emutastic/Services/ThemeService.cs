@@ -25,8 +25,11 @@ namespace Emutastic.Services
         /// <summary>The resolved color set for the active theme (all tokens filled).</summary>
         private ThemeColors _activeColors = null!;
 
-        /// <summary>Built-in theme definitions keyed by ID.</summary>
+        /// <summary>Built-in theme definitions keyed by ID. May be overridden by on-disk user edits via ScanInstalledThemes.</summary>
         private readonly Dictionary<string, BuiltinTheme> _builtinThemes = new();
+
+        /// <summary>Pristine, shipped built-in definitions — snapshotted at construction and never mutated. Used by Reset.</summary>
+        private readonly Dictionary<string, BuiltinTheme> _pristineBuiltins = new();
 
         private ThemeService()
         {
@@ -44,12 +47,35 @@ namespace Emutastic.Services
             _builtinThemes["builtin.light"] = new("builtin.light", "Light", GetLightColors());
             _builtinThemes["builtin.oled"] = new("builtin.oled", "OLED Black", GetOledColors());
             _builtinThemes["builtin.midnight"] = new("builtin.midnight", "Midnight Blue", GetMidnightColors());
+
+            // Snapshot the shipped defaults so Reset can recover them even after
+            // a user override has overwritten the active entry via disk scan.
+            foreach (var kv in _builtinThemes)
+                _pristineBuiltins[kv.Key] = kv.Value;
         }
 
         /// <summary>Returns the color set for a given theme ID, or defaults if not found.</summary>
         public ThemeColors GetColorsForTheme(string themeId)
         {
             return _builtinThemes.TryGetValue(themeId, out var theme) ? theme.Colors : GetDefaultColors();
+        }
+
+        /// <summary>
+        /// Returns the shipped, never-modified color set for a built-in theme.
+        /// Falls back to GetColorsForTheme for non-built-in ids.
+        /// </summary>
+        public ThemeColors GetPristineColorsForTheme(string themeId)
+        {
+            return _pristineBuiltins.TryGetValue(themeId, out var theme)
+                ? theme.Colors
+                : GetColorsForTheme(themeId);
+        }
+
+        /// <summary>True if the given built-in id has an on-disk user override.</summary>
+        public bool HasBuiltinOverride(string builtinId)
+        {
+            if (!builtinId.StartsWith("builtin.", StringComparison.OrdinalIgnoreCase)) return false;
+            return File.Exists(Path.Combine(ThemesFolder, builtinId, "theme.json"));
         }
 
         /// <summary>Returns the list of available themes for the UI.</summary>
@@ -255,6 +281,11 @@ namespace Emutastic.Services
                 // Sanitize ID — reject path traversal attempts
                 if (manifest.Id.Contains("..") || manifest.Id.Contains('/') || manifest.Id.Contains('\\'))
                     return null;
+                // Reject the "builtin." prefix so a dropped .emutheme can't pose
+                // as an override of a shipped theme and silently replace it after
+                // ScanInstalledThemes promotes the folder into _builtinThemes.
+                if (manifest.Id.StartsWith("builtin.", StringComparison.OrdinalIgnoreCase))
+                    return null;
                 manifest.Id = string.Join("_", manifest.Id.Split(Path.GetInvalidFileNameChars()));
 
                 // Extract to Themes/{id}/
@@ -379,6 +410,67 @@ namespace Emutastic.Services
             {
                 Directory.Delete(dir, true);
                 _builtinThemes.Remove(themeId);
+                ThemesChanged?.Invoke(this, EventArgs.Empty);
+                return true;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>
+        /// Persists user edits to a built-in theme as an on-disk override at
+        /// Themes/{builtinId}/. ScanInstalledThemes will pick it up and override
+        /// the in-memory registry entry. The pristine shipped colors remain
+        /// recoverable via <see cref="GetPristineColorsForTheme"/>.
+        /// </summary>
+        public bool SaveBuiltinOverride(string builtinId, string displayName, ThemeColors colors)
+        {
+            if (!_pristineBuiltins.ContainsKey(builtinId)) return false;
+            try
+            {
+                Directory.CreateDirectory(ThemesFolder);
+                var destDir = Path.Combine(ThemesFolder, builtinId);
+                Directory.CreateDirectory(destDir);
+
+                var manifest = new ThemeManifest
+                {
+                    Id          = builtinId,
+                    Name        = displayName,
+                    Author      = Environment.UserName,
+                    Version     = "1.0.0",
+                    Description = "User-edited built-in theme",
+                    ApiVersion  = 1,
+                };
+
+                var jsonOpts = new JsonSerializerOptions { WriteIndented = true };
+                File.WriteAllText(Path.Combine(destDir, "theme.json"),
+                    JsonSerializer.Serialize(manifest, jsonOpts));
+                File.WriteAllText(Path.Combine(destDir, "colors.json"),
+                    JsonSerializer.Serialize(colors, jsonOpts));
+
+                ScanInstalledThemes();
+                ThemesChanged?.Invoke(this, EventArgs.Empty);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Removes a built-in override on disk and restores the pristine
+        /// shipped colors in the in-memory registry. Returns true if an
+        /// override existed and was removed.
+        /// </summary>
+        public bool RemoveBuiltinOverride(string builtinId)
+        {
+            if (!_pristineBuiltins.TryGetValue(builtinId, out var pristine)) return false;
+            var dir = Path.Combine(ThemesFolder, builtinId);
+            if (!Directory.Exists(dir)) return false;
+            try
+            {
+                Directory.Delete(dir, true);
+                _builtinThemes[builtinId] = pristine;
                 ThemesChanged?.Invoke(this, EventArgs.Empty);
                 return true;
             }

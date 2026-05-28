@@ -611,7 +611,23 @@ namespace Emutastic
                 var themeConfig = Configuration.GetThemeConfiguration();
                 var themeSvc = Services.ThemeService.Instance;
                 themeSvc.ScanInstalledThemes();
+                // Guard a null/empty id (hand-edited config.json or a missing
+                // property after a schema bump) — LoadAndApplyTheme can't take
+                // null and would throw, skipping theme application entirely.
+                if (string.IsNullOrEmpty(themeConfig.ActiveThemeId))
+                    themeConfig.ActiveThemeId = "builtin.dark";
                 themeSvc.LoadAndApplyTheme(themeConfig.ActiveThemeId);
+
+                // Heal a stale persisted id (e.g. a legacy "custom" sentinel
+                // or a deleted custom theme) by writing back whatever
+                // LoadAndApplyTheme actually resolved to. Without this, the
+                // config keeps a dead id forever and never matches the live state.
+                if (themeConfig.ActiveThemeId != themeSvc.ActiveThemeId)
+                {
+                    themeConfig.ActiveThemeId = themeSvc.ActiveThemeId;
+                    Configuration.SetThemeConfiguration(themeConfig);
+                    _ = Configuration.SaveAsync();
+                }
 
                 Logger?.LogInformation("Configuration system initialized successfully");
             }
