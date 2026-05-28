@@ -51,7 +51,7 @@ namespace Emutastic.Services
             if (maxThreads == _currentMaxThreads) return;
             _currentMaxThreads = maxThreads;
             _throttle = new System.Threading.SemaphoreSlim(maxThreads, maxThreads);
-            System.Diagnostics.Debug.WriteLine($"[ScreenScraper] Throttle set to {maxThreads} threads");
+            Log($"Throttle set to {maxThreads} threads");
         }
 
         // Maps our internal console tags → ScreenScraper numeric system IDs
@@ -105,6 +105,20 @@ namespace Emutastic.Services
             _http.DefaultRequestHeaders.Add("User-Agent", $"{SoftName}/1.0");
         }
 
+        internal static void Log(string msg)
+        {
+            string line = $"[{DateTime.Now:HH:mm:ss.fff}] [ScreenScraper] {msg}";
+            System.Diagnostics.Trace.WriteLine(line);
+            try
+            {
+                string logDir = AppPaths.GetFolder("Logs");
+                string logPath = System.IO.Path.Combine(logDir, "screenscraper.log");
+                LogRotation.RotateIfLarge(logPath);
+                System.IO.File.AppendAllText(logPath, line + Environment.NewLine);
+            }
+            catch { /* non-fatal */ }
+        }
+
         /// <summary>
         /// Throttled HTTP GET — acquires a slot from the shared semaphore before making the request.
         /// The semaphore counts concurrent in-flight requests across all callers/instances.
@@ -137,7 +151,7 @@ namespace Emutastic.Services
                 var response = await _http.GetAsync(url);
                 string json  = await response.Content.ReadAsStringAsync();
 
-                System.Diagnostics.Debug.WriteLine($"[ScreenScraper] Login response ({(int)response.StatusCode}): {json}");
+                Log($"Login response ({(int)response.StatusCode}): {json}");
 
                 if (!response.IsSuccessStatusCode)
                     return ($"Server returned {(int)response.StatusCode}", 1);
@@ -163,7 +177,7 @@ namespace Emutastic.Services
                 if (!string.IsNullOrEmpty(maxThreadsStr) && int.TryParse(maxThreadsStr, out int parsed) && parsed > 0)
                     maxThreads = parsed;
 
-                System.Diagnostics.Debug.WriteLine($"[ScreenScraper] User {username}: maxthreads={maxThreads}");
+                Log($"User {username}: maxthreads={maxThreads}");
                 return (null, maxThreads);
             }
             catch (Exception ex)
@@ -290,7 +304,7 @@ namespace Emutastic.Services
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[ScreenScraper] FetchSnap failed: {ex.Message}");
+                Log($"FetchSnap failed: {ex.Message}");
                 return null;
             }
         }
@@ -335,7 +349,7 @@ namespace Emutastic.Services
 
                 byte[] bytes = await snapResponse.Content.ReadAsByteArrayAsync();
                 await File.WriteAllBytesAsync(localPath, bytes);
-                System.Diagnostics.Debug.WriteLine($"[ScreenScraper] Snap saved: {localPath}");
+                Log($"Snap saved: {localPath}");
                 return localPath;
             }
             catch { return null; }
@@ -363,7 +377,10 @@ namespace Emutastic.Services
                 return new BoxArt3DResult { ErrorMessage = "ScreenScraper not configured" };
 
             if (!SystemIds.TryGetValue(console, out int systemId))
+            {
+                Log($"3D art: console '{console}' not supported (no systemId mapping)");
                 return new BoxArt3DResult { ErrorMessage = $"Console '{console}' not supported" };
+            }
 
             string cacheKey = string.IsNullOrWhiteSpace(romHash)
                 ? Convert.ToHexString(System.Security.Cryptography.MD5.HashData(
@@ -379,6 +396,8 @@ namespace Emutastic.Services
             string flatCached = Path.Combine(_boxArt3DCacheFolder, $"{cacheKey}.png");
             if (File.Exists(flatCached))
                 return new BoxArt3DResult { LocalPath = flatCached };
+
+            Log($"3D art: fetching for {console}/{System.IO.Path.GetFileName(romPath)} (systemId={systemId}, hash={(string.IsNullOrEmpty(romHash) ? "(none)" : romHash[..Math.Min(8, romHash.Length)])})");
 
             try
             {
@@ -407,45 +426,52 @@ namespace Emutastic.Services
                     string json = await response.Content.ReadAsStringAsync();
                     int statusCode = (int)response.StatusCode;
 
-                    System.Diagnostics.Debug.WriteLine($"[ScreenScraper] 3D art response ('{candidate}'): HTTP {statusCode}, {json.Length} bytes");
+                    Log($"3D art: response for '{candidate}' — HTTP {statusCode}, {json.Length} bytes");
 
                     if (statusCode == 430 || statusCode == 423)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[ScreenScraper] Quota exceeded (HTTP {statusCode})");
+                        Log($"3D art: quota exceeded (HTTP {statusCode})");
                         return new BoxArt3DResult { OverQuota = true, ErrorMessage = "ScreenScraper daily request limit reached" };
                     }
 
                     if (json.Contains("API closed", StringComparison.OrdinalIgnoreCase) ||
                         json.Contains("maxrequestsreached", StringComparison.OrdinalIgnoreCase))
                     {
-                        System.Diagnostics.Debug.WriteLine($"[ScreenScraper] Quota exceeded (body): {json[..Math.Min(200, json.Length)]}");
+                        Log($"3D art: quota exceeded (body): {json[..Math.Min(200, json.Length)]}");
                         return new BoxArt3DResult { OverQuota = true, ErrorMessage = "ScreenScraper daily request limit reached" };
                     }
 
                     if (!response.IsSuccessStatusCode)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[ScreenScraper] Non-success: HTTP {statusCode} — {json[..Math.Min(300, json.Length)]}");
+                        Log($"3D art: non-success HTTP {statusCode} — {json[..Math.Min(300, json.Length)]}");
                         continue; // try next romnom variant
                     }
 
                     string? imageUrl = ExtractBoxArt3DUrl(json);
                     if (imageUrl == null)
+                    {
+                        Log($"3D art: matched game but no box-3D media type for '{candidate}'");
                         continue; // no art for this variant — try next
+                    }
 
                     var imgResponse = await ThrottledGetAsync(imageUrl);
                     if (!imgResponse.IsSuccessStatusCode)
+                    {
+                        Log($"3D art: image download failed HTTP {(int)imgResponse.StatusCode} for {imageUrl}");
                         continue;
+                    }
 
                     byte[] bytes = await imgResponse.Content.ReadAsByteArrayAsync();
                     await File.WriteAllBytesAsync(cached, bytes);
-                    System.Diagnostics.Debug.WriteLine($"[ScreenScraper] 3D box art saved: {cached}");
+                    Log($"3D art: saved {cached} ({bytes.Length} bytes)");
                     return new BoxArt3DResult { LocalPath = cached };
                 }
+                Log($"3D art: no match for {System.IO.Path.GetFileName(romPath)} after trying all romnom variants");
                 return new BoxArt3DResult(); // tried all variants, no match
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[ScreenScraper] FetchBoxArt3D failed: {ex.Message}");
+                Log($"3D art: exception — {ex.Message}");
                 return new BoxArt3DResult { ErrorMessage = ex.Message };
             }
         }
@@ -514,14 +540,14 @@ namespace Emutastic.Services
 
                     byte[] bytes = await imgResponse.Content.ReadAsByteArrayAsync();
                     await File.WriteAllBytesAsync(cached, bytes);
-                    System.Diagnostics.Debug.WriteLine($"[ScreenScraper] 2D box art saved: {cached}");
+                    Log($"2D box art saved: {cached}");
                     return cached;
                 }
                 return null;
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[ScreenScraper] FetchBoxArt2D failed: {ex.Message}");
+                Log($"FetchBoxArt2D failed: {ex.Message}");
                 return null;
             }
         }
@@ -584,7 +610,7 @@ namespace Emutastic.Services
                     if (statusCode == 430 || statusCode == 423)
                     {
                         _quotaExhausted = true;
-                        System.Diagnostics.Debug.WriteLine($"[ScreenScraper] Quota exceeded (HTTP {statusCode}) — switching to fallback");
+                        Log($"Quota exceeded (HTTP {statusCode}) — switching to fallback");
                         return null;
                     }
 
@@ -593,7 +619,7 @@ namespace Emutastic.Services
                         json.Contains("maxrequestsreached", StringComparison.OrdinalIgnoreCase))
                     {
                         _quotaExhausted = true;
-                        System.Diagnostics.Debug.WriteLine($"[ScreenScraper] Quota exceeded (body marker) — switching to fallback");
+                        Log($"Quota exceeded (body marker) — switching to fallback");
                         return null;
                     }
 
@@ -606,7 +632,7 @@ namespace Emutastic.Services
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[ScreenScraper] FetchMetadata failed: {ex.Message}");
+                Log($"FetchMetadata failed: {ex.Message}");
                 return null;
             }
         }
@@ -662,7 +688,7 @@ namespace Emutastic.Services
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[ScreenScraper] ExtractMetadata failed: {ex.Message}");
+                Log($"ExtractMetadata failed: {ex.Message}");
                 return null;
             }
         }
