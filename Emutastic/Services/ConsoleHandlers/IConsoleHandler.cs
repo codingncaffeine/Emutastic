@@ -126,6 +126,14 @@ namespace Emutastic.Services.ConsoleHandlers
         bool UseDefaultFramebuffer { get; }
 
         /// <summary>
+        /// Lets a handler filter the valid values a core advertises for a given core option,
+        /// before they are shown in the options UI. Default returns the list unchanged. GameCube
+        /// uses it to drop the 1x/2x Internal Resolution values, which trigger dolphin_libretro's
+        /// low-resolution framebuffer-indirection bug (game renders into the lower-left corner).
+        /// </summary>
+        string[] FilterCoreOptionValues(string key, string[] values);
+
+        /// <summary>
         /// Returns the curated visual options to surface in the in-game cog overlay.
         /// Each tuple is (core option key, display label). Keys are validated at
         /// runtime against the loaded core's option set — missing keys are skipped.

@@ -50,6 +50,7 @@ namespace Emutastic.Services.ConsoleHandlers
         public virtual bool UseFullFboReadback => false;
         public virtual bool UseGLOverlay => false;
         public virtual bool UseDefaultFramebuffer => false;
+        public virtual string[] FilterCoreOptionValues(string key, string[] values) => values;
 
         public virtual List<(string key, string label)> GetVisualOptions() => new();
     }

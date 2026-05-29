@@ -3225,6 +3225,13 @@ namespace Emutastic.Views
                                 ? raw.Substring(semi + 1).Trim().Split('|').Select(v => v.Trim()).ToArray()
                                 : Array.Empty<string>();
 
+                            // Let the console handler drop values it doesn't want exposed (e.g.
+                            // GameCube removes the 1x/2x Internal Resolution values that trigger
+                            // dolphin_libretro's low-res cornering bug). Default is a pass-through,
+                            // so non-overriding cores are unaffected.
+                            if (validValues.Length > 0)
+                                validValues = _consoleHandler.FilterCoreOptionValues(key, validValues);
+
                             if (_coreOptions.ContainsKey(key))
                             {
                                 // Validate pre-seeded value — if not in the valid list, use safe fallback.
@@ -3337,6 +3344,11 @@ namespace Emutastic.Views
                     case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL:
                     case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2:
                     case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL:
+                        // Returning false forces every core (incl. Dolphin) to fall back to the
+                        // legacy SET_VARIABLES path above, which is the ONLY place
+                        // IConsoleHandler.FilterCoreOptionValues runs (e.g. GameCube drops the
+                        // 1x/2x Internal Resolution values). If v2 parsing is ever implemented
+                        // here, replicate that filter call or the GameCube low-res bug returns.
                         return false;
 
                     case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE:

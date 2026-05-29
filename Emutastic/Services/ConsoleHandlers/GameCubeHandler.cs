@@ -67,8 +67,11 @@ namespace Emutastic.Services.ConsoleHandlers
             // Force OpenGL — only a GL context is set up
             ["dolphin_gfx_backend"]            = "OGL",
             ["dolphin_renderer"]               = "Hardware",
-            // 1x native resolution
-            ["dolphin_efb_scale"]              = "1",
+            // Internal resolution. NOT 1x: at native res Dolphin's framebuffer-indirection
+            // render lands tucked in the bottom-left corner of our managed FBO (documented in
+            // the GameCube wiki page). The image fills the buffer correctly from ~3x up; 4x is
+            // the wiki's recommended "4K-equivalent" upscale and renders full-window out of the box.
+            ["dolphin_efb_scale"]              = "4",
 
             // ── Performance options ──────────────────────────────────────────
             // EFB copies to texture instead of RAM: avoids expensive VRAM→RAM→VRAM roundtrip.
@@ -175,6 +178,17 @@ namespace Emutastic.Services.ConsoleHandlers
 
         public override bool UseDefaultFramebuffer =>
             App.Configuration?.GetEmulatorConfiguration().ResolveAmdIntelCompat() ?? false;
+
+        // Remove the 1x and 2x Internal Resolution choices: at those scales dolphin_libretro's
+        // OGL present centers its output in a believed-backbuffer smaller than our FBO, so the
+        // game renders into the lower-left corner of the window (the low-res cornering bug —
+        // see project_gamecube_lowres_cornering). It renders correctly from ~3x up; default is 4x.
+        public override string[] FilterCoreOptionValues(string key, string[] values)
+        {
+            if (key == "dolphin_efb_scale")
+                return values.Where(v => v.Trim() != "1" && v.Trim() != "2").ToArray();
+            return values;
+        }
 
         // Use the DLL's parent directory as the system directory so that
         // dolphin-emu\Sys\ can be placed alongside dolphin_libretro.dll.
