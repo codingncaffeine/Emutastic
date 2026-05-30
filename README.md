@@ -187,6 +187,22 @@ Download a game's original PDF manual and read it in a built-in viewer — zoom,
 
 </details>
 
+<details>
+<summary><strong>Cheats</strong></summary>
+
+Per-game cheats from the in-game cog menu or the library detail card's `⋯` menu. Game Genie / GameShark / raw codes depending on system. See **[Cheats](https://github.com/codingncaffeine/Emutastic/wiki/Cheats)** in the wiki for code formats per system, storage paths, and the list of cores where cheats aren't supported.
+
+</details>
+
+<details>
+<summary><strong>ROM Hacks</strong></summary>
+
+Apply an IPS, BPS, or UPS patch to a base game right from the library (right-click → **Apply ROM Hack**). The patched game becomes its own library entry — with its own saves — while your original ROM is left untouched, so there's no second copy on disk. The patch is applied in memory at launch, and BPS/UPS patches are checksum-verified against your ROM, so a mismatched or wrong-region copy is caught before it loads. Available on cartridge systems (SNES, GBA, Game Boy / Game Boy Color, NES, Genesis, Nintendo 64, and more).
+
+See **[ROM Hacks](https://github.com/codingncaffeine/Emutastic/wiki/ROM-Hacks)** in the wiki for the full system list, supported patch formats, how patched ROMs are scraped, and tips on matching a patch to the right base ROM.
+
+</details>
+
 ---
 
 ## Folder Layout
@@ -208,23 +224,6 @@ Emutastic.exe / rcheevos.dll / .NET runtime DLLs
 ### Portable mode
 
 Drop an empty `portable.txt` next to `Emutastic.exe` **or** launch with the `--portable` command-line flag, and **everything** lives in `PortableData\` beside the .exe — config, library database, save states, battery saves, screenshots, recordings, artwork, BIOS files, libretro cores, and any ROMs you import. Move the install folder to a USB stick and run it on any Windows PC; library paths are stored relative to `PortableData\` so drive-letter changes (E:→F:) don't break anything. ROM imports are auto-copied into `PortableData\Roms\<Console>\` so they travel with the USB without setting up a separate library folder. See **[Portable Mode](https://github.com/codingncaffeine/Emutastic/wiki/Portable-Mode)** in the wiki for the full on-disk layout, caveats, and how to revert.
-
----
-
-## Cheats
-
-Per-game cheats from the in-game cog menu or the library detail card's `⋯` menu. Game Genie / GameShark / raw codes depending on system. See **[Cheats](https://github.com/codingncaffeine/Emutastic/wiki/Cheats)** in the wiki for code formats per system, storage paths, and the list of cores where cheats aren't supported.
-
----
-
-<details>
-<summary><strong>ROM Hacks</strong></summary>
-
-Apply an IPS, BPS, or UPS patch to a base game right from the library (right-click → **Apply ROM Hack**). The patched game becomes its own library entry — with its own saves — while your original ROM is left untouched, so there's no second copy on disk. The patch is applied in memory at launch, and BPS/UPS patches are checksum-verified against your ROM, so a mismatched or wrong-region copy is caught before it loads. Available on cartridge systems (SNES, GBA, Game Boy / Game Boy Color, NES, Genesis, Nintendo 64, and more).
-
-See **[ROM Hacks](https://github.com/codingncaffeine/Emutastic/wiki/ROM-Hacks)** in the wiki for the full system list, supported patch formats, how patched ROMs are scraped, and tips on matching a patch to the right base ROM.
-
-</details>
 
 ---
 
