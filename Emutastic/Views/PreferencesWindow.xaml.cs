@@ -123,6 +123,10 @@ namespace Emutastic.Views
                 // Tear down the pause effect preview runner so its
                 // CompositionTarget.Rendering subscription doesn't outlive the window.
                 try { _pauseEffectPreviewRunner?.Dispose(); _pauseEffectPreviewRunner = null; } catch { }
+                // Cancel pending debounced writes so their delayed Dispatcher.Invoke can't
+                // run on a torn-down dispatcher after close (the explicit saves below flush).
+                try { _toastSaveCts?.Cancel(); _toastSaveCts?.Dispose(); } catch { }
+                try { _raApiKeyDebounceCts?.Cancel(); _raApiKeyDebounceCts?.Dispose(); } catch { }
                 // Save any pending credential changes on close
                 SaveSnapSettings();
                 SaveAchievementsSettings();
@@ -4156,6 +4160,11 @@ namespace Emutastic.Views
             RATokenStatus.Text = !string.IsNullOrEmpty(ra.Token)
                 ? "Login token saved — password not required for future sessions."
                 : "No login token yet — password required for first login.";
+
+            // Toast-appearance customizer (built once, repopulated on every entry).
+            BuildToastAppearanceUI();
+            PopulateToastAppearance();
+
             _suppressAutoSave = false;
         }
 
@@ -4232,6 +4241,554 @@ namespace Emutastic.Views
 
         private void RASaveBtn_Click(object sender, RoutedEventArgs e)
             => SaveAchievementsSettings();
+
+        // ── Toast appearance customizer ────────────────────────────────────────
+        // Controls are built procedurally into TsAppearanceHost (ThemeEditor pattern)
+        // so load/save stays centralized and we avoid ~30 named XAML elements. Each
+        // control writes straight to the live ToastStyle and debounces the disk write.
+        private bool _toastUiBuilt;
+        private bool _populatingToast;
+        private readonly List<Action> _toastPopulators = new();
+        private System.Threading.CancellationTokenSource? _toastSaveCts;
+        private List<string>? _systemFontNamesCache;
+        private List<string> SystemFontNames =>
+            _systemFontNamesCache ??= System.Windows.Media.Fonts.SystemFontFamilies
+                .Select(f => f.Source).Distinct().OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
+
+        // Live config's style object. GetRetroAchievementsConfiguration returns the
+        // live instance, so mutating .ToastStyle here is what the toast reads.
+        private AchievementToastStyle TsStyle => _configService.GetRetroAchievementsConfiguration().ToastStyle;
+
+        private void BuildToastAppearanceUI()
+        {
+            if (_toastUiBuilt || TsAppearanceHost == null) return;
+            _toastUiBuilt = true;
+
+            AddComboRow("Shape", new[] { "Card", "Pill", "Rounded", "Sharp", "Custom" },
+                s => s.Shape, (s, v) => s.Shape = v);
+            _rowCornerRadius = AddSliderRow("Corner radius (Custom shape)", 0, 40, 1, true, "",
+                s => s.CornerRadius, (s, v) => s.CornerRadius = v);
+
+            AddSectionGap("Background");
+            AddToggleRow("Use gradient (off = solid color)", s => s.UseGradient, (s, v) => s.UseGradient = v);
+            _rowGradStart = AddColorRow("Gradient start", s => s.GradientStart, (s, v) => s.GradientStart = v);
+            _rowGradEnd = AddColorRow("Gradient end", s => s.GradientEnd, (s, v) => s.GradientEnd = v);
+            _rowSolidColor = AddColorRow("Solid color", s => s.BackgroundColor, (s, v) => s.BackgroundColor = v);
+            // Always-visible overall transparency (applies to gradient, solid, and image).
+            AddSliderRow("Background opacity", 0, 100, 1, true, "%",
+                s => s.BackgroundOpacity, (s, v) => s.BackgroundOpacity = (int)Math.Round(v));
+            AddImageRow();
+
+            AddSectionGap("Border");
+            AddColorRow("Border color (blank = theme)", s => s.BorderColor, (s, v) => s.BorderColor = v);
+            AddSliderRow("Border thickness", 0, 5, 0.5, false, "",
+                s => s.BorderThickness, (s, v) => s.BorderThickness = v);
+
+            AddSectionGap("Drop shadow");
+            AddToggleRow("Enable drop shadow", s => s.ShadowEnabled, (s, v) => s.ShadowEnabled = v);
+            AddColorRow("Shadow color", s => s.ShadowColor, (s, v) => s.ShadowColor = v);
+            AddSliderRow("Shadow opacity", 0, 100, 1, true, "%",
+                s => s.ShadowOpacity, (s, v) => s.ShadowOpacity = (int)Math.Round(v));
+            AddSliderRow("Shadow blur", 0, 60, 1, true, "",
+                s => s.ShadowBlur, (s, v) => s.ShadowBlur = v);
+            AddSliderRow("Shadow depth", 0, 30, 1, true, "",
+                s => s.ShadowDepth, (s, v) => s.ShadowDepth = v);
+
+            AddSectionGap("Badge");
+            AddToggleRow("Show badge", s => s.ShowBadge, (s, v) => s.ShowBadge = v);
+            _rowBadgeColor = AddColorRow("Badge frame (blank = theme)", s => s.BadgeFrameColor, (s, v) => s.BadgeFrameColor = v);
+
+            AddSectionGap("Header");
+            AddToggleRow("Show header", s => s.ShowHeader, (s, v) => s.ShowHeader = v);
+            _rowHeaderColor = AddColorRow("Header color (blank = theme)", s => s.HeaderColor, (s, v) => s.HeaderColor = v);
+            _rowHeaderSize = AddSliderRow("Header size", 6, 20, 0.5, false, "",
+                s => s.HeaderSize, (s, v) => s.HeaderSize = v);
+
+            AddSectionGap("Title");
+            AddColorRow("Title color", s => s.TitleColor, (s, v) => s.TitleColor = v);
+            AddFontRow("Title font", s => s.TitleFont, (s, v) => s.TitleFont = v);
+            AddSliderRow("Title size", 8, 32, 0.5, false, "",
+                s => s.TitleSize, (s, v) => s.TitleSize = v);
+
+            AddSectionGap("Description");
+            AddColorRow("Description color", s => s.DescColor, (s, v) => s.DescColor = v);
+            AddFontRow("Description font", s => s.DescFont, (s, v) => s.DescFont = v);
+            AddSliderRow("Description size", 8, 24, 0.5, false, "",
+                s => s.DescSize, (s, v) => s.DescSize = v);
+
+            AddSectionGap("Points");
+            AddColorRow("Points color (blank = theme)", s => s.PointsColor, (s, v) => s.PointsColor = v);
+            AddSliderRow("Points size", 6, 20, 0.5, false, "",
+                s => s.PointsSize, (s, v) => s.PointsSize = v);
+
+            AddSectionGap("Layout");
+            AddComboRow("Position",
+                new[] { "TopLeft", "TopCenter", "TopRight", "BottomLeft", "BottomCenter", "BottomRight" },
+                s => s.Position, (s, v) => s.Position = v);
+            AddSliderRow("Duration (seconds)", 1, 12, 0.5, false, " s",
+                s => s.DurationSec, (s, v) => s.DurationSec = v);
+
+            BuildToastPreview();
+        }
+
+        // Dependent rows shown/hidden based on current selections so the panel only
+        // surfaces controls that actually apply.
+        private FrameworkElement? _rowGradStart, _rowGradEnd, _rowSolidColor,
+                                 _rowCornerRadius, _rowBadgeColor,
+                                 _rowHeaderColor, _rowHeaderSize;
+
+        private void UpdateToastConditionalRows()
+        {
+            if (!_toastUiBuilt) return;
+            var s = TsStyle;
+            void Show(FrameworkElement? el, bool vis)
+            {
+                if (el != null) el.Visibility = vis ? Visibility.Visible : Visibility.Collapsed;
+            }
+
+            bool gradient = s.UseGradient;
+            Show(_rowGradStart, gradient);
+            Show(_rowGradEnd, gradient);
+            Show(_rowSolidColor, !gradient);
+            // Background-opacity slider is always visible (applies to every mode).
+
+            Show(_rowCornerRadius, string.Equals(s.Shape, "Custom", StringComparison.OrdinalIgnoreCase));
+            Show(_rowBadgeColor, s.ShowBadge);
+            Show(_rowHeaderColor, s.ShowHeader);
+            Show(_rowHeaderSize, s.ShowHeader);
+        }
+
+        private void PopulateToastAppearance()
+        {
+            if (!_toastUiBuilt) return;
+            _populatingToast = true;
+            try { foreach (var p in _toastPopulators) p(); }
+            finally { _populatingToast = false; }
+            UpdateToastConditionalRows();
+            RefreshToastPreview();
+        }
+
+        // ── Live preview ───────────────────────────────────────────────────────
+        // A non-interactive replica of the toast rendered by the SAME
+        // ToastStyleRenderer the live toast uses, so what you see is what you get.
+        private Border? _pvRoot, _pvBadge;
+        private TextBlock? _pvHeader, _pvTitle, _pvDesc, _pvPoints;
+        private readonly Dictionary<string, ImageSource> _previewImageCache = new();
+
+        private void BuildToastPreview()
+        {
+            if (_pvRoot != null || TsPreviewHost == null) return;
+
+            // Neutral backdrop so transparency / shadow read against something.
+            var backdrop = new Border
+            {
+                Background = (Brush)FindResource("BgTertiaryBrush"),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(16),
+                MinHeight = 120,
+            };
+
+            _pvRoot = new Border
+            {
+                MinWidth = 320, MaxWidth = 480,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            var grid = new Grid { Margin = new Thickness(10) };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            _pvBadge = new Border
+            {
+                Width = 58, Height = 58, CornerRadius = new CornerRadius(8),
+                BorderThickness = new Thickness(1.5), VerticalAlignment = VerticalAlignment.Center,
+                Child = new MaterialDesignThemes.Wpf.PackIcon
+                {
+                    Kind = MaterialDesignThemes.Wpf.PackIconKind.Trophy,
+                    Width = 30, Height = 30,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Foreground = Brushes.White,
+                },
+            };
+            Grid.SetColumn(_pvBadge, 0);
+
+            var panel = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 8, 0) };
+            Grid.SetColumn(panel, 1);
+            _pvHeader = new TextBlock { Text = "ACHIEVEMENT UNLOCKED", FontWeight = FontWeights.SemiBold, Opacity = 0.8 };
+            _pvTitle  = new TextBlock { Text = "Sample Achievement", FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
+            _pvDesc   = new TextBlock { Text = "Earn this by doing the thing.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
+            _pvPoints = new TextBlock { Text = "10 points", Opacity = 0.9, Margin = new Thickness(0, 3, 0, 0) };
+            panel.Children.Add(_pvHeader);
+            panel.Children.Add(_pvTitle);
+            panel.Children.Add(_pvDesc);
+            panel.Children.Add(_pvPoints);
+
+            grid.Children.Add(_pvBadge);
+            grid.Children.Add(panel);
+            _pvRoot.Child = grid;
+            backdrop.Child = _pvRoot;
+            TsPreviewHost.Content = backdrop;
+        }
+
+        private void RefreshToastPreview()
+        {
+            if (_pvRoot == null) return;
+            // Clear any leftover fade animation so edits are always visible.
+            _pvRoot.BeginAnimation(OpacityProperty, null);
+            _pvRoot.Opacity = 1;
+
+            Services.ToastStyleRenderer.ApplyTo(
+                _pvRoot, _pvBadge!, _pvHeader!, _pvTitle!, _pvDesc!, _pvPoints!,
+                TsStyle, LoadPreviewImage);
+
+            // The renderer sets alignment/margin for on-screen Position; in the preview
+            // box we always keep the replica centered (Position is described by its label).
+            _pvRoot.HorizontalAlignment = HorizontalAlignment.Center;
+            _pvRoot.VerticalAlignment   = VerticalAlignment.Center;
+            _pvRoot.Margin              = new Thickness(0);
+        }
+
+        private ImageSource? LoadPreviewImage(string path)
+        {
+            try
+            {
+                if (_previewImageCache.TryGetValue(path, out var cached)) return cached;
+                if (!System.IO.File.Exists(path)) return null;
+                var bmp = new BitmapImage();
+                bmp.BeginInit();
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.UriSource = new Uri(path, UriKind.Absolute);
+                bmp.EndInit();
+                if (bmp.CanFreeze) bmp.Freeze();
+                _previewImageCache[path] = bmp;
+                return bmp;
+            }
+            catch { return null; }
+        }
+
+        private System.Windows.Threading.DispatcherTimer? _pvAnimTimer;
+        private void TsPreviewAnim_Click(object sender, RoutedEventArgs e)
+        {
+            if (_pvRoot == null) return;
+            // Reuse a single timer so spamming the button restarts cleanly rather than
+            // stacking overlapping fade-out cycles.
+            _pvAnimTimer?.Stop();
+            RefreshToastPreview();
+            var fadeIn = new System.Windows.Media.Animation.DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(250));
+            _pvRoot.BeginAnimation(OpacityProperty, fadeIn);
+            _pvAnimTimer ??= new System.Windows.Threading.DispatcherTimer();
+            _pvAnimTimer.Interval = Services.ToastStyleRenderer.Duration(TsStyle);
+            _pvAnimTimer.Tick -= PvAnimTimer_Tick;
+            _pvAnimTimer.Tick += PvAnimTimer_Tick;
+            _pvAnimTimer.Start();
+        }
+
+        private void PvAnimTimer_Tick(object? sender, EventArgs e)
+        {
+            _pvAnimTimer?.Stop();
+            if (_pvRoot == null) return;
+            var fadeOut = new System.Windows.Media.Animation.DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(400));
+            _pvRoot.BeginAnimation(OpacityProperty, fadeOut);
+        }
+
+        // Sets the live ToastStyle dirty and debounces the disk write (400ms after the
+        // last change) so dragging a slider doesn't thrash settings.json.
+        private void CommitToastStyle()
+        {
+            if (_suppressAutoSave || !_achievementsLoaded) return;
+            UpdateToastConditionalRows();
+            RefreshToastPreview();
+            _configService.SetRetroAchievementsConfiguration(_configService.GetRetroAchievementsConfiguration());
+            _toastSaveCts?.Cancel();
+            _toastSaveCts = new System.Threading.CancellationTokenSource();
+            var token = _toastSaveCts.Token;
+            _ = System.Threading.Tasks.Task.Delay(400, token).ContinueWith(t =>
+            {
+                if (t.IsCanceled) return;
+                Dispatcher.Invoke(() => { _ = _configService.SaveAsync(); });
+            }, System.Threading.Tasks.TaskScheduler.Default);
+            // Phase 5 will refresh the live preview here.
+        }
+
+        private void TsReset_Click(object sender, RoutedEventArgs e)
+        {
+            var ra = _configService.GetRetroAchievementsConfiguration();
+            ra.ToastStyle = new AchievementToastStyle();
+            _configService.SetRetroAchievementsConfiguration(ra);
+            PopulateToastAppearance();
+            _ = _configService.SaveAsync();
+        }
+
+        // ── Row builders ───────────────────────────────────────────────────────
+        // Returns the row container so callers can toggle its visibility for
+        // dependent/conditional controls.
+        private FrameworkElement AddRow(string label, FrameworkElement control)
+        {
+            var grid = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var lbl = new TextBlock
+            {
+                Text = label,
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 12, 0),
+                Foreground = (Brush)FindResource("TextSecondaryBrush"),
+            };
+            Grid.SetColumn(lbl, 0);
+            Grid.SetColumn(control, 1);
+            control.VerticalAlignment = VerticalAlignment.Center;
+            grid.Children.Add(lbl);
+            grid.Children.Add(control);
+            TsAppearanceHost.Children.Add(grid);
+            return grid;
+        }
+
+        private void AddSectionGap(string header)
+        {
+            TsAppearanceHost.Children.Add(new TextBlock
+            {
+                Text = header,
+                FontSize = 13,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = (Brush)FindResource("TextPrimaryBrush"),
+                Margin = new Thickness(0, 14, 0, 8),
+            });
+        }
+
+        private FrameworkElement AddColorRow(string label,
+            Func<AchievementToastStyle, string> get, Action<AchievementToastStyle, string> set)
+        {
+            var swatch = new System.Windows.Shapes.Rectangle
+            {
+                Width = 22, Height = 22, RadiusX = 4, RadiusY = 4,
+                Stroke = (Brush)FindResource("BorderNormalBrush"), StrokeThickness = 1,
+                Cursor = Cursors.Hand, VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0),
+            };
+            var hex = new TextBox { Width = 110, Style = (Style)FindResource("DarkTextBox") };
+            // Mouse and keyboard both open the picker (the hex box is also editable).
+            swatch.Focusable = true;
+            swatch.MouseLeftButtonUp += (_, __) => PickColorInto(hex);
+            swatch.KeyDown += (_, ke) =>
+            {
+                if (ke.Key == Key.Enter || ke.Key == Key.Space) { PickColorInto(hex); ke.Handled = true; }
+            };
+            hex.TextChanged += (_, __) =>
+            {
+                UpdateSwatch(swatch, hex.Text);
+                if (_populatingToast) return;
+                set(TsStyle, hex.Text.Trim());
+                CommitToastStyle();
+            };
+            _toastPopulators.Add(() => { hex.Text = get(TsStyle); UpdateSwatch(swatch, hex.Text); });
+
+            var panel = new StackPanel { Orientation = Orientation.Horizontal };
+            panel.Children.Add(swatch);
+            panel.Children.Add(hex);
+            return AddRow(label, panel);
+        }
+
+        private void UpdateSwatch(System.Windows.Shapes.Rectangle swatch, string? hex)
+        {
+            if (string.IsNullOrWhiteSpace(hex))
+            {
+                swatch.Fill = Brushes.Transparent;
+                swatch.ToolTip = "Blank = theme default";
+                return;
+            }
+            try
+            {
+                swatch.Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex.Trim()));
+                swatch.ToolTip = hex.Trim();
+            }
+            catch
+            {
+                swatch.Fill = Brushes.Transparent;
+                swatch.ToolTip = "Invalid color";
+            }
+        }
+
+        // WinForms ColorDialog (RGB-only) — same picker ThemeEditor uses. Writing the
+        // hex back triggers the TextChanged handler, which updates the swatch and saves.
+        private void PickColorInto(TextBox hex)
+        {
+            using var dlg = new System.Windows.Forms.ColorDialog { FullOpen = true };
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(hex.Text))
+                {
+                    var c = (Color)ColorConverter.ConvertFromString(hex.Text.Trim());
+                    dlg.Color = System.Drawing.Color.FromArgb(c.R, c.G, c.B);
+                }
+            }
+            catch { /* seed left at default */ }
+
+            if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+            {
+                var c = dlg.Color;
+                hex.Text = $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+            }
+        }
+
+        private FrameworkElement AddSliderRow(string label, double min, double max, double step, bool integer, string suffix,
+            Func<AchievementToastStyle, double> get, Action<AchievementToastStyle, double> set)
+        {
+            var slider = new Slider
+            {
+                Minimum = min, Maximum = max, Width = 160,
+                TickFrequency = step, IsSnapToTickEnabled = step > 0,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            var valueLbl = new TextBlock
+            {
+                Width = 54, FontSize = 12, Margin = new Thickness(8, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Foreground = (Brush)FindResource("TextSecondaryBrush"),
+            };
+            string Fmt(double v) => (integer ? ((int)Math.Round(v)).ToString() : v.ToString("0.#")) + suffix;
+            slider.ValueChanged += (_, __) =>
+            {
+                valueLbl.Text = Fmt(slider.Value);
+                if (_populatingToast) return;
+                set(TsStyle, slider.Value);
+                CommitToastStyle();
+            };
+            _toastPopulators.Add(() => { slider.Value = get(TsStyle); valueLbl.Text = Fmt(slider.Value); });
+
+            var panel = new StackPanel { Orientation = Orientation.Horizontal };
+            panel.Children.Add(slider);
+            panel.Children.Add(valueLbl);
+            return AddRow(label, panel);
+        }
+
+        private void AddToggleRow(string label,
+            Func<AchievementToastStyle, bool> get, Action<AchievementToastStyle, bool> set)
+        {
+            var t = new System.Windows.Controls.Primitives.ToggleButton
+            {
+                Style = (Style)FindResource("ToggleSwitch"),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            RoutedEventHandler h = (_, __) =>
+            {
+                if (_populatingToast) return;
+                set(TsStyle, t.IsChecked == true);
+                CommitToastStyle();
+            };
+            t.Checked += h;
+            t.Unchecked += h;
+            _toastPopulators.Add(() => t.IsChecked = get(TsStyle));
+            AddRow(label, t);
+        }
+
+        private void AddComboRow(string label, string[] items,
+            Func<AchievementToastStyle, string> get, Action<AchievementToastStyle, string> set)
+        {
+            var combo = new ComboBox
+            {
+                Width = 180,
+                VerticalAlignment = VerticalAlignment.Center,
+                Style = (Style)FindResource("PrefComboBox"),
+            };
+            foreach (var it in items) combo.Items.Add(it);
+            combo.SelectionChanged += (_, __) =>
+            {
+                if (_populatingToast) return;
+                if (combo.SelectedItem is string v) { set(TsStyle, v); CommitToastStyle(); }
+            };
+            _toastPopulators.Add(() =>
+            {
+                var cur = get(TsStyle);
+                combo.SelectedItem = items.FirstOrDefault(x => string.Equals(x, cur, StringComparison.OrdinalIgnoreCase))
+                                     ?? items.First();
+            });
+            AddRow(label, combo);
+        }
+
+        private void AddFontRow(string label,
+            Func<AchievementToastStyle, string> get, Action<AchievementToastStyle, string> set)
+        {
+            const string sentinel = "Default (theme)";
+            var combo = new ComboBox
+            {
+                Width = 180,
+                MaxDropDownHeight = 300,
+                VerticalAlignment = VerticalAlignment.Center,
+                Style = (Style)FindResource("PrefComboBox"),
+            };
+            combo.Items.Add(sentinel);
+            foreach (var fam in SystemFontNames) combo.Items.Add(fam);
+            combo.SelectionChanged += (_, __) =>
+            {
+                if (_populatingToast) return;
+                if (combo.SelectedItem is string v) { set(TsStyle, v == sentinel ? "" : v); CommitToastStyle(); }
+            };
+            _toastPopulators.Add(() =>
+            {
+                var cur = get(TsStyle);
+                combo.SelectedItem = string.IsNullOrWhiteSpace(cur)
+                    ? sentinel
+                    : (SystemFontNames.Contains(cur) ? cur : sentinel);
+            });
+            AddRow(label, combo);
+        }
+
+        private void AddImageRow()
+        {
+            var pathLbl = new TextBlock
+            {
+                Text = "No image", FontSize = 11, MaxWidth = 150,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0),
+                Foreground = (Brush)FindResource("TextMutedBrush"),
+            };
+            var browse = new Button
+            {
+                Content = "Browse…", Style = (Style)FindResource("SecondaryBtn"),
+                Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 0, 4, 0),
+            };
+            var clear = new Button
+            {
+                Content = "Clear", Style = (Style)FindResource("SecondaryBtn"),
+                Padding = new Thickness(10, 4, 10, 4),
+            };
+            browse.Click += (_, __) =>
+            {
+                var dlg = new Microsoft.Win32.OpenFileDialog
+                {
+                    Title = "Choose Toast Background Image",
+                    Filter = "Image files (*.png;*.jpg;*.jpeg;*.bmp;*.webp)|*.png;*.jpg;*.jpeg;*.bmp;*.webp|All files (*.*)|*.*",
+                };
+                if (dlg.ShowDialog(this) == true)
+                {
+                    try { TsStyle.BackgroundImage = Emutastic.AppPaths.ImportFileToDataRoot(dlg.FileName, "ToastBackgrounds"); }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Trace.WriteLine($"Toast background import failed: {ex.Message}");
+                        TsStyle.BackgroundImage = dlg.FileName;
+                    }
+                    pathLbl.Text = System.IO.Path.GetFileName(TsStyle.BackgroundImage);
+                    CommitToastStyle();
+                }
+            };
+            clear.Click += (_, __) =>
+            {
+                TsStyle.BackgroundImage = "";
+                pathLbl.Text = "No image";
+                CommitToastStyle();
+            };
+            _toastPopulators.Add(() => pathLbl.Text = string.IsNullOrWhiteSpace(TsStyle.BackgroundImage)
+                ? "No image" : System.IO.Path.GetFileName(TsStyle.BackgroundImage));
+
+            var panel = new StackPanel { Orientation = Orientation.Horizontal };
+            panel.Children.Add(pathLbl);
+            panel.Children.Add(browse);
+            panel.Children.Add(clear);
+            AddRow("Background image", panel);
+        }
 
         // ── About tab ─────────────────────────────────────────────────────────
         // Shows the installed app version, queries GitHub for the latest release,

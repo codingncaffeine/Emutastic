@@ -370,6 +370,14 @@
                                         Content="Cheats"
                                         Style="{StaticResource OverlayMenuItemStyle}"
                                         Click="OverlayCheats_Click"/>
+                                <Button x:Name="OverlayNotesBtn"
+                                        Content="Notes"
+                                        Style="{StaticResource OverlayMenuItemStyle}"
+                                        Click="OverlayNotes_Click"/>
+                                <Button x:Name="OverlayManualBtn"
+                                        Content="Manual"
+                                        Style="{StaticResource OverlayMenuItemStyle}"
+                                        Click="OverlayManual_Click"/>
                                 <Button x:Name="OverlayVisualsBtn"
                                         Content="Visuals"
                                         Visibility="Collapsed"
@@ -513,35 +521,58 @@
                         </Border>
                     </StackPanel>
 
-                    <!-- Achievement toast -->
+                    <!-- Achievement toast.
+                         All visual style — background (color/gradient/image), border,
+                         drop shadow, shape/corner-radius, position, text colors, fonts and
+                         sizes, and badge/header visibility — is applied at runtime by
+                         Services.ToastStyleRenderer from the user's AchievementToastStyle.
+                         The properties left in markup (MinWidth/MaxWidth, badge size,
+                         font weights, per-element opacities, margins) are intentionally
+                         constant and not user-customizable in v1. -->
                     <Border x:Name="AchievementToast"
                             Visibility="Collapsed"
                             Opacity="0"
-                            VerticalAlignment="Top"
-                            HorizontalAlignment="Center"
-                            Margin="0,20,0,0"
-                            Background="#DD1A1A2E"
-                            BorderBrush="{DynamicResource AchievementGoldBrush}"
-                            BorderThickness="1.5"
-                            CornerRadius="10"
-                            Padding="18,12"
-                            MinWidth="280"
-                            MaxWidth="450">
-                        <StackPanel>
-                            <TextBlock x:Name="AchievementTitle"
-                                       FontSize="14" FontWeight="Bold"
-                                       Foreground="{DynamicResource AchievementGoldBrush}"
-                                       TextWrapping="Wrap"/>
-                            <TextBlock x:Name="AchievementDesc"
-                                       FontSize="11.5"
-                                       Foreground="#CCFFFFFF"
-                                       TextWrapping="Wrap"
-                                       Margin="0,3,0,0"/>
-                            <TextBlock x:Name="AchievementPoints"
-                                       FontSize="10.5"
-                                       Foreground="#99FFFFFF"
-                                       Margin="0,4,0,0"/>
-                        </StackPanel>
+                            MinWidth="320"
+                            MaxWidth="480">
+                        <Grid Margin="10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- Achievement badge image -->
+                            <Border x:Name="AchievementBadge"
+                                    Grid.Column="0"
+                                    Width="58" Height="58"
+                                    CornerRadius="8"
+                                    VerticalAlignment="Center"
+                                    BorderThickness="1.5">
+                                <Border.Background>
+                                    <ImageBrush x:Name="AchievementIconBrush"
+                                                Stretch="UniformToFill"/>
+                                </Border.Background>
+                            </Border>
+
+                            <StackPanel x:Name="AchievementTextPanel"
+                                        Grid.Column="1"
+                                        VerticalAlignment="Center"
+                                        Margin="12,0,8,0">
+                                <TextBlock x:Name="AchievementHeader"
+                                           Text="ACHIEVEMENT UNLOCKED"
+                                           FontWeight="SemiBold"
+                                           Opacity="0.8"/>
+                                <TextBlock x:Name="AchievementTitle"
+                                           FontWeight="Bold"
+                                           TextWrapping="Wrap"
+                                           Margin="0,2,0,0"/>
+                                <TextBlock x:Name="AchievementDesc"
+                                           TextWrapping="Wrap"
+                                           Margin="0,2,0,0"/>
+                                <TextBlock x:Name="AchievementPoints"
+                                           Opacity="0.9"
+                                           Margin="0,3,0,0"/>
+                            </StackPanel>
+                        </Grid>
                     </Border>
                 </Grid>
             </Border>

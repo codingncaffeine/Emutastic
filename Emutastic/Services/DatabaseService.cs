@@ -117,7 +117,18 @@ namespace Emutastic.Services
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_gamecollections_collection
-                    ON GameCollections(CollectionId);";
+                    ON GameCollections(CollectionId);
+
+                CREATE TABLE IF NOT EXISTS ManualReadingState (
+                    GameId         INTEGER NOT NULL,
+                    ManualFile     TEXT NOT NULL,
+                    Page           INTEGER DEFAULT 1,
+                    ScrollFraction REAL DEFAULT 0,
+                    Zoom           TEXT DEFAULT 'auto',
+                    UpdatedAt      TEXT,
+                    PRIMARY KEY (GameId, ManualFile),
+                    FOREIGN KEY (GameId) REFERENCES Games(Id) ON DELETE CASCADE
+                );";
             cmd.ExecuteNonQuery();
 
             // Schema migrations — safe to run every launch, silently ignored if column exists.
@@ -176,6 +187,12 @@ namespace Emutastic.Services
             TryAddColumn(connection, "Games", "OriginalSourcePath", "TEXT DEFAULT ''");
             TryAddColumn(connection, "Games", "MetadataAttempts",   "INTEGER DEFAULT 0");
             TryAddColumn(connection, "Games", "PreferredCore",      "TEXT DEFAULT ''");
+
+            // Per-game user notes (Tier 2 notes feature) + downloaded PDF manual path.
+            // Both default empty; set post-hoc via UpdateNotes / UpdateManualPath, so
+            // InsertGame doesn't need to reference them.
+            TryAddColumn(connection, "Games", "Notes",      "TEXT DEFAULT ''");
+            TryAddColumn(connection, "Games", "ManualPath", "TEXT DEFAULT ''");
 
             // RetroAchievements cache. RAGameId is captured at launch from
             // rcheevos's identify-game callback; the *Json columns hold the
@@ -1479,6 +1496,73 @@ namespace Emutastic.Services
             cmd.ExecuteNonQuery();
         }
 
+        public void UpdateNotes(int gameId, string notes)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "UPDATE Games SET Notes = $notes WHERE Id = $id;";
+            cmd.Parameters.AddWithValue("$notes", notes ?? "");
+            cmd.Parameters.AddWithValue("$id", gameId);
+            cmd.ExecuteNonQuery();
+        }
+
+        public void UpdateManualPath(int gameId, string manualPath)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "UPDATE Games SET ManualPath = $path WHERE Id = $id;";
+            // Stored relative to DataRoot (portable mode), like the other path columns.
+            cmd.Parameters.AddWithValue("$path", AppPaths.ToStoragePath(manualPath ?? ""));
+            cmd.Parameters.AddWithValue("$id", gameId);
+            cmd.ExecuteNonQuery();
+        }
+
+        /// <summary>
+        /// Last-read position for a game's manual, or null if never opened.
+        /// Page is 1-based; ScrollFraction is scrollTop/scrollHeight (0..1) so it
+        /// survives window-size/zoom changes; Zoom is a PDF.js zoom token.
+        /// </summary>
+        public (int Page, double ScrollFraction, string Zoom)? GetManualReadingState(int gameId, string manualFile)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT Page, ScrollFraction, Zoom FROM ManualReadingState WHERE GameId = $id AND ManualFile = $file;";
+            cmd.Parameters.AddWithValue("$id", gameId);
+            cmd.Parameters.AddWithValue("$file", manualFile ?? "");
+            using var reader = cmd.ExecuteReader();
+            if (!reader.Read()) return null;
+            int page = reader.IsDBNull(0) ? 1 : reader.GetInt32(0);
+            double frac = reader.IsDBNull(1) ? 0.0 : reader.GetDouble(1);
+            string zoom = reader.IsDBNull(2) ? "auto" : reader.GetString(2);
+            return (page, frac, zoom);
+        }
+
+        /// <summary>Upserts the last-read position for a game's manual.</summary>
+        public void SaveManualReadingState(int gameId, string manualFile, int page, double scrollFraction, string zoom)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = @"
+                INSERT INTO ManualReadingState (GameId, ManualFile, Page, ScrollFraction, Zoom, UpdatedAt)
+                VALUES ($id, $file, $page, $frac, $zoom, $ts)
+                ON CONFLICT(GameId, ManualFile) DO UPDATE SET
+                    Page = excluded.Page,
+                    ScrollFraction = excluded.ScrollFraction,
+                    Zoom = excluded.Zoom,
+                    UpdatedAt = excluded.UpdatedAt;";
+            cmd.Parameters.AddWithValue("$id", gameId);
+            cmd.Parameters.AddWithValue("$file", manualFile ?? "");
+            cmd.Parameters.AddWithValue("$page", page);
+            cmd.Parameters.AddWithValue("$frac", scrollFraction);
+            cmd.Parameters.AddWithValue("$zoom", zoom ?? "auto");
+            cmd.Parameters.AddWithValue("$ts", DateTime.UtcNow.ToString("o"));
+            cmd.ExecuteNonQuery();
+        }
+
         public List<Game> GetGamesWithoutMetadata()
         {
             using var connection = new SqliteConnection(_connectionString);
@@ -1703,8 +1787,10 @@ namespace Emutastic.Services
             using var connection = OpenConnection();
             // Disable FK enforcement so save states are preserved when a game is removed from the library.
             using (var fk = connection.CreateCommand()) { fk.CommandText = "PRAGMA foreign_keys = OFF;"; fk.ExecuteNonQuery(); }
-            // Clean up join table manually since FKs are disabled
+            // Clean up child tables manually since FKs are disabled (manual files are
+            // preserved like artwork, but the reading-position row is orphan noise).
             using (var gc = connection.CreateCommand()) { gc.CommandText = "DELETE FROM GameCollections WHERE GameId = $id;"; gc.Parameters.AddWithValue("$id", gameId); gc.ExecuteNonQuery(); }
+            using (var mr = connection.CreateCommand()) { mr.CommandText = "DELETE FROM ManualReadingState WHERE GameId = $id;"; mr.Parameters.AddWithValue("$id", gameId); mr.ExecuteNonQuery(); }
             var cmd = connection.CreateCommand();
             cmd.CommandText = "DELETE FROM Games WHERE Id = $id;";
             cmd.Parameters.AddWithValue("$id", gameId);
@@ -1722,6 +1808,9 @@ namespace Emutastic.Services
             var gcCmd = connection.CreateCommand();
             gcCmd.CommandText = "DELETE FROM GameCollections WHERE GameId = $id;";
             var gcParam = gcCmd.Parameters.Add("$id", Microsoft.Data.Sqlite.SqliteType.Integer);
+            var mrCmd = connection.CreateCommand();
+            mrCmd.CommandText = "DELETE FROM ManualReadingState WHERE GameId = $id;";
+            var mrParam = mrCmd.Parameters.Add("$id", Microsoft.Data.Sqlite.SqliteType.Integer);
             var cmd = connection.CreateCommand();
             cmd.CommandText = "DELETE FROM Games WHERE Id = $id;";
             var param = cmd.Parameters.Add("$id", Microsoft.Data.Sqlite.SqliteType.Integer);
@@ -1729,6 +1818,8 @@ namespace Emutastic.Services
             {
                 gcParam.Value = id;
                 gcCmd.ExecuteNonQuery();
+                mrParam.Value = id;
+                mrCmd.ExecuteNonQuery();
                 param.Value = id;
                 cmd.ExecuteNonQuery();
             }
@@ -1937,7 +2028,7 @@ namespace Emutastic.Services
                 RAGameId, RAProgressionJson, RAProgressionFetchedAt,
                 RAUserProgressJson, RAUserProgressFetchedAt,
                 RALiveProgressJson, RALiveProgressFetchedAt,
-                RALastLaunchOutcome, TotalPlayTimeSeconds;
+                RALastLaunchOutcome, TotalPlayTimeSeconds, Notes, ManualPath;
 
             public OrdinalMap(SqliteDataReader reader)
             {
@@ -1976,6 +2067,8 @@ namespace Emutastic.Services
                 RALiveProgressFetchedAt = TryOrd(reader, "RALiveProgressFetchedAt");
                 RALastLaunchOutcome     = TryOrd(reader, "RALastLaunchOutcome");
                 TotalPlayTimeSeconds    = TryOrd(reader, "TotalPlayTimeSeconds");
+                Notes                   = TryOrd(reader, "Notes");
+                ManualPath              = TryOrd(reader, "ManualPath");
             }
 
             private static int TryOrd(SqliteDataReader r, string col)
@@ -2024,6 +2117,8 @@ namespace Emutastic.Services
                 RALiveProgressFetchedAt = GetLong(reader, o.RALiveProgressFetchedAt),
                 RALastLaunchOutcome     = GetStr(reader, o.RALastLaunchOutcome),
                 TotalPlayTimeSeconds    = GetInt(reader, o.TotalPlayTimeSeconds),
+                Notes                   = GetStr(reader, o.Notes),
+                ManualPath              = AppPaths.FromStoragePath(GetStr(reader, o.ManualPath)),
             };
         }
 

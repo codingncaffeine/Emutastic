@@ -1,0 +1,24 @@
+<local:FloatingToolWindow x:Class="Emutastic.Views.ManualViewerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Emutastic.Views"
+        Title="Manual"
+        Width="820" Height="900"
+        MinWidth="420" MinHeight="320"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="True"
+        Background="{DynamicResource BgPrimaryBrush}">
+    <Border BorderBrush="{DynamicResource BorderNormalBrush}" BorderThickness="1"
+            Background="{DynamicResource BgPrimaryBrush}">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+            <local:ToolWindowTitleBar x:Name="TitleBar" Grid.Row="0"/>
+            <!-- WebView2 is created in code-behind and added here (the WPF control
+                 doesn't resolve as a XAML tag during markup compilation). -->
+            <Grid x:Name="WebHost" Grid.Row="1"/>
+        </Grid>
+    </Border>
+</local:FloatingToolWindow>

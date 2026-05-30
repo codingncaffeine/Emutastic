@@ -101,19 +101,38 @@ namespace Emutastic.ViewModels
         [NotifyPropertyChangedFor(nameof(BannerProgressPercent))]
         private double _coreUpdateProgressPercent;
 
-        public bool IsBannerVisible => IsImporting || IsCoreUpdating || IsNotification;
-        public bool IsProgressBarVisible => IsImporting || IsCoreUpdating;
+        // Surfaced from the manual-download flow (context menu / detail card /
+        // in-game cog) so the user sees streaming progress + failures in the banner.
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(IsBannerVisible))]
+        [NotifyPropertyChangedFor(nameof(IsProgressBarVisible))]
+        [NotifyPropertyChangedFor(nameof(BannerText))]
+        [NotifyPropertyChangedFor(nameof(BannerProgressPercent))]
+        private bool _isDownloadingManual;
 
-        // Priority: import > core-update > notification (most-active-task wins).
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(BannerText))]
+        private string _manualDownloadText = "";
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(BannerProgressPercent))]
+        private double _manualDownloadProgressPercent;
+
+        public bool IsBannerVisible => IsImporting || IsCoreUpdating || IsNotification || IsDownloadingManual;
+        public bool IsProgressBarVisible => IsImporting || IsCoreUpdating || IsDownloadingManual;
+
+        // Priority: import > core-update > manual-download > notification (most-active-task wins).
         public string BannerText =>
-            IsImporting     ? ImportStatusText :
-            IsCoreUpdating  ? CoreUpdateText :
-                              NotificationText;
+            IsImporting         ? ImportStatusText :
+            IsCoreUpdating      ? CoreUpdateText :
+            IsDownloadingManual ? ManualDownloadText :
+                                  NotificationText;
 
         public double BannerProgressPercent =>
-            IsImporting     ? ImportProgressPercent :
-            IsCoreUpdating  ? CoreUpdateProgressPercent :
-                              0;
+            IsImporting         ? ImportProgressPercent :
+            IsCoreUpdating      ? CoreUpdateProgressPercent :
+            IsDownloadingManual ? ManualDownloadProgressPercent :
+                                  0;
 
         private ObservableCollection<ConsoleGroup> _groupedGames = new();
         public ObservableCollection<ConsoleGroup> GroupedGames
@@ -291,6 +310,8 @@ namespace Emutastic.ViewModels
                 if (updated.IsFavorite)      target.IsFavorite = true;
                 if (updated.Rating > 0)      target.Rating = updated.Rating;
                 if (updated.LastPlayed != null) target.LastPlayed = updated.LastPlayed;
+                if (!string.IsNullOrEmpty(updated.ManualPath)) target.ManualPath = updated.ManualPath;
+                if (!string.IsNullOrEmpty(updated.Notes))      target.Notes = updated.Notes;
             }
 
             // O(1) lookup via index instead of linear scan

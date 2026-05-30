@@ -30,6 +30,8 @@ namespace Emutastic
         private ImportService _importer = null!;
         private ArtworkService _artwork = null!;
         private ArtworkFetchService _artworkFetch = null!;
+        /// <summary>Exposed so child windows (e.g. the detail card) can reuse the banner-backed manual download.</summary>
+        public ArtworkFetchService ArtworkFetch => _artworkFetch;
         private RaDataService? _raData;
         private FriendService? _friendService;
         // Friend Detail Windows are non-modal and multiple can be open
@@ -2204,6 +2206,14 @@ namespace Emutastic
             menu.Items.Add(ratingItem);
 
             menu.Items.Add(new Separator());
+
+            // ── Notes ──
+            menu.Items.Add(MakeMenuItem("📝  Notes", () => Views.NotesWindow.ShowFor(game, this)));
+
+            // ── Manual (view if downloaded, else download then open) ──
+            bool hasManual = game.HasManual && File.Exists(game.ManualPath);
+            menu.Items.Add(MakeMenuItem(hasManual ? "📖  View Manual" : "⬇  Download Manual",
+                async () => await Views.ManualLauncher.OpenOrDownloadAsync(game, _artworkFetch, this)));
 
             // ── Show in Explorer ──
             menu.Items.Add(MakeMenuItem("📁  Show in Explorer", () =>

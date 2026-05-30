@@ -637,6 +637,62 @@ namespace Emutastic.Services
         }
 
         /// <summary>
+        /// Downloads the PDF manual for a single game (context menu / detail card /
+        /// in-game cog). Streams with progress shown in the bottom banner. Returns the
+        /// local manual path on success so the caller can open the viewer, else null.
+        /// </summary>
+        public async Task<string?> FetchManualForGameAsync(Game game)
+        {
+            var snapCfg = App.Configuration?.GetSnapConfiguration();
+            if (snapCfg == null || !snapCfg.ScreenScraperEnabled
+                || string.IsNullOrWhiteSpace(snapCfg.ScreenScraperUser))
+            {
+                _vm.SetStatus("ScreenScraper not configured — set it up in Preferences → Snaps", autoClear: true);
+                return null;
+            }
+
+            _vm.IsDownloadingManual = true;
+            _vm.ManualDownloadProgressPercent = 0;
+            _vm.ManualDownloadText = $"Downloading manual for {game.Title}…";
+            try
+            {
+                var ss = new ScreenScraperService();
+                var result = await Task.Run(() => ss.FetchManualAsync(
+                    snapCfg.ScreenScraperUser, snapCfg.ScreenScraperPassword,
+                    game.Console, game.Title, game.RomHash, game.RomPath,
+                    progress: p => OnUI(() =>
+                    {
+                        _vm.ManualDownloadProgressPercent = p;
+                        _vm.ManualDownloadText = $"Downloading manual for {game.Title}… {p:0}%";
+                    })));
+
+                if (result.LocalPath != null)
+                {
+                    _db.UpdateManualPath(game.Id, result.LocalPath);
+                    OnUI(() =>
+                    {
+                        game.ManualPath = result.LocalPath;
+                        _vm.RefreshGame(game);
+                    });
+                    _vm.SetStatus($"Manual downloaded for {game.Title}", autoClear: true);
+                    return result.LocalPath;
+                }
+
+                if (result.OverQuota)
+                    _vm.SetStatus("ScreenScraper daily limit reached — try again later", autoClear: true);
+                else if (result.NotFound)
+                    _vm.SetStatus($"No manual found for {game.Title}", autoClear: true);
+                else
+                    _vm.SetStatus($"Couldn't download manual — {result.ErrorMessage}", autoClear: true);
+                return null;
+            }
+            finally
+            {
+                _vm.IsDownloadingManual = false;
+            }
+        }
+
+        /// <summary>
         /// Backfills metadata (developer, publisher, genre) for all games missing it.
         /// Preloads all OpenVGDB data into memory for fast matching — no per-game queries.
         /// </summary>

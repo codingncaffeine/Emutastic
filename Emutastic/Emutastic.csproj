@@ -63,7 +63,9 @@
     </Content>
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="AvalonEdit" Version="6.3.1.120" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3967.48" GeneratePathProperty="true" />
     <PackageReference Include="SevenZipExtractor" Version="1.0.17" />
     <PackageReference Include="Vortice.Direct3D11" Version="3.6.2" />
     <PackageReference Include="Vortice.DXGI" Version="3.6.2" />
@@ -84,9 +86,32 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
   </ItemGroup>
+  <!-- Force the non-projection (Core.dll) flavor in every build pass. The WPF
+       markup-compilation temp project enables UWP/CsWinRT tooling, which flips WebView2's
+       build .targets into their CsWinRT branch and pulls in Core.Projection.dll — that
+       collides (CS0433) with the regular Core.dll the WPF control is built against.
+       Pinning this false keeps the net5+ (Core.dll + Wpf) branch consistently. -->
+  <PropertyGroup>
+    <WebView2EnableCsWinRTProjection>false</WebView2EnableCsWinRTProjection>
+  </PropertyGroup>
+  <!-- The .targets-injected references don't reach the markup-compilation temp project,
+       so reference the WebView2 assemblies explicitly (identical paths dedupe against the
+       targets-added ones in the main build). -->
+  <ItemGroup>
+    <Reference Include="$(PkgMicrosoft_Web_WebView2)\lib_manual\netcoreapp3.0\Microsoft.Web.WebView2.Core.dll" />
+    <Reference Include="$(PkgMicrosoft_Web_WebView2)\lib_manual\net5.0-windows10.0.17763.0\Microsoft.Web.WebView2.Wpf.dll" />
+  </ItemGroup>
   <ItemGroup>
     <!-- Windows TFM auto-includes Assets\ as Content — remove so Resource takes effect -->
     <Content Remove="Assets\**" />
+    <!-- Bundled PDF.js viewer for the in-app manual reader. Shipped as loose files
+         so the manual viewer can map a WebView2 virtual host to this folder at
+         runtime. Re-added explicitly because the "Content Remove Assets\**" above
+         strips it. Goes to both build output and the published release. -->
+    <Content Include="Assets\pdfjs\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
     <Resource Include="Assets\images\**\*.png" />
     <Resource Include="Assets\images\**\*.jpg" />
     <Resource Include="Assets\buttons\**\*.png" />

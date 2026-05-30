@@ -1630,7 +1630,43 @@
                                              Unchecked="RASyncFollows_Changed"/>
                             </Grid>
 
-                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,0,0,0"/>
+                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,0,0,20"/>
+
+                            <!-- ── Toast appearance ─────────────────────────────
+                                 Interactive controls are built procedurally into
+                                 TsAppearanceHost by BuildToastAppearanceUI() in
+                                 code-behind (ThemeEditor pattern), so load/save stays
+                                 centralized. Phase 5 adds the live preview above it. -->
+                            <TextBlock Text="TOAST APPEARANCE" Style="{StaticResource PrefLabel}"/>
+                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,0,0,16"/>
+                            <TextBlock Text="Customize how the in-game achievement unlock toast looks — shape, background, border, drop shadow, text colors, fonts and sizes, where it appears, and how long it stays. Changes apply to the next unlock."
+                                       FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"
+                                       TextWrapping="Wrap" Margin="0,0,0,16"/>
+
+                            <!-- Pinned preview + actions: stay put while the options below
+                                 scroll, so the Preview button is always next to the preview. -->
+                            <ContentControl x:Name="TsPreviewHost" Margin="0,0,0,10"/>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                <Button x:Name="TsPreviewBtn"
+                                        Content="Preview animation"
+                                        Style="{StaticResource SecondaryBtn}"
+                                        Margin="0,0,8,0"
+                                        Click="TsPreviewAnim_Click"/>
+                                <Button x:Name="TsResetBtn"
+                                        Content="Reset to defaults"
+                                        Style="{StaticResource SecondaryBtn}"
+                                        Click="TsReset_Click"/>
+                            </StackPanel>
+
+                            <!-- Options in their own scrollable area so the long list
+                                 doesn't push the preview/buttons off-screen. -->
+                            <Border BorderBrush="{DynamicResource BorderSubtleBrush}"
+                                    BorderThickness="1" CornerRadius="6" Padding="12,8,6,8">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="360">
+                                    <StackPanel x:Name="TsAppearanceHost" Margin="0,0,6,0"/>
+                                </ScrollViewer>
+                            </Border>
 
                         </StackPanel>
                     </ScrollViewer>

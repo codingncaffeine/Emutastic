@@ -980,6 +980,20 @@ namespace Emutastic.Views
             menu.Items.Add(showInExplorer);
             menu.Items.Add(rename);
 
+            var notes = new MenuItem { Header = "Notes…" };
+            notes.Click += (_, _) => NotesWindow.ShowFor(_game, this);
+            menu.Items.Add(notes);
+
+            bool hasManual = _game.HasManual && System.IO.File.Exists(_game.ManualPath);
+            var manual = new MenuItem { Header = hasManual ? "View Manual" : "Download Manual…" };
+            manual.Click += async (_, _) =>
+            {
+                var fetch = (Application.Current.MainWindow as Emutastic.MainWindow)?.ArtworkFetch;
+                if (fetch != null) await ManualLauncher.OpenOrDownloadAsync(_game, fetch, this);
+                else if (hasManual) ManualViewerWindow.ShowFor(_game, this);
+            };
+            menu.Items.Add(manual);
+
             // Show the Cheats entry only when this console actually has a known core
             // AND that core isn't a known cheat-stub. Unknown consoles (no core in the
             // map) hide the entry — there's nothing to apply cheats against.

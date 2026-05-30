@@ -4860,6 +4860,28 @@ namespace Emutastic.Views
 
         private void OverlayRecord_Click(object sender, RoutedEventArgs e) => ToggleRecording();
 
+        private void OverlayNotes_Click(object sender, RoutedEventArgs e)
+        {
+            if (_game == null) return;
+            OverlayMenu.Visibility = Visibility.Collapsed;
+            // Pinned so it floats above the running game; the user can unpin.
+            NotesWindow.ShowFor(_game, this, pinned: true);
+        }
+
+        private async void OverlayManual_Click(object sender, RoutedEventArgs e)
+        {
+            if (_game == null) return;
+            OverlayMenu.Visibility = Visibility.Collapsed;
+            // No main-window banner in-game — surface download status on the HUD.
+            var db = new DatabaseService();
+            await ManualLauncher.OpenOrDownloadInGameAsync(_game, db, this, s =>
+                Dispatcher.BeginInvoke(() =>
+                {
+                    _transientMsg = s;
+                    _transientExpiry = DateTime.Now.AddSeconds(string.IsNullOrEmpty(s) ? 0 : 4);
+                }));
+        }
+
         private void OverlayViewRecordings_Click(object sender, RoutedEventArgs e)
         {
             if (_game == null) return;
@@ -6375,7 +6397,7 @@ namespace Emutastic.Views
                 {
                     Dispatcher.BeginInvoke(() =>
                     {
-                        ShowAchievementToast(info.Title, info.Description, info.Points);
+                        ShowAchievementToast(info.Title, info.Description, info.Points, info.BadgeUrl);
                         try
                         {
                             var fcfg = App.Configuration?.GetFriendsConfiguration();
@@ -6406,7 +6428,7 @@ namespace Emutastic.Views
                 };
                 _raClient.GameCompleted += () =>
                 {
-                    Dispatcher.BeginInvoke(() => ShowAchievementToast("Mastery!", "All achievements earned!", 0));
+                    Dispatcher.BeginInvoke(() => ShowAchievementToast("Mastery!", "All achievements earned!", 0, header: "GAME COMPLETE"));
                 };
                 // Phase 6b.1: leaderboard SCOREBOARD post-submission. The
                 // decision (triumph vs proximity vs neither) runs against
@@ -6827,11 +6849,52 @@ namespace Emutastic.Views
             }
         }
 
-        private void ShowAchievementToast(string title, string description, uint points)
+        // Cache decoded badge bitmaps so a re-unlock (or rapid chain) reuses the
+        // download instead of refetching from media.retroachievements.org.
+        private readonly System.Collections.Generic.Dictionary<string, System.Windows.Media.Imaging.BitmapImage> _badgeCache = new();
+
+        private void ShowAchievementToast(string title, string description, uint points,
+                                          string? badgeUrl = null, string? header = null)
         {
+            // Apply the user's style FIRST. The renderer sets every visual property
+            // (background/border/shadow/shape/colors/fonts/sizes/position) plus the
+            // STYLE-driven badge/header visibility (ShowBadge/ShowHeader). The per-unlock
+            // content logic below may only further COLLAPSE — never force-show — so the
+            // effective rule is (ShowX AND has-content). (Phase-2 audit carry-forward.)
+            var style = _configService.GetRetroAchievementsConfiguration().ToastStyle;
+            Services.ToastStyleRenderer.ApplyTo(
+                AchievementToast, AchievementBadge, AchievementHeader,
+                AchievementTitle, AchievementDesc, AchievementPoints,
+                style, LoadLocalImage);
+
+            // Badge image: only the real achievement-unlock path supplies a URL.
+            // Mastery / leaderboard toasts have no badge → collapse regardless of style.
+            bool hasBadge = !string.IsNullOrWhiteSpace(badgeUrl);
+            if (hasBadge)
+            {
+                AchievementIconBrush.ImageSource = LoadBadge(badgeUrl!);
+            }
+            else
+            {
+                AchievementIconBrush.ImageSource = null;
+                AchievementBadge.Visibility = Visibility.Collapsed; // AND: never re-show
+            }
+
+            // Header eyebrow: explicit override wins; otherwise it only reads
+            // "ACHIEVEMENT UNLOCKED" when there's an actual badge to crown. Leave the
+            // visibility ApplyTo chose (ShowHeader) unless there's no text → collapse.
+            string? headerText = header ?? (hasBadge ? "ACHIEVEMENT UNLOCKED" : null);
+            if (string.IsNullOrEmpty(headerText))
+                AchievementHeader.Visibility = Visibility.Collapsed; // AND: never re-show
+            else
+                AchievementHeader.Text = headerText;
+
             AchievementTitle.Text = title;
             AchievementDesc.Text = description;
+            AchievementDesc.Visibility = string.IsNullOrEmpty(description)
+                ? Visibility.Collapsed : Visibility.Visible;
             AchievementPoints.Text = points > 0 ? $"{points} points" : "";
+            AchievementPoints.Visibility = points > 0 ? Visibility.Visible : Visibility.Collapsed;
 
             // Mirror the HUD-pill reparenting pattern: on HW-rendered cores
             // (Vulkan / OpenGL) the game render lives in a WS_POPUP overlay
@@ -6864,7 +6927,7 @@ namespace Emutastic.Views
             AchievementToast.BeginAnimation(OpacityProperty, fadeIn);
 
             _achievementToastTimer?.Stop();
-            _achievementToastTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
+            _achievementToastTimer = new DispatcherTimer { Interval = Services.ToastStyleRenderer.Duration(style) };
             _achievementToastTimer.Tick += (_, _) =>
             {
                 _achievementToastTimer.Stop();
@@ -6873,6 +6936,64 @@ namespace Emutastic.Views
                 AchievementToast.BeginAnimation(OpacityProperty, fadeOut);
             };
             _achievementToastTimer.Start();
+        }
+
+        // Decode an RA badge URL into a frozen, cached BitmapImage. BitmapImage
+        // streams http(s) URIs asynchronously and updates the ImageBrush once the
+        // bytes arrive, so the toast appears instantly and the art fills in a beat
+        // later. Freezing makes the cached instance safe to reuse across threads.
+        private System.Windows.Media.Imaging.BitmapImage? LoadBadge(string url)
+        {
+            try
+            {
+                if (_badgeCache.TryGetValue(url, out var cached))
+                    return cached;
+
+                var bmp = new System.Windows.Media.Imaging.BitmapImage();
+                bmp.BeginInit();
+                bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                bmp.UriSource = new Uri(url, UriKind.Absolute);
+                bmp.EndInit();
+                if (bmp.CanFreeze) bmp.Freeze();
+                _badgeCache[url] = bmp;
+                return bmp;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[RA] Badge load failed ({url}): {ex.Message}");
+                return null;
+            }
+        }
+
+        // Cache for user-chosen local toast-background images (keyed by absolute path).
+        private readonly System.Collections.Generic.Dictionary<string, System.Windows.Media.ImageSource> _localImageCache = new();
+
+        // Decode a local image file into a frozen, cached ImageSource for the toast
+        // background. Mirrors LoadBadge but for a filesystem path; returns null on any
+        // failure so the renderer falls back to the gradient/solid background.
+        private System.Windows.Media.ImageSource? LoadLocalImage(string path)
+        {
+            try
+            {
+                if (_localImageCache.TryGetValue(path, out var cached))
+                    return cached;
+                if (!System.IO.File.Exists(path))
+                    return null;
+
+                var bmp = new System.Windows.Media.Imaging.BitmapImage();
+                bmp.BeginInit();
+                bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                bmp.UriSource = new Uri(path, UriKind.Absolute);
+                bmp.EndInit();
+                if (bmp.CanFreeze) bmp.Freeze();
+                _localImageCache[path] = bmp;
+                return bmp;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[RA] Toast background load failed ({path}): {ex.Message}");
+                return null;
+            }
         }
 
         private Views.PauseEffects.PauseEffectRunner? _pauseEffectRunner;

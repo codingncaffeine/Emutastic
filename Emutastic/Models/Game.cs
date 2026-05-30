@@ -134,6 +134,42 @@ namespace Emutastic.Models
         public string Genre { get; set; } = "";
         public string Description { get; set; } = "";
 
+        // User's free-text notes for this game (Tier 2 notes feature). Notifying so
+        // the detail-card preview updates live after editing. Synced for free via the
+        // library.db GitHub backup — no separate sync wiring.
+        private string _notes = "";
+        public string Notes
+        {
+            get => _notes;
+            set
+            {
+                value ??= "";
+                if (_notes == value) return;
+                _notes = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(HasNotes));
+            }
+        }
+        public bool HasNotes => !string.IsNullOrWhiteSpace(_notes);
+
+        // Local path to the downloaded PDF manual (relative storage in DB, resolved
+        // to absolute on read). Notifying so the "has manual" badge / menu label
+        // (View vs Download) flips live after a download completes.
+        private string _manualPath = "";
+        public string ManualPath
+        {
+            get => _manualPath;
+            set
+            {
+                value ??= "";
+                if (_manualPath == value) return;
+                _manualPath = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(HasManual));
+            }
+        }
+        public bool HasManual => !string.IsNullOrEmpty(_manualPath);
+
         public string BackgroundColor { get; set; } = "#1F1F21";
         public string AccentColor { get; set; } = "#E03535";
         public int PlayCount { get; set; }

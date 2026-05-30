@@ -791,5 +791,184 @@ namespace Emutastic.Services
             }
             catch { return null; }
         }
+
+        // ── Game manuals (PDF) ──────────────────────────────────────────────
+
+        /// <summary>Result of a manual fetch — local path on success, or quota/not-found/error info.</summary>
+        public class ManualResult
+        {
+            public string? LocalPath    { get; set; }
+            public bool    OverQuota    { get; set; }
+            public bool    NotFound     { get; set; }   // matched a game but it has no manual media
+            public string? ErrorMessage { get; set; }
+        }
+
+        // Manuals can be tens of MB — the shared _http has a 10 s timeout tuned for
+        // small JSON + image fetches. Use a dedicated client with a generous timeout
+        // and stream to disk so a big PDF neither times out nor buffers in memory.
+        private static readonly HttpClient _manualDownloadHttp = CreateManualClient();
+        private static HttpClient CreateManualClient()
+        {
+            var c = new HttpClient { Timeout = TimeSpan.FromMinutes(3) };
+            c.DefaultRequestHeaders.Add("User-Agent", $"{SoftName}/1.0");
+            return c;
+        }
+
+        /// <summary>
+        /// Queries ScreenScraper for a game's PDF manual and streams it to
+        /// Manuals/&lt;console&gt;/&lt;Title [hash8]&gt;/manual.pdf with progress (0..100).
+        /// Shares the session quota guard with the art-fetch path.
+        /// </summary>
+        public async Task<ManualResult> FetchManualAsync(
+            string username, string password,
+            string console, string title, string romHash, string romPath,
+            Action<double>? progress = null)
+        {
+            if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
+                return new ManualResult { ErrorMessage = "ScreenScraper not configured" };
+            if (!SystemIds.TryGetValue(console, out int systemId))
+                return new ManualResult { ErrorMessage = $"Console '{console}' not supported" };
+            if (_quotaExhausted)
+                return new ManualResult { OverQuota = true, ErrorMessage = "ScreenScraper daily request limit reached" };
+
+            string folder = AppPaths.GetFolder("Manuals", console, SanitizeGameFolder(title, romHash));
+            string localPath = Path.Combine(folder, "manual.pdf");
+            if (File.Exists(localPath))
+                return new ManualResult { LocalPath = localPath };
+
+            try
+            {
+                string auth = $"devid={Uri.EscapeDataString(DevId)}&devpassword={Uri.EscapeDataString(DevPass)}" +
+                              $"&softname={Uri.EscapeDataString(SoftName)}&output=json" +
+                              $"&ssid={Uri.EscapeDataString(username)}&sspassword={Uri.EscapeDataString(password)}";
+                string md5Part = string.IsNullOrWhiteSpace(romHash) ? "" : $"&md5={romHash.ToUpperInvariant()}";
+                try
+                {
+                    if (!string.IsNullOrEmpty(romPath) && File.Exists(romPath))
+                        md5Part += $"&taillerom={new FileInfo(romPath).Length}";
+                }
+                catch { /* size lookup failure is non-fatal */ }
+
+                foreach (string candidate in BuildRomNomCandidates(console, romPath))
+                {
+                    string romName = Uri.EscapeDataString(candidate);
+                    string url = $"{BaseUrl}jeuInfos.php?{auth}&systemeid={systemId}{md5Part}&romnom={romName}";
+
+                    var response = await ThrottledGetAsync(url).ConfigureAwait(false);
+                    int statusCode = (int)response.StatusCode;
+
+                    if (statusCode == 430 || statusCode == 423)
+                    {
+                        _quotaExhausted = true;
+                        Log($"Manual: quota exceeded (HTTP {statusCode})");
+                        return new ManualResult { OverQuota = true, ErrorMessage = "ScreenScraper daily request limit reached" };
+                    }
+
+                    string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    if (json.Contains("API closed", StringComparison.OrdinalIgnoreCase) ||
+                        json.Contains("maxrequestsreached", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _quotaExhausted = true;
+                        Log("Manual: quota exceeded (body marker)");
+                        return new ManualResult { OverQuota = true, ErrorMessage = "ScreenScraper daily request limit reached" };
+                    }
+
+                    if (!response.IsSuccessStatusCode) continue;
+
+                    string? manualUrl = ExtractManualUrl(json);
+                    if (manualUrl == null) continue;   // matched no manual media — try next variant
+
+                    using var dl = await _manualDownloadHttp
+                        .GetAsync(manualUrl, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
+                    if (!dl.IsSuccessStatusCode)
+                    {
+                        Log($"Manual: download failed HTTP {(int)dl.StatusCode}");
+                        continue;
+                    }
+
+                    long? total = dl.Content.Headers.ContentLength;
+                    string tmp = localPath + ".part";
+                    bool notPdf = false;
+                    {
+                        await using var src = await dl.Content.ReadAsStreamAsync().ConfigureAwait(false);
+                        await using var dst = File.Create(tmp);
+                        byte[] buf = new byte[81920];
+                        long readTotal = 0; int n; bool first = true;
+                        while ((n = await src.ReadAsync(buf).ConfigureAwait(false)) > 0)
+                        {
+                            if (first)
+                            {
+                                first = false;
+                                // PDF magic: "%PDF" — guard against SS handing back an
+                                // HTML error page or some other non-PDF blob.
+                                if (n < 4 || buf[0] != 0x25 || buf[1] != 0x50 || buf[2] != 0x44 || buf[3] != 0x46)
+                                { notPdf = true; break; }
+                            }
+                            await dst.WriteAsync(buf.AsMemory(0, n)).ConfigureAwait(false);
+                            readTotal += n;
+                            if (total.HasValue && total.Value > 0)
+                                progress?.Invoke((double)readTotal / total.Value * 100.0);
+                        }
+                    } // streams disposed here, before move/delete
+
+                    if (notPdf)
+                    {
+                        try { File.Delete(tmp); } catch { }
+                        Log("Manual: downloaded file is not a PDF");
+                        return new ManualResult { ErrorMessage = "Manual is not in a supported (PDF) format" };
+                    }
+
+                    try { if (File.Exists(localPath)) File.Delete(localPath); File.Move(tmp, localPath); }
+                    catch (Exception mvEx) { Log($"Manual: move failed {mvEx.Message}"); }
+
+                    if (File.Exists(localPath))
+                    {
+                        Log($"Manual saved: {localPath}");
+                        return new ManualResult { LocalPath = localPath };
+                    }
+                    return new ManualResult { ErrorMessage = "Failed to save manual" };
+                }
+
+                // Tried every romnom variant — no match, or matched but no manual media.
+                return new ManualResult { NotFound = true };
+            }
+            catch (Exception ex)
+            {
+                Log($"FetchManual failed: {ex.Message}");
+                return new ManualResult { ErrorMessage = ex.Message };
+            }
+        }
+
+        private static string? ExtractManualUrl(string json)
+        {
+            try
+            {
+                var doc = JsonNode.Parse(json);
+                var medias = doc?["response"]?["jeu"]?["medias"]?.AsArray();
+                if (medias == null) return null;
+                return PickRegionalMediaUrl(medias, "manuel");
+            }
+            catch { return null; }
+        }
+
+        /// <summary>
+        /// Human-readable, collision-proof folder name for a game's manual:
+        /// "&lt;sanitized title&gt; [hash8]". Readable (user asked for by-console-then-game)
+        /// while the hash suffix keeps two same-named games apart.
+        /// </summary>
+        private static string SanitizeGameFolder(string title, string romHash)
+        {
+            string baseName = string.IsNullOrWhiteSpace(title) ? "game" : title;
+            foreach (char c in Path.GetInvalidFileNameChars())
+                baseName = baseName.Replace(c, '_');
+            baseName = baseName.Trim().TrimEnd('.');
+            if (baseName.Length == 0) baseName = "game";
+            if (baseName.Length > 80) baseName = baseName[..80].TrimEnd();
+            string hash8 = !string.IsNullOrWhiteSpace(romHash) && romHash.Length >= 8
+                ? romHash[..8]
+                : Convert.ToHexString(System.Security.Cryptography.MD5.HashData(
+                    System.Text.Encoding.UTF8.GetBytes((title ?? "") + romHash)))[..8];
+            return $"{baseName} [{hash8}]";
+        }
     }
 }

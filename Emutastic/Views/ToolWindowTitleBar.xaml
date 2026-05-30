@@ -1,0 +1,63 @@
+<UserControl x:Class="Emutastic.Views.ToolWindowTitleBar"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Height="40">
+    <UserControl.Resources>
+        <Style x:Key="TitleBarBtn" TargetType="Button">
+            <Setter Property="Width" Value="42"/>
+            <Setter Property="Height" Value="40"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bg" Background="{TemplateBinding Background}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bg" Property="Background" Value="{DynamicResource BgQuaternaryBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Border Background="{DynamicResource BgSecondaryBrush}"
+            BorderBrush="{DynamicResource BorderNormalBrush}"
+            BorderThickness="0,0,0,1">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Background="Transparent"
+                    MouseLeftButtonDown="DragArea_MouseLeftButtonDown">
+                <TextBlock x:Name="TitleLabel"
+                           Margin="14,0,0,0"
+                           VerticalAlignment="Center"
+                           FontSize="13"
+                           FontWeight="SemiBold"
+                           TextTrimming="CharacterEllipsis"
+                           Foreground="{DynamicResource TextPrimaryBrush}"/>
+            </Border>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                <Button x:Name="PinBtn" Content="📌" Style="{StaticResource TitleBarBtn}"
+                        Click="Pin_Click" ToolTip="Stay on top"/>
+                <Button x:Name="RollUpBtn" Content="▴" Style="{StaticResource TitleBarBtn}"
+                        Click="RollUp_Click" ToolTip="Roll up / down (double-click the title bar)"/>
+                <Button Content="—" Style="{StaticResource TitleBarBtn}"
+                        Click="Min_Click" ToolTip="Minimize"/>
+                <Button Content="✕" Style="{StaticResource TitleBarBtn}"
+                        Click="Close_Click" ToolTip="Close"/>
+            </StackPanel>
+        </Grid>
+    </Border>
+</UserControl>

@@ -220,6 +220,83 @@ namespace Emutastic.Configuration
         // next launch (the toggle handler writes config only — sync fires
         // exclusively from the MainWindow.OnLoaded hook).
         public bool SyncFollowsOnLaunch { get; set; } = true;
+
+        // User-customizable appearance of the in-game achievement unlock toast.
+        // Defaults reproduce the CURRENT shipped toast exactly so existing users
+        // see no change until they opt in. See achievement-toast-customization-plan.md.
+        public AchievementToastStyle ToastStyle { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Visual style for the in-game RetroAchievements unlock toast. Every member is a
+    /// PROPERTY (not a public field): JsonConfigurationService does not enable
+    /// JsonSerializerOptions.IncludeFields, so field-based members would silently never
+    /// persist. Defaults reproduce the current shipped toast pixel-for-pixel.
+    ///
+    /// Color values are hex strings. An EMPTY string means "use the live theme brush"
+    /// (AccentBrush for the border, AchievementGoldBrush for badge frame / header / points),
+    /// so an untouched toast still tracks theme changes the way it does today; once the user
+    /// picks a color it becomes a baked hex. An empty font means "use the PrimaryFont chain".
+    /// </summary>
+    public class AchievementToastStyle
+    {
+        // Shape preset → drives CornerRadius / layout.
+        // Active (v1): Card | Pill | Rounded | Sharp | Custom.
+        // Reserved (later phase, non-rectangular geometry; falls back to Card): Banner.
+        public string Shape { get; set; } = "Card";
+
+        // Background. The current toast is a 2-stop horizontal gradient; keep that as the
+        // default (UseGradient = true) so the shipped look is identical. UseGradient = false
+        // switches to a single solid fill (BackgroundColor + BackgroundOpacity).
+        public bool   UseGradient    { get; set; } = true;
+        public string GradientStart  { get; set; } = "#F21A1A2E"; // left stop (A = 0xF2)
+        public string GradientEnd    { get; set; } = "#C81A1A2E"; // right stop (A = 0xC8)
+        public string BackgroundColor { get; set; } = "#1A1A2E";  // solid-mode fill
+        // Overall background transparency (0–100), applied to the gradient, the solid
+        // fill AND a background image alike. Default 100 so the gradient default renders
+        // exactly as shipped; drag down to make the toast background see-through.
+        public int    BackgroundOpacity { get; set; } = 100;
+        public string BackgroundImage { get; set; } = "";          // DataRoot/ToastBackgrounds; "" = none
+
+        // Border + corner. "" border color = AccentBrush (theme-tracking).
+        public string BorderColor    { get; set; } = "";
+        public double BorderThickness { get; set; } = 1.5;
+        public double CornerRadius   { get; set; } = 12;  // used when Shape = Custom
+
+        // Drop shadow.
+        public bool   ShadowEnabled  { get; set; } = true;
+        public string ShadowColor    { get; set; } = "#000000";
+        public int    ShadowOpacity  { get; set; } = 75;  // 0–100
+        public double ShadowBlur     { get; set; } = 20;
+        public double ShadowDepth    { get; set; } = 6;
+
+        // Badge. "" frame color = AchievementGoldBrush.
+        public bool   ShowBadge      { get; set; } = true;
+        public string BadgeFrameColor { get; set; } = "";
+
+        // Header / eyebrow. "" color = AchievementGoldBrush.
+        public bool   ShowHeader     { get; set; } = true;
+        public string HeaderColor    { get; set; } = "";
+        public double HeaderSize     { get; set; } = 9;
+
+        // Title.
+        public string TitleColor     { get; set; } = "#FFFFFF";
+        public string TitleFont      { get; set; } = "";  // "" = PrimaryFont chain
+        public double TitleSize      { get; set; } = 14.5;
+
+        // Description.
+        public string DescColor      { get; set; } = "#CCFFFFFF";
+        public string DescFont       { get; set; } = "";
+        public double DescSize       { get; set; } = 11.5;
+
+        // Points. "" color = AchievementGoldBrush.
+        public string PointsColor    { get; set; } = "";
+        public double PointsSize     { get; set; } = 10.5;
+
+        // Layout / behavior. 6-anchor position set.
+        // TopLeft|TopCenter|TopRight|BottomLeft|BottomCenter|BottomRight.
+        public string Position       { get; set; } = "TopCenter";
+        public double DurationSec    { get; set; } = 4;
     }
 
     // RetroAchievements friends configuration — list membership + polling
