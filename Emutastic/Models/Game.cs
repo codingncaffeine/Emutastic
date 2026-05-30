@@ -170,6 +170,23 @@ namespace Emutastic.Models
         }
         public bool HasManual => !string.IsNullOrEmpty(_manualPath);
 
+        // Path to an IPS/BPS/UPS ROM-hack patch applied (in memory) to RomPath at launch.
+        // Empty for normal games; set on hacked library entries. Relative storage in DB.
+        private string _patchPath = "";
+        public string PatchPath
+        {
+            get => _patchPath;
+            set
+            {
+                value ??= "";
+                if (_patchPath == value) return;
+                _patchPath = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(HasPatch));
+            }
+        }
+        public bool HasPatch => !string.IsNullOrEmpty(_patchPath);
+
         public string BackgroundColor { get; set; } = "#1F1F21";
         public string AccentColor { get; set; } = "#E03535";
         public int PlayCount { get; set; }

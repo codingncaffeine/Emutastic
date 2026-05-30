@@ -312,6 +312,7 @@ namespace Emutastic.ViewModels
                 if (updated.LastPlayed != null) target.LastPlayed = updated.LastPlayed;
                 if (!string.IsNullOrEmpty(updated.ManualPath)) target.ManualPath = updated.ManualPath;
                 if (!string.IsNullOrEmpty(updated.Notes))      target.Notes = updated.Notes;
+                if (!string.IsNullOrEmpty(updated.PatchPath))  target.PatchPath = updated.PatchPath;
             }
 
             // O(1) lookup via index instead of linear scan

@@ -1205,7 +1205,13 @@ namespace Emutastic.Views
                 // Per-game .srm file named after the ROM file stem (not the DB title),
                 // matching how RetroArch and most frontends identify saves.
                 string romStem = Path.GetFileNameWithoutExtension(game.RomPath);
-                _srmPath = Path.Combine(batteryDir, SanitizeFileName(romStem) + ".srm");
+                string srmStem = SanitizeFileName(romStem);
+                // ROM-hack entries share the base ROM file (and thus its stem); disambiguate
+                // their battery save by the entry's (patched) hash so a hack never shares the
+                // base game's .srm. Cloud sync already keys battery saves by RomHash.
+                if (game.HasPatch && !string.IsNullOrEmpty(game.RomHash))
+                    srmStem += "." + game.RomHash.Substring(0, Math.Min(8, game.RomHash.Length));
+                _srmPath = Path.Combine(batteryDir, srmStem + ".srm");
 
                 _saveStatePath = AppPaths.GetFolder("Save States",
                     SanitizeFileName(game.Console), SanitizeFileName(game.Title));
@@ -1487,7 +1493,7 @@ namespace Emutastic.Views
                     }
                 }
 
-                bool loaded = _core.LoadGame(romToLoad);
+                bool loaded = _core.LoadGame(romToLoad, _game.PatchPath);
                 System.Diagnostics.Trace.WriteLine($"LoadGame: {loaded}");
                 // Note: we deliberately do NOT call eject(true)→set_image_index(0)→eject(false)
                 // here. RetroArch doesn't either (`disk_control_interface.c` only invokes
@@ -1506,7 +1512,10 @@ namespace Emutastic.Views
                     // the close path checks _loadFailed and skips disposal.
                     _loadFailed = true;
 
-                    Dispatcher.Invoke(() => MessageBox.Show($"Failed to load {_game.Title}\n\nCheck debug output for details.",
+                    string loadErrDetail = string.IsNullOrEmpty(_core.LastError)
+                        ? "Check debug output for details."
+                        : _core.LastError;
+                    Dispatcher.Invoke(() => MessageBox.Show($"Failed to load {_game.Title}\n\n{loadErrDetail}",
                         "Load Error", MessageBoxButton.OK, MessageBoxImage.Error));
                     return;
                 }

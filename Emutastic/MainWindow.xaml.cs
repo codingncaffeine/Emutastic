@@ -2215,6 +2215,10 @@ namespace Emutastic
             menu.Items.Add(MakeMenuItem(hasManual ? "📖  View Manual" : "⬇  Download Manual",
                 async () => await Views.ManualLauncher.OpenOrDownloadAsync(game, _artworkFetch, this)));
 
+            // ── Apply ROM Hack (cartridge systems only; base ROMs, not already-hacked entries) ──
+            if (!game.HasPatch && Services.RomPatcher.SupportedConsoles.Contains(game.Console))
+                menu.Items.Add(MakeMenuItem("🧩  Apply ROM Hack…", async () => await ApplyRomHackAsync(game)));
+
             // ── Show in Explorer ──
             menu.Items.Add(MakeMenuItem("📁  Show in Explorer", () =>
             {
@@ -2393,6 +2397,114 @@ namespace Emutastic
             var item = new MenuItem { Header = header };
             item.Click += async (s, e) => await onClick();
             return item;
+        }
+
+        /// <summary>
+        /// Attaches an IPS/BPS/UPS patch to a base ROM and creates a separate, distinctly-hashed
+        /// library entry for the hacked version. The patch is validated (and the patched output
+        /// hashed for identity) before the entry is created; the base ROM file is never modified.
+        /// </summary>
+        private async Task ApplyRomHackAsync(Game baseGame)
+        {
+            var dlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Title  = "Select a ROM hack patch",
+                Filter = "ROM hack patches (*.ips;*.bps;*.ups)|*.ips;*.bps;*.ups|All files|*.*"
+            };
+            if (dlg.ShowDialog() != true) return;
+            string patchPicked = dlg.FileName;
+
+            if (!Services.RomPatcher.IsPatchExtension(patchPicked))
+            {
+                ShowInfoDialog("ROM Hack", "That file isn't an IPS, BPS, or UPS patch.");
+                return;
+            }
+
+            _vm.SetStatus($"Validating ROM hack for {baseGame.Title}…");
+
+            string baseRomPath = baseGame.RomPath;
+            string console     = baseGame.Console;
+
+            // Resolve the raw base bytes (extracting if archived), apply + validate the patch,
+            // and hash the patched output — all off the UI thread.
+            var (pr, patchedHash) = await Task.Run<(Services.PatchResult pr, string? hash)>(() =>
+            {
+                try
+                {
+                    string raw = baseRomPath;
+                    string ext = System.IO.Path.GetExtension(raw);
+                    if (Services.ZipRomExtractor.IsArchiveExtension(ext)
+                        && Services.ZipRomExtractor.ConsoleNeedsExtraction(console))
+                    {
+                        string? extracted = Services.ZipRomExtractor.ExtractSync(raw, console);
+                        if (!string.IsNullOrEmpty(extracted) && File.Exists(extracted)) raw = extracted;
+                    }
+                    if (!File.Exists(raw))
+                        return (Services.PatchResult.Fail("The base ROM file couldn't be found."), null);
+
+                    var result = Services.RomPatcher.Apply(File.ReadAllBytes(raw), File.ReadAllBytes(patchPicked));
+                    string? hash = result.Ok && result.Patched != null
+                        ? Convert.ToHexString(System.Security.Cryptography.MD5.HashData(result.Patched))
+                        : null;
+                    return (result, hash);
+                }
+                catch (Exception ex) { return (Services.PatchResult.Fail(ex.Message), null); }
+            });
+
+            if (!pr.Ok || patchedHash == null)
+            {
+                _vm.SetStatus("ROM hack not applied", autoClear: true);
+                ShowInfoDialog("ROM Hack", $"Couldn't apply this patch:\n\n{pr.Error}");
+                return;
+            }
+
+            // Name the hack (default to the patch's file name).
+            string defaultTitle = System.IO.Path.GetFileNameWithoutExtension(patchPicked);
+            var rename = new RenameWindow(defaultTitle) { Owner = this };
+            if (rename.ShowDialog() != true) { _vm.SetStatus("ROM hack not applied", autoClear: true); return; }
+            string hackTitle = string.IsNullOrWhiteSpace(rename.NewTitle) ? defaultTitle : rename.NewTitle;
+
+            // Copy the patch into managed storage (hash-suffixed so two hacks can't collide).
+            string patchDir = AppPaths.GetFolder("RomPatches", console);
+            string safeStem = string.Join("_", defaultTitle.Split(System.IO.Path.GetInvalidFileNameChars()));
+            string storedPatch = System.IO.Path.Combine(patchDir,
+                $"{safeStem} [{patchedHash[..8]}]{System.IO.Path.GetExtension(patchPicked)}");
+            try { File.Copy(patchPicked, storedPatch, overwrite: true); }
+            catch (Exception ex) { _vm.SetStatus($"Couldn't save the patch: {ex.Message}", autoClear: true); return; }
+
+            // Create the hacked entry — distinct RomHash so it gets its own saves/art, never
+            // the base game's. RomPath stays the base ROM; the patch is applied in memory at launch.
+            var hacked = new Game
+            {
+                Title           = hackTitle,
+                Console         = console,
+                Manufacturer    = baseGame.Manufacturer,
+                Year            = baseGame.Year,
+                RomPath         = baseGame.RomPath,
+                RomHash         = patchedHash,
+                Developer       = baseGame.Developer,
+                Publisher       = baseGame.Publisher,
+                Genre           = baseGame.Genre,
+                Description     = baseGame.Description,
+                BackgroundColor = baseGame.BackgroundColor,
+                AccentColor     = baseGame.AccentColor,
+            };
+            _db.InsertGame(hacked);                 // assigns hacked.Id
+            _db.UpdatePatchPath(hacked.Id, storedPatch);
+
+            // Reload from the DB + re-filter the current view — the same path import uses to
+            // surface new games. (RefreshGame alone leaves the filter cache marked clean, so a
+            // freshly created entry wouldn't appear until a manual console switch/refresh.)
+            await Task.Run(() => _vm.Reload());
+            await _vm.FilterGamesAsync();
+            _vm.SetStatus($"Added ROM hack: {hackTitle}", autoClear: true);
+        }
+
+        private void ShowInfoDialog(string title, string message)
+        {
+            var w = new ConfirmDialog(title, message, "OK", danger: false) { Owner = this };
+            w.CancelBtn.Visibility = Visibility.Collapsed;
+            w.ShowDialog();
         }
 
         // ── Keyboard shortcuts ──

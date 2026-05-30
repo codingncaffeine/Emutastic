@@ -420,8 +420,12 @@ namespace Emutastic.Services
             }
         }
 
-        public bool LoadGame(string romPath)
+        /// <summary>Set when LoadGame fails for a surfaceable reason (e.g. a bad ROM-hack patch).</summary>
+        public string? LastError { get; private set; }
+
+        public bool LoadGame(string romPath, string? patchPath = null)
         {
+            LastError = null;
             if (!File.Exists(romPath))
             {
                 System.Diagnostics.Trace.WriteLine($"LoadGame: ROM file does not exist: {romPath}");
@@ -431,6 +435,16 @@ namespace Emutastic.Services
             System.Diagnostics.Trace.WriteLine($"LoadGame: ROM exists, size={new FileInfo(romPath).Length} bytes");
 
             bool needFullPath = SystemInfo.need_fullpath;
+
+            // ROM-hack soft-patching is a memory-buffer operation; it can't apply to cores
+            // that load by file path (need_fullpath). Fail loudly rather than silently
+            // booting the unpatched base game.
+            if (!string.IsNullOrEmpty(patchPath) && needFullPath)
+            {
+                LastError = "This system's core loads ROMs by file path, so ROM hacks can't be soft-patched here.";
+                System.Diagnostics.Trace.WriteLine("LoadGame: patch requested but core need_fullpath=true — refusing");
+                return false;
+            }
 
             byte[]? romData = null;
 
@@ -445,6 +459,35 @@ namespace Emutastic.Services
                 {
                     System.Diagnostics.Trace.WriteLine($"LoadGame: Failed to read ROM: {ex.Message}");
                     return false;
+                }
+
+                // Apply a ROM-hack patch (IPS/BPS/UPS) to the buffer before the core sees it.
+                // Original ROM file is untouched; the patched bytes only live in memory.
+                if (!string.IsNullOrEmpty(patchPath) && romData != null)
+                {
+                    if (!File.Exists(patchPath))
+                    {
+                        LastError = "The ROM-hack patch file is missing — re-attach it from the library.";
+                        System.Diagnostics.Trace.WriteLine($"LoadGame: patch file missing: {patchPath}");
+                        return false;
+                    }
+                    try
+                    {
+                        var pr = RomPatcher.Apply(romData, File.ReadAllBytes(patchPath));
+                        if (!pr.Ok || pr.Patched == null)
+                        {
+                            LastError = pr.Error ?? "Failed to apply the ROM-hack patch.";
+                            System.Diagnostics.Trace.WriteLine($"LoadGame: patch failed: {LastError}");
+                            return false;
+                        }
+                        romData = pr.Patched;
+                        System.Diagnostics.Trace.WriteLine($"LoadGame: patch applied — patched size {romData.Length} bytes");
+                    }
+                    catch (Exception ex)
+                    {
+                        LastError = $"Couldn't read the patch file: {ex.Message}";
+                        return false;
+                    }
                 }
             }
 

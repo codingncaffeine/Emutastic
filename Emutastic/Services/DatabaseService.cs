@@ -193,6 +193,7 @@ namespace Emutastic.Services
             // InsertGame doesn't need to reference them.
             TryAddColumn(connection, "Games", "Notes",      "TEXT DEFAULT ''");
             TryAddColumn(connection, "Games", "ManualPath", "TEXT DEFAULT ''");
+            TryAddColumn(connection, "Games", "PatchPath",  "TEXT DEFAULT ''");
 
             // RetroAchievements cache. RAGameId is captured at launch from
             // rcheevos's identify-game callback; the *Json columns hold the
@@ -1519,6 +1520,17 @@ namespace Emutastic.Services
             cmd.ExecuteNonQuery();
         }
 
+        public void UpdatePatchPath(int gameId, string patchPath)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "UPDATE Games SET PatchPath = $path WHERE Id = $id;";
+            cmd.Parameters.AddWithValue("$path", AppPaths.ToStoragePath(patchPath ?? ""));
+            cmd.Parameters.AddWithValue("$id", gameId);
+            cmd.ExecuteNonQuery();
+        }
+
         /// <summary>
         /// Last-read position for a game's manual, or null if never opened.
         /// Page is 1-based; ScrollFraction is scrollTop/scrollHeight (0..1) so it
@@ -2028,7 +2040,7 @@ namespace Emutastic.Services
                 RAGameId, RAProgressionJson, RAProgressionFetchedAt,
                 RAUserProgressJson, RAUserProgressFetchedAt,
                 RALiveProgressJson, RALiveProgressFetchedAt,
-                RALastLaunchOutcome, TotalPlayTimeSeconds, Notes, ManualPath;
+                RALastLaunchOutcome, TotalPlayTimeSeconds, Notes, ManualPath, PatchPath;
 
             public OrdinalMap(SqliteDataReader reader)
             {
@@ -2069,6 +2081,7 @@ namespace Emutastic.Services
                 TotalPlayTimeSeconds    = TryOrd(reader, "TotalPlayTimeSeconds");
                 Notes                   = TryOrd(reader, "Notes");
                 ManualPath              = TryOrd(reader, "ManualPath");
+                PatchPath               = TryOrd(reader, "PatchPath");
             }
 
             private static int TryOrd(SqliteDataReader r, string col)
@@ -2119,6 +2132,7 @@ namespace Emutastic.Services
                 TotalPlayTimeSeconds    = GetInt(reader, o.TotalPlayTimeSeconds),
                 Notes                   = GetStr(reader, o.Notes),
                 ManualPath              = AppPaths.FromStoragePath(GetStr(reader, o.ManualPath)),
+                PatchPath               = AppPaths.FromStoragePath(GetStr(reader, o.PatchPath)),
             };
         }
 
