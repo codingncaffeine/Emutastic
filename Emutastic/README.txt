@@ -40,10 +40,15 @@ GETTING STARTED
    the original archive is left untouched.
 
 5. (Optional) Set up artwork and accounts:
-   - Preferences -> Snaps: Sign in to ScreenScraper for the richer
-     box-art and metadata library used when you're logged in. Without
-     an account, Emutastic falls back to an offline metadata source
-     (OpenVGDB), which has less complete art coverage.
+   - Preferences -> Snaps: No account is needed to get started --
+     Emutastic identifies games against OpenVGDB, a built-in local
+     database, and downloads box art from the libretro thumbnail
+     server (only the lookup is offline; the art itself is still
+     pulled over the internet). Sign in to ScreenScraper to make it
+     the primary source instead: richer, region-aware metadata with
+     fuller art coverage, plus 3D box art and downloadable game
+     manuals. OpenVGDB then acts as the backup that fills whatever
+     ScreenScraper misses.
    - Preferences -> Achievements: Sign in to RetroAchievements
      (see RETROACHIEVEMENTS section below) to track unlocks.
    - Preferences -> Backups: Sign in to GitHub for free cloud sync of

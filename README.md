@@ -119,6 +119,15 @@ Four built-in themes: **Dark** (default), **Light**, **OLED Black**, **Midnight 
 </details>
 
 <details>
+<summary><strong>Artwork & Metadata</strong></summary>
+
+Box art, titles, developers, genres, and descriptions are filled in automatically — **no account required**. By default Emutastic matches your games against **OpenVGDB**, a built-in local database, and pulls box art from the **libretro thumbnail server**. (Only the OpenVGDB match is offline; the artwork itself still downloads over the internet.)
+
+Sign in to **ScreenScraper** in **Preferences → Snaps** to promote it to the primary source — community-edited, region-aware metadata with fuller coverage, plus **3D box art** and downloadable **game manuals**. OpenVGDB stays on as the backup that fills anything ScreenScraper misses.
+
+</details>
+
+<details>
 <summary><strong>Controllers</strong></summary>
 
 XInput button polling during gameplay with SDL3 device name detection. Xbox, DualSense/DualShock, and hundreds of other controllers are identified by product name. Button mappings configurable per-controller in **Preferences → Input**. Falls back to generic names if `SDL3.dll` is absent.
