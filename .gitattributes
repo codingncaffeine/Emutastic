@@ -1,0 +1,6 @@
+# Third-party libraries — exclude from GitHub language stats (Linguist).
+# PDF.js (bundled for the in-app manual viewer) ships ~7 MB of JavaScript and
+# Fluent locale files. Without this rule it dwarfs the C# source and mislabels
+# the repo as a JavaScript project. The files stay in the repo and keep working;
+# this only removes them from the language breakdown.
+Emutastic/Assets/pdfjs/** linguist-vendored
