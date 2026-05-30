@@ -158,7 +158,7 @@ In-game, achievements appear as toast notifications when you unlock them.
 <details>
 <summary><strong>Cloud Sync</strong></summary>
 
-Sync battery saves and your library database across PCs using your GitHub account. Sign in with one click in **Preferences → Backups** — a private `emutastic-saves` repo is created automatically under your account. Battery saves upload on game close and download on game launch; only newer files transfer. Full bidirectional sync available via **Sync Now**.
+Sync battery saves and your library database across PCs using your GitHub account. The library database carries your game metadata, ratings, favorites, play time, and **per-game notes**, so all of that follows you to a second PC. Sign in with one click in **Preferences → Backups** — a private `emutastic-saves` repo is created automatically under your account. Battery saves upload on game close and download on game launch; only newer files transfer. Full bidirectional sync available via **Sync Now**.
 
 Optional **AES-256-GCM encryption** with a user-chosen passphrase — saves are encrypted before they leave your machine. Your saves repo is a normal private GitHub repo you can browse anytime. See the [Cloud Sync](https://github.com/codingncaffeine/Emutastic/wiki/Cloud-Sync) wiki page for details on encryption, storage limits, sharing saves, and troubleshooting.
 
@@ -170,6 +170,20 @@ Optional **AES-256-GCM encryption** with a user-chosen passphrase — saves are 
 Press **L3 + Start** in-game to flip between discs/sides on systems that need it. Rebindable to any two-button chord (controller or keyboard) in **Preferences → Controls → Disk Swap**. The status bar shows the new disc number on each swap.
 
 Multi-disc games are auto-bundled at import time — see the [ROM Import](#rom-import) section. See the [wiki page](https://github.com/codingncaffeine/Emutastic/wiki/Disk-Swapping) for per-console specifics and troubleshooting.
+
+</details>
+
+<details>
+<summary><strong>Game Notes</strong></summary>
+
+Keep free-form notes on any game — passwords, where you left off, strategies — in a floating editor with line numbers, find, and word-wrap/monospace toggles. Open notes from the library right-click menu, a game's detail card, or the in-game overlay. Notes autosave as you type and ride your Cloud Sync backup across PCs. The window can be pinned on top and rolled up to its title bar — handy beside a running game on a single monitor.
+
+</details>
+
+<details>
+<summary><strong>Game Manuals</strong></summary>
+
+Download a game's original PDF manual and read it in a built-in viewer — zoom, search, page thumbnails — that reopens on your last-read page. Pull it up in-game from the overlay without closing your game. Manuals are sourced from ScreenScraper (requires a ScreenScraper login); coverage is best for popular console titles.
 
 </details>
 
@@ -200,6 +214,17 @@ Drop an empty `portable.txt` next to `Emutastic.exe` **or** launch with the `--p
 ## Cheats
 
 Per-game cheats from the in-game cog menu or the library detail card's `⋯` menu. Game Genie / GameShark / raw codes depending on system. See **[Cheats](https://github.com/codingncaffeine/Emutastic/wiki/Cheats)** in the wiki for code formats per system, storage paths, and the list of cores where cheats aren't supported.
+
+---
+
+<details>
+<summary><strong>ROM Hacks</strong></summary>
+
+Apply an IPS, BPS, or UPS patch to a base game right from the library (right-click → **Apply ROM Hack**). The patched game becomes its own library entry — with its own saves — while your original ROM is left untouched, so there's no second copy on disk. The patch is applied in memory at launch, and BPS/UPS patches are checksum-verified against your ROM, so a mismatched or wrong-region copy is caught before it loads. Available on cartridge systems (SNES, GBA, Game Boy / Game Boy Color, NES, Genesis, Nintendo 64, and more).
+
+See **[ROM Hacks](https://github.com/codingncaffeine/Emutastic/wiki/ROM-Hacks)** in the wiki for the full system list, supported patch formats, how patched ROMs are scraped, and tips on matching a patch to the right base ROM.
+
+</details>
 
 ---
 
