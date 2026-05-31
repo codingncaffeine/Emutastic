@@ -925,6 +925,17 @@ namespace Emutastic.Views
         private wglCreateContextAttribsARBDelegate? _wglCreateContextAttribsARB;
         private bool   _hwRenderActive  = false;
         private ShaderPreset _activeShader = ShaderPreset.None;
+
+        // Downloaded libretro slang shader (librashader). Runs on the emu thread and
+        // reads back into the existing WriteableBitmap, so the HUD/AR/screenshot/
+        // recording paths are untouched. Null preset = built-in WPF shaders / None;
+        // the raw present path stays byte-identical when this is off.
+        private Effects.Librashader.ShaderRenderer? _shaderRenderer;
+        private volatile string? _slangPresetPath;
+        private volatile bool _slangInitFailed;
+        private volatile bool _shaderResetRequested;  // UI sets; emu thread acts
+        private System.Windows.Data.ListCollectionView? _shaderView;  // picker list view
+        private bool _suppressShaderSelect;                           // guard programmatic selection
         private bool   _vsyncDisabled   = false;
         private GameHwndHost? _hwndHost;
 
@@ -1341,7 +1352,8 @@ namespace Emutastic.Views
                     if (OverlayMenu.Visibility == Visibility.Visible
                         || CheatsMenu.Visibility == Visibility.Visible
                         || SaveMenu.Visibility == Visibility.Visible
-                        || VisualsPanel.Visibility == Visibility.Visible)
+                        || VisualsPanel.Visibility == Visibility.Visible
+                        || ShaderPanel.Visibility == Visibility.Visible)
                     {
                         _overlayTimer?.Stop();
                         _overlayTimer?.Start();
@@ -4063,6 +4075,28 @@ namespace Emutastic.Views
                     }
                 }
 
+                // Downloaded slang shader (librashader): GPU pass on THIS (emu) thread.
+                // The shaded BGRA output goes to the UI closure below; any failure
+                // falls through to the untouched raw path.
+                // Honor a toggle from the UI thread: dispose+reinit happen HERE on the
+                // emu thread so the renderer is never touched from two threads at once.
+                if (_shaderResetRequested)
+                {
+                    _shaderResetRequested = false;
+                    var oldR = _shaderRenderer; _shaderRenderer = null;
+                    oldR?.Dispose();
+                }
+                byte[]? shadedBuf = null; int shadedW = 0, shadedH = 0;
+                if (_slangPresetPath != null && !_slangInitFailed)
+                {
+                    EnsureShaderRenderer();
+                    if (_shaderRenderer is { IsReady: true })
+                        shadedBuf = _shaderRenderer.Process(
+                            _videoFrameBuffer, (int)width, (int)height, srcPitch,
+                            _pixelFormat == RETRO_PIXEL_FORMAT_XRGB8888,
+                            out shadedW, out shadedH);
+                }
+
                 _videoPending = true;
 
                 // Capture locals for the closure — fields may change on next frame.
@@ -4071,35 +4105,95 @@ namespace Emutastic.Views
                 int    rBytes   = rowBytes;
                 uint   w = width, h = height;
                 PixelFormat pf  = pixFmt;
+                byte[]? shaded  = shadedBuf;
+                int     shW = shadedW, shH = shadedH;
 
                 Dispatcher.BeginInvoke(() =>
                 {
                     try
                     {
-                        if (_bitmap == null || _videoWidth != w || _videoHeight != h || _bitmap.Format != pf)
+                        if (shaded != null)
                         {
-                            _videoWidth = w; _videoHeight = h;
-                            _bitmap = new WriteableBitmap((int)w, (int)h, 96, 96, pf, null);
-                            GameScreen.Source = _bitmap;
-                            UpdateDisplayAspectRatio(w, h, _core?.AvInfo.geometry.aspect_ratio ?? 0f);
-                            UpdateShaderScreenHeight(h);
-                            ApplyGameScreenScalingMode(w, h);
+                            // Shaded output: BGRA32, tightly packed, at the shader's
+                            // output resolution. AR/geometry still derive from the
+                            // NATIVE w/h — the uniform upscale preserves the ratio.
+                            if (_bitmap == null || _bitmap.PixelWidth != shW || _bitmap.PixelHeight != shH || _bitmap.Format != PixelFormats.Bgra32)
+                            {
+                                _videoWidth = w; _videoHeight = h;
+                                _bitmap = new WriteableBitmap(shW, shH, 96, 96, PixelFormats.Bgra32, null);
+                                GameScreen.Source = _bitmap;
+                                UpdateDisplayAspectRatio(w, h, _core?.AvInfo.geometry.aspect_ratio ?? 0f);
+                                UpdateShaderScreenHeight(h);
+                                ApplyGameScreenScalingMode(w, h);
+                            }
+                            _bitmap.Lock();
+                            try
+                            {
+                                int destPitch = _bitmap.BackBufferStride;
+                                int srcStride = shW * 4;
+                                for (int y = 0; y < shH; y++)
+                                    Marshal.Copy(shaded, y * srcStride, _bitmap.BackBuffer + y * destPitch, srcStride);
+                                _bitmap.AddDirtyRect(new Int32Rect(0, 0, shW, shH));
+                            }
+                            finally { _bitmap.Unlock(); }
                         }
-                        _bitmap.Lock();
-                        try
+                        else
                         {
-                            int destPitch = _bitmap.BackBufferStride;
-                            for (int y = 0; y < (int)h; y++)
-                                Marshal.Copy(buf, y * sp, _bitmap.BackBuffer + y * destPitch, rBytes);
-                            _bitmap.AddDirtyRect(new Int32Rect(0, 0, (int)w, (int)h));
+                            if (_bitmap == null || _videoWidth != w || _videoHeight != h || _bitmap.Format != pf)
+                            {
+                                _videoWidth = w; _videoHeight = h;
+                                _bitmap = new WriteableBitmap((int)w, (int)h, 96, 96, pf, null);
+                                GameScreen.Source = _bitmap;
+                                UpdateDisplayAspectRatio(w, h, _core?.AvInfo.geometry.aspect_ratio ?? 0f);
+                                UpdateShaderScreenHeight(h);
+                                ApplyGameScreenScalingMode(w, h);
+                            }
+                            _bitmap.Lock();
+                            try
+                            {
+                                int destPitch = _bitmap.BackBufferStride;
+                                for (int y = 0; y < (int)h; y++)
+                                    Marshal.Copy(buf, y * sp, _bitmap.BackBuffer + y * destPitch, rBytes);
+                                _bitmap.AddDirtyRect(new Int32Rect(0, 0, (int)w, (int)h));
+                            }
+                            finally { _bitmap.Unlock(); }
                         }
-                        finally { _bitmap.Unlock(); }
                     }
                     catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Video UI: {ex.Message}"); }
                     finally { _videoPending = false; }
                 }, DispatcherPriority.Render);
             }
             catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Video refresh: {ex.Message}"); }
+        }
+
+        /// <summary>
+        /// Lazily creates the librashader renderer on the emu thread the first time a
+        /// downloaded preset is active. On failure sets _slangInitFailed so we don't
+        /// retry every frame (the caller then falls back to the raw/built-in path).
+        /// </summary>
+        private void EnsureShaderRenderer()
+        {
+            if (_shaderRenderer != null || _slangInitFailed || _slangPresetPath == null) return;
+            try
+            {
+                string dll = System.IO.Path.Combine(AppPaths.GetFolder("Shaders"), "librashader.dll");
+                var r = new Effects.Librashader.ShaderRenderer();
+                if (r.Initialize(dll, _slangPresetPath))
+                {
+                    _shaderRenderer = r;
+                }
+                else
+                {
+                    System.Diagnostics.Trace.WriteLine($"[Shader] librashader init failed: {r.LastError}");
+                    r.Dispose();
+                    _slangInitFailed = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[Shader] renderer init exception: {ex.Message}");
+                _slangInitFailed = true;
+            }
         }
 
         // =========================================================================
@@ -4712,6 +4806,9 @@ namespace Emutastic.Views
 
         private void Window_KeyDown(object sender, KeyEventArgs e)
         {
+            // Let an editable text field (e.g. the shader picker search box) receive
+            // keystrokes instead of routing them to game input / consuming them.
+            if (Keyboard.FocusedElement is System.Windows.Controls.TextBox) return;
             RecLog($"KeyDown: {e.Key}");
             SetKey(e.Key, true);
 
@@ -5148,7 +5245,12 @@ namespace Emutastic.Views
             }
         }
 
-        protected override void OnKeyUp(KeyEventArgs e) { SetKey(e.Key, false); base.OnKeyUp(e); }
+        protected override void OnKeyUp(KeyEventArgs e)
+        {
+            if (Keyboard.FocusedElement is System.Windows.Controls.TextBox) { base.OnKeyUp(e); return; }
+            SetKey(e.Key, false);
+            base.OnKeyUp(e);
+        }
 
         private void LoadKeyboardMappings()
         {
@@ -5639,26 +5741,30 @@ namespace Emutastic.Views
                         // Software core: capture from WPF WriteableBitmap on UI thread
                         byte[]? swPixels = null;
                         int swW = 0, swH = 0, swStride = 0;
+                        PixelFormat swFmt = PixelFormats.Bgr565;
                         Dispatcher.Invoke(() =>
                         {
                             if (_bitmap != null)
                             {
                                 swW = _bitmap.PixelWidth; swH = _bitmap.PixelHeight;
                                 swStride = _bitmap.BackBufferStride; // actual stride (Bgr565 = swW*2, not swW*4)
+                                swFmt = _bitmap.Format;              // Bgra32 when a slang shader is active
                                 swPixels = new byte[swH * swStride];
                                 _bitmap.CopyPixels(swPixels, swStride, 0);
                             }
                         });
                         if (swPixels != null && swW > 0)
                         {
-                            if (_pixelFormat == RETRO_PIXEL_FORMAT_XRGB8888)
+                            // Branch on the ACTUAL bitmap format, not the core's native
+                            // format — a downloaded slang shader renders into a Bgra32
+                            // bitmap even for 565 cores.
+                            if (swFmt == PixelFormats.Bgra32)
                             {
-                                // Bgr32 raw data: bytes are [B, G, R, X] where X=0.
-                                // Set X→0xFF so BitmapSource.Create(Bgra32) gets fully opaque alpha.
+                                // [B, G, R, X/A]: force alpha opaque for BitmapSource.Create(Bgra32).
                                 for (int i = 3; i < swPixels.Length; i += 4)
                                     swPixels[i] = 0xFF;
                             }
-                            else if (_pixelFormat == RETRO_PIXEL_FORMAT_RGB565)
+                            else if (swFmt == PixelFormats.Bgr565)
                             {
                                 // Convert Bgr565 → Bgra32.
                                 // Must index by row×stride+col×2 because stride ≠ swW*2 in general.
@@ -6215,7 +6321,8 @@ namespace Emutastic.Views
             if (OverlayMenu.Visibility == Visibility.Visible
                 || CheatsMenu.Visibility == Visibility.Visible
                 || SaveMenu.Visibility == Visibility.Visible
-                || VisualsPanel.Visibility == Visibility.Visible)
+                || VisualsPanel.Visibility == Visibility.Visible
+                || ShaderPanel.Visibility == Visibility.Visible)
             {
                 _overlayTimer?.Stop();
                 _overlayTimer?.Start();
@@ -7090,6 +7197,8 @@ namespace Emutastic.Views
         {
             OverlayMenu.Visibility = Visibility.Collapsed;
             CheatsMenu.Visibility = Visibility.Collapsed;
+            VisualsPanel.Visibility = Visibility.Collapsed;
+            ShaderPanel.Visibility = Visibility.Collapsed;
             if (SaveMenu.Visibility == Visibility.Visible)
             {
                 CloseSaveMenu();
@@ -7210,6 +7319,7 @@ namespace Emutastic.Views
             CloseSaveMenu();
             CheatsMenu.Visibility = Visibility.Collapsed;
             VisualsPanel.Visibility = Visibility.Collapsed;
+            ShaderPanel.Visibility = Visibility.Collapsed;
             OverlayMenu.Visibility = OverlayMenu.Visibility == Visibility.Visible
                 ? Visibility.Collapsed
                 : Visibility.Visible;
@@ -7227,6 +7337,7 @@ namespace Emutastic.Views
         {
             OverlayMenu.Visibility = Visibility.Collapsed;
             VisualsPanel.Visibility = Visibility.Collapsed;
+            ShaderPanel.Visibility = Visibility.Collapsed;
             CloseSaveMenu();
             RefreshCheatsList();
             CheatsMenu.Visibility = Visibility.Visible;
@@ -7623,23 +7734,100 @@ namespace Emutastic.Views
 
         // ── Shader Effects ────────────────────────────────────────────────
 
-        private void OverlayShader_Click(object sender, RoutedEventArgs e)
+        private async void OverlayShader_Click(object sender, RoutedEventArgs e)
         {
-            // Cycle to next preset
-            var values = Enum.GetValues<ShaderPreset>();
-            int next = ((int)_activeShader + 1) % values.Length;
-            _activeShader = values[next];
-
-            ApplyShader(_activeShader);
-            UpdateShaderLabel();
-
-            // Persist per-game
-            _configService.SetValue($"shader_{_game.Id}", _activeShader.ToString());
-            _ = _configService.SaveAsync();
-
+            // Open the picker (little selection window) instead of cycling.
+            if (_hwRenderActive) return;   // defense-in-depth; the button is hidden on HW cores
             OverlayMenu.Visibility = Visibility.Collapsed;
+            CheatsMenu.Visibility = Visibility.Collapsed;
+            VisualsPanel.Visibility = Visibility.Collapsed;
+            CloseSaveMenu();
+            await BuildShaderPickerAsync();
+            ShaderPanel.Visibility = Visibility.Visible;
+            ShaderSearchBox.Focus();   // so keystrokes reach the box, not game input
             ResetOverlayTimer();
         }
+
+        /// <summary>
+        /// Populates the picker: built-in effects + downloaded presets (scanned OFF the
+        /// UI thread, grouped by category), then pre-selects the active entry without
+        /// firing an apply.
+        /// </summary>
+        private async System.Threading.Tasks.Task BuildShaderPickerAsync()
+        {
+            var items = new System.Collections.Generic.List<Effects.Librashader.ShaderPresetItem>();
+            foreach (var p in Enum.GetValues<ShaderPreset>())
+                items.Add(new Effects.Librashader.ShaderPresetItem
+                {
+                    Display = p.DisplayName(), Category = "Built-in", IsBuiltin = true, Builtin = p
+                });
+
+            string slangRoot = AppPaths.GetFolder("Shaders", "slang");
+            var downloaded = await System.Threading.Tasks.Task.Run(
+                () => Effects.Librashader.ShaderCatalog.GetDownloaded(slangRoot));
+            items.AddRange(downloaded);
+
+            var view = new System.Windows.Data.ListCollectionView(items);
+            view.GroupDescriptions.Add(new System.Windows.Data.PropertyGroupDescription("Category"));
+            _shaderView = view;
+            ApplyShaderFilter();
+
+            bool MatchesActive(Effects.Librashader.ShaderPresetItem it)
+            {
+                if (_slangPresetPath != null)
+                    return !it.IsBuiltin && it.AbsolutePath != null
+                        && string.Equals(System.IO.Path.GetFullPath(it.AbsolutePath),
+                                          System.IO.Path.GetFullPath(_slangPresetPath),
+                                          StringComparison.OrdinalIgnoreCase);
+                return it.IsBuiltin && it.Builtin == _activeShader;
+            }
+
+            _suppressShaderSelect = true;
+            ShaderList.ItemsSource = view;
+            var active = items.FirstOrDefault(MatchesActive);
+            ShaderList.SelectedItem = active;
+            if (active != null) ShaderList.ScrollIntoView(active);
+            _suppressShaderSelect = false;
+        }
+
+        private void ApplyShaderFilter()
+        {
+            if (_shaderView == null) return;
+            string q = ShaderSearchBox.Text?.Trim() ?? "";
+            _shaderView.Filter = string.IsNullOrEmpty(q)
+                ? null
+                : o => o is Effects.Librashader.ShaderPresetItem it
+                    && (it.Display.Contains(q, StringComparison.OrdinalIgnoreCase)
+                     || it.Category.Contains(q, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private void ShaderSearch_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+            => ApplyShaderFilter();
+
+        private void ShaderList_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+        {
+            if (_suppressShaderSelect) return;
+            if (ShaderList.SelectedItem is not Effects.Librashader.ShaderPresetItem item) return;
+
+            if (item.IsBuiltin)
+            {
+                SetSlangPreset(null);            // clear any downloaded preset (emu-thread reset)
+                _activeShader = item.Builtin;
+                ApplyShader(_activeShader);
+                _configService.SetValue($"shader_{_game.Id}", _activeShader.ToString());
+            }
+            else if (item.AbsolutePath != null)
+            {
+                SetSlangPreset(item.AbsolutePath);
+                _configService.SetValue($"shader_{_game.Id}",
+                    "slang:" + (item.RelativePath ?? System.IO.Path.GetFileName(item.AbsolutePath)));
+            }
+            _ = _configService.SaveAsync();
+            UpdateShaderLabel();
+        }
+
+        private void ShaderPickerDone_Click(object sender, RoutedEventArgs e)
+            => ShaderPanel.Visibility = Visibility.Collapsed;
 
         private void ApplyShader(ShaderPreset preset)
         {
@@ -7655,9 +7843,28 @@ namespace Emutastic.Views
             }
         }
 
+        /// <summary>
+        /// Selects (or clears) the downloaded slang preset. Renderer create/dispose
+        /// is deferred to the emu thread (via _shaderResetRequested) so it is never
+        /// touched from two threads at once.
+        /// </summary>
+        private void SetSlangPreset(string? path)
+        {
+            _slangPresetPath = path;
+            _slangInitFailed = false;
+            _shaderResetRequested = true;       // emu thread disposes old + reinits
+            if (path != null)
+            {
+                GameScreen.Effect = null;       // the slang shader replaces the WPF effect
+                RenderOptions.SetBitmapScalingMode(GameScreen, BitmapScalingMode.HighQuality);
+            }
+        }
+
         private void UpdateShaderLabel()
         {
-            OverlayShaderBtn.Content = $"Shader: {_activeShader.DisplayName()}";
+            OverlayShaderBtn.Content = _slangPresetPath != null
+                ? $"Shader: {System.IO.Path.GetFileNameWithoutExtension(_slangPresetPath)} (downloaded)"
+                : $"Shader: {_activeShader.DisplayName()}";
         }
 
         private void RestoreShaderPreset()
@@ -7665,8 +7872,16 @@ namespace Emutastic.Views
             try
             {
                 string saved = _configService.GetValue($"shader_{_game.Id}", "None");
-                if (Enum.TryParse<ShaderPreset>(saved, out var p))
-                    _activeShader = p;
+                if (saved.StartsWith("slang:", StringComparison.Ordinal))
+                {
+                    string relOrName = saved["slang:".Length..];
+                    string? abs = Effects.Librashader.ShaderCatalog.Resolve(
+                        AppPaths.GetFolder("Shaders", "slang"), relOrName);
+                    if (abs != null) { SetSlangPreset(abs); UpdateShaderLabel(); return; }
+                    // Pack/preset no longer present — fall through to built-in None.
+                }
+                if (Enum.TryParse<ShaderPreset>(saved, out var preset))
+                    _activeShader = preset;
                 ApplyShader(_activeShader);
                 UpdateShaderLabel();
             }
@@ -7735,6 +7950,7 @@ namespace Emutastic.Views
         {
             OverlayMenu.Visibility = Visibility.Collapsed;
             CheatsMenu.Visibility = Visibility.Collapsed;
+            ShaderPanel.Visibility = Visibility.Collapsed;
             CloseSaveMenu();
             BuildVisualsPanel();
             VisualsPanel.Visibility = Visibility.Visible;
@@ -8118,6 +8334,10 @@ namespace Emutastic.Views
                 // Allow up to 10 s for heavy cores (PPSSPP, N64) whose internal threads take time.
                 if (!(_emuThread?.Join(10000) ?? true))
                     System.Diagnostics.Trace.WriteLine("WARNING: emu thread did not exit within 10s");
+
+                // Emu thread has stopped — safe to dispose the shader renderer it owned.
+                try { _shaderRenderer?.Dispose(); } catch { /* best effort */ }
+                _shaderRenderer = null;
 
                 // Cloud sync: upload battery save after emu thread has flushed SRAM to disk.
                 if (!_loadFailed && !string.IsNullOrEmpty(_game.RomHash)

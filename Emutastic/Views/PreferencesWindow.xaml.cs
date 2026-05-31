@@ -3015,6 +3015,115 @@ namespace Emutastic.Views
                 ovlBadge, ovlProgress, ovlStatus, ovlBtn,
                 isLast: false));
 
+            // ── Video Shaders (libretro slang) row ─────────────────────────────
+            // Multi-pass .slangp shader collection from the libretro buildbot
+            // (~51 MB). Rendered via librashader on supported systems (later
+            // phase); the built-in WPF shaders stay available without this.
+            string slangDir     = AppPaths.GetFolder("Shaders", "slang");
+            string slangMarker  = System.IO.Path.Combine(slangDir, ".installed");
+            bool   slangPresent = System.IO.File.Exists(slangMarker);
+
+            var slangStatus   = new TextBlock   { FontSize = 10, Foreground = _brushTextMuted, Visibility = Visibility.Collapsed };
+            var slangProgress = new ProgressBar { Height = 4, Minimum = 0, Maximum = 100, Value = 0, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 4, 0, 0) };
+            var slangBadge    = MakeBadge(slangPresent);
+            var slangBtn      = new Button
+            {
+                Content           = slangPresent ? "Re-download" : "Download",
+                Style             = (Style)FindResource("SmallOutlineButton"),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            slangBtn.Click += async (_, _) =>
+            {
+                slangBtn.IsEnabled       = false;
+                slangProgress.Visibility = Visibility.Visible;
+                slangStatus.Visibility   = Visibility.Visible;
+                slangStatus.Text         = "Downloading shader pack…";
+                slangProgress.Value      = 0;
+                try
+                {
+                    const string url = "https://buildbot.libretro.com/assets/frontend/shaders_slang.zip";
+                    string tmpZip = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "emutastic_shaders_slang.zip");
+
+                    using (var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromMinutes(10) })
+                    {
+                        http.DefaultRequestHeaders.Add("User-Agent", "Emutastic");
+                        using var resp = await http.GetAsync(url, System.Net.Http.HttpCompletionOption.ResponseHeadersRead);
+                        resp.EnsureSuccessStatusCode();
+                        long total = resp.Content.Headers.ContentLength ?? -1;
+                        long got = 0;
+                        await using var src = await resp.Content.ReadAsStreamAsync();
+                        await using var dst = System.IO.File.Create(tmpZip);
+                        var buf = new byte[81920];
+                        int read;
+                        while ((read = await src.ReadAsync(buf)) > 0)
+                        {
+                            await dst.WriteAsync(buf.AsMemory(0, read));
+                            got += read;
+                            if (total > 0) slangProgress.Value = (int)(got * 90 / total);
+                        }
+                    }
+
+                    slangStatus.Text = "Extracting…";
+                    await System.Threading.Tasks.Task.Run(() =>
+                    {
+                        foreach (var d in System.IO.Directory.GetDirectories(slangDir))
+                            System.IO.Directory.Delete(d, recursive: true);
+                        System.IO.Compression.ZipFile.ExtractToDirectory(tmpZip, slangDir, overwriteFiles: true);
+                        try { System.IO.File.Delete(tmpZip); } catch { /* temp cleanup best-effort */ }
+                    });
+
+                    // Also fetch the librashader runtime DLL (the engine that runs
+                    // these presets) into the Shaders/ root. 0.6.1 is the newest
+                    // prebuilt Windows binary (shipped in the v0.6.2 release).
+                    slangStatus.Text = "Downloading shader engine…";
+                    const string runtimeUrl = "https://github.com/SnowflakePowered/librashader/releases/download/librashader-v0.6.2/librashader-x86_64-windows-0.6.1-optimized.zip";
+                    string tmpRt = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "emutastic_librashader_rt.zip");
+                    string shadersRoot = AppPaths.GetFolder("Shaders");
+                    using (var http2 = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromMinutes(5) })
+                    {
+                        http2.DefaultRequestHeaders.Add("User-Agent", "Emutastic");
+                        var rtBytes = await http2.GetByteArrayAsync(runtimeUrl);
+                        await System.IO.File.WriteAllBytesAsync(tmpRt, rtBytes);
+                    }
+                    await System.Threading.Tasks.Task.Run(() =>
+                    {
+                        using (var z = System.IO.Compression.ZipFile.OpenRead(tmpRt))
+                        {
+                            var dllEntry = z.Entries.FirstOrDefault(e =>
+                                e.Name.Equals("librashader.dll", StringComparison.OrdinalIgnoreCase));
+                            if (dllEntry == null)
+                                throw new Exception("librashader.dll not found in the runtime package.");
+                            using var es = dllEntry.Open();
+                            using var fs = System.IO.File.Create(System.IO.Path.Combine(shadersRoot, "librashader.dll"));
+                            es.CopyTo(fs);
+                        }
+                        try { System.IO.File.Delete(tmpRt); } catch { /* best effort */ }
+                        // Mark installed only after BOTH the presets and the engine DLL landed.
+                        System.IO.File.WriteAllText(slangMarker, DateTime.UtcNow.ToString("o"));
+                    });
+
+                    int presetCount = System.IO.Directory.GetFiles(slangDir, "*.slangp", System.IO.SearchOption.AllDirectories).Length;
+                    slangProgress.Value = 100;
+                    slangStatus.Text = $"Installed — {presetCount} presets.";
+                    slangBadge.Background = new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58));
+                    ((TextBlock)slangBadge.Child).Text       = "Present";
+                    ((TextBlock)slangBadge.Child).Foreground = new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58));
+                    slangBtn.Content = "Re-download";
+                }
+                catch (Exception ex)
+                {
+                    slangStatus.Text = $"Failed: {ex.Message}";
+                }
+                finally { slangBtn.IsEnabled = true; }
+            };
+
+            extrasStack.Children.Add(MakeExtrasRow(
+                "Video Shaders (libretro)",
+                "Community multi-pass shader pack from libretro (~51 MB): CRT, LCD, NTSC, scalers and more. The built-in shaders stay available without this download.",
+                slangBadge, slangProgress, slangStatus, slangBtn,
+                isLast: false));
+
             // ── Cheats Database row ────────────────────────────────────────────
             // Single-file download of the libretro community cheats database
             // (~37 MB). Per-game cheats import from the in-game / library

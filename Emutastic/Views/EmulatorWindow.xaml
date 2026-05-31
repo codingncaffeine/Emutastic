@@ -300,6 +300,111 @@
                         </StackPanel>
                     </Border>
 
+                    <!-- Shader picker (shown from overlay cog → Shader). Little
+                         selection window: themed, scrollable, grouped, virtualized. -->
+                    <Border x:Name="ShaderPanel"
+                            Visibility="Collapsed"
+                            VerticalAlignment="Bottom"
+                            HorizontalAlignment="Left"
+                            Margin="8,0,0,8"
+                            Background="#EE121214"
+                            BorderBrush="#44FFFFFF"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            MinWidth="300"
+                            MaxWidth="420">
+                        <StackPanel Margin="10,10,10,10">
+                            <Grid Margin="0,0,0,8">
+                                <TextBlock Text="Shader"
+                                           FontFamily="{StaticResource PrimaryFont}"
+                                           FontSize="12"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextPrimaryBrush}"
+                                           VerticalAlignment="Center"/>
+                                <Button x:Name="ShaderPickerDoneBtn"
+                                        Content="Done"
+                                        HorizontalAlignment="Right"
+                                        FontSize="10"
+                                        Padding="10,4"
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        Click="ShaderPickerDone_Click"/>
+                            </Grid>
+                            <TextBox x:Name="ShaderSearchBox"
+                                     Margin="0,0,0,8"
+                                     Padding="6,4"
+                                     FontFamily="{StaticResource PrimaryFont}"
+                                     FontSize="11"
+                                     Background="#22FFFFFF"
+                                     Foreground="{DynamicResource TextPrimaryBrush}"
+                                     CaretBrush="{DynamicResource TextPrimaryBrush}"
+                                     BorderBrush="#44FFFFFF"
+                                     BorderThickness="1"
+                                     TextChanged="ShaderSearch_TextChanged"/>
+                            <ListBox x:Name="ShaderList"
+                                     MaxHeight="340"
+                                     Background="Transparent"
+                                     BorderThickness="0"
+                                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                     ScrollViewer.CanContentScroll="True"
+                                     VirtualizingPanel.IsVirtualizing="True"
+                                     VirtualizingPanel.IsVirtualizingWhenGrouping="True"
+                                     VirtualizingPanel.ScrollUnit="Pixel"
+                                     SelectionChanged="ShaderList_SelectionChanged">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Display}"
+                                                   FontFamily="{StaticResource PrimaryFont}"
+                                                   FontSize="11"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                                <ListBox.GroupStyle>
+                                    <GroupStyle>
+                                        <GroupStyle.HeaderTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Name}"
+                                                           FontFamily="{StaticResource PrimaryFont}"
+                                                           FontSize="10"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="{DynamicResource TextMutedBrush}"
+                                                           Margin="0,8,0,3"/>
+                                            </DataTemplate>
+                                        </GroupStyle.HeaderTemplate>
+                                    </GroupStyle>
+                                </ListBox.GroupStyle>
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem">
+                                        <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+                                        <Setter Property="Padding" Value="8,4"/>
+                                        <Setter Property="Margin" Value="0,1"/>
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="ListBoxItem">
+                                                    <Border x:Name="bd"
+                                                            Background="Transparent"
+                                                            CornerRadius="4"
+                                                            Padding="{TemplateBinding Padding}">
+                                                        <ContentPresenter/>
+                                                    </Border>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter TargetName="bd" Property="Background" Value="#22FFFFFF"/>
+                                                        </Trigger>
+                                                        <Trigger Property="IsSelected" Value="True">
+                                                            <Setter TargetName="bd" Property="Background" Value="#33E03535"/>
+                                                            <Setter Property="Foreground" Value="#FFFFFFFF"/>
+                                                        </Trigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
+                            </ListBox>
+                        </StackPanel>
+                    </Border>
+
                     <!-- Pause effect overlay (animated wallpaper while paused).
                          Sits below OverlayHud so the cog/cheats UI stays visible if
                          the user opens it while paused. Reparented into the Vulkan
