@@ -304,6 +304,16 @@ Emulation is handled by libretro cores maintained by their upstream authors. Emu
 
 Full license texts in `NOTICES.txt`.
 
+### Shaders & Bezels
+
+Optional downloadable extras (Preferences → Cores/Extras). Emutastic bundles none of these — the in-app downloader fetches them from the sources below on demand.
+
+| Project | Purpose | License |
+|---|---|---|
+| [librashader](https://github.com/SnowflakePowered/librashader) | Runtime that renders slang shader presets | MPL-2.0 (runtime) / MIT (headers) |
+| [libretro slang-shaders](https://github.com/libretro/slang-shaders) | Community multi-pass shader preset collection | Various (per shader) |
+| [The Bezel Project](https://github.com/thebezelproject) | Arcade & Neo Geo bezel artwork | Community artwork |
+
 ### Controller Illustrations
 Artwork from [OpenEmuControllerArt](https://github.com/kodi-game/OpenEmuControllerArt) (BSD 3-Clause). Not affiliated with or endorsed by OpenEmu.
 

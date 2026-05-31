@@ -221,18 +221,30 @@
             <!-- Game viewport -->
             <Border x:Name="GameBorder" Grid.Row="1" Background="Black">
                 <Grid x:Name="GameViewport">
-                    <Image x:Name="GameScreen"
-                           Stretch="Uniform"
-                           HorizontalAlignment="Center"
-                           VerticalAlignment="Center"
-                           RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+                    <!-- Game visuals (game + overlays) grouped so a screenshot can
+                         capture the bezel composite without the HUD/panels on top. -->
+                    <Grid x:Name="GameLayer">
+                        <Image x:Name="GameScreen"
+                               Stretch="Uniform"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               RenderOptions.BitmapScalingMode="NearestNeighbor"/>
 
-                    <!-- Vectrex game overlay (transparent PNG layered on top) -->
-                    <Image x:Name="VectrexOverlayImage"
-                           Stretch="Fill"
-                           IsHitTestVisible="False"
-                           Visibility="Collapsed"
-                           RenderOptions.BitmapScalingMode="HighQuality"/>
+                        <!-- Vectrex game overlay (transparent PNG layered on top) -->
+                        <Image x:Name="VectrexOverlayImage"
+                               Stretch="Fill"
+                               IsHitTestVisible="False"
+                               Visibility="Collapsed"
+                               RenderOptions.BitmapScalingMode="HighQuality"/>
+
+                        <!-- Arcade / Neo Geo bezel frame (1920x1080 transparent-window PNG
+                             layered over the game; game shows through the centre window). -->
+                        <Image x:Name="BezelImage"
+                               Stretch="Uniform"
+                               IsHitTestVisible="False"
+                               Visibility="Collapsed"
+                               RenderOptions.BitmapScalingMode="HighQuality"/>
+                    </Grid>
 
                     <!-- Inline load-state picker (shown above HUD, right-aligned) -->
                     <Border x:Name="LoadPickerPanel"
@@ -455,6 +467,11 @@
                                         Visibility="Collapsed"
                                         Style="{StaticResource OverlayMenuItemStyle}"
                                         Click="OverlayToggle_Click"/>
+                                <Button x:Name="BezelToggleBtn"
+                                        Content="Bezel: Off"
+                                        Visibility="Collapsed"
+                                        Style="{StaticResource OverlayMenuItemStyle}"
+                                        Click="BezelToggle_Click"/>
                                 <Button x:Name="OverlayScreenLayoutBtn"
                                         Visibility="Collapsed"
                                         Style="{StaticResource OverlayMenuItemStyle}"

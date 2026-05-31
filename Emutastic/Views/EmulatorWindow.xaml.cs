@@ -1205,6 +1205,9 @@ namespace Emutastic.Views
                 if (game.Console == "Vectrex")
                     InitVectrexOverlay(game);
 
+                // Arcade / Neo Geo bezel frame (shows the cog toggle; auto-loads if enabled)
+                InitBezelOverlay(game);
+
                 _core = core;
                 _consoleHandler = ConsoleHandlerFactory.Create(game.Console);
                 Title = $"{game.Title} - {game.Console}";
@@ -3757,6 +3760,14 @@ namespace Emutastic.Views
         private double _displayAr    = 0;   // current display aspect ratio (0 = unknown)
         private bool   _windowSized  = false; // true after the first auto-size
 
+        // Arcade/NeoGeo bezel overlay: when active the WINDOW snaps to the bezel's
+        // AR (~16:9) while the game keeps its own AR/rotation transform. WindowAr is
+        // used for window geometry (snap + WM_SIZING); the game ScaleTransform still
+        // uses _displayAr so the game renders correctly inside the bezel window.
+        private bool   _bezelActive  = false;
+        private double _bezelAr      = 0;
+        private double WindowAr => (_bezelActive && _bezelAr > 0.01) ? _bezelAr : _displayAr;
+
         private void UpdateDisplayAspectRatio(uint baseWidth, uint baseHeight, float coreAr)
         {
             // Dolphin (UseEmbeddedWindow) renders directly into the HwndHost Win32 window;
@@ -3798,13 +3809,13 @@ namespace Emutastic.Views
                 if (!_windowSized)
                 {
                     _windowSized = true;
-                    AutoSizeWindowToGameAr(displayAr);
+                    AutoSizeWindowToGameAr(displayAr);   // bezel-aware when a bezel is active
                 }
                 else
                 {
-                    // Window was restored from a saved size — snap height to
-                    // match the AR so the game isn't stretched.
-                    SnapWindowToAr(displayAr);
+                    // Window was restored from a saved size — snap height to match the
+                    // AR (the bezel AR when a bezel is active) so the game isn't stretched.
+                    SnapWindowToAr(WindowAr);
                 }
             });
         }
@@ -3850,8 +3861,19 @@ namespace Emutastic.Views
                 gameH *= scale;
             }
 
-            Width  = Math.Max(gameW, 320);
-            Height = Math.Max(gameH + chromeH, 200);
+            if (_bezelActive && _bezelAr > 0.01)
+            {
+                // Bezel active: keep the game's height and widen the window to the bezel's
+                // frame AR (~16:9) so the game keeps its size and vertical games aren't
+                // squashed into a sliver. The game centres in the wider viewport.
+                Width  = Math.Max(Math.Min(gameH * _bezelAr, screen.Width * 0.95), 320);
+                Height = Math.Max(gameH + chromeH, 200);
+            }
+            else
+            {
+                Width  = Math.Max(gameW, 320);
+                Height = Math.Max(gameH + chromeH, 200);
+            }
         }
 
         /// <summary>
@@ -4890,12 +4912,15 @@ namespace Emutastic.Views
                     {
                         try
                         {
-                            int w = (int)Math.Round(GameScreen.ActualWidth);
-                            int h = (int)Math.Round(GameScreen.ActualHeight);
+                            // Under a bezel, capture the composite (game + frame, no HUD)
+                            // so the screenshot is WYSIWYG; otherwise just the game.
+                            FrameworkElement capTarget = _bezelActive ? GameLayer : GameScreen;
+                            int w = (int)Math.Round(capTarget.ActualWidth);
+                            int h = (int)Math.Round(capTarget.ActualHeight);
                             if (w > 0 && h > 0)
                             {
                                 var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
-                                rtb.Render(GameScreen);
+                                rtb.Render(capTarget);
                                 rtb.Freeze();
                                 rtbCaptured = rtb;
                             }
@@ -4936,7 +4961,8 @@ namespace Emutastic.Views
                 }
 
                 // Rotate for vertical-orientation arcade games (SET_ROTATION 1/3).
-                if (_coreRotation != 0)
+                // Skipped under a bezel — the rendered composite already includes orientation.
+                if (_coreRotation != 0 && !_bezelActive)
                 {
                     double angle = ((-(int)_coreRotation * 90.0) % 360 + 360) % 360;
                     bmp = new TransformedBitmap(bmp, new RotateTransform(angle));
@@ -5826,12 +5852,13 @@ namespace Emutastic.Views
                         {
                             try
                             {
-                                int w = (int)Math.Round(GameScreen.ActualWidth);
-                                int h = (int)Math.Round(GameScreen.ActualHeight);
+                                FrameworkElement capTarget = _bezelActive ? GameLayer : GameScreen;
+                                int w = (int)Math.Round(capTarget.ActualWidth);
+                                int h = (int)Math.Round(capTarget.ActualHeight);
                                 if (w > 0 && h > 0)
                                 {
                                     var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
-                                    rtb.Render(GameScreen);
+                                    rtb.Render(capTarget);
                                     rtb.Freeze();
                                     bmp = rtb;
                                 }
@@ -5851,7 +5878,8 @@ namespace Emutastic.Views
                     if (bmp != null)
                     {
                         // Rotate screenshot to match display orientation (vertical arcade games etc.)
-                        if (coreRotation != 0)
+                        // Skipped under a bezel — the rendered composite already includes orientation.
+                        if (coreRotation != 0 && !_bezelActive)
                         {
                             double angle = ((-(int)coreRotation * 90.0) % 360 + 360) % 360;
                             bmp = new TransformedBitmap(bmp, new RotateTransform(angle));
@@ -7941,6 +7969,98 @@ namespace Emutastic.Views
             ResetOverlayTimer();
         }
 
+        // ── Arcade / Neo Geo Bezel Overlay ────────────────────────────────
+        // Frames the game with a Bezel Project PNG. The bezel is a 1920x1080 image
+        // with a transparent window; the game keeps its own AR/rotation transform and
+        // renders centred in the now-16:9 viewport, landing in that window. Only the
+        // WINDOW snaps to the bezel AR (via WindowAr); the game transform is untouched.
+
+        private string? _bezelPngPath;
+
+        private void InitBezelOverlay(Game game)
+        {
+            if (!BezelService.AppliesTo(game.Console)) return;
+            // Master switch (Preferences -> Cores/Extras). Off => no bezel UI at all.
+            if (!BezelService.FeatureEnabled) return;
+
+            // Show the cog toggle for arcade/NeoGeo so the user can flip it per game.
+            BezelToggleBtn.Visibility = Visibility.Visible;
+            bool enabled = BezelService.IsEnabledForGame(game.Id);
+            BezelToggleBtn.Content = enabled ? "Bezel: On" : "Bezel: Off";
+
+            // Auto-fetch + show if enabled (network runs off the UI thread; applies when ready).
+            if (enabled)
+                _ = LoadBezelAsync(game, userInitiated: false);
+        }
+
+        private async System.Threading.Tasks.Task LoadBezelAsync(Game game, bool userInitiated)
+        {
+            string? path = await BezelService.EnsureBezelAsync(game.RomPath, game.Console);
+            if (path == null)
+            {
+                if (userInitiated)
+                {
+                    BezelToggleBtn.Content = "Bezel: Off";
+                    _transientMsg    = "No bezel available for this game";
+                    _transientExpiry = DateTime.Now.AddSeconds(3);
+                }
+                return;
+            }
+            _bezelPngPath = path;
+            ApplyBezel(true);
+        }
+
+        private void ApplyBezel(bool enabled)
+        {
+            if (enabled && _bezelPngPath != null)
+            {
+                if (BezelImage.Source == null)
+                {
+                    try
+                    {
+                        var bmp = new BitmapImage();
+                        bmp.BeginInit();
+                        bmp.UriSource   = new Uri(_bezelPngPath);
+                        bmp.CacheOption = BitmapCacheOption.OnLoad;
+                        bmp.EndInit();
+                        bmp.Freeze();
+                        BezelImage.Source = bmp;
+                        _bezelAr = bmp.PixelHeight > 0 ? (double)bmp.PixelWidth / bmp.PixelHeight : 16.0 / 9.0;
+                    }
+                    catch { return; }
+                }
+
+                _bezelActive = true;
+                BezelImage.Visibility  = Visibility.Visible;
+                BezelToggleBtn.Content = "Bezel: On";
+                AutoSizeWindowToGameAr(_displayAr);   // bezel-aware: frame the window to ~16:9
+            }
+            else
+            {
+                _bezelActive = false;
+                BezelImage.Visibility  = Visibility.Collapsed;
+                BezelToggleBtn.Content = "Bezel: Off";
+                AutoSizeWindowToGameAr(_displayAr);   // back to the game's own AR
+            }
+        }
+
+        private void BezelToggle_Click(object sender, RoutedEventArgs e)
+        {
+            if (_game == null) return;
+            bool newState = !_bezelActive;
+            BezelService.SetEnabledForGame(_game.Id, newState);
+
+            if (newState)
+            {
+                if (_bezelPngPath != null) ApplyBezel(true);
+                else _ = LoadBezelAsync(_game, userInitiated: true);
+            }
+            else ApplyBezel(false);
+
+            OverlayMenu.Visibility = Visibility.Collapsed;
+            ResetOverlayTimer();
+        }
+
         private void VisualsDone_Click(object sender, RoutedEventArgs e)
         {
             VisualsPanel.Visibility = Visibility.Collapsed;
@@ -8089,7 +8209,9 @@ namespace Emutastic.Views
                 return IntPtr.Zero;
             }
 
-            if (msg == WM_SIZING && _displayAr > 0 && WindowState == WindowState.Normal)
+            // WindowAr = the bezel AR (~16:9) when a bezel is active, else the game AR,
+            // so a manual resize keeps the window in the bezel's frame shape.
+            if (msg == WM_SIZING && WindowAr > 0 && WindowState == WindowState.Normal)
             {
                 var rect = Marshal.PtrToStructure<RECT>(lParam);
 
@@ -8102,13 +8224,13 @@ namespace Emutastic.Views
                 if (edge == WMSZ_TOP || edge == WMSZ_BOTTOM)
                 {
                     // Height-led drag: adjust width to maintain AR.
-                    int newW = (int)Math.Round(Math.Max(gameH, 60) * _displayAr);
+                    int newW = (int)Math.Round(Math.Max(gameH, 60) * WindowAr);
                     rect.Right = rect.Left + Math.Max(newW, 160);
                 }
                 else
                 {
                     // Width-led drag (left, right, or any corner): adjust height to maintain AR.
-                    int newGameH = (int)Math.Round(Math.Max(w, 160) / _displayAr);
+                    int newGameH = (int)Math.Round(Math.Max(w, 160) / WindowAr);
                     rect.Bottom = rect.Top + (int)Math.Round(chromeH) + Math.Max(newGameH, 60);
                 }
 

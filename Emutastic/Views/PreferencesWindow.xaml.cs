@@ -3124,6 +3124,102 @@ namespace Emutastic.Views
                 slangBadge, slangProgress, slangStatus, slangBtn,
                 isLast: false));
 
+            // ── Arcade / Neo Geo Bezels row ────────────────────────────────────
+            // Per-game bezel frames from The Bezel Project. The ~2 GB pack is NOT
+            // bundled. "Enable" turns on per-game on-demand fetch (each ~1-4 MB bezel
+            // downloads on first launch + caches); "Download all" pre-fetches every
+            // arcade/NeoGeo bezel (~1.5 GB) into the same cache for offline use.
+            bool bezelsOn    = BezelService.FeatureEnabled;
+            int  bezelCached = BezelService.CachedCount();
+
+            var bezelStatus = new TextBlock
+            {
+                FontSize   = 10,
+                Foreground = _brushTextMuted,
+                Visibility = bezelCached > 0 ? Visibility.Visible : Visibility.Collapsed,
+                Text       = bezelCached > 0 ? $"{bezelCached} bezels cached" : ""
+            };
+            var bezelProgress = new ProgressBar { Height = 4, Minimum = 0, Maximum = 100, Value = 0, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 4, 0, 0) };
+            var bezelBadge    = MakeBadge(bezelsOn);
+            ((TextBlock)bezelBadge.Child).Text = bezelsOn ? "On" : "Off";
+
+            var bezelBtn = new Button
+            {
+                Content           = bezelsOn ? "Disable" : "Enable",
+                Style             = (Style)FindResource("SmallOutlineButton"),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            bezelBtn.Click += (_, _) =>
+            {
+                bool now = !BezelService.FeatureEnabled;
+                BezelService.FeatureEnabled = now;
+                bezelBtn.Content = now ? "Disable" : "Enable";
+                bezelBadge.Background = now
+                    ? new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58))
+                    : new SolidColorBrush(Color.FromArgb(0x22, 0x88, 0x88, 0x88));
+                ((TextBlock)bezelBadge.Child).Text       = now ? "On" : "Off";
+                ((TextBlock)bezelBadge.Child).Foreground = now
+                    ? new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58))
+                    : _brushTextMuted;
+            };
+
+            var bezelDownloadBtn = new Button
+            {
+                Content           = "Download all",
+                Style             = (Style)FindResource("SmallOutlineButton"),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin            = new Thickness(0, 0, 6, 0)
+            };
+            bezelDownloadBtn.Click += async (_, _) =>
+            {
+                bezelDownloadBtn.IsEnabled = false;
+                bezelBtn.IsEnabled         = false;
+                bezelProgress.Visibility   = Visibility.Visible;
+                bezelStatus.Visibility     = Visibility.Visible;
+                bezelStatus.Text           = "Listing bezels…";
+                bezelProgress.Value        = 0;
+                try
+                {
+                    var progress = new Progress<(int done, int total)>(p =>
+                    {
+                        if (p.total > 0)
+                        {
+                            bezelProgress.Value = (double)p.done * 100 / p.total;
+                            bezelStatus.Text    = $"Downloading bezels… {p.done}/{p.total}";
+                        }
+                    });
+                    var (_, total) = await BezelService.DownloadAllAsync(progress);
+                    bezelProgress.Value = 100;
+                    bezelStatus.Text    = total > 0
+                        ? $"{BezelService.CachedCount()} bezels cached."
+                        : "No bezels found.";
+                    // Downloading the set implies the feature is on.
+                    bezelBtn.Content      = "Disable";
+                    bezelBadge.Background = new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58));
+                    ((TextBlock)bezelBadge.Child).Text       = "On";
+                    ((TextBlock)bezelBadge.Child).Foreground = new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58));
+                }
+                catch (Exception ex)
+                {
+                    bezelStatus.Text = $"Failed: {ex.Message}";
+                }
+                finally
+                {
+                    bezelDownloadBtn.IsEnabled = true;
+                    bezelBtn.IsEnabled         = true;
+                }
+            };
+
+            var bezelActions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            bezelActions.Children.Add(bezelDownloadBtn);
+            bezelActions.Children.Add(bezelBtn);
+
+            extrasStack.Children.Add(MakeExtrasRow(
+                "Arcade / Neo Geo Bezels",
+                "Arcade cabinet & Neo Geo bezel frames from The Bezel Project. Enable for per-game on-demand download (~1-4 MB each, cached), or Download all (~1.5 GB) for full offline use. Toggle per game from the in-game cog menu.",
+                bezelBadge, bezelProgress, bezelStatus, bezelActions,
+                isLast: false));
+
             // ── Cheats Database row ────────────────────────────────────────────
             // Single-file download of the libretro community cheats database
             // (~37 MB). Per-game cheats import from the in-game / library
@@ -3270,7 +3366,7 @@ namespace Emutastic.Views
         }
 
         private Grid MakeExtrasRow(string name, string description, Border badge,
-                                   ProgressBar? progress, TextBlock? status, Button btn, bool isLast)
+                                   ProgressBar? progress, TextBlock? status, FrameworkElement btn, bool isLast)
         {
             var row = new Grid { Margin = new Thickness(0, 0, 0, isLast ? 0 : 8) };
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(220) });
