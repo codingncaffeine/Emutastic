@@ -854,7 +854,11 @@ namespace Emutastic.Services
                     string romName = Uri.EscapeDataString(candidate);
                     string url = $"{BaseUrl}jeuInfos.php?{auth}&systemeid={systemId}{md5Part}&romnom={romName}";
 
-                    var response = await ThrottledGetAsync(url).ConfigureAwait(false);
+                    // jeuInfos.php can be slow on ScreenScraper's side; give the manual
+                    // metadata lookup a 30 s budget (the shared _http's 10 s is tuned for
+                    // background art/JSON and was timing manual fetches out prematurely).
+                    using var metaCts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(30));
+                    var response = await _manualDownloadHttp.GetAsync(url, metaCts.Token).ConfigureAwait(false);
                     int statusCode = (int)response.StatusCode;
 
                     if (statusCode == 430 || statusCode == 423)
