@@ -599,6 +599,11 @@ namespace Emutastic.ViewModels
             Games = new ObservableCollection<Game>(filtered);
             IsGroupedView = false;
             GameCountText = filtered.Count == 1 ? "1 result" : $"{filtered.Count} results";
+            // The 400ms "Searching…" continuation is still pending whenever the
+            // search finishes faster than that (the common case). Cancel it so
+            // it can't overwrite the final result count. Safe: every later
+            // consumer of this CTS only ever calls Cancel() again.
+            cts.Cancel();
         }
 
         /// <summary>
@@ -696,7 +701,20 @@ namespace Emutastic.ViewModels
         internal static string NormalizeForSearch(string value)
         {
             if (string.IsNullOrEmpty(value)) return "";
-            string decomposed = value.Normalize(System.Text.NormalizationForm.FormD);
+            string decomposed;
+            try
+            {
+                decomposed = value.Normalize(System.Text.NormalizationForm.FormD);
+            }
+            catch (ArgumentException)
+            {
+                // Ill-formed UTF-16 (e.g. a lone surrogate smuggled in via a
+                // filename or DAT entry) makes Normalize throw. One bad title
+                // must not take down the whole search pass — fall back to a
+                // plain lowercase of the raw string (loses accent-blindness
+                // for this one field only).
+                return value.ToLowerInvariant();
+            }
             var sb = new System.Text.StringBuilder(decomposed.Length);
             foreach (char c in decomposed)
             {
