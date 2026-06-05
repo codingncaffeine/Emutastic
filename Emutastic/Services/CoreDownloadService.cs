@@ -39,7 +39,7 @@ namespace Emutastic.Services
             new() { FileName = "azahar_libretro.dll",          DisplayName = "Azahar (3DS)",          Systems = ["3DS"],                               Recommended = true  },
             new() { FileName = "mednafen_vb_libretro.dll",      DisplayName = "Mednafen Virtual Boy",  Systems = ["VirtualBoy"],                        Recommended = true  },
             new() { FileName = "genesis_plus_gx_libretro.dll",  DisplayName = "Genesis Plus GX",       Systems = ["Genesis", "SegaCD", "SMS", "GameGear", "SG1000"], Recommended = true  },
-            new() { FileName = "picodrive_libretro.dll",        DisplayName = "PicoDrive",             Systems = ["Genesis", "Sega32X", "SMS"],         Recommended = false },
+            new() { FileName = "picodrive_libretro.dll",        DisplayName = "PicoDrive",             Systems = ["Genesis", "Sega32X", "SMS"],         Recommended = true  },
             new() { FileName = "mednafen_saturn_libretro.dll",  DisplayName = "Mednafen Saturn (Beetle)", Systems = ["Saturn"],                         Recommended = true  },
             new() { FileName = "kronos_libretro.dll",           DisplayName = "Kronos",                Systems = ["Saturn"],                            Recommended = false },
             new() { FileName = "yabause_libretro.dll",          DisplayName = "Yabause",               Systems = ["Saturn"],                            Recommended = false },
