@@ -520,6 +520,10 @@ namespace Emutastic.Services
         {
             public string LastModifiedUtc { get; set; } = "";
             public long SizeBytes { get; set; }
+            // SHA-256 of the plaintext content; set for library.db so the
+            // upload decision is content-based (see FullSyncAsync). Null on
+            // entries written by older builds — treated as "unknown, upload".
+            public string? Sha256 { get; set; }
         }
 
         private SyncManifest _manifestCache = new();
@@ -764,29 +768,34 @@ namespace Emutastic.Services
                         }
 
                         var snapInfo = new System.IO.FileInfo(tempDb);
-                        bool dbNeedsUpload = true;
+                        byte[] dbBytes = System.IO.File.ReadAllBytes(tempDb);
+                        // Hash the PLAINTEXT snapshot — encryption uses a random IV,
+                        // so ciphertext never compares equal even for identical content.
+                        string dbHash = Convert.ToHexString(SHA256.HashData(dbBytes));
 
+                        // Content-based decision, NOT mtime: the sync's own VACUUM
+                        // connection checkpoints the WAL on close, which rewrites
+                        // library.db and bumps its mtime — any mtime test therefore
+                        // sees the db as "modified" on every single sync and uploads
+                        // it forever (the lingering "1 up" after the save-storm fix).
+                        bool dbNeedsUpload = true;
                         if (_manifestCache.Files.TryGetValue(dbRepoPath, out var dbEntry)
-                            && DateTime.TryParse(dbEntry.LastModifiedUtc, null,
-                                System.Globalization.DateTimeStyles.RoundtripKind, out var dbRemoteMtime))
+                            && !string.IsNullOrEmpty(dbEntry.Sha256))
                         {
-                            // Compare the SOURCE db's mtime, not the snapshot's — the
-                            // VACUUM INTO temp file was created seconds ago, so its
-                            // mtime is always "now" and would force an upload every sync.
-                            dbNeedsUpload = snapInfo.Length != dbEntry.SizeBytes
-                                || System.IO.File.GetLastWriteTimeUtc(dbPath) > dbRemoteMtime;
+                            dbNeedsUpload = !string.Equals(dbEntry.Sha256, dbHash,
+                                StringComparison.OrdinalIgnoreCase);
                         }
 
                         if (dbNeedsUpload)
                         {
-                            byte[] dbBytes = System.IO.File.ReadAllBytes(tempDb);
                             if (encrypted && encKey != null) dbBytes = Encrypt(dbBytes, encKey);
                             if (await UploadFileAsync(dbRepoPath, dbBytes, ct))
                             {
                                 _manifestCache.Files[dbRepoPath] = new SyncFileEntry
                                 {
                                     LastModifiedUtc = DateTime.UtcNow.ToString("o"),
-                                    SizeBytes = snapInfo.Length
+                                    SizeBytes = snapInfo.Length,
+                                    Sha256 = dbHash
                                 };
                                 uploaded++;
                                 CloudSyncLog.Write("Database uploaded");
