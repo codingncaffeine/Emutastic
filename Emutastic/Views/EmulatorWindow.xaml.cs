@@ -1585,14 +1585,13 @@ namespace Emutastic.Views
                                         + (encrypted ? ".enc" : "");
 
                                     // Check manifest: only download if remote is newer than local
-                                    bool shouldDownload = true;
-                                    if (File.Exists(_srmPath)
-                                        && syncSvc.ManifestCache.Files.TryGetValue(repoPath, out var mEntry)
+                                    DateTime remoteMtime = default;
+                                    bool hasRemoteMtime = syncSvc.ManifestCache.Files.TryGetValue(repoPath, out var mEntry)
                                         && DateTime.TryParse(mEntry.LastModifiedUtc, null,
-                                            System.Globalization.DateTimeStyles.RoundtripKind, out var remoteMtime))
-                                    {
-                                        shouldDownload = remoteMtime > File.GetLastWriteTimeUtc(_srmPath);
-                                    }
+                                            System.Globalization.DateTimeStyles.RoundtripKind, out remoteMtime);
+                                    bool shouldDownload = !File.Exists(_srmPath)
+                                        || !hasRemoteMtime
+                                        || remoteMtime > File.GetLastWriteTimeUtc(_srmPath);
 
                                     byte[]? remote = shouldDownload
                                         ? syncSvc.DownloadFileAsync(repoPath).GetAwaiter().GetResult()
@@ -1608,6 +1607,10 @@ namespace Emutastic.Views
                                         }
                                         Directory.CreateDirectory(Path.GetDirectoryName(_srmPath)!);
                                         File.WriteAllBytes(_srmPath, remote);
+                                        // Same mtime-echo fix as FullSync's download phase: without
+                                        // this the next full sync re-uploads a save we only ever
+                                        // downloaded ("90 up with no changes").
+                                        if (hasRemoteMtime) File.SetLastWriteTimeUtc(_srmPath, remoteMtime);
                                         Services.CloudSyncLog.Write($"Downloaded remote save: {repoPath}");
                                     }
                                 }

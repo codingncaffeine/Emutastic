@@ -714,17 +714,11 @@ namespace Emutastic.Services
                 if (!repoPath.StartsWith("BatterySaves/")) continue;
                 if (!repoToLocalPath.TryGetValue(repoPath, out string? targetPath)) continue;
 
-                bool shouldDownload = false;
-                if (!System.IO.File.Exists(targetPath))
-                {
-                    shouldDownload = true;
-                }
-                else if (DateTime.TryParse(entry.LastModifiedUtc, null,
-                    System.Globalization.DateTimeStyles.RoundtripKind, out var remoteMtime)
-                    && remoteMtime > System.IO.File.GetLastWriteTimeUtc(targetPath))
-                {
-                    shouldDownload = true;
-                }
+                bool hasRemoteMtime = DateTime.TryParse(entry.LastModifiedUtc, null,
+                    System.Globalization.DateTimeStyles.RoundtripKind, out var remoteMtime);
+                bool shouldDownload = !System.IO.File.Exists(targetPath)
+                    || (hasRemoteMtime
+                        && remoteMtime > System.IO.File.GetLastWriteTimeUtc(targetPath));
 
                 if (shouldDownload)
                 {
@@ -736,6 +730,11 @@ namespace Emutastic.Services
                             if (encrypted && encKey != null) data = Decrypt(data, encKey);
                             System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(targetPath)!);
                             System.IO.File.WriteAllBytes(targetPath, data);
+                            // Stamp the manifest's mtime back onto the file — WriteAllBytes
+                            // sets "now", which is newer than the manifest entry, so the NEXT
+                            // full sync would see every save we just downloaded as locally
+                            // modified and re-upload the lot (the "90 up with no changes" bug).
+                            if (hasRemoteMtime) System.IO.File.SetLastWriteTimeUtc(targetPath, remoteMtime);
                             downloaded++;
                         }
                     }
@@ -771,8 +770,11 @@ namespace Emutastic.Services
                             && DateTime.TryParse(dbEntry.LastModifiedUtc, null,
                                 System.Globalization.DateTimeStyles.RoundtripKind, out var dbRemoteMtime))
                         {
+                            // Compare the SOURCE db's mtime, not the snapshot's — the
+                            // VACUUM INTO temp file was created seconds ago, so its
+                            // mtime is always "now" and would force an upload every sync.
                             dbNeedsUpload = snapInfo.Length != dbEntry.SizeBytes
-                                || snapInfo.LastWriteTimeUtc > dbRemoteMtime;
+                                || System.IO.File.GetLastWriteTimeUtc(dbPath) > dbRemoteMtime;
                         }
 
                         if (dbNeedsUpload)
@@ -815,6 +817,8 @@ namespace Emutastic.Services
                             if (encrypted && encKey != null) remoteDb = Decrypt(remoteDb, encKey);
                             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
                             System.IO.File.WriteAllBytes(dbPath, remoteDb);
+                            // Same mtime-echo fix as the save download above.
+                            System.IO.File.SetLastWriteTimeUtc(dbPath, remoteDbMtime);
                             downloaded++;
                             CloudSyncLog.Write("Database downloaded from remote");
                         }
