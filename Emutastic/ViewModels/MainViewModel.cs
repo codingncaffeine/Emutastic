@@ -268,13 +268,6 @@ namespace Emutastic.ViewModels
             InvalidateCache();
         }
 
-        public void AddGame(Game game)
-        {
-            _allGames.Add(game);
-            InvalidateCache();
-            // Filter update is handled by the caller (RefreshGame covers UI updates during import).
-        }
-
         public void RefreshGame(Game updated)
         {
             // Merge non-default fields from 'updated' onto the existing game so partial
@@ -504,7 +497,7 @@ namespace Emutastic.ViewModels
         // Concatenates Title + Console + Developer + Publisher + Genre + Year
         // so search hits all of them in a single substring scan. Built lazily
         // on first search and invalidated on every library mutation:
-        // Reload / AddGame / RemoveGame go through InvalidateCache; RefreshGame
+        // Reload / RemoveGame go through InvalidateCache; RefreshGame
         // nulls _searchIndex directly (it deliberately keeps the console caches
         // alive, so it must not call InvalidateCache).
         // volatile so a concurrent invalidate is seen by the next search pass
