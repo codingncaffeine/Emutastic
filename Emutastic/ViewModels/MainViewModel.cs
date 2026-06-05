@@ -235,6 +235,7 @@ namespace Emutastic.ViewModels
 
         private async Task NavigateToRecentlyAddedAsync()
         {
+            CancelInFlightSearch();
             IsShowingFavorites = false;
             IsMixedView = true;
             var games = _db.GetRecentlyAdded(25);
@@ -248,6 +249,7 @@ namespace Emutastic.ViewModels
 
         private async Task NavigateToCollectionAsync(int collectionId)
         {
+            CancelInFlightSearch();
             IsShowingFavorites = false;
             IsMixedView = true;
             var games = _db.GetGamesByCollectionId(collectionId);
@@ -428,6 +430,7 @@ namespace Emutastic.ViewModels
 
         public async Task FilterGamesAsync()
         {
+            CancelInFlightSearch();
             var console = SelectedConsole;
 
             // Cache hit — reuse the previously built collection for this console.
@@ -467,6 +470,7 @@ namespace Emutastic.ViewModels
 
         public void LoadFavorites(DatabaseService db)
         {
+            CancelInFlightSearch();
             var favs = db.GetFavorites();
             Games = new ObservableCollection<Game>(favs);
             IsGroupedView = false;
@@ -476,6 +480,7 @@ namespace Emutastic.ViewModels
 
         public void LoadRecent(DatabaseService db)
         {
+            CancelInFlightSearch();
             var recent = db.GetRecentlyPlayed();
             Games = new ObservableCollection<Game>(recent);
             IsGroupedView = false;
@@ -488,6 +493,12 @@ namespace Emutastic.ViewModels
         // Avoids hammering the LINQ filter on a multi-thousand-game library and
         // prevents results flicker as the user types out a longer query.
         private System.Threading.CancellationTokenSource? _searchCts;
+
+        // Any navigation that replaces Games must also kill an in-flight search:
+        // OnNavigated clears the search box with TextChanged suppressed, so no
+        // SearchGames("") arrives to cancel it, and the stale result set would
+        // otherwise land on top of the freshly navigated view ~200ms later.
+        private void CancelInFlightSearch() => _searchCts?.Cancel();
 
         // Pre-computed lowercased searchable text per game (gameId → text).
         // Concatenates Title + Console + Developer + Publisher + Genre + Year
