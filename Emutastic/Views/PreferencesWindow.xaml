@@ -2011,6 +2011,20 @@
                                            FontSize="11" Margin="22,0,0,0"
                                            Visibility="{Binding Visibility, ElementName=PassphrasePanel}"/>
 
+                                <TextBlock Text="REPOSITORY" Style="{StaticResource PrefLabel}" Margin="0,16,0,8"/>
+                                <CheckBox x:Name="SyncPerPcRepo"
+                                          Content="Make this PC unique — don't share saves or library with other PCs"
+                                          Foreground="{DynamicResource TextPrimaryBrush}" FontSize="13"
+                                          Margin="0,0,0,4"
+                                          Checked="SyncPerPcRepo_Changed" Unchecked="SyncPerPcRepo_Changed"/>
+                                <TextBlock x:Name="SyncRepoExplainText"
+                                           Foreground="{DynamicResource TextMutedBrush}"
+                                           FontSize="11" Margin="22,0,0,2" TextWrapping="Wrap"
+                                           Text="Off: this PC shares one cloud repository with your other PCs — saves and your game library follow you between machines."/>
+                                <TextBlock x:Name="SyncRepoNameText"
+                                           Foreground="{DynamicResource TextMutedBrush}"
+                                           FontSize="11" Margin="22,2,0,0"/>
+
                                 <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
                                     <Button x:Name="SyncNowBtn" Content="Sync Now"
                                             Style="{StaticResource ActionBtn}"

@@ -16,8 +16,46 @@ namespace Emutastic.Services
         public static GitHubSyncService Instance { get; } = new();
 
         private static string ClientId => Secrets.GitHubOAuthClientId;
-        private const string RepoName = "emutastic-saves";
+        private const string SharedRepoName = "emutastic-saves";
         private const string ApiBase = "https://api.github.com";
+
+        // Active repo: the shared one by default, or this machine's own when
+        // the per-PC toggle is on. Read from config on every access so a
+        // toggle flip takes effect on the very next operation.
+        private static string RepoName =>
+            App.Configuration?.GetCloudSyncConfiguration() is { UsePerPcRepo: true }
+                ? PerPcRepoName
+                : SharedRepoName;
+
+        /// <summary>This machine's dedicated repo name (for UI display).</summary>
+        public static string PerPcRepoName { get; } = BuildPerPcRepoName();
+
+        /// <summary>The repo currently in use (for UI display).</summary>
+        public static string EffectiveRepoName => RepoName;
+
+        private static string BuildPerPcRepoName()
+        {
+            // GitHub repo names allow letters, digits, '-', '_', '.'; squash
+            // anything else in the machine name to '-'.
+            var sb = new StringBuilder();
+            foreach (char c in Environment.MachineName.ToLowerInvariant())
+                sb.Append(char.IsLetterOrDigit(c) || c is '-' or '_' or '.' ? c : '-');
+            string suffix = sb.ToString().Trim('-');
+            if (suffix.Length == 0) suffix = "pc";
+            return $"{SharedRepoName}-{suffix}";
+        }
+
+        /// <summary>
+        /// Drops every piece of state bound to the previous repo (sha cache,
+        /// manifest). Call when the per-PC toggle flips so the next sync
+        /// starts clean against the newly selected repo. The db side-car is
+        /// per-repo by filename and needs no reset.
+        /// </summary>
+        public void ResetRepoBinding()
+        {
+            _shaCache.Clear();
+            _manifestCache = new SyncManifest();
+        }
 
         private static readonly HttpClient Http = CreateHttpClient();
         private volatile string? _token;
@@ -597,8 +635,10 @@ namespace Emutastic.Services
         // change since *my* last sync?", which is per-machine state. Lives in
         // DataRoot so portable installs carry it with their data.
 
+        // Keyed by repo name so flipping the per-PC toggle back and forth
+        // keeps an accurate "what did I last sync HERE" per repository.
         private static string DbStatePath
-            => System.IO.Path.Combine(AppPaths.DataRoot, "cloudsync_dbstate.txt");
+            => System.IO.Path.Combine(AppPaths.DataRoot, $"cloudsync_dbstate_{RepoName}.txt");
 
         private static string? LoadLastSyncedDbHash()
         {

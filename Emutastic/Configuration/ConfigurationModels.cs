@@ -374,6 +374,14 @@ namespace Emutastic.Configuration
         public int PeriodicIntervalMinutes { get; set; } = 15;
         public bool SyncSaveStates { get; set; } = true;
         public List<string> PendingUploads { get; set; } = new();
+        /// <summary>
+        /// When true this PC syncs to its own repository
+        /// (emutastic-saves-&lt;machine&gt;) instead of the shared
+        /// emutastic-saves — a per-PC backup that other machines never
+        /// read or write. Per-machine by nature: config does not sync,
+        /// so each PC decides for itself.
+        /// </summary>
+        public bool UsePerPcRepo { get; set; }
     }
 
     // Video snap provider configuration
