@@ -1608,20 +1608,20 @@ namespace Emutastic.Views
                                         }
                                         Directory.CreateDirectory(Path.GetDirectoryName(_srmPath)!);
                                         File.WriteAllBytes(_srmPath, remote);
-                                        System.Diagnostics.Trace.WriteLine($"[CloudSync] Downloaded remote save: {repoPath}");
+                                        Services.CloudSyncLog.Write($"Downloaded remote save: {repoPath}");
                                     }
                                 }
                                 finally { gameLock.Release(); }
                             }
                             else
                             {
-                                System.Diagnostics.Trace.WriteLine("[CloudSync] Lock timeout — skipping download, using local save");
+                                Services.CloudSyncLog.Write("Lock timeout — skipping download, using local save");
                             }
                         }
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Trace.WriteLine($"[CloudSync] Pre-launch download failed: {ex.Message}");
+                        Services.CloudSyncLog.Write($"Pre-launch download failed: {ex.Message}");
                     }
                 }
 
@@ -8488,11 +8488,11 @@ namespace Emutastic.Views
                                     LastModifiedUtc = System.IO.File.GetLastWriteTimeUtc(_srmPath).ToString("o"),
                                     SizeBytes = new System.IO.FileInfo(_srmPath).Length
                                 };
-                                System.Diagnostics.Trace.WriteLine($"[CloudSync] Queued upload: {repoPath}");
+                                Services.CloudSyncLog.Write($"Queued upload: {repoPath}");
                             }
                             catch (Exception ex)
                             {
-                                System.Diagnostics.Trace.WriteLine($"[CloudSync] Upload prep failed: {ex.Message}");
+                                Services.CloudSyncLog.Write($"Upload prep failed: {ex.Message}");
                             }
                         }
                     }
