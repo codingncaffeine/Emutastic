@@ -785,6 +785,16 @@ namespace Emutastic.Views
         /// </summary>
         public void OpenSection(string sectionName)
         {
+            // Callers open sections before ShowDialog (e.g. the core-update
+            // banner). Checking the nav toggle here would kick the async
+            // section builder while IsLoaded is still false, making it bail
+            // against its post-await guard. Defer until Loaded so the builder
+            // runs against a live window.
+            if (!IsLoaded)
+            {
+                Loaded += (_, _) => OpenSection(sectionName);
+                return;
+            }
             switch (sectionName.Trim().ToLowerInvariant())
             {
                 case "controls":      NavControls.IsChecked = true; break;
@@ -942,10 +952,16 @@ namespace Emutastic.Views
 
             try
             {
+                // The two async builders can bail without populating (window not
+                // loaded yet, or the user switched sections mid-scan). A bailed
+                // build must NOT mark the section loaded, or every revisit hits
+                // the _sectionLoaded early-return and the panel stays blank for
+                // the lifetime of the window.
+                bool completed = true;
                 switch (section)
                 {
-                    case PrefSection.SystemFiles: await BuildBiosPanelAsync(); break;
-                    case PrefSection.Cores:       await BuildCoresPanelAsync(); break;
+                    case PrefSection.SystemFiles: completed = await BuildBiosPanelAsync(); break;
+                    case PrefSection.Cores:       completed = await BuildCoresPanelAsync(); break;
                     case PrefSection.Theme:       LoadThemeSettings(); break;
                     case PrefSection.Media:       LoadFoldersSettings(); break;
                     case PrefSection.Library:     LoadLibrarySettings(); break;
@@ -956,7 +972,8 @@ namespace Emutastic.Views
                     case PrefSection.About:       LoadAboutSettings(); break;
                     case PrefSection.Controls:    /* dispatcher-affine init lives in OnLoaded */ break;
                 }
-                _sectionLoaded.Add(section);
+                if (completed)
+                    _sectionLoaded.Add(section);
             }
             catch (Exception ex)
             {
@@ -987,7 +1004,12 @@ namespace Emutastic.Views
 
         private void BuildBiosPanel() => _ = BuildBiosPanelAsync();
 
-        private async Task BuildBiosPanelAsync()
+        /// <returns>
+        /// true when the panel was actually populated; false when the build
+        /// bailed (window not loaded / section switched away mid-scan) so the
+        /// caller must not mark the section as loaded.
+        /// </returns>
+        private async Task<bool> BuildBiosPanelAsync()
         {
             BiosPanel.Children.Clear();
             string sysDir = AppPaths.GetFolder("System");
@@ -998,7 +1020,7 @@ namespace Emutastic.Views
             var scan = await PreferencesCache
                 .GetBiosScanAsync(_db, sysDir, KnownBios.All, _windowCts.Token)
                 .ConfigureAwait(true);
-            if (!IsLoaded || _activeSection != PrefSection.SystemFiles) return;
+            if (!IsLoaded || _activeSection != PrefSection.SystemFiles) return false;
             BiosPanel.Children.Clear(); // strip the "Loading…" placeholder
             var romDirsByConsole = scan.RomDirsByConsole;
             bool BiosExists(string path) => scan.ExistingPathsLower.Contains(path);
@@ -1346,6 +1368,7 @@ namespace Emutastic.Views
 
                 BiosPanel.Children.Add(catBody);
             }
+            return true;
         }
 
         private UIElement BuildBiosRow(BiosEntry entry, string sysDir, string[]? romDirs = null)
@@ -1706,7 +1729,12 @@ namespace Emutastic.Views
 
         private void BuildCoresPanel() => _ = BuildCoresPanelAsync();
 
-        private async Task BuildCoresPanelAsync()
+        /// <returns>
+        /// true when the panel was actually populated; false when the build
+        /// bailed (window not loaded / section switched away mid-scan) so the
+        /// caller must not mark the section as loaded.
+        /// </returns>
+        private async Task<bool> BuildCoresPanelAsync()
         {
             CoresListPanel.Children.Clear();
             string coresFolder = Emutastic.AppPaths.GetCoresFolder();
@@ -1716,7 +1744,7 @@ namespace Emutastic.Views
             var installedDlls = await PreferencesCache
                 .GetInstalledCoresAsync(coresFolder)
                 .ConfigureAwait(true);
-            if (!IsLoaded || _activeSection != PrefSection.Cores) return;
+            if (!IsLoaded || _activeSection != PrefSection.Cores) return false;
             CoresListPanel.Children.Clear(); // strip "Loading…" placeholder
             bool IsInstalled(string dll) => installedDlls.Contains(dll);
 
@@ -2350,6 +2378,7 @@ namespace Emutastic.Views
             // once the per-core HEAD checks return. Cached at class level so
             // re-opening this section doesn't re-hit the buildbot every time.
             _ = DecorateUpdatesAvailableAsync(coresFolder, updatePillMap, updateAllBtn, dlActionMap);
+            return true;
         }
 
         private async Task DecorateUpdatesAvailableAsync(
