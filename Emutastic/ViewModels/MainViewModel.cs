@@ -328,6 +328,15 @@ namespace Emutastic.ViewModels
                 _gameIndex[updated.Id] = updated;
             }
 
+            // The cached search index now lags reality: this call either added a
+            // game it has never seen or rewrote fields it indexed (Title,
+            // Developer, …). Unlike the console caches below (updated in place,
+            // by design), the search index is a flat snapshot — drop it and let
+            // the next unscoped search rebuild. Without this, games imported or
+            // renamed mid-session are silently invisible to search in the
+            // All Games / Favorites / Recently Played views until restart.
+            _searchIndex = null;
+
             var target = existing ?? updated;
             string console = target.Console ?? "";
 
@@ -483,8 +492,10 @@ namespace Emutastic.ViewModels
         // Pre-computed lowercased searchable text per game (gameId → text).
         // Concatenates Title + Console + Developer + Publisher + Genre + Year
         // so search hits all of them in a single substring scan. Built lazily
-        // on first search and invalidated via InvalidateCache (which fires on
-        // every library mutation — Reload / AddGame / RefreshGame / RemoveGame).
+        // on first search and invalidated on every library mutation:
+        // Reload / AddGame / RemoveGame go through InvalidateCache; RefreshGame
+        // nulls _searchIndex directly (it deliberately keeps the console caches
+        // alive, so it must not call InvalidateCache).
         // volatile so a concurrent invalidate is seen by the next search pass
         // without a lock.
         private volatile Dictionary<int, string>? _searchIndex;
@@ -553,7 +564,11 @@ namespace Emutastic.ViewModels
                     foreach (var g in snapshot)
                     {
                         if (g == null) continue;
-                        if (!index.TryGetValue(g.Id, out var text)) continue;
+                        // Self-healing: a game missing from the cached index
+                        // (added after the index was built) must never be
+                        // silently unsearchable — compute its text inline.
+                        if (!index.TryGetValue(g.Id, out var text))
+                            text = BuildSearchableText(g);
                         bool all = true;
                         foreach (var t in tokens)
                         {
