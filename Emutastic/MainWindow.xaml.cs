@@ -1128,6 +1128,14 @@ namespace Emutastic
             var swNav = Services.StartupTrace.Start();
             try
             {
+            // Sidebar navigation always lands in the Library tab. Without this,
+            // clicking a console while on Save States/Screenshots/Achievements
+            // left the old tab's content on screen and kept the search box
+            // routed to that tab's search (_activeTab switch in
+            // SearchBox_TextChanged).
+            if (_activeTab != "Library")
+                ActivateTab("Library");
+
             if (!string.IsNullOrEmpty(SearchBox.Text))
             {
                 _suppressSearchTextChanged = true;
@@ -2624,7 +2632,18 @@ namespace Emutastic
         private void Tab_Click(object sender, RoutedEventArgs e)
         {
             if (sender is System.Windows.Controls.Primitives.ToggleButton btn && btn.Tag is string tag)
-            {
+                ActivateTab(tag);
+        }
+
+        /// <summary>
+        /// Switches the active top-level tab: content panel visibility, search
+        /// routing (_activeTab), placeholder text, and toggle styles. Shared by
+        /// <see cref="Tab_Click"/> and <see cref="OnNavigated"/> — sidebar
+        /// navigation must land in the Library tab, otherwise the old tab's
+        /// content stays on screen and the search box keeps routing to it.
+        /// </summary>
+        private void ActivateTab(string tag)
+        {
                 var swTab = Services.StartupTrace.Start();
                 try
                 {
@@ -2655,7 +2674,6 @@ namespace Emutastic
                     UpdateTabStyles(tag);
                 }
                 finally { Services.StartupTrace.Stop($"nav.Tab[{tag}]", swTab); }
-            }
         }
 
         private void UpdateTabStyles(string activeTag)
