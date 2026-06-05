@@ -591,6 +591,33 @@ namespace Emutastic.Services
             }
         }
 
+        // ── Last-synced db hash (local side-car) ────────────────────────────
+        // Hash of the library.db snapshot this MACHINE last uploaded or adopted.
+        // Deliberately local (not in the shared manifest): it answers "did *I*
+        // change since *my* last sync?", which is per-machine state. Lives in
+        // DataRoot so portable installs carry it with their data.
+
+        private static string DbStatePath
+            => System.IO.Path.Combine(AppPaths.DataRoot, "cloudsync_dbstate.txt");
+
+        private static string? LoadLastSyncedDbHash()
+        {
+            try
+            {
+                string p = DbStatePath;
+                return System.IO.File.Exists(p)
+                    ? System.IO.File.ReadAllText(p).Trim()
+                    : null;
+            }
+            catch { return null; }
+        }
+
+        private static void SaveLastSyncedDbHash(string hash)
+        {
+            try { System.IO.File.WriteAllText(DbStatePath, hash); }
+            catch { /* non-fatal — worst case one redundant upload next sync */ }
+        }
+
         // ── Bidirectional Sync ──────────────────────────────────────────────
 
         public record SyncResult(int Uploaded, int Downloaded, int Errors);
@@ -747,11 +774,24 @@ namespace Emutastic.Services
             }
 
             // Sync library database — use VACUUM INTO for a consistent snapshot
-            // (raw File.ReadAllBytes on a WAL-mode DB risks partial checkpoint reads)
+            // (raw File.ReadAllBytes on a WAL-mode DB risks partial checkpoint reads).
+            //
+            // The db needs a THREE-WAY decision, not a mine-vs-remote compare. Two
+            // machines' databases legitimately differ (play history, caches), so
+            // "is my content different from remote?" is always yes and alternating
+            // syncs ping-pong uploads forever. Instead each machine remembers the
+            // hash it last synced at (local side-car file, NOT the shared manifest):
+            //   - my db changed since last sync            → upload (last-writer-wins)
+            //   - only remote changed                      → download and adopt it
+            //   - neither changed                          → quiet
+            // mtime is useless here in all cases: the sync's own VACUUM connection
+            // checkpoints the WAL on close, rewriting library.db's mtime every sync.
             try
             {
                 string dbPath = System.IO.Path.Combine(AppPaths.DataRoot, "library.db");
                 string dbRepoPath = "library.db" + encSuffix;
+                string? lastSyncedHash = LoadLastSyncedDbHash();
+                string? myHash = null;
 
                 if (System.IO.File.Exists(dbPath))
                 {
@@ -771,20 +811,19 @@ namespace Emutastic.Services
                         byte[] dbBytes = System.IO.File.ReadAllBytes(tempDb);
                         // Hash the PLAINTEXT snapshot — encryption uses a random IV,
                         // so ciphertext never compares equal even for identical content.
-                        string dbHash = Convert.ToHexString(SHA256.HashData(dbBytes));
+                        myHash = Convert.ToHexString(SHA256.HashData(dbBytes));
 
-                        // Content-based decision, NOT mtime: the sync's own VACUUM
-                        // connection checkpoints the WAL on close, which rewrites
-                        // library.db and bumps its mtime — any mtime test therefore
-                        // sees the db as "modified" on every single sync and uploads
-                        // it forever (the lingering "1 up" after the save-storm fix).
-                        bool dbNeedsUpload = true;
-                        if (_manifestCache.Files.TryGetValue(dbRepoPath, out var dbEntry)
-                            && !string.IsNullOrEmpty(dbEntry.Sha256))
-                        {
-                            dbNeedsUpload = !string.Equals(dbEntry.Sha256, dbHash,
-                                StringComparison.OrdinalIgnoreCase);
-                        }
+                        _manifestCache.Files.TryGetValue(dbRepoPath, out var dbEntry);
+                        string? remoteHash = dbEntry?.Sha256;
+
+                        bool localChanged = !string.Equals(myHash, lastSyncedHash,
+                            StringComparison.OrdinalIgnoreCase);
+                        // Upload when I changed (and remote doesn't already have my
+                        // exact content), or to seed the hash on a legacy manifest
+                        // entry written by a pre-hash build.
+                        bool dbNeedsUpload =
+                            (localChanged || string.IsNullOrEmpty(remoteHash))
+                            && !string.Equals(myHash, remoteHash, StringComparison.OrdinalIgnoreCase);
 
                         if (dbNeedsUpload)
                         {
@@ -795,12 +834,22 @@ namespace Emutastic.Services
                                 {
                                     LastModifiedUtc = DateTime.UtcNow.ToString("o"),
                                     SizeBytes = snapInfo.Length,
-                                    Sha256 = dbHash
+                                    Sha256 = myHash
                                 };
+                                SaveLastSyncedDbHash(myHash);
+                                lastSyncedHash = myHash;
                                 uploaded++;
                                 CloudSyncLog.Write("Database uploaded");
                             }
                             else errors++;
+                        }
+                        else if (!localChanged && string.Equals(myHash, remoteHash, StringComparison.OrdinalIgnoreCase)
+                                 && !string.Equals(myHash, lastSyncedHash, StringComparison.OrdinalIgnoreCase))
+                        {
+                            // Remote already matches me but my side-car is stale
+                            // (e.g. first run after updating) — just record it.
+                            SaveLastSyncedDbHash(myHash);
+                            lastSyncedHash = myHash;
                         }
                     }
                     finally
@@ -809,14 +858,36 @@ namespace Emutastic.Services
                     }
                 }
 
-                // Download remote DB if newer than local (second-PC restore)
+                // Download the remote DB when it changed and I didn't (second-PC
+                // restore + continuous adoption of the other machine's db).
                 if (_manifestCache.Files.TryGetValue(dbRepoPath, out var remoteDbEntry)
                     && DateTime.TryParse(remoteDbEntry.LastModifiedUtc, null,
                         System.Globalization.DateTimeStyles.RoundtripKind, out var remoteDbMtime))
                 {
                     var localDbInfo = System.IO.File.Exists(dbPath) ? new System.IO.FileInfo(dbPath) : null;
-                    bool shouldDownload = localDbInfo == null
-                        || remoteDbMtime > localDbInfo.LastWriteTimeUtc;
+                    string? remoteHash = remoteDbEntry.Sha256;
+
+                    bool shouldDownload;
+                    if (localDbInfo == null)
+                    {
+                        shouldDownload = true;
+                    }
+                    else if (!string.IsNullOrEmpty(remoteHash) && myHash != null)
+                    {
+                        bool localChanged = !string.Equals(myHash, lastSyncedHash,
+                            StringComparison.OrdinalIgnoreCase);
+                        // Adopt remote only when I have no local edits of my own and
+                        // remote genuinely differs from me. If BOTH sides changed,
+                        // the upload above already won (last-writer-wins) and the
+                        // manifest now carries my hash, so this stays false.
+                        shouldDownload = !localChanged
+                            && !string.Equals(remoteHash, myHash, StringComparison.OrdinalIgnoreCase);
+                    }
+                    else
+                    {
+                        // Legacy manifest entry without a hash — old mtime rule.
+                        shouldDownload = remoteDbMtime > localDbInfo.LastWriteTimeUtc;
+                    }
 
                     if (shouldDownload)
                     {
@@ -828,6 +899,9 @@ namespace Emutastic.Services
                             System.IO.File.WriteAllBytes(dbPath, remoteDb);
                             // Same mtime-echo fix as the save download above.
                             System.IO.File.SetLastWriteTimeUtc(dbPath, remoteDbMtime);
+                            // Record what we adopted so the next sync sees "unchanged"
+                            // (hash the bytes we wrote — covers legacy entries too).
+                            SaveLastSyncedDbHash(Convert.ToHexString(SHA256.HashData(remoteDb)));
                             downloaded++;
                             CloudSyncLog.Write("Database downloaded from remote");
                         }
