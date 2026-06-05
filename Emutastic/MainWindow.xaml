@@ -1184,9 +1184,34 @@
                                  catches the impression of light coming from above.
                                  The DropShadowEffect on the wrapper Grid sits above the
                                  bar and drops a 1px shadow into the field, reinforcing
-                                 the "inset into the toolbar" feel. -->
-                            <Border Grid.Column="2"
-                                    x:Name="LibrarySearchBorder"
+                                 the "inset into the toolbar" feel.
+                                 The muted count readout to its left surfaces
+                                 GameCountText ("Searching…" / "2 results") and only
+                                 shows while a query is typed — the per-console count
+                                 already lives in the sidebar badge. -->
+                            <StackPanel Grid.Column="2"
+                                        Orientation="Horizontal"
+                                        VerticalAlignment="Center">
+                            <TextBlock x:Name="SearchResultCount"
+                                       Text="{Binding GameCountText}"
+                                       FontFamily="{StaticResource PrimaryFont}"
+                                       FontSize="11"
+                                       Foreground="{DynamicResource TextMutedBrush}"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,8,0"
+                                       IsHitTestVisible="False">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Text, ElementName=SearchBox, Converter={StaticResource StringNotEmptyToBool}}" Value="True">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                            <Border x:Name="LibrarySearchBorder"
                                     BorderBrush="{StaticResource ToolbarChiselBrush}"
                                     BorderThickness="1"
                                     CornerRadius="14"
@@ -1294,6 +1319,7 @@
                                     </Button>
                                 </Grid>
                             </Border>
+                            </StackPanel>
 
                             <!-- Hidden; kept for code-behind compat (artwork fetch status, etc.) -->
                             <TextBlock x:Name="ToolbarTitle" Visibility="Collapsed"/>
