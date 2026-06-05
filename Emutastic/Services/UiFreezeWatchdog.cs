@@ -169,6 +169,10 @@ namespace Emutastic.Services
                 {
                     _logPath = Path.Combine(AppPaths.GetFolder("Logs"), "ui_freezes.log");
                 }
+                // Rotate here too, not just at Start(): a long session with a
+                // freeze storm would otherwise grow the file unbounded until
+                // the next launch.
+                LogRotation.RotateIfLarge(_logPath);
                 File.AppendAllText(_logPath, line + Environment.NewLine);
             }
             catch { }
