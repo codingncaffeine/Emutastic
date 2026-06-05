@@ -297,7 +297,12 @@ namespace Emutastic.Services
 
                 using var resp = await Http.SendAsync(req, ct).ConfigureAwait(false);
 
-                if (resp.StatusCode == HttpStatusCode.Conflict && !isRetry)
+                // 409: sha we sent no longer matches HEAD. 422: file exists but we
+                // sent no sha (stale/missing cache entry — seen when the same path
+                // is queued twice in quick succession). Both mean "our sha cache
+                // is wrong for this path" — refresh and retry once.
+                if ((resp.StatusCode == HttpStatusCode.Conflict
+                     || resp.StatusCode == HttpStatusCode.UnprocessableEntity) && !isRetry)
                 {
                     await RefreshShaCacheAsync(ct);
                     return await UploadFileAsync(repoPath, fileBytes, ct, isRetry: true);
@@ -312,6 +317,12 @@ namespace Emutastic.Services
                     {
                         _shaCache[repoPath] = newSha.GetString() ?? "";
                     }
+                    // The freshly-uploaded variant is now canonical — remove its
+                    // encryption-toggle counterpart so exactly one variant of each
+                    // file ever exists remotely. Without this, toggling encryption
+                    // leaves stale .enc/.srm shadows that a later toggle-back would
+                    // resurrect over newer saves (silent rollback on fresh installs).
+                    await DeleteCounterpartVariantAsync(repoPath, ct).ConfigureAwait(false);
                     return true;
                 }
 
@@ -323,6 +334,74 @@ namespace Emutastic.Services
                 Trace.WriteLine($"[CloudSync] Upload exception {repoPath}: {ex.Message}");
                 return false;
             }
+        }
+
+        // ── File Delete ─────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Deletes a file from the sync repo. Requires the blob sha, which is
+        /// taken from the sha cache — returns false (no-op) when the path isn't
+        /// cached. Git history retains the blob, so deletion is recoverable.
+        /// </summary>
+        public async Task<bool> DeleteFileAsync(string repoPath, CancellationToken ct = default)
+        {
+            if (string.IsNullOrEmpty(_token) || string.IsNullOrEmpty(_username)) return false;
+            if (!_shaCache.TryGetValue(repoPath, out string? sha) || string.IsNullOrEmpty(sha))
+                return false;
+
+            try
+            {
+                var payload = new Dictionary<string, object>
+                {
+                    ["message"] = $"remove {repoPath}",
+                    ["sha"] = sha
+                };
+                using var req = AuthedRequest(HttpMethod.Delete,
+                    $"{ApiBase}/repos/{_username}/{RepoName}/contents/{repoPath}");
+                req.Content = new StringContent(JsonSerializer.Serialize(payload),
+                    Encoding.UTF8, "application/json");
+
+                using var resp = await Http.SendAsync(req, ct).ConfigureAwait(false);
+                if (resp.IsSuccessStatusCode)
+                {
+                    _shaCache.TryRemove(repoPath, out _);
+                    _manifestCache.Files.TryRemove(repoPath, out _);
+                    return true;
+                }
+
+                Trace.WriteLine($"[CloudSync] Delete failed {repoPath}: {resp.StatusCode}");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"[CloudSync] Delete exception {repoPath}: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Removes the encryption-toggle counterpart of a just-uploaded path
+        /// ("X.srm" ↔ "X.srm.enc", "manifest.json" ↔ "manifest.json.enc") so the
+        /// repo converges to a single variant per file. If the remote delete
+        /// can't run (sha not cached), the manifest entry is still dropped so
+        /// the stale variant stops being advertised to download passes; the
+        /// blob itself gets cleaned up by a later sync once the sha cache
+        /// knows it.
+        /// </summary>
+        private async Task DeleteCounterpartVariantAsync(string repoPath, CancellationToken ct)
+        {
+            string counterpart = repoPath.EndsWith(".enc", StringComparison.Ordinal)
+                ? repoPath[..^4]
+                : repoPath + ".enc";
+
+            bool known = _shaCache.ContainsKey(counterpart)
+                || _manifestCache.Files.ContainsKey(counterpart);
+            if (!known) return;
+
+            if (await DeleteFileAsync(counterpart, ct).ConfigureAwait(false))
+                Trace.WriteLine($"[CloudSync] Removed stale variant: {counterpart}");
+            else
+                _manifestCache.Files.TryRemove(counterpart, out _);
         }
 
         // ── File Download ───────────────────────────────────────────────────
@@ -557,6 +636,23 @@ namespace Emutastic.Services
 
             await RefreshShaCacheAsync(ct);
             await LoadManifestAsync(ct);
+
+            // Converge the repo to one variant per file. An encryption toggle
+            // re-uploads everything under the other suffix but historically left
+            // the old variant behind; when BOTH X and X.enc exist remotely, drop
+            // the one that doesn't match the current mode. Both-exist is required:
+            // an opposite-variant file with no counterpart is the only surviving
+            // copy of that save and must stay downloadable after a toggle-back.
+            foreach (var stale in _shaCache.Keys.ToList())
+            {
+                if (ct.IsCancellationRequested) break;
+                bool isEnc = stale.EndsWith(".enc", StringComparison.Ordinal);
+                if (isEnc == encrypted) continue;              // matches current mode — keep
+                string counterpart = isEnc ? stale[..^4] : stale + ".enc";
+                if (!_shaCache.ContainsKey(counterpart)) continue; // lone copy — keep
+                if (await DeleteFileAsync(stale, ct))
+                    Trace.WriteLine($"[CloudSync] Removed stale variant: {stale}");
+            }
 
             var localSaves = BuildLocalSaveMap(db);
             string encSuffix = encrypted ? ".enc" : "";
