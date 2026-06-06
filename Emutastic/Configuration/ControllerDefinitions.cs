@@ -192,16 +192,16 @@ namespace Emutastic.Configuration
                     new("R",      "R",      430,  30, ButtonType.Button, 70, 25, GShoulder),
                     new("Select", "Select", 230, 190, ButtonType.Button, 45, 20, GSystem),
                     new("Start",  "Start",  285, 190, ButtonType.Button, 45, 20, GSystem),
-                    // Not a physical DS button: DeSmuME maps JOYPAD_R2 to
-                    // "Tap Stylus" — the touch press for the right-stick
-                    // emulated pointer. Without this row R2 is unbindable for
-                    // NDS, so controller-only players couldn't tap and games
-                    // with mandatory touch sequences hard-blocked. Users can
-                    // rebind it to any physical button like every other entry.
-                    // NOTE arg order: Name FIRST ("R2", resolved by
-                    // LibretroInput.GetButtonId's standard fallback), then the
-                    // friendly DisplayName shown in Edit Controls.
-                    new("R2", "Touch", 430,  60, ButtonType.Button, 70, 25, GTrigger),
+                    // Not a physical DS button: the touch press for DeSmuME's
+                    // right-stick emulated pointer (the core reads it on the
+                    // JOYPAD_R2 wire — see LibretroInput's NDS case). Without
+                    // this row controller-only players can't tap, and games
+                    // with mandatory touch sequences hard-block. Bindable to
+                    // any physical button like every other entry. NOTE: the
+                    // Edit Controls screen renders Name (first arg), and Name
+                    // is also what mappings persist under — keep it in sync
+                    // with the LibretroInput translation case.
+                    new("Touch", "Touch", 430,  60, ButtonType.Button, 70, 25, "Touch Screen"),
                 }
             },
             ["3DS"] = new ControllerDefinition

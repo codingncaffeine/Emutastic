@@ -372,6 +372,14 @@ namespace Emutastic.Services
                     };
             }
 
+            // ── Nintendo DS (DeSmuME) ────────────────────────────────────────
+            // "Touch" is the stylus press for the right-stick emulated pointer;
+            // DeSmuME reads it on the JOYPAD_R2 wire ("Tap Stylus" in its input
+            // descriptors). Every other DS button uses the standard fallback
+            // below, so this case deliberately falls through on no-match.
+            if (console == "NDS" && n == "touch")
+                return JOYPAD_R2;
+
             // ── Standard libretro joypad fallback ────────────────────────────
             // NES, SNES, GB/GBC/GBA, NDS, FDS, MSX, etc.
             return n switch
