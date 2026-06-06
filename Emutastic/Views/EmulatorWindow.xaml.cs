@@ -6577,6 +6577,16 @@ namespace Emutastic.Views
                 {
                     Dispatcher.BeginInvoke(() => ShowAchievementToast("Mastery!", "All achievements earned!", 0, header: "GAME COMPLETE"));
                 };
+                // In-game indicators (challenge badges bottom-right, measured-
+                // progress pill top-right). Events arrive on the emu thread.
+                _raClient.ChallengeIndicatorChanged += (info, shown) =>
+                {
+                    Dispatcher.BeginInvoke(() => SetRaChallenge(info, shown));
+                };
+                _raClient.ProgressIndicatorChanged += (info, shown) =>
+                {
+                    Dispatcher.BeginInvoke(() => SetRaProgress(info, shown));
+                };
                 // Phase 6b.1: leaderboard SCOREBOARD post-submission. The
                 // decision (triumph vs proximity vs neither) runs against
                 // the FriendService's pre-fetched per-game friend ranks.
@@ -7000,6 +7010,88 @@ namespace Emutastic.Views
         // download instead of refetching from media.retroachievements.org.
         private readonly System.Collections.Generic.Dictionary<string, System.Windows.Media.Imaging.BitmapImage> _badgeCache = new();
 
+        /// <summary>
+        /// Mirror of the HUD-pill reparenting pattern: on HW-rendered cores
+        /// (Vulkan / OpenGL) the game render lives in a WS_POPUP overlay that
+        /// covers the WPF main window. Without reparenting into the dedicated
+        /// HUD window, a toast/indicator would draw underneath and be invisible
+        /// even though the underlying event fired and submitted server-side.
+        /// No-op for software-rendered cores (element stays in GameViewport).
+        /// </summary>
+        private void MoveHudElementToOverlay(FrameworkElement el)
+        {
+            bool useOverlayWindow = (_vulkanOverlayHwnd != IntPtr.Zero && _vulkanPresenting)
+                                 || _glOverlayHwnd != IntPtr.Zero;
+            if (!useOverlayWindow) return;
+
+            EnsureVulkanHudWindow();
+            if (el.Parent == GameViewport)
+            {
+                GameViewport.Children.Remove(el);
+                _vulkanHudGrid!.Children.Add(el);
+            }
+            RepositionVulkanHud();
+            if (!_vulkanHudWindow!.IsVisible) _vulkanHudWindow.Show();
+            var hudHwnd = new System.Windows.Interop.WindowInteropHelper(_vulkanHudWindow).Handle;
+            if (hudHwnd != IntPtr.Zero)
+            {
+                const uint SWP_NOMOVE = 0x0002, SWP_NOSIZE = 0x0001, SWP_NOACTIVATE = 0x0010;
+                SetWindowPos(hudHwnd, IntPtr.Zero, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            }
+        }
+
+        // ── RA challenge + progress indicators ──────────────────────────────
+        // rcheevos CHALLENGE_/PROGRESS_INDICATOR events, RetroArch-standard
+        // presentation (matches the Linux port): primed challenge badges sit
+        // bottom-right while the attempt is live; a transient measured-progress
+        // pill ("50/100") with the achievement's badge shows top-right. rcheevos
+        // drives ALL show/update/hide timing — no local timers.
+        private readonly System.Collections.Generic.Dictionary<uint, Image> _raChallengeBadges = new();
+
+        private void SetRaChallenge(Services.AchievementInfo info, bool shown)
+        {
+            if (!shown)
+            {
+                if (_raChallengeBadges.Remove(info.Id, out var img))
+                    RaChallengeStrip.Children.Remove(img);
+            }
+            else if (!_raChallengeBadges.ContainsKey(info.Id))
+            {
+                var img = new Image
+                {
+                    Width = 32, Height = 32,
+                    Margin = new Thickness(4, 0, 0, 0),
+                    Source = info.BadgeUrl != null ? LoadBadge(info.BadgeUrl) : null,
+                    ToolTip = info.Title
+                };
+                _raChallengeBadges[info.Id] = img;
+                RaChallengeStrip.Children.Add(img);
+            }
+
+            RaChallengeStrip.Visibility = _raChallengeBadges.Count > 0
+                ? Visibility.Visible : Visibility.Collapsed;
+            if (_raChallengeBadges.Count > 0)
+                MoveHudElementToOverlay(RaChallengeStrip);
+        }
+
+        private void SetRaProgress(Services.AchievementInfo? info, bool shown)
+        {
+            if (!shown || info == null)
+            {
+                RaProgressPill.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            RaProgressText.Text = !string.IsNullOrEmpty(info.MeasuredProgress)
+                ? info.MeasuredProgress
+                : $"{info.MeasuredPercent:0}%";
+            RaProgressBadgeBrush.ImageSource =
+                info.BadgeUrl != null ? LoadBadge(info.BadgeUrl) : null;
+
+            MoveHudElementToOverlay(RaProgressPill);
+            RaProgressPill.Visibility = Visibility.Visible;
+        }
+
         private void ShowAchievementToast(string title, string description, uint points,
                                           string? badgeUrl = null, string? header = null)
         {
@@ -7043,30 +7135,7 @@ namespace Emutastic.Views
             AchievementPoints.Text = points > 0 ? $"{points} points" : "";
             AchievementPoints.Visibility = points > 0 ? Visibility.Visible : Visibility.Collapsed;
 
-            // Mirror the HUD-pill reparenting pattern: on HW-rendered cores
-            // (Vulkan / OpenGL) the game render lives in a WS_POPUP overlay
-            // that covers the WPF main window. Without reparenting, the
-            // toast would draw underneath and be invisible to the user even
-            // though the unlock fires and submits server-side.
-            bool useOverlayWindow = (_vulkanOverlayHwnd != IntPtr.Zero && _vulkanPresenting)
-                                 || _glOverlayHwnd != IntPtr.Zero;
-            if (useOverlayWindow)
-            {
-                EnsureVulkanHudWindow();
-                if (AchievementToast.Parent == GameViewport)
-                {
-                    GameViewport.Children.Remove(AchievementToast);
-                    _vulkanHudGrid!.Children.Add(AchievementToast);
-                }
-                RepositionVulkanHud();
-                if (!_vulkanHudWindow!.IsVisible) _vulkanHudWindow.Show();
-                var hudHwnd = new System.Windows.Interop.WindowInteropHelper(_vulkanHudWindow).Handle;
-                if (hudHwnd != IntPtr.Zero)
-                {
-                    const uint SWP_NOMOVE = 0x0002, SWP_NOSIZE = 0x0001, SWP_NOACTIVATE = 0x0010;
-                    SetWindowPos(hudHwnd, IntPtr.Zero, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-                }
-            }
+            MoveHudElementToOverlay(AchievementToast);
 
             AchievementToast.Visibility = Visibility.Visible;
 

@@ -696,6 +696,51 @@
                             </StackPanel>
                         </Grid>
                     </Border>
+
+                    <!-- RA challenge indicators (rcheevos CHALLENGE_INDICATOR events).
+                         RetroArch-standard presentation: while a challenge achievement
+                         is primed ("beat the boss without dying"), its badge sits in
+                         the bottom-right corner; it disappears when the attempt ends.
+                         Children are Image elements managed entirely in code-behind. -->
+                    <StackPanel x:Name="RaChallengeStrip"
+                                Orientation="Horizontal"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Bottom"
+                                Margin="0,0,16,16"
+                                Visibility="Collapsed"
+                                IsHitTestVisible="False"/>
+
+                    <!-- RA measured-progress pill (rcheevos PROGRESS_INDICATOR events).
+                         Transient top-right readout like "50/100" with the achievement's
+                         badge; rcheevos drives show/update/hide timing. -->
+                    <Border x:Name="RaProgressPill"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Top"
+                            Margin="0,16,16,0"
+                            Padding="8,5"
+                            CornerRadius="14"
+                            Background="#D8141416"
+                            BorderBrush="#66FFFFFF"
+                            BorderThickness="1"
+                            Visibility="Collapsed"
+                            IsHitTestVisible="False">
+                        <StackPanel Orientation="Horizontal">
+                            <Border Width="22" Height="22" CornerRadius="4"
+                                    VerticalAlignment="Center">
+                                <Border.Background>
+                                    <ImageBrush x:Name="RaProgressBadgeBrush"
+                                                Stretch="UniformToFill"/>
+                                </Border.Background>
+                            </Border>
+                            <TextBlock x:Name="RaProgressText"
+                                       Foreground="White"
+                                       FontFamily="{StaticResource PrimaryFont}"
+                                       FontSize="13"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center"
+                                       Margin="8,0,2,0"/>
+                        </StackPanel>
+                    </Border>
                 </Grid>
             </Border>
 

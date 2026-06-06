@@ -84,6 +84,13 @@ namespace Emutastic.Services
         public event Action<AchievementInfo?, bool>? ProgressIndicatorChanged;
 
         /// <summary>
+        /// Fired when a challenge achievement primes/un-primes —
+        /// rcheevos CHALLENGE_INDICATOR_SHOW/HIDE. Several can be active at once.
+        /// Fires on the emulation thread; subscribers must marshal to UI.
+        /// </summary>
+        public event Action<AchievementInfo, bool>? ChallengeIndicatorChanged;
+
+        /// <summary>
         /// Fired on the emulation thread when rcheevos delivers a leaderboard
         /// scoreboard post-submission (Phase 6b — used for "you beat friend X"
         /// toasts). Subscribers MUST marshal to the UI thread before touching
@@ -816,6 +823,21 @@ namespace Emutastic.Services
 
                 case RC_CLIENT_EVENT_ACHIEVEMENT_PROGRESS_INDICATOR_HIDE:
                     ProgressIndicatorChanged?.Invoke(null, false);
+                    break;
+
+                // Challenge indicators: a primed challenge achievement ("beat the
+                // boss without dying") shows its badge while the condition is being
+                // attempted; HIDE fires when it un-primes (failed or completed).
+                // Several can be active at once.
+                case RC_CLIENT_EVENT_ACHIEVEMENT_CHALLENGE_INDICATOR_SHOW:
+                case RC_CLIENT_EVENT_ACHIEVEMENT_CHALLENGE_INDICATOR_HIDE:
+                    if (evt.achievement != IntPtr.Zero)
+                    {
+                        var chInfo = ReadAchievementInfo(evt.achievement);
+                        if (chInfo.Id > 0)
+                            ChallengeIndicatorChanged?.Invoke(chInfo,
+                                evt.type == RC_CLIENT_EVENT_ACHIEVEMENT_CHALLENGE_INDICATOR_SHOW);
+                    }
                     break;
 
                 case RC_CLIENT_EVENT_LEADERBOARD_SCOREBOARD:
