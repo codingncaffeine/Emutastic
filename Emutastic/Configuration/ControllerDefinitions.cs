@@ -201,7 +201,7 @@ namespace Emutastic.Configuration
                     // NOTE arg order: Name FIRST ("R2", resolved by
                     // LibretroInput.GetButtonId's standard fallback), then the
                     // friendly DisplayName shown in Edit Controls.
-                    new("R2", "Tap Stylus", 430,  60, ButtonType.Button, 70, 25, GTrigger),
+                    new("R2", "Touch", 430,  60, ButtonType.Button, 70, 25, GTrigger),
                 }
             },
             ["3DS"] = new ControllerDefinition
