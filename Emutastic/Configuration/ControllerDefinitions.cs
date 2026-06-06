@@ -192,6 +192,13 @@ namespace Emutastic.Configuration
                     new("R",      "R",      430,  30, ButtonType.Button, 70, 25, GShoulder),
                     new("Select", "Select", 230, 190, ButtonType.Button, 45, 20, GSystem),
                     new("Start",  "Start",  285, 190, ButtonType.Button, 45, 20, GSystem),
+                    // Not a physical DS button: DeSmuME maps JOYPAD_R2 to
+                    // "Tap Stylus" — the touch press for the right-stick
+                    // emulated pointer. Without this row R2 is unbindable for
+                    // NDS, so controller-only players couldn't tap and games
+                    // with mandatory touch sequences hard-blocked. Users can
+                    // rebind it to any physical button like every other entry.
+                    new("Tap Stylus", "R2", 430,  60, ButtonType.Button, 70, 25, GTrigger),
                 }
             },
             ["3DS"] = new ControllerDefinition
