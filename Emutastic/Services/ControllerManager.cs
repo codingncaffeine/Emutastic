@@ -353,6 +353,15 @@ namespace Emutastic.Services
                         uint libretroId = LibretroInput.GetButtonId(mapping.ButtonName, _consoleName);
                         if (libretroId < 16 && controllerButtonId < 16)
                             _buttonStates[libretroId] = IsXboxButtonPressed(gamepad.wButtons, controllerButtonId);
+                        else if (libretroId == uint.MaxValue)
+                        {
+                            // A saved binding whose name the translator doesn't know
+                            // is a BUG (definition/translator drift — NeoGeo, CDi and
+                            // NDS "Tap Stylus" have all hit this). Surface it instead
+                            // of silently ignoring the user's binding. Once per name.
+                            if (_unknownButtonNamesLogged.Add($"{_consoleName}:{mapping.ButtonName}"))
+                                CtrlLog($"UNKNOWN BUTTON NAME '{mapping.ButtonName}' (console={_consoleName}) — binding ignored! LibretroInput.GetButtonId needs a case for it.");
+                        }
                     }
                 }
                 else
@@ -771,6 +780,10 @@ namespace Emutastic.Services
         private static readonly string _ctrlDiagLogPath =
             System.IO.Path.Combine(AppContext.BaseDirectory, "controller-diag.log");
         private static readonly object _ctrlDiagLogLock = new();
+
+        // De-dupes the unknown-button-name diagnostic (logged once per
+        // console+name pair, not once per poll tick at 60Hz).
+        private static readonly System.Collections.Generic.HashSet<string> _unknownButtonNamesLogged = new();
         private static void CtrlLog(string msg)
         {
             try
