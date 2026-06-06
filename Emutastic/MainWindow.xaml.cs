@@ -5518,6 +5518,19 @@ namespace Emutastic
                     : $"🗑  Delete {paths.Count} Screenshots";
 
                 var menu = new ContextMenu();
+                // Mirrors the library's "Show in Explorer". Always acts on the
+                // card under the cursor (ss), not the multi-selection — opening
+                // N Explorer windows for a shift-selection would be hostile.
+                menu.Items.Add(MakeMenuItem("📁  Show in Explorer", () =>
+                {
+                    if (File.Exists(ss.FilePath))
+                        System.Diagnostics.Process.Start("explorer.exe",
+                            $"/select,\"{ss.FilePath}\"");
+                    else
+                        MessageBox.Show("Screenshot file not found.", "Error",
+                            MessageBoxButton.OK, MessageBoxImage.Warning);
+                }));
+                menu.Items.Add(new Separator());
                 menu.Items.Add(MakeMenuItem(label, () => DeleteScreenshotsWithConfirm(paths)));
                 menu.IsOpen = true;
                 e.Handled   = true;
