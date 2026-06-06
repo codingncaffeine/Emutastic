@@ -198,7 +198,10 @@ namespace Emutastic.Configuration
                     // NDS, so controller-only players couldn't tap and games
                     // with mandatory touch sequences hard-blocked. Users can
                     // rebind it to any physical button like every other entry.
-                    new("Tap Stylus", "R2", 430,  60, ButtonType.Button, 70, 25, GTrigger),
+                    // NOTE arg order: Name FIRST ("R2", resolved by
+                    // LibretroInput.GetButtonId's standard fallback), then the
+                    // friendly DisplayName shown in Edit Controls.
+                    new("R2", "Tap Stylus", 430,  60, ButtonType.Button, 70, 25, GTrigger),
                 }
             },
             ["3DS"] = new ControllerDefinition
