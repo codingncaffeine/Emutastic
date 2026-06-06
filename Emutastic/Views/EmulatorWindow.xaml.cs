@@ -1298,7 +1298,16 @@ namespace Emutastic.Views
 
             // NDS: default to touch mode (absolute pointer, no crosshair) instead of mouse mode
             if (_game.Console == "NDS")
+            {
                 _coreOptions.TryAdd("desmume_pointer_type", "touch");
+                // Controller-only players (couch/TV) can't click the screen, and
+                // games gate progression behind mandatory touches (e.g. RPG intro
+                // sequences). The core's emulated pointer moves a crosshair with
+                // the RIGHT ANALOG STICK and taps with R2 — coexists with mouse
+                // clicks, which keep working. TryAdd → a user's saved Core Options
+                // choice still wins.
+                _coreOptions.TryAdd("desmume_pointer_device_r", "emulated");
+            }
 
             // Apply legacy per-console overrides (e.g. N64 GFX plugin selection)
             var configSvc = _configService ?? App.Configuration;
