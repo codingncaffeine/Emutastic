@@ -747,14 +747,20 @@ namespace Emutastic.ViewModels
                 // viewport pages at default card width) so the very first paint
                 // after a console click is hot. Strong-ref tier pins them so the
                 // GC doesn't reclaim before the user actually navigates.
+                //
+                // ONE sequential PreloadAsync call for everything — NOT one per
+                // console. The per-console version spawned ~35 concurrent Task.Run
+                // decode workers at startup, pegging every core and starving the
+                // dispatcher: the watchdog's signature 7-13 s MainWindow freeze
+                // ~15 s after launch. A single worker warms the same cache with
+                // zero burst; the visible console's first paint is covered
+                // separately by PreloadVisibleArtworkAsync.
                 const int prefetchPerConsole = 60;
+                var prefetchPaths = new List<string?>();
                 foreach (var (_, sorted) in grouped)
-                {
-                    var paths = new List<string?>(prefetchPerConsole);
                     for (int i = 0; i < sorted.Count && i < prefetchPerConsole; i++)
-                        paths.Add(sorted[i].DisplayArtPath);
-                    _ = Emutastic.Converters.PathToImageConverter.PreloadAsync(paths);
-                }
+                        prefetchPaths.Add(sorted[i].DisplayArtPath);
+                _ = Emutastic.Converters.PathToImageConverter.PreloadAsync(prefetchPaths);
             });
         }
 
