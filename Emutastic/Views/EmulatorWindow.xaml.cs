@@ -307,6 +307,10 @@ namespace Emutastic.Views
         private string   _transientMsg    = "";
         private DateTime _transientExpiry = DateTime.MinValue;
 
+        // Last-seen controller name list for the in-game hot-plug status diff
+        // (primed on the first status-timer tick; see the tick handler).
+        private System.Collections.Generic.List<string>? _ctrlStatusLast;
+
         // Services — up to 4 controllers (one per XInput slot / libretro port)
         private readonly ControllerManager?[] _controllers = new ControllerManager?[4];
         private ControllerManager? _controllerManager; // alias for _controllers[0]
@@ -1686,6 +1690,32 @@ namespace Emutastic.Views
                         // refresh. If we've been at 0 fps for ≥2 ticks AND no transient
                         // message is active, fall back to a generic stall indicator.
                         if (actual == 0) _zeroFpsSeconds++; else _zeroFpsSeconds = 0;
+
+                        // Controller hot-plug during gameplay: diff the cached SDL
+                        // name list (instant, no pump) once per tick and surface
+                        // connect/disconnect with the controller's actual name in
+                        // the transient slot — mirrors the library's status banner.
+                        // First tick primes silently (those controllers were
+                        // present before the game started — not events).
+                        try
+                        {
+                            var ctrls = Services.ControllerManager.GetConnectedControllers();
+                            if (_ctrlStatusLast != null)
+                            {
+                                foreach (var n in ctrls.Except(_ctrlStatusLast, StringComparer.Ordinal))
+                                {
+                                    _transientMsg    = $"Controller connected: {n}";
+                                    _transientExpiry = DateTime.Now.AddSeconds(5);
+                                }
+                                foreach (var n in _ctrlStatusLast.Except(ctrls, StringComparer.Ordinal))
+                                {
+                                    _transientMsg    = $"Controller disconnected: {n}";
+                                    _transientExpiry = DateTime.Now.AddSeconds(5);
+                                }
+                            }
+                            _ctrlStatusLast = ctrls;
+                        }
+                        catch { /* status only — never disturb the FPS tick */ }
 
                         string fpsStr = $"{actual} fps  (target {fps:F0})  core.Run avg {avgMs:F1}ms";
                         string msg    = _transientMsg;

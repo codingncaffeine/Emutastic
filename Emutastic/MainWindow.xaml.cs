@@ -620,18 +620,11 @@ namespace Emutastic
             if (_controllerManager == null && App.Configuration != null)
             {
                 _controllerManager = new ControllerManager(App.Configuration);
-                // Surface hot-plug events in the library's bottom status bar.
-                // ConnectionChanged fires on the polling Timer thread, so marshal
-                // to the Dispatcher before touching _vm (WPF binding requirement).
-                _controllerManager.ConnectionChanged += connected =>
-                {
-                    Dispatcher.BeginInvoke(new Action(() =>
-                    {
-                        _vm.SetStatus(
-                            connected ? "Controller connected" : "Controller disconnected",
-                            autoClear: true);
-                    }));
-                };
+                // NOTE: deliberately NOT subscribing ConnectionChanged for status
+                // here — StartControllerStatusPoll() already surfaces hot-plug
+                // events with the controller's actual NAME, and a second nameless
+                // "Controller connected" message raced it for the single status
+                // banner (whichever fired last won).
             }
         }
 
