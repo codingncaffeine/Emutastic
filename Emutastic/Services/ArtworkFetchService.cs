@@ -318,7 +318,16 @@ namespace Emutastic.Services
             int done = 0;
             int fetched = 0;
             var ss = new ScreenScraperService();
-            var sem = new SemaphoreSlim(1, 1);
+            // Scale 2D box-art fetching to the account's allowed thread count
+            // (paid ScreenScraper tiers get up to 6 — the metadata and 3D-art
+            // paths already honor this; this path was hard-pinned to 1). The
+            // value is the server's per-account maxthreads from login, so free
+            // accounts stay at 1 and the server rejects any over-send anyway.
+            // FetchBoxArt2DAsync holds no per-call instance state, so the one
+            // shared ss is safe across concurrent calls (HttpClient is
+            // concurrency-safe); each game takes one slot.
+            int ssThreads = Math.Max(1, snapCfg.ScreenScraperMaxThreads);
+            var sem = new SemaphoreSlim(ssThreads, ssThreads);
 
             var tasks = allForConsole.Select(async game =>
             {
