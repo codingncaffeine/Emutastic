@@ -304,18 +304,16 @@ achievements track automatically in every supported game.
      of the toggle setting — see the Hardcore Compliance wiki page
      for the technical reason.
 
-     NOTE: With Hardcore Mode on, RetroAchievements will pop a toast
-     notification that reads "Unknown emulator" at game start. This
-     is EXPECTED and does NOT mean achievements are broken. RA only
-     considers an emulator for hardcore approval after it has been
-     publicly available for six months; Emutastic's earliest
+     NOTE: With Hardcore Mode on, RetroAchievements pops a toast that
+     reads "Unknown emulator" at game start. This is EXPECTED, not a
+     bug — RA only approves an emulator for hardcore after it has been
+     publicly available for six months, and Emutastic's earliest
      application date is October 14, 2026, so the server doesn't yet
-     recognize it as an approved hardcore client. Achievements still
-     unlock normally during play — they're simply credited as
-     softcore until approval completes. If you would rather not see
-     the "Unknown emulator" toast in the meantime, turn Hardcore Mode
-     off (Preferences -> Achievements); softcore unlocks are
-     unaffected.
+     recognize it as an approved hardcore client.
+
+     If you want to unlock standard achievements and stop the message,
+     turn Hardcore Mode OFF (Preferences -> Achievements). We'll let
+     everyone know once Emutastic is approved for hardcore.
 
      For the full line-by-line compliance audit:
         https://github.com/codingncaffeine/Emutastic/wiki/Hardcore-Compliance
