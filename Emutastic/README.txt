@@ -264,12 +264,14 @@ RETROACHIEVEMENTS
 -----------------
 RetroAchievements (https://retroachievements.org) is a community-run
 service that tracks achievement unlocks across hundreds of supported
-games. Enable in Preferences -> Achievements:
+games. Just sign in under Preferences -> Achievements — that's all it
+takes; there is no separate "enable" switch. Once you're signed in,
+achievements track automatically in every supported game.
 
   1. Username + Password
-     Used for the unlocks themselves. After your first successful
-     login the password is replaced by a session token, so you only
-     enter it once.
+     Sign in here — this is the only required step. After your first
+     successful login the password is replaced by a session token, so
+     you only enter it once.
 
   2. Web API Key  (separate from your password)
      Unlocks the per-game stats on the library detail card: an
@@ -301,6 +303,17 @@ games. Enable in Preferences -> Achievements:
      Hardcore Mode is temporarily disabled for PSP titles regardless
      of the toggle setting — see the Hardcore Compliance wiki page
      for the technical reason.
+
+     NOTE: With Hardcore Mode on, RetroAchievements will show a
+     message that Emutastic is not (yet) a recognized / approved
+     emulator. This is expected and not a bug. RA only considers an
+     emulator for hardcore approval after it has been publicly
+     available for six months; Emutastic's earliest application date
+     is October 14, 2026. Until approval completes, achievements
+     still unlock normally, but hardcore unlocks are not credited as
+     hardcore. If you would rather not see the message in the
+     meantime, turn Hardcore Mode off (Preferences -> Achievements);
+     softcore unlocks are unaffected.
 
      For the full line-by-line compliance audit:
         https://github.com/codingncaffeine/Emutastic/wiki/Hardcore-Compliance
