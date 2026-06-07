@@ -22,6 +22,7 @@ namespace Emutastic.Services.ConsoleHandlers
             "PSP"            => new PspHandler(),
             "Saturn"         => new SaturnHandler(),
             "3DS"            => new ThreeDsHandler(),
+            "NDS"            => new NdsHandler(),
             _                => new GenericHandler(console),
         };
     }
