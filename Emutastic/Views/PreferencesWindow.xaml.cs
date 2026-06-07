@@ -1063,7 +1063,7 @@ namespace Emutastic.Views
             });
             bannerStack.Children.Add(new TextBlock
             {
-                Text = "Or just drag and drop BIOS / MT-32 ROM / .sf2 SoundFont files anywhere on this panel — they'll be recognized and copied here automatically.",
+                Text = "Or just drag and drop BIOS files anywhere on this panel — they'll be recognized and copied here automatically.",
                 FontSize = 11,
                 Foreground = _brushTextMuted,
                 TextWrapping = TextWrapping.Wrap,
@@ -1524,8 +1524,7 @@ namespace Emutastic.Views
         // ── BIOS drag-drop ────────────────────────────────────────────────────
         // Drop any file on the System Files panel — it gets identified by MD5 →
         // filename+size → filename, and copied to the system folder with the
-        // canonical name. Unknown .sf2 files are also accepted (DOSBox Pure picks
-        // any SoundFont in system/ automatically).
+        // canonical name.
         private void BiosPanel_DragOver(object sender, System.Windows.DragEventArgs e)
         {
             e.Effects = e.Data.GetDataPresent(System.Windows.DataFormats.FileDrop)
@@ -1609,7 +1608,7 @@ namespace Emutastic.Views
                           || srcExt.Equals(".7z",  StringComparison.OrdinalIgnoreCase)
                           || srcExt.Equals(".rar", StringComparison.OrdinalIgnoreCase);
 
-            // For archives: peek inside first. MT-32 ROMs, PS1 BIOS bundles, etc. typically ship zipped.
+            // For archives: peek inside first. PS1 BIOS bundles, etc. typically ship zipped.
             // If any entry matches a known BIOS, extract THAT. Fall back to treating the archive itself
             // as the BIOS (covers neogeo.zip / cdibios.zip cases where the archive IS the expected file).
             if (isArchive)
@@ -1678,11 +1677,6 @@ namespace Emutastic.Views
                 destPath = System.IO.Path.Combine(sysDir, fileMatch.Filename);
                 System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(destPath)!);
                 label = $"{System.IO.Path.GetFileName(fileMatch.Filename)} → {fileMatch.ConsoleDisplay}";
-            }
-            else if (srcExt.Equals(".sf2", StringComparison.OrdinalIgnoreCase))
-            {
-                destPath = System.IO.Path.Combine(sysDir, srcName);
-                label = $"{srcName} → SoundFont";
             }
             else
             {
