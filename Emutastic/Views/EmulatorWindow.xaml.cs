@@ -1726,6 +1726,11 @@ namespace Emutastic.Views
                         }
                         catch { /* status only — never disturb the FPS tick */ }
 
+                        // Benchmark log: one line per second to Logs/perf.log so
+                        // the tweak→measure loop can read steady-state fps back
+                        // without the screen. Cheap; runs for every console.
+                        Services.PerfLog.Tick(_game?.Console ?? "?", actual, fps, avgMs);
+
                         string fpsStr = $"{actual} fps  (target {fps:F0})  core.Run avg {avgMs:F1}ms";
                         string msg    = _transientMsg;
                         bool   transientLive = msg.Length > 0 && DateTime.Now < _transientExpiry;
@@ -1739,6 +1744,23 @@ namespace Emutastic.Views
                     _timer.Start();
                     StatusText.Text = "Running...";
                 });
+
+                // Benchmark session header: game + the core options that move
+                // framerate, so a perf.log read needs no extra context.
+                try
+                {
+                    string optSnap = string.Join(" ", _coreOptions
+                        .Where(kv => kv.Key.Contains("resolution") || kv.Key.Contains("shader")
+                                  || kv.Key.Contains("jit") || kv.Key.Contains("texture_filter")
+                                  || kv.Key.Contains("cpu_clock") || kv.Key.Contains("graphics_api")
+                                  || kv.Key.Contains("accurate") || kv.Key.Contains("cores")
+                                  || kv.Key.Contains("cpu_mode"))
+                        .OrderBy(kv => kv.Key)
+                        .Select(kv => $"{kv.Key}={kv.Value}"));
+                    Services.PerfLog.SessionStart(
+                        $"{_game?.Console} \"{_game?.Title}\" core={_core?.CoreName} [{optSnap}]");
+                }
+                catch { /* logging only */ }
 
                 _audioPlayer?.Start();
 
@@ -8504,6 +8526,7 @@ namespace Emutastic.Views
             _closeStarted = true;
             _isClosing = true;
             _timer?.Stop();
+            Services.PerfLog.SessionEnd();
             _overlayTimer?.Stop();
             _mousePoller?.Stop();
             _audioPlayer?.Stop();
