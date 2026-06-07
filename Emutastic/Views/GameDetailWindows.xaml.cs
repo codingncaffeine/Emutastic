@@ -231,7 +231,7 @@ namespace Emutastic.Views
             // Hide the section entirely for users who haven't opted into RA.
             // We don't want to pester them with empty achievement UI.
             var raConfig = App.Configuration?.GetRetroAchievementsConfiguration();
-            if (raConfig == null || !raConfig.Enabled)
+            if (raConfig == null || !raConfig.IsConfigured)
             {
                 RASection.Visibility = Visibility.Collapsed;
                 return;

@@ -4419,7 +4419,6 @@ namespace Emutastic.Views
             _suppressAutoSave = true;
             _achievementsLoaded = true;
             var ra = _configService.GetRetroAchievementsConfiguration();
-            RAEnabledToggle.IsChecked  = ra.Enabled;
             RAUsernameBox.Text         = ra.Username;
             RAPasswordBox.Password     = ra.Password;
             RAApiKeyBox.Password       = ra.ApiKey;
@@ -4465,9 +4464,8 @@ namespace Emutastic.Views
 
         private void SaveAchievementsSettings()
         {
-            if (RAEnabledToggle == null || _suppressAutoSave || !_achievementsLoaded) return;
+            if (RAUsernameBox == null || _suppressAutoSave || !_achievementsLoaded) return;
             var ra = _configService.GetRetroAchievementsConfiguration();
-            ra.Enabled      = RAEnabledToggle.IsChecked == true;
             ra.Username     = RAUsernameBox.Text.Trim();
             ra.Password     = RAPasswordBox.Password;
             ra.ApiKey       = RAApiKeyBox.Password.Trim();
@@ -4476,9 +4474,6 @@ namespace Emutastic.Views
             _configService.SetRetroAchievementsConfiguration(ra);
             _ = _configService.SaveAsync();
         }
-
-        private void RAEnabled_Changed(object sender, RoutedEventArgs e)
-            => SaveAchievementsSettings();
 
         private void RAHardcore_Changed(object sender, RoutedEventArgs e)
             => SaveAchievementsSettings();

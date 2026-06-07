@@ -1501,27 +1501,16 @@
                                        FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"
                                        TextWrapping="Wrap" Margin="0,0,0,24"/>
 
-                            <!-- Enable toggle -->
-                            <Grid Margin="0,0,0,20">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0">
-                                    <TextBlock Text="RetroAchievements"
-                                               FontSize="15" FontWeight="SemiBold"
-                                               Foreground="{DynamicResource TextPrimaryBrush}"/>
-                                    <TextBlock Text="Create a free account at retroachievements.org. Your password is used to obtain a login token — it is not stored."
-                                               FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
-                                               TextWrapping="Wrap" Margin="0,4,0,0"/>
-                                </StackPanel>
-                                <ToggleButton x:Name="RAEnabledToggle"
-                                             Grid.Column="1"
-                                             Style="{StaticResource ToggleSwitch}"
-                                             VerticalAlignment="Center"
-                                             Checked="RAEnabled_Changed"
-                                             Unchecked="RAEnabled_Changed"/>
-                            </Grid>
+                            <!-- Signing in (entering credentials below) is all
+                                 that's needed — there is no separate enable toggle. -->
+                            <StackPanel Margin="0,0,0,20">
+                                <TextBlock Text="RetroAchievements"
+                                           FontSize="15" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                <TextBlock Text="Create a free account at retroachievements.org, then sign in below — that's all it takes. Your password is used to obtain a login token; it is not stored."
+                                           FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                           TextWrapping="Wrap" Margin="0,4,0,0"/>
+                            </StackPanel>
 
                             <!-- Username -->
                             <TextBlock Text="Username" FontSize="12"

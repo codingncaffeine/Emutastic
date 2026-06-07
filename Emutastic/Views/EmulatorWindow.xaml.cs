@@ -6540,16 +6540,9 @@ namespace Emutastic.Views
             try
             {
                 var raConfig = _configService.GetRetroAchievementsConfiguration();
-                if (!raConfig.Enabled)
+                if (!raConfig.IsConfigured)
                 {
-                    System.Diagnostics.Trace.WriteLine("[RA] Disabled — skipping.");
-                    return;
-                }
-                if (string.IsNullOrWhiteSpace(raConfig.Username) ||
-                    (string.IsNullOrWhiteSpace(raConfig.Password) && string.IsNullOrWhiteSpace(raConfig.Token)))
-                {
-                    System.Diagnostics.Trace.WriteLine("[RA] Missing credentials — skipping.");
-                    Dispatcher.BeginInvoke(() => _transientMsg = "RetroAchievements: credentials missing");
+                    System.Diagnostics.Trace.WriteLine("[RA] Not signed in — skipping.");
                     return;
                 }
 

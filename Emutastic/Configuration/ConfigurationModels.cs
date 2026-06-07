@@ -201,6 +201,9 @@ namespace Emutastic.Configuration
     // RetroAchievements configuration
     public class RetroAchievementsConfiguration : ConfigurationBase
     {
+        // Retained for back-compat with older config files (System.Text.Json
+        // tolerates the field either way). No longer gates anything — being
+        // signed in IS the enable. See IsConfigured.
         public bool Enabled { get; set; } = false;
         public string Username { get; set; } = "";
         public string Password { get; set; } = "";
@@ -225,6 +228,17 @@ namespace Emutastic.Configuration
         // Defaults reproduce the CURRENT shipped toast exactly so existing users
         // see no change until they opt in. See achievement-toast-customization-plan.md.
         public AchievementToastStyle ToastStyle { get; set; } = new();
+
+        /// <summary>
+        /// True once the user has signed in — a username plus either a saved
+        /// token (normal case after login) or a password. This is the single
+        /// gate for whether RetroAchievements runs; there is no separate
+        /// enable toggle (signing in is the enable).
+        /// </summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool IsConfigured =>
+            !string.IsNullOrWhiteSpace(Username) &&
+            (!string.IsNullOrWhiteSpace(Token) || !string.IsNullOrWhiteSpace(Password));
     }
 
     /// <summary>
