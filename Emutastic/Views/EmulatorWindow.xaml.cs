@@ -1740,14 +1740,14 @@ namespace Emutastic.Views
                         // without the screen. Cheap; runs for every console.
                         Services.PerfLog.Tick(_game?.Console ?? "?", actual, emuRate, fps, avgMs);
 
-                        // Primary number is display cadence (frames actually shown).
-                        // Append the emulation rate only when it meaningfully
-                        // outruns the display — that gap means presentation
-                        // (GPU / UI thread), not the core, is the bottleneck.
-                        string rateStr = (emuRate - actual > 2 && actual > 0)
-                            ? $"{actual} fps  (emu {emuRate})"
-                            : $"{actual} fps  (target {fps:F0})";
-                        string fpsStr = $"{rateStr}  core.Run avg {avgMs:F1}ms";
+                        // Headline number is display cadence (frames actually
+                        // shown); "target" is always the goal rate. When the core
+                        // steps faster than the screen can present, append "emu N"
+                        // — that gap means presentation (GPU / UI thread), not the
+                        // core, is the bottleneck.
+                        string fpsStr = (emuRate - actual > 2 && actual > 0)
+                            ? $"{actual} fps  (target {fps:F0}, emu {emuRate})  core.Run avg {avgMs:F1}ms"
+                            : $"{actual} fps  (target {fps:F0})  core.Run avg {avgMs:F1}ms";
                         string msg    = _transientMsg;
                         bool   transientLive = msg.Length > 0 && DateTime.Now < _transientExpiry;
                         if (transientLive)
