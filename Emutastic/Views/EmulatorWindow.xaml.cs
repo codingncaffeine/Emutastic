@@ -296,8 +296,16 @@ namespace Emutastic.Views
         // Read on emu thread each frame; written from env callback (also emu thread) → no lock needed.
         private double _targetFrameMs = 1000.0 / 60.0;
 
-        // Actual frame counter for real FPS display (not the core's target rate)
+        // Two distinct framerate signals, both reset each timer tick:
+        //   _frameCount    — frames actually PRESENTED to screen (display cadence).
+        //                    Counted only at real present points, AFTER the
+        //                    drop guards, so frames the screen never showed
+        //                    (weak GPU / busy UI thread) are not counted.
+        //   _emuFrameCount — times the core was stepped (emulation rate),
+        //                    incremented once per _core.Run(). Diverges above
+        //                    display cadence when presentation is the bottleneck.
         private int  _frameCount        = 0;
+        private int  _emuFrameCount     = 0;
         private long _coreRunTotalTicks  = 0;   // sum of Stopwatch ticks spent inside _core.Run()
         private int  _coreRunSampleCount = 0;
 
@@ -1687,6 +1695,7 @@ namespace Emutastic.Views
                     _timer.Tick += (s, e) =>
                     {
                         int actual   = System.Threading.Interlocked.Exchange(ref _frameCount, 0);
+                        int emuRate  = System.Threading.Interlocked.Exchange(ref _emuFrameCount, 0);
                         long ticks   = System.Threading.Interlocked.Exchange(ref _coreRunTotalTicks, 0);
                         int  samples = System.Threading.Interlocked.Exchange(ref _coreRunSampleCount, 0);
                         double avgMs = samples > 0
@@ -1729,9 +1738,16 @@ namespace Emutastic.Views
                         // Benchmark log: one line per second to Logs/perf.log so
                         // the tweak→measure loop can read steady-state fps back
                         // without the screen. Cheap; runs for every console.
-                        Services.PerfLog.Tick(_game?.Console ?? "?", actual, fps, avgMs);
+                        Services.PerfLog.Tick(_game?.Console ?? "?", actual, emuRate, fps, avgMs);
 
-                        string fpsStr = $"{actual} fps  (target {fps:F0})  core.Run avg {avgMs:F1}ms";
+                        // Primary number is display cadence (frames actually shown).
+                        // Append the emulation rate only when it meaningfully
+                        // outruns the display — that gap means presentation
+                        // (GPU / UI thread), not the core, is the bottleneck.
+                        string rateStr = (emuRate - actual > 2 && actual > 0)
+                            ? $"{actual} fps  (emu {emuRate})"
+                            : $"{actual} fps  (target {fps:F0})";
+                        string fpsStr = $"{rateStr}  core.Run avg {avgMs:F1}ms";
                         string msg    = _transientMsg;
                         bool   transientLive = msg.Length > 0 && DateTime.Now < _transientExpiry;
                         if (transientLive)
@@ -2335,6 +2351,9 @@ namespace Emutastic.Views
                         System.Threading.Interlocked.Increment(ref _retroRunCallCount);
                         DrainKeyboardQueue();
                         _core.Run();
+                        // Emulation rate: one step per run, counted regardless of
+                        // whether the produced frame ends up displayed.
+                        System.Threading.Interlocked.Increment(ref _emuFrameCount);
                         ApplyFrontendArToRam();   // re-clamp AR cheats every frame
                         try { _raClient?.DoFrame(); }
                         catch (Exception raEx) { System.Diagnostics.Trace.WriteLine($"[RA] DoFrame error: {raEx.Message}"); }
@@ -4117,7 +4136,6 @@ namespace Emutastic.Views
                 return;
             }
             if (data == IntPtr.Zero) return;
-            System.Threading.Interlocked.Increment(ref _frameCount);
             try
             {
                 PixelFormat pixFmt = _pixelFormat == RETRO_PIXEL_FORMAT_XRGB8888
@@ -4244,6 +4262,10 @@ namespace Emutastic.Views
                             }
                             finally { _bitmap.Unlock(); }
                         }
+                        // Display cadence: count the frame only now that it has
+                        // actually been painted (frames dropped at the _videoPending
+                        // guard above never reach here).
+                        System.Threading.Interlocked.Increment(ref _frameCount);
                     }
                     catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Video UI: {ex.Message}"); }
                     finally { _videoPending = false; }

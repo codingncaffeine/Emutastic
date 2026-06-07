@@ -42,20 +42,21 @@ namespace Emutastic.Services
             }
         }
 
-        public static void Tick(string console, int fps, double targetFps, double coreRunAvgMs)
+        public static void Tick(string console, int displayFps, int emuFps, double targetFps, double coreRunAvgMs)
         {
             lock (_gate)
             {
-                // Ignore the 0-fps warmup/stall samples in the average so the
-                // summary reflects steady-state, not load hitches.
-                if (fps > 0)
+                // Average tracks DISPLAY cadence (what the user actually sees).
+                // Ignore the 0-fps warmup/stall samples so the summary reflects
+                // steady-state, not load hitches.
+                if (displayFps > 0)
                 {
                     _samples++;
-                    _fpsSum += fps;
-                    if (fps < _fpsMin) _fpsMin = fps;
-                    if (fps > _fpsMax) _fpsMax = fps;
+                    _fpsSum += displayFps;
+                    if (displayFps < _fpsMin) _fpsMin = displayFps;
+                    if (displayFps > _fpsMax) _fpsMax = displayFps;
                 }
-                Append($"{DateTime.Now:HH:mm:ss} {console} fps={fps} target={targetFps:F0} core.Run={coreRunAvgMs:F1}ms");
+                Append($"{DateTime.Now:HH:mm:ss} {console} display={displayFps} emu={emuFps} target={targetFps:F0} core.Run={coreRunAvgMs:F1}ms");
             }
         }
 
