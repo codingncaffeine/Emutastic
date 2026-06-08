@@ -28,9 +28,21 @@ namespace Emutastic.Services.ConsoleHandlers
         // context_reset's GL objects (FBOs etc.) aren't visible there → black screen.
         public override bool AllowHwSharedContext => false;
 
+        // Visual options for BOTH N64 cores. The cog's Visuals panel filters this
+        // list to the keys the ACTIVE core actually announced (it skips any key
+        // missing from the live core-option schema), so switching between Parallel
+        // N64 and Mupen64Plus-Next automatically surfaces that core's own options —
+        // the user keeps a way to improve visuals either way. Parallel uses one
+        // upscaling knob; Mupen64Plus-Next (GLideN64) exposes resolution + AA +
+        // texture filtering under different keys.
         public override List<(string key, string label)> GetVisualOptions() => new()
         {
+            // Parallel N64 (ParaLLEl-RDP)
             ("parallel-n64-parallel-rdp-upscaling", "Upscaling ⚠ restart"),
+            // Mupen64Plus-Next (GLideN64)
+            ("mupen64plus-43screensize", "Internal Resolution ⚠ restart"),
+            ("mupen64plus-MultiSampling", "Anti-Aliasing ⚠ restart"),
+            ("mupen64plus-txFilterMode", "Texture Filtering"),
         };
 
         public override Dictionary<string, string> GetDefaultCoreOptions() => new()
