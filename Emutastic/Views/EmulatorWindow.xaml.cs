@@ -7085,6 +7085,11 @@ namespace Emutastic.Views
         // Cache decoded badge bitmaps so a re-unlock (or rapid chain) reuses the
         // download instead of refetching from media.retroachievements.org.
         private readonly System.Collections.Generic.Dictionary<string, System.Windows.Media.Imaging.BitmapImage> _badgeCache = new();
+        // URL of the badge the currently-shown toast wants — guards against a
+        // slow download for a superseded unlock painting over a newer one.
+        private string? _toastBadgeUrl;
+        // Same guard for the measured-progress pill's badge.
+        private string? _progressBadgeUrl;
 
         /// <summary>
         /// Mirror of the HUD-pill reparenting pattern: on HW-rendered cores
@@ -7137,11 +7142,20 @@ namespace Emutastic.Views
                 {
                     Width = 32, Height = 32,
                     Margin = new Thickness(4, 0, 0, 0),
-                    Source = info.BadgeUrl != null ? LoadBadge(info.BadgeUrl) : null,
                     ToolTip = info.Title
                 };
                 _raChallengeBadges[info.Id] = img;
                 RaChallengeStrip.Children.Add(img);
+                if (info.BadgeUrl != null)
+                {
+                    uint id = info.Id;
+                    LoadBadgeAsync(info.BadgeUrl, bmp =>
+                    {
+                        // Only apply if this challenge is still primed.
+                        if (_raChallengeBadges.TryGetValue(id, out var liveImg))
+                            liveImg.Source = bmp;
+                    });
+                }
             }
 
             RaChallengeStrip.Visibility = _raChallengeBadges.Count > 0
@@ -7161,8 +7175,18 @@ namespace Emutastic.Views
             RaProgressText.Text = !string.IsNullOrEmpty(info.MeasuredProgress)
                 ? info.MeasuredProgress
                 : $"{info.MeasuredPercent:0}%";
-            RaProgressBadgeBrush.ImageSource =
-                info.BadgeUrl != null ? LoadBadge(info.BadgeUrl) : null;
+            RaProgressBadgeBrush.ImageSource = null;
+            if (info.BadgeUrl != null)
+            {
+                string badgeUrl = info.BadgeUrl;
+                _progressBadgeUrl = badgeUrl;
+                LoadBadgeAsync(badgeUrl, bmp =>
+                {
+                    // Only apply if the pill is still showing this achievement.
+                    if (_progressBadgeUrl == badgeUrl) RaProgressBadgeBrush.ImageSource = bmp;
+                });
+            }
+            else _progressBadgeUrl = null;
 
             MoveHudElementToOverlay(RaProgressPill);
             RaProgressPill.Visibility = Visibility.Visible;
@@ -7187,10 +7211,19 @@ namespace Emutastic.Views
             bool hasBadge = !string.IsNullOrWhiteSpace(badgeUrl);
             if (hasBadge)
             {
-                AchievementIconBrush.ImageSource = LoadBadge(badgeUrl!);
+                // Clear any prior badge, then fill it in off-thread. _toastBadgeUrl
+                // tags the current toast so a slow download for an earlier unlock
+                // can't paint over a newer one that already replaced it.
+                AchievementIconBrush.ImageSource = null;
+                _toastBadgeUrl = badgeUrl;
+                LoadBadgeAsync(badgeUrl!, bmp =>
+                {
+                    if (_toastBadgeUrl == badgeUrl) AchievementIconBrush.ImageSource = bmp;
+                });
             }
             else
             {
+                _toastBadgeUrl = null;
                 AchievementIconBrush.ImageSource = null;
                 AchievementBadge.Visibility = Visibility.Collapsed; // AND: never re-show
             }
@@ -7234,27 +7267,53 @@ namespace Emutastic.Views
         // streams http(s) URIs asynchronously and updates the ImageBrush once the
         // bytes arrive, so the toast appears instantly and the art fills in a beat
         // later. Freezing makes the cached instance safe to reuse across threads.
-        private System.Windows.Media.Imaging.BitmapImage? LoadBadge(string url)
+        // Shared client for badge image downloads. Static so the connection
+        // pool is reused across unlocks.
+        private static readonly System.Net.Http.HttpClient _badgeHttp = new()
         {
-            try
-            {
-                if (_badgeCache.TryGetValue(url, out var cached))
-                    return cached;
+            Timeout = TimeSpan.FromSeconds(10)
+        };
 
-                var bmp = new System.Windows.Media.Imaging.BitmapImage();
-                bmp.BeginInit();
-                bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
-                bmp.UriSource = new Uri(url, UriKind.Absolute);
-                bmp.EndInit();
-                if (bmp.CanFreeze) bmp.Freeze();
-                _badgeCache[url] = bmp;
-                return bmp;
-            }
-            catch (Exception ex)
+        /// <summary>
+        /// Loads an RA badge without ever blocking the UI thread. A cached badge
+        /// is applied synchronously (decode-from-memory is already done); an
+        /// uncached one returns immediately and the network fetch + decode run
+        /// on a background thread, with <paramref name="apply"/> invoked on the
+        /// dispatcher once the frozen image is ready.
+        ///
+        /// The previous version set BitmapImage.UriSource to a remote URL with
+        /// CacheOption.OnLoad and froze it on the UI thread, which forced a
+        /// synchronous download on the dispatcher — a visible hitch the first
+        /// time each badge appeared.
+        /// </summary>
+        private void LoadBadgeAsync(string url, Action<System.Windows.Media.Imaging.BitmapImage> apply)
+        {
+            // Must be called on the UI thread (all callers are). Keeps
+            // _badgeCache single-threaded.
+            if (_badgeCache.TryGetValue(url, out var cached)) { apply(cached); return; }
+
+            _ = System.Threading.Tasks.Task.Run(async () =>
             {
-                System.Diagnostics.Trace.WriteLine($"[RA] Badge load failed ({url}): {ex.Message}");
-                return null;
-            }
+                try
+                {
+                    byte[] bytes = await _badgeHttp.GetByteArrayAsync(url).ConfigureAwait(false);
+                    var bmp = new System.Windows.Media.Imaging.BitmapImage();
+                    bmp.BeginInit();
+                    bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                    bmp.StreamSource = new System.IO.MemoryStream(bytes);
+                    bmp.EndInit();
+                    bmp.Freeze();
+                    Dispatcher.BeginInvoke(() =>
+                    {
+                        _badgeCache[url] = bmp;
+                        apply(bmp);
+                    });
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Trace.WriteLine($"[RA] Badge load failed ({url}): {ex.Message}");
+                }
+            });
         }
 
         // Cache for user-chosen local toast-background images (keyed by absolute path).
