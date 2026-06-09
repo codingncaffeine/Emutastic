@@ -978,6 +978,7 @@ namespace Emutastic.Views
         private bool _isD3d11HwRender = false;
         private bool _d3d11VideoPending = false;
         private System.Windows.Interop.D3DImage? _d3dImage;
+        private int _lastCapSrcW = -1, _lastCapSrcH = -1;   // throttles the per-frame cap log
 
         /// <summary>
         /// Clamps a HW-render frame size to the monitor's pixel dimensions,
@@ -4131,9 +4132,15 @@ namespace Emutastic.Views
                             // supersamples the full-res frame down into the capped
                             // surface for free — so detail is kept, copy cost isn't.
                             var (pw, ph) = CapPresentToDisplay((int)cw, (int)ch);
-                            if (pw != (int)cw || ph != (int)ch)
-                                System.Diagnostics.Trace.WriteLine(
-                                    $"[D3D11] capping present {cw}x{ch} -> {pw}x{ph} (monitor-bound)");
+                            // Log only when the source size changes — this runs every
+                            // frame, so an unconditional log floods emulator.log.
+                            if ((int)cw != _lastCapSrcW || (int)ch != _lastCapSrcH)
+                            {
+                                _lastCapSrcW = (int)cw; _lastCapSrcH = (int)ch;
+                                if (pw != (int)cw || ph != (int)ch)
+                                    System.Diagnostics.Trace.WriteLine(
+                                        $"[D3D11] capping present {cw}x{ch} -> {pw}x{ph} (monitor-bound)");
+                            }
                             bool recreated = _d3d11Context.EnsurePresentTarget(pw, ph, hwnd);
                             if (recreated)
                             {
