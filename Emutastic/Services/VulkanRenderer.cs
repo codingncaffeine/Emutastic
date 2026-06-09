@@ -971,8 +971,16 @@ namespace Emutastic.Services
         // create_device2 refuses (its internal context was never initialized).
         private bool CreateInstanceViaCore()
         {
+            // LoadLibrary (not GetModuleHandle): this runs before any vulkan-1.dll
+            // import, so when this core is the FIRST Vulkan use in the process the DLL
+            // isn't loaded yet and GetModuleHandle would return null.
             IntPtr vulkanDll = GetModuleHandle("vulkan-1.dll");
-            IntPtr realGipa  = GetProcAddress(vulkanDll, "vkGetInstanceProcAddr");
+            if (vulkanDll == IntPtr.Zero)
+            {
+                try { vulkanDll = System.Runtime.InteropServices.NativeLibrary.Load("vulkan-1.dll"); }
+                catch { vulkanDll = IntPtr.Zero; }
+            }
+            IntPtr realGipa = vulkanDll != IntPtr.Zero ? GetProcAddress(vulkanDll, "vkGetInstanceProcAddr") : IntPtr.Zero;
             if (realGipa == IntPtr.Zero)
             {
                 System.Diagnostics.Trace.WriteLine("[Vulkan] CreateInstanceViaCore: vkGetInstanceProcAddr unavailable");
