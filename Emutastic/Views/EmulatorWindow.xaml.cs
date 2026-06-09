@@ -992,12 +992,16 @@ namespace Emutastic.Views
             double scale = 1.0;
             var src = System.Windows.PresentationSource.FromVisual(this);
             if (src?.CompositionTarget != null) scale = src.CompositionTarget.TransformToDevice.M11;
-            int maxDim = (int)System.Math.Ceiling(
-                System.Math.Max(SystemParameters.PrimaryScreenWidth, SystemParameters.PrimaryScreenHeight) * scale);
-            if (maxDim <= 0) return (w, h);
-            int longest = System.Math.Max(w, h);
-            if (longest <= maxDim) return (w, h);
-            double s = (double)maxDim / longest;
+            int monW = (int)System.Math.Ceiling(SystemParameters.PrimaryScreenWidth  * scale);
+            int monH = (int)System.Math.Ceiling(SystemParameters.PrimaryScreenHeight * scale);
+            if (monW <= 0 || monH <= 0) return (w, h);
+            // Clamp BOTH axes to the monitor, preserving aspect ratio — bounded by
+            // whichever axis is tighter. Capping only the longest side oversizes a
+            // 4:3 frame on a wide monitor: the game is pillarboxed, so its visible
+            // size is limited by the shorter (height) axis, and surface rows beyond
+            // that are copied every frame for pixels that can never be shown.
+            double s = System.Math.Min(1.0, System.Math.Min((double)monW / w, (double)monH / h));
+            if (s >= 1.0) return (w, h);
             return (System.Math.Max(1, (int)System.Math.Round(w * s)),
                     System.Math.Max(1, (int)System.Math.Round(h * s)));
         }
