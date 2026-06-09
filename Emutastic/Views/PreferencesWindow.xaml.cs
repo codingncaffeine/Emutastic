@@ -5695,6 +5695,7 @@ namespace Emutastic.Views
             "SG1000"       => "pack://application:,,,/Assets/system_icons/sms.jpg",
             "Dreamcast"    => "pack://application:,,,/Assets/system_icons/dreamcast.jpg",
             "PS1"          => "pack://application:,,,/Assets/system_icons/ps1.jpg",
+            "PS2"          => "pack://application:,,,/Assets/system_icons/ps2.png",
             "PSP"          => "pack://application:,,,/Assets/system_icons/psp.jpg",
             "TG16"         => "pack://application:,,,/Assets/system_icons/TG16.jpg",
             "TGCD"         => "pack://application:,,,/Assets/system_icons/TG16.jpg",
