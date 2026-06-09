@@ -1888,6 +1888,75 @@ namespace Emutastic.Views
                         _consoleHandler.OnAfterContextReset();
                         System.Diagnostics.Trace.WriteLine("context_reset done (Vulkan).");
                     }
+                    else if (_isD3d11HwRender)
+                    {
+                        // D3D11 swapchain present: create a WS_POPUP overlay window
+                        // (same airspace trick as Vulkan — AllowsTransparency blocks
+                        // WS_CHILD compositing) and a DXGI swapchain on it. The core
+                        // frame is blitted straight to the display-sized backbuffer and
+                        // presented at vsync — no D3D9/D3DImage CPU copy. If swapchain
+                        // creation fails we fall back to the in-tree D3DImage path
+                        // (HasSwapchain stays false and OnVideoRefresh routes there).
+                        if (_d3d11Context != null && !_d3d11Context.HasSwapchain)
+                        {
+                            IntPtr d3dHwnd = IntPtr.Zero;
+                            int sw = 640, sh = 480;
+                            Dispatcher.Invoke(() =>
+                            {
+                                GameScreen.Visibility = System.Windows.Visibility.Collapsed;
+                                var helper = new WindowInteropHelper(this);
+                                IntPtr ownerHwnd = helper.Handle;
+                                var viewportPoint = GameViewport.PointToScreen(new System.Windows.Point(0, 0));
+                                int vx = (int)viewportPoint.X;
+                                int vy = (int)viewportPoint.Y;
+                                int vw = Math.Max(1, (int)GameViewport.ActualWidth);
+                                int vh = Math.Max(1, (int)GameViewport.ActualHeight);
+
+                                const uint WS_POPUP = 0x80000000;
+                                const uint WS_VISIBLE = 0x10000000;
+                                const uint WS_CLIPSIBLINGS = 0x04000000;
+                                const uint WS_EX_NOACTIVATE = 0x08000000;
+                                _vulkanOverlayHwnd = CreateWindowEx(
+                                    WS_EX_NOACTIVATE, "Static", "",
+                                    WS_POPUP | WS_VISIBLE | WS_CLIPSIBLINGS,
+                                    vx, vy, vw, vh,
+                                    ownerHwnd, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                                d3dHwnd = _vulkanOverlayHwnd;
+                                sw = vw; sh = vh;
+                                System.Diagnostics.Trace.WriteLine($"[D3D11] Overlay HWND=0x{d3dHwnd:X} at ({vx},{vy}) {vw}x{vh}");
+
+                                SubclassOverlay(_vulkanOverlayHwnd);
+                                LocationChanged += VulkanOverlay_Reposition;
+                                SizeChanged += VulkanOverlay_Reposition;
+                                StateChanged += VulkanOverlay_StateChanged;
+                            });
+
+                            if (!_d3d11Context.CreateSwapchain(d3dHwnd, sw, sh))
+                            {
+                                // Fall back to the D3DImage path: tear the overlay back
+                                // down and re-show GameScreen so the in-tree present works.
+                                System.Diagnostics.Trace.WriteLine("[D3D11] swapchain failed — reverting to D3DImage path");
+                                Dispatcher.Invoke(() =>
+                                {
+                                    LocationChanged -= VulkanOverlay_Reposition;
+                                    SizeChanged -= VulkanOverlay_Reposition;
+                                    StateChanged -= VulkanOverlay_StateChanged;
+                                    if (_vulkanOverlayHwnd != IntPtr.Zero) { DestroyWindow(_vulkanOverlayHwnd); _vulkanOverlayHwnd = IntPtr.Zero; }
+                                    GameScreen.Visibility = System.Windows.Visibility.Visible;
+                                });
+                            }
+                            else
+                            {
+                                Dispatcher.BeginInvoke(() => RepositionOverlayWindow());
+                            }
+                        }
+
+                        _consoleHandler.OnBeforeContextReset();
+                        System.Diagnostics.Trace.WriteLine("Calling context_reset (D3D11, post-LoadGame)...");
+                        _hwContextReset.Invoke();
+                        _consoleHandler.OnAfterContextReset();
+                        System.Diagnostics.Trace.WriteLine("context_reset done (D3D11).");
+                    }
                     else
                     {
                         // GL path: re-acquire context, resize FBO, call context_reset.
@@ -4114,6 +4183,17 @@ namespace Emutastic.Views
                 // that same shared surface (UI thread).
                 if (_isD3d11HwRender && _d3d11Context != null)
                 {
+                    // Preferred path: present straight to the DXGI swapchain on the
+                    // emu thread. Present(1,…) vsync-paces us here — no UI dispatch,
+                    // no D3DImage copy. Falls through to the D3DImage path below only
+                    // when the swapchain couldn't be created.
+                    if (_d3d11Context.HasSwapchain)
+                    {
+                        if (_d3d11Context.PresentFrame())
+                            System.Threading.Interlocked.Increment(ref _frameCount);
+                        return;
+                    }
+
                     if (_d3d11VideoPending) return;
                     bool captured = _d3d11Context.CaptureCoreFrame();
                     uint cw = width, ch = height;
@@ -8804,10 +8884,16 @@ namespace Emutastic.Views
                 _shaderRenderer = null;
 
                 // Emu thread is gone, so nothing else touches the D3D11 device/present
-                // bridge — release it (device, D3D9Ex, shared surface, blit shaders).
+                // bridge — release it (device, D3D9Ex/swapchain, shared surface, shaders).
                 // Previously leaked on close.
                 try { _d3d11Context?.Dispose(); } catch { /* best effort */ }
                 _d3d11Context = null;
+
+                // Tear down the present overlay window — the D3D11 swapchain path reuses
+                // the Vulkan overlay HWND + reposition hooks. Idempotent: no-op if the
+                // Vulkan teardown already ran it, or if the D3DImage path (no overlay)
+                // was used. Must follow the context dispose so no Present hits a dead HWND.
+                try { Dispatcher.Invoke(() => DestroyVulkanOverlay()); } catch { /* window may be gone */ }
 
                 // Cloud sync: upload battery save after emu thread has flushed SRAM to disk.
                 if (!_loadFailed && !string.IsNullOrEmpty(_game.RomHash)
@@ -9100,34 +9186,35 @@ namespace Emutastic.Views
                     _glOverlayHeight = vh;
                 }
 
-                // Debounce swapchain recreation — vkDeviceWaitIdle + destroy + create is too
-                // expensive to run on every pixel of a window drag.  Reposition the Win32
-                // overlay instantly (cheap) but defer the heavy Vulkan work until 150ms after
-                // the last resize event.
-                if (_vulkanContext != null && _vulkanContext.HasSwapchain)
+                // Debounce swapchain recreation — destroy + create is too expensive to
+                // run on every pixel of a window drag. Reposition the Win32 overlay
+                // instantly (cheap) but defer the heavy swapchain work until 150ms after
+                // the last resize event. Covers both the Vulkan and D3D11 swapchains.
+                bool hasSwapchain = (_vulkanContext != null && _vulkanContext.HasSwapchain)
+                                 || (_d3d11Context != null && _d3d11Context.HasSwapchain);
+                if (hasSwapchain)
                 {
-                    uint newW = (uint)vw, newH = (uint)vh;
                     if (_swapchainResizeTimer == null)
                     {
                         _swapchainResizeTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
                         _swapchainResizeTimer.Tick += (_, _) =>
                         {
                             _swapchainResizeTimer.Stop();
-                            if (_vulkanContext != null && _vulkanContext.HasSwapchain)
+                            var vp = GameViewport;
+                            uint w = (uint)Math.Max(1, (int)vp.ActualWidth);
+                            uint h = (uint)Math.Max(1, (int)vp.ActualHeight);
+                            if (_displayAr > 0.01)
                             {
-                                var vp = GameViewport;
-                                uint w = (uint)Math.Max(1, (int)vp.ActualWidth);
-                                uint h = (uint)Math.Max(1, (int)vp.ActualHeight);
-                                if (_displayAr > 0.01)
-                                {
-                                    double vpAr = (double)w / h;
-                                    if (_displayAr > vpAr)
-                                        h = (uint)Math.Max(1, (int)(w / _displayAr));
-                                    else if (_displayAr < vpAr)
-                                        w = (uint)Math.Max(1, (int)(h * _displayAr));
-                                }
-                                _vulkanContext.RecreateSwapchain(w, h);
+                                double vpAr = (double)w / h;
+                                if (_displayAr > vpAr)
+                                    h = (uint)Math.Max(1, (int)(w / _displayAr));
+                                else if (_displayAr < vpAr)
+                                    w = (uint)Math.Max(1, (int)(h * _displayAr));
                             }
+                            if (_vulkanContext != null && _vulkanContext.HasSwapchain)
+                                _vulkanContext.RecreateSwapchain(w, h);
+                            if (_d3d11Context != null && _d3d11Context.HasSwapchain)
+                                _d3d11Context.RecreateSwapchain((int)w, (int)h);
                         };
                     }
                     _swapchainResizeTimer.Stop();

@@ -46,6 +46,15 @@ namespace Emutastic.Services
         private D9.IDirect3DSurface9?  _d9Surface;
         private int _presentW, _presentH;
 
+        // ── Swapchain present (preferred path; bypasses the D3D9/D3DImage copy) ──
+        // Presents the core's frame straight to a DXGI swapchain on a child HWND,
+        // downsampling into a display-sized backbuffer — GPU→GPU, vsync-paced, no
+        // CPU-visible surface. See project_ps2_d3d11_present_scaling.
+        private IDXGISwapChain1?        _swapChain;
+        private ID3D11RenderTargetView? _backbufferRtv;
+        private int _scW, _scH;
+        public bool HasSwapchain => _swapChain != null;
+
         /// <summary>D3D9 surface backing the WPF D3DImage (set after EnsurePresentTarget).</summary>
         public IntPtr D9SurfacePointer => _d9Surface?.NativePointer ?? IntPtr.Zero;
 
@@ -228,6 +237,114 @@ float4 PSMain(VSOut i) : SV_TARGET { return tex.Sample(smp, i.uv); }";
             finally { srv.Dispose(); }
         }
 
+        // ── Swapchain path ──────────────────────────────────────────────────
+        /// <summary>
+        /// Creates a DXGI swapchain on <paramref name="hwnd"/> (the child overlay
+        /// window) sized w×h (display size). Present blits the core's high-res frame
+        /// down into this backbuffer — no D3D9, no shared surface, no WPF copy.
+        /// Call once after the overlay HWND exists. Returns false on failure (caller
+        /// can fall back to the D3DImage path).
+        /// </summary>
+        public bool CreateSwapchain(IntPtr hwnd, int w, int h)
+        {
+            if (_device == null || hwnd == IntPtr.Zero || w <= 0 || h <= 0) return false;
+            try
+            {
+                EnsureBlitShaders();
+                using var dxgiDevice = _device.QueryInterface<IDXGIDevice>();
+                using var adapter = dxgiDevice.GetAdapter();
+                using var factory = adapter.GetParent<IDXGIFactory2>();
+                var desc = new SwapChainDescription1
+                {
+                    Width = (uint)w, Height = (uint)h,
+                    Format = Format.B8G8R8A8_UNorm,
+                    Stereo = false,
+                    SampleDescription = new SampleDescription(1, 0),
+                    BufferUsage = Usage.RenderTargetOutput,
+                    BufferCount = 2,
+                    Scaling = Scaling.Stretch,
+                    SwapEffect = SwapEffect.FlipDiscard,
+                    AlphaMode = AlphaMode.Ignore,
+                    Flags = SwapChainFlags.None,
+                };
+                _swapChain = factory.CreateSwapChainForHwnd(_device, hwnd, desc);
+                factory.MakeWindowAssociation(hwnd, WindowAssociationFlags.IgnoreAltEnter);
+                CreateBackbufferRtv();
+                _scW = w; _scH = h;
+                System.Diagnostics.Trace.WriteLine($"[D3D11] swapchain created {w}x{h} on HWND=0x{hwnd:X}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[D3D11] CreateSwapchain failed: {ex}");
+                _swapChain?.Dispose(); _swapChain = null;
+                return false;
+            }
+        }
+
+        private void CreateBackbufferRtv()
+        {
+            using var bb = _swapChain!.GetBuffer<ID3D11Texture2D>(0);
+            _backbufferRtv = _device!.CreateRenderTargetView(bb);
+        }
+
+        private readonly ID3D11ShaderResourceView[] _srvScratchSc = new ID3D11ShaderResourceView[1];
+        /// <summary>
+        /// Blits the core's current output (PS-SRV-slot-0) into the swapchain
+        /// backbuffer (downsampling to display size) and presents it at vsync. Call
+        /// on the emu thread right after retro_run. Present(1,…) paces the emu thread
+        /// to the refresh rate — built-in back-pressure, no UI-thread round trip.
+        /// </summary>
+        public bool PresentFrame()
+        {
+            if (_context == null || _swapChain == null || _backbufferRtv == null
+                || _vs == null || _ps == null || _sampler == null) return false;
+            _srvScratchSc[0] = null!;
+            _context.PSGetShaderResources(0, 1, _srvScratchSc);
+            var srv = _srvScratchSc[0];
+            if (srv == null) return false;   // nothing rendered yet — hold last frame
+            try
+            {
+                _context.OMSetRenderTargets(_backbufferRtv, null);
+                _context.RSSetViewport(0, 0, _scW, _scH, 0f, 1f);
+                _context.VSSetShader(_vs);
+                _context.PSSetShader(_ps);
+                _context.PSSetSampler(0, _sampler);
+                _context.PSSetShaderResource(0, srv);
+                _context.IASetInputLayout(null);
+                _context.IASetPrimitiveTopology(PrimitiveTopology.TriangleList);
+                _context.Draw(3, 0);
+                _swapChain.Present(1, PresentFlags.None);
+                return true;
+            }
+            finally { srv.Dispose(); }
+        }
+
+        /// <summary>Resizes the swapchain backbuffer (display/overlay size changed).</summary>
+        public void RecreateSwapchain(int w, int h)
+        {
+            if (_swapChain == null || w <= 0 || h <= 0) return;
+            if (w == _scW && h == _scH) return;
+            try
+            {
+                _backbufferRtv?.Dispose(); _backbufferRtv = null;
+                _swapChain.ResizeBuffers(2, (uint)w, (uint)h, Format.B8G8R8A8_UNorm, SwapChainFlags.None);
+                CreateBackbufferRtv();
+                _scW = w; _scH = h;
+                System.Diagnostics.Trace.WriteLine($"[D3D11] swapchain resized {w}x{h}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[D3D11] RecreateSwapchain failed: {ex}");
+            }
+        }
+
+        private void ReleaseSwapchain()
+        {
+            _backbufferRtv?.Dispose(); _backbufferRtv = null;
+            _swapChain?.Dispose();     _swapChain = null;
+        }
+
         private void ReleasePresentTarget()
         {
             _d9Surface?.Dispose(); _d9Surface = null;
@@ -239,6 +356,7 @@ float4 PSMain(VSOut i) : SV_TARGET { return tex.Sample(smp, i.uv); }";
         public void Dispose()
         {
             if (_ifaceStruct != IntPtr.Zero) { Marshal.FreeHGlobal(_ifaceStruct); _ifaceStruct = IntPtr.Zero; }
+            ReleaseSwapchain();
             ReleasePresentTarget();
             _sampler?.Dispose(); _sampler = null;
             _ps?.Dispose();      _ps = null;
