@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace Emutastic.Services.ConsoleHandlers
 {
@@ -30,6 +32,21 @@ namespace Emutastic.Services.ConsoleHandlers
                 core.SetControllerPortDevice(port, RETRO_DEVICE_JOYPAD);
         }
 
+        // Cap the internal-resolution option at 6x (~4K). Above that the core's GS
+        // framebuffers (7x = 4480x3136, 8x = 5120x3584 …) risk VRAM exhaustion and
+        // crashes, and exceed any display's useful resolution — the swapchain present
+        // is display-sized regardless, so higher upscales only cost VRAM. Values look
+        // like "6x Native (~2160p/4K)"; keep the base "Native" entry and 1x–6x.
+        public override string[] FilterCoreOptionValues(string key, string[] values)
+        {
+            if (key != "pcsx2_upscale_multiplier") return values;
+            return values.Where(v =>
+            {
+                var m = Regex.Match(v.TrimStart(), @"^(\d+)x");
+                return !m.Success || int.Parse(m.Groups[1].Value) <= 6;
+            }).ToArray();
+        }
+
         // RETRO_HW_CONTEXT_D3D11. EmulatorWindow's SET_HW_RENDER creates the
         // D3D11Context and hands the core our device via GET_HW_RENDER_INTERFACE.
         public override int PreferredHwContext => 7;
@@ -48,7 +65,7 @@ namespace Emutastic.Services.ConsoleHandlers
         public override Dictionary<string, string> GetDefaultCoreOptions() => new()
         {
             ["pcsx2_renderer"]            = "D3D11",
-            ["pcsx2_upscale_multiplier"]  = "2x Native",
+            ["pcsx2_upscale_multiplier"]  = "2x Native (~720p)",   // must match the core's exact value string
             ["pcsx2_fastboot"]            = "enabled",
             ["pcsx2_fastcdvd"]            = "disabled",
             ["pcsx2_shared_memory_cards"] = "enabled",
