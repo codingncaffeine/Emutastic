@@ -815,12 +815,11 @@ namespace Emutastic.Services
 
         // ─────────────────────────────────────────────────────────────────────
         // create_device2 wrapper. The core builds a VkDeviceCreateInfo with the
-        // exact extensions, features, and pNext chain it wants (parallel-psx
-        // requests descriptor indexing, 8/16-bit storage, float16-int8,
-        // fragmentStoresAndAtomics, external_memory_host on supported GPUs,
-        // etc.) and hands it to us here. We forward verbatim to vkCreateDevice
-        // through the loader-resolved fp — DO NOT modify createInfo, or the
-        // core's later vkCmd* dispatches will hit NULL function pointers.
+        // exact extensions, features, and pNext chain it wants and hands it to us.
+        // We forward it to vkCreateDevice, only ADDING VK_KHR_swapchain (never
+        // removing anything): an offscreen core like parallel-GS omits swapchain
+        // because it doesn't present, but WE present its frames, so the device must
+        // support it. The pNext chain and all core extensions are preserved.
         // ─────────────────────────────────────────────────────────────────────
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate int vkCreateDeviceDelegate(
@@ -837,28 +836,49 @@ namespace Emutastic.Services
                     return IntPtr.Zero; // VK_NULL_HANDLE → core treats as failure
                 }
 
-                // Log the requested extensions so we can confirm the core is
-                // getting what it asked for.
-                int extCount       = Marshal.ReadInt32(createInfo, 32);
-                IntPtr extNamesPtr = Marshal.ReadIntPtr(createInfo, 40);
-                if (extCount > 0 && extNamesPtr != IntPtr.Zero)
+                // VkDeviceCreateInfo (x64): enabledExtensionCount @48, ppEnabledExtensionNames @56.
+                const string SWAPCHAIN_EXT = "VK_KHR_swapchain";
+                int extCount    = Marshal.ReadInt32(createInfo, 48);
+                IntPtr extNames = Marshal.ReadIntPtr(createInfo, 56);
+
+                var names = new System.Collections.Generic.List<string>();
+                for (int i = 0; i < extCount; i++)
                 {
-                    var names = new System.Text.StringBuilder();
+                    string? n = Marshal.PtrToStringAnsi(Marshal.ReadIntPtr(extNames, i * IntPtr.Size));
+                    if (!string.IsNullOrEmpty(n)) names.Add(n);
+                }
+                bool hasSwapchain = names.Contains(SWAPCHAIN_EXT);
+                System.Diagnostics.Trace.WriteLine(
+                    $"[Vulkan] core requests {extCount} device extensions{(hasSwapchain ? "" : " (+VK_KHR_swapchain)")}");
+
+                IntPtr ci = createInfo;
+                IntPtr ciAlloc = IntPtr.Zero, extArray = IntPtr.Zero, swapNamePtr = IntPtr.Zero;
+                if (!hasSwapchain)
+                {
+                    // New ext array = core's ptrs + VK_KHR_swapchain.
+                    swapNamePtr = Marshal.StringToHGlobalAnsi(SWAPCHAIN_EXT);
+                    extArray = Marshal.AllocHGlobal(IntPtr.Size * (extCount + 1));
                     for (int i = 0; i < extCount; i++)
-                    {
-                        IntPtr namePtr = Marshal.ReadIntPtr(extNamesPtr, i * IntPtr.Size);
-                        string? n = Marshal.PtrToStringAnsi(namePtr);
-                        if (i > 0) names.Append(", ");
-                        names.Append(n);
-                    }
-                    System.Diagnostics.Trace.WriteLine(
-                        $"[Vulkan] core requests {extCount} device extensions: {names}");
+                        Marshal.WriteIntPtr(extArray, i * IntPtr.Size, Marshal.ReadIntPtr(extNames, i * IntPtr.Size));
+                    Marshal.WriteIntPtr(extArray, extCount * IntPtr.Size, swapNamePtr);
+
+                    // Copy the 72-byte createInfo, patch ext count/names (pNext etc. preserved).
+                    ciAlloc = Marshal.AllocHGlobal(72);
+                    for (int o = 0; o < 72; o += 8) Marshal.WriteInt64(ciAlloc, o, Marshal.ReadInt64(createInfo, o));
+                    Marshal.WriteInt32(ciAlloc, 48, extCount + 1);
+                    Marshal.WriteIntPtr(ciAlloc, 56, extArray);
+                    ci = ciAlloc;
                 }
 
                 var fn = Marshal.GetDelegateForFunctionPointer<vkCreateDeviceDelegate>(_vkCreateDeviceFn);
-                int result = fn(gpu, createInfo, IntPtr.Zero, out IntPtr device);
+                int result = fn(gpu, ci, IntPtr.Zero, out IntPtr device);
                 System.Diagnostics.Trace.WriteLine(
                     $"[Vulkan] vkCreateDevice (wrapper) result={result} device=0x{device:X}");
+
+                if (ciAlloc != IntPtr.Zero)    Marshal.FreeHGlobal(ciAlloc);
+                if (extArray != IntPtr.Zero)   Marshal.FreeHGlobal(extArray);
+                if (swapNamePtr != IntPtr.Zero) Marshal.FreeHGlobal(swapNamePtr);
+
                 // Return the VkDevice handle (or VK_NULL_HANDLE on failure) — the core
                 // reads this return value as the device.
                 return result == 0 ? device : IntPtr.Zero;
