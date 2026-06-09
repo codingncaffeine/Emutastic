@@ -69,7 +69,7 @@ namespace Emutastic.Services.ConsoleHandlers
             {
                 // D3D11 (default) = rock-solid, Windows-only. paraLLEl-GS = Vulkan
                 // compute renderer (no shader hitch, ports to Linux), experimental.
-                ("pcsx2_renderer", "Renderer ⚠ restart"),
+                ("pcsx2_renderer", "Renderer · paraLLEl-GS is experimental ⚠ restart"),
             };
 
             if (pgs)
