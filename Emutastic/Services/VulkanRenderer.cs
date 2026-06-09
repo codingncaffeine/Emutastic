@@ -826,16 +826,15 @@ namespace Emutastic.Services
         private delegate int vkCreateDeviceDelegate(
             IntPtr physicalDevice, IntPtr createInfo, IntPtr allocator, out IntPtr device);
 
-        private int CreateDeviceWrapper(IntPtr gpu, IntPtr opaque, IntPtr createInfo, out IntPtr device)
+        private IntPtr CreateDeviceWrapper(IntPtr gpu, IntPtr opaque, IntPtr createInfo)
         {
-            device = IntPtr.Zero;
             try
             {
                 if (_vkCreateDeviceFn == IntPtr.Zero || createInfo == IntPtr.Zero)
                 {
                     System.Diagnostics.Trace.WriteLine(
                         $"[Vulkan] CreateDeviceWrapper: missing fp ({_vkCreateDeviceFn != IntPtr.Zero}) or createInfo ({createInfo != IntPtr.Zero})");
-                    return -1; // VK_ERROR_INITIALIZATION_FAILED
+                    return IntPtr.Zero; // VK_NULL_HANDLE → core treats as failure
                 }
 
                 // Log the requested extensions so we can confirm the core is
@@ -857,15 +856,17 @@ namespace Emutastic.Services
                 }
 
                 var fn = Marshal.GetDelegateForFunctionPointer<vkCreateDeviceDelegate>(_vkCreateDeviceFn);
-                int result = fn(gpu, createInfo, IntPtr.Zero, out device);
+                int result = fn(gpu, createInfo, IntPtr.Zero, out IntPtr device);
                 System.Diagnostics.Trace.WriteLine(
                     $"[Vulkan] vkCreateDevice (wrapper) result={result} device=0x{device:X}");
-                return result;
+                // Return the VkDevice handle (or VK_NULL_HANDLE on failure) — the core
+                // reads this return value as the device.
+                return result == 0 ? device : IntPtr.Zero;
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Trace.WriteLine($"[Vulkan] CreateDeviceWrapper threw: {ex.Message}");
-                return -1;
+                return IntPtr.Zero;
             }
         }
 

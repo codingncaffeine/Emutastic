@@ -858,11 +858,14 @@ namespace Emutastic.Services
         // vkCreateDevice. Without this path (calling the legacy create_device
         // with our zeroed feature struct), the device misses entry points the
         // core later dispatches against, producing IP=0 NULL-call AVs.
-        // VkResult create_device_wrapper(VkPhysicalDevice gpu, void* opaque,
-        //   const VkDeviceCreateInfo* create_info, VkDevice* device)
+        // Per libretro_vulkan.h: VkDevice create_device_wrapper(VkPhysicalDevice gpu,
+        //   void *opaque, const VkDeviceCreateInfo *create_info)
+        // It RETURNS the VkDevice directly (3 args) — NOT a VkResult with an out
+        // param. The core reads the return value as the device, so the signature
+        // must match exactly or the core gets VK_NULL_HANDLE.
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        public delegate int retro_vulkan_create_device_wrapper_t(
-            IntPtr gpu, IntPtr opaque, IntPtr createInfo, out IntPtr device);
+        public delegate IntPtr retro_vulkan_create_device_wrapper_t(
+            IntPtr gpu, IntPtr opaque, IntPtr createInfo);
 
         // create_device2(context, instance, gpu, surface, get_instance_proc_addr,
         //   create_device_wrapper, opaque) → bool
