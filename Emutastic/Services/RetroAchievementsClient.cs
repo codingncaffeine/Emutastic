@@ -945,6 +945,7 @@ namespace Emutastic.Services
                 "Saturn"       => RC_CONSOLE_SATURN,
                 "Dreamcast"    => RC_CONSOLE_DREAMCAST,
                 "PS1"          => RC_CONSOLE_PLAYSTATION,
+                "PS2"          => RC_CONSOLE_PLAYSTATION_2,
                 "PSP"          => RC_CONSOLE_PSP,
                 "TG16"         => RC_CONSOLE_PC_ENGINE,
                 "TGCD"         => RC_CONSOLE_PC_ENGINE_CD,

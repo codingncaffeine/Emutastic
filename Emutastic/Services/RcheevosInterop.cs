@@ -55,6 +55,7 @@ namespace Emutastic.Services
         public const uint RC_CONSOLE_PLAYSTATION = 12;
         public const uint RC_CONSOLE_GAME_GEAR = 15;
         public const uint RC_CONSOLE_GAMECUBE = 16;
+        public const uint RC_CONSOLE_PLAYSTATION_2 = 21;
         public const uint RC_CONSOLE_ARCADE = 27;
         public const uint RC_CONSOLE_VIRTUAL_BOY = 28;
         public const uint RC_CONSOLE_SATURN = 39;
