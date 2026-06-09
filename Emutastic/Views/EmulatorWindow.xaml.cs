@@ -1776,7 +1776,8 @@ namespace Emutastic.Views
                                   || kv.Key.Contains("jit") || kv.Key.Contains("texture_filter")
                                   || kv.Key.Contains("cpu_clock") || kv.Key.Contains("graphics_api")
                                   || kv.Key.Contains("accurate") || kv.Key.Contains("cores")
-                                  || kv.Key.Contains("cpu_mode"))
+                                  || kv.Key.Contains("cpu_mode") || kv.Key.Contains("upscale")
+                                  || kv.Key.Contains("renderer"))
                         .OrderBy(kv => kv.Key)
                         .Select(kv => $"{kv.Key}={kv.Value}"));
                     Services.PerfLog.SessionStart(
