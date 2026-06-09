@@ -976,6 +976,8 @@ namespace Emutastic.Views
         // ── Direct3D 11 HW rendering (PS2 / LRPS2 D3D11 GS backend) ──────────────
         private D3D11Context? _d3d11Context;
         private bool _isD3d11HwRender = false;
+        private bool _d3d11VideoPending = false;
+        private System.Windows.Interop.D3DImage? _d3dImage;
 
         // ── Vulkan HW rendering ─────────────────────────────────────────────────
         private VulkanContext? _vulkanContext;
@@ -4073,6 +4075,50 @@ namespace Emutastic.Views
                             finally { _hwVideoPending = false; }
                         }, DispatcherPriority.Render);
                     }
+                    return;
+                }
+
+                // ── Direct3D 11 path (LRPS2) ─────────────────────────────────
+                // The core left its output bound on PS-SRV-slot-0; copy it into
+                // our shared texture (emu thread, our immediate context), then
+                // present it through a WPF D3DImage backed by the D3D9 view of
+                // that same shared surface (UI thread).
+                if (_isD3d11HwRender && _d3d11Context != null)
+                {
+                    if (_d3d11VideoPending) return;
+                    bool captured = _d3d11Context.CaptureCoreFrame();
+                    uint cw = width, ch = height;
+                    _d3d11VideoPending = true;
+                    Dispatcher.BeginInvoke(() =>
+                    {
+                        try
+                        {
+                            IntPtr hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+                            bool recreated = _d3d11Context.EnsurePresentTarget((int)cw, (int)ch, hwnd);
+                            if (recreated)
+                            {
+                                _d3dImage ??= new System.Windows.Interop.D3DImage();
+                                _d3dImage.Lock();
+                                _d3dImage.SetBackBuffer(System.Windows.Interop.D3DResourceType.IDirect3DSurface9,
+                                                        _d3d11Context.D9SurfacePointer);
+                                _d3dImage.Unlock();
+                                GameScreen.Source = _d3dImage;
+                                _videoWidth = cw; _videoHeight = ch;
+                                UpdateDisplayAspectRatio(cw, ch, _core?.AvInfo.geometry.aspect_ratio ?? 0f);
+                                ApplyGameScreenScalingMode(cw, ch);
+                            }
+                            if (captured && _d3dImage != null && _d3dImage.IsFrontBufferAvailable
+                                && _d3d11Context.D9SurfacePointer != IntPtr.Zero)
+                            {
+                                _d3dImage.Lock();
+                                _d3dImage.AddDirtyRect(new Int32Rect(0, 0, _d3dImage.PixelWidth, _d3dImage.PixelHeight));
+                                _d3dImage.Unlock();
+                                System.Threading.Interlocked.Increment(ref _frameCount);
+                            }
+                        }
+                        catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[D3D11] present: {ex.Message}"); }
+                        finally { _d3d11VideoPending = false; }
+                    }, DispatcherPriority.Render);
                     return;
                 }
 

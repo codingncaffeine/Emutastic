@@ -1,82 +1,66 @@
 using System;
 using System.Runtime.InteropServices;
+using Vortice.Direct3D;
+using Vortice.Direct3D11;
+using Vortice.DXGI;
+using D9 = Vortice.Direct3D9;
 
 namespace Emutastic.Services
 {
     /// <summary>
-    /// Frontend-owned Direct3D 11 device for the libretro D3D11 hardware-render
-    /// path (RETRO_HW_CONTEXT_D3D11 = 7), used by LRPS2's D3D11 GS backend — the
-    /// renderer proven full-speed on this rig.
+    /// Frontend-owned Direct3D 11 device for the libretro D3D11 HW-render path
+    /// (RETRO_HW_CONTEXT_D3D11), driving LRPS2's D3D11 GS backend — the renderer
+    /// proven full-speed on this rig.
     ///
-    /// Mirrors the role of <see cref="VulkanContext"/>: we create the device, hand
-    /// it to the core through the libretro D3D11 render interface, and (later
-    /// milestone) pull the core's rendered texture off PS-SRV-slot-0 each frame
-    /// for presentation via a WPF D3DImage.
-    ///
-    /// Contract verified against libretro_d3d11.h + LRPS2 GSDevice11.cpp:
-    ///   - core requests context_type D3D11, then calls GET_HW_RENDER_INTERFACE
-    ///   - we return a retro_hw_render_interface_d3d11 with device/context/
-    ///     featureLevel/D3DCompile
-    ///   - core QueryInterfaces the device for ID3D11Device1, so we must create an
-    ///     11.1-capable device (guaranteed on Win10+; this rig is Win11).
+    /// Two jobs:
+    ///   1. Create the device + immediate context, hand them to the core via the
+    ///      retro_hw_render_interface_d3d11 (GET_HW_RENDER_INTERFACE).
+    ///   2. Each frame, pull the core's output texture off PS-SRV-slot-0 (where it
+    ///      leaves it before video_refresh — verified from RetroArch's d3d11
+    ///      driver), copy it into a SHARED texture, and expose that as a D3D9Ex
+    ///      surface a WPF D3DImage can display in-tree (no overlay window).
     /// </summary>
     public sealed class D3D11Context : IDisposable
     {
-        // retro_hw_render_interface_type
         private const int  RETRO_HW_RENDER_INTERFACE_D3D11 = 3;
         private const uint RETRO_HW_RENDER_INTERFACE_D3D11_VERSION = 1;
 
-        // D3D11CreateDevice args
-        private const int  D3D_DRIVER_TYPE_HARDWARE = 1;
-        private const uint D3D11_CREATE_DEVICE_BGRA_SUPPORT = 0x20;
-        private const uint D3D11_SDK_VERSION = 7;
+        private ID3D11Device?        _device;
+        private ID3D11DeviceContext? _context;
+        private FeatureLevel         _featureLevel;
 
-        [DllImport("d3d11.dll")]
-        private static extern int D3D11CreateDevice(
-            IntPtr pAdapter, int driverType, IntPtr software, uint flags,
-            IntPtr pFeatureLevels, uint featureLevels, uint sdkVersion,
-            out IntPtr ppDevice, out int pFeatureLevel, out IntPtr ppImmediateContext);
+        private IntPtr _d3dCompilePtr;
+        private IntPtr _d3dCompilerLib;
+        private IntPtr _ifaceStruct;
 
-        public IntPtr Device  { get; private set; }   // ID3D11Device*
-        public IntPtr Context { get; private set; }   // ID3D11DeviceContext* (immediate)
-        public int    FeatureLevel { get; private set; }
+        // ── Present bridge resources ────────────────────────────────────────
+        private ID3D11Texture2D?       _sharedTex;     // D3D11 side of the shared surface
+        private D9.IDirect3D9Ex?       _d9;
+        private D9.IDirect3DDevice9Ex? _d9Device;
+        private D9.IDirect3DTexture9?  _d9Tex;          // D3D9 view of the same surface
+        private D9.IDirect3DSurface9?  _d9Surface;
+        private int _presentW, _presentH;
 
-        private IntPtr _d3dCompilePtr;       // pD3DCompile from d3dcompiler_47.dll
-        private IntPtr _d3dCompilerLib;       // module handle, freed on dispose
-        private IntPtr _ifaceStruct;          // marshaled retro_hw_render_interface_d3d11
+        /// <summary>D3D9 surface backing the WPF D3DImage (set after EnsurePresentTarget).</summary>
+        public IntPtr D9SurfacePointer => _d9Surface?.NativePointer ?? IntPtr.Zero;
 
-        /// <summary>
-        /// Creates the device + immediate context and resolves the D3DCompile
-        /// pointer. Returns false (and logs) on any failure so the caller can
-        /// fall back rather than crash. Called once, off SET_HW_RENDER.
-        /// </summary>
         public bool Initialize()
         {
             try
             {
-                int hr = D3D11CreateDevice(
-                    IntPtr.Zero, D3D_DRIVER_TYPE_HARDWARE, IntPtr.Zero,
-                    D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-                    IntPtr.Zero, 0, D3D11_SDK_VERSION,
-                    out IntPtr device, out int featureLevel, out IntPtr context);
+                D3D11.D3D11CreateDevice(
+                    null, DriverType.Hardware,
+                    DeviceCreationFlags.BgraSupport,
+                    Array.Empty<FeatureLevel>(),
+                    out _device, out _context).CheckError();
 
-                if (hr < 0 || device == IntPtr.Zero || context == IntPtr.Zero)
-                {
-                    System.Diagnostics.Trace.WriteLine($"[D3D11] D3D11CreateDevice failed hr=0x{hr:X8}");
-                    return false;
-                }
+                _featureLevel = _device!.FeatureLevel;
 
-                Device = device;
-                Context = context;
-                FeatureLevel = featureLevel;
-
-                // The core needs the D3DCompile entry point to build its shaders.
-                // d3dcompiler_47.dll ships with Windows 10+/the runtime.
                 _d3dCompilerLib = NativeLibrary.Load("d3dcompiler_47.dll");
                 _d3dCompilePtr  = NativeLibrary.GetExport(_d3dCompilerLib, "D3DCompile");
 
                 System.Diagnostics.Trace.WriteLine(
-                    $"[D3D11] Device created, featureLevel=0x{featureLevel:X}, D3DCompile={_d3dCompilePtr:X}");
+                    $"[D3D11] Device created, featureLevel=0x{(int)_featureLevel:X}, D3DCompile={_d3dCompilePtr:X}");
                 return true;
             }
             catch (Exception ex)
@@ -87,35 +71,121 @@ namespace Emutastic.Services
         }
 
         /// <summary>
-        /// Allocates and fills the retro_hw_render_interface_d3d11 the core reads
-        /// on GET_HW_RENDER_INTERFACE, returning a pointer the env callback writes
-        /// back. Owned here; freed on Dispose. x64 layout (8-byte aligned):
-        ///   0  interface_type (int)      16 device  (ptr)   32 featureLevel (int)
-        ///   4  interface_version (uint)  24 context (ptr)   40 D3DCompile   (ptr)
-        ///   8  handle (ptr)                               [36 pad]
+        /// retro_hw_render_interface_d3d11 the core reads on GET_HW_RENDER_INTERFACE.
+        /// x64 layout: 0 type / 4 version / 8 handle / 16 device / 24 context /
+        /// 32 featureLevel / 40 D3DCompile.
         /// </summary>
         public IntPtr BuildHwRenderInterface()
         {
-            if (Device == IntPtr.Zero) return IntPtr.Zero;
-            if (_ifaceStruct == IntPtr.Zero)
-                _ifaceStruct = Marshal.AllocHGlobal(48);
+            if (_device == null || _context == null) return IntPtr.Zero;
+            if (_ifaceStruct == IntPtr.Zero) _ifaceStruct = Marshal.AllocHGlobal(48);
 
-            Marshal.WriteInt32(_ifaceStruct, 0,  RETRO_HW_RENDER_INTERFACE_D3D11);
-            Marshal.WriteInt32(_ifaceStruct, 4,  (int)RETRO_HW_RENDER_INTERFACE_D3D11_VERSION);
-            Marshal.WriteIntPtr(_ifaceStruct, 8,  IntPtr.Zero);      // handle (unused by core)
-            Marshal.WriteIntPtr(_ifaceStruct, 16, Device);
-            Marshal.WriteIntPtr(_ifaceStruct, 24, Context);
-            Marshal.WriteInt32(_ifaceStruct, 32, FeatureLevel);
+            Marshal.WriteInt32 (_ifaceStruct, 0,  RETRO_HW_RENDER_INTERFACE_D3D11);
+            Marshal.WriteInt32 (_ifaceStruct, 4,  (int)RETRO_HW_RENDER_INTERFACE_D3D11_VERSION);
+            Marshal.WriteIntPtr(_ifaceStruct, 8,  IntPtr.Zero);
+            Marshal.WriteIntPtr(_ifaceStruct, 16, _device.NativePointer);
+            Marshal.WriteIntPtr(_ifaceStruct, 24, _context.NativePointer);
+            Marshal.WriteInt32 (_ifaceStruct, 32, (int)_featureLevel);
             Marshal.WriteIntPtr(_ifaceStruct, 40, _d3dCompilePtr);
             return _ifaceStruct;
+        }
+
+        /// <summary>
+        /// (Re)creates the shared D3D11 texture and its D3D9 view at w×h. Returns
+        /// true when the surface was (re)created — the caller must then rebind the
+        /// D3DImage back buffer to the new <see cref="D9SurfacePointer"/>. No-op
+        /// (returns false) when the size is unchanged. Call on the UI thread (it
+        /// touches the D3D9 device which is created against the WPF HWND).
+        /// </summary>
+        public bool EnsurePresentTarget(int w, int h, IntPtr hwnd)
+        {
+            if (_device == null || w <= 0 || h <= 0) return false;
+            if (_sharedTex != null && w == _presentW && h == _presentH) return false;
+
+            ReleasePresentTarget();
+            _presentW = w; _presentH = h;
+
+            var desc = new Texture2DDescription
+            {
+                Width = (uint)w, Height = (uint)h, MipLevels = 1, ArraySize = 1,
+                Format = Format.B8G8R8A8_UNorm,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Default,
+                BindFlags = BindFlags.ShaderResource | BindFlags.RenderTarget,
+                CPUAccessFlags = CpuAccessFlags.None,
+                MiscFlags = ResourceOptionFlags.Shared,
+            };
+            _sharedTex = _device.CreateTexture2D(desc);
+
+            using var dxgiRes = _sharedTex.QueryInterface<IDXGIResource>();
+            IntPtr sharedHandle = dxgiRes.SharedHandle;
+
+            if (_d9 == null)
+            {
+                _d9 = D9.D3D9.Direct3DCreate9Ex();
+                var pp = new D9.PresentParameters
+                {
+                    Windowed = true,
+                    SwapEffect = D9.SwapEffect.Discard,
+                    DeviceWindowHandle = hwnd,
+                    BackBufferWidth = 1,
+                    BackBufferHeight = 1,
+                    BackBufferFormat = D9.Format.Unknown,
+                };
+                _d9Device = _d9.CreateDeviceEx(0, D9.DeviceType.Hardware, hwnd,
+                    D9.CreateFlags.HardwareVertexProcessing | D9.CreateFlags.Multithreaded | D9.CreateFlags.FpuPreserve,
+                    pp);
+            }
+
+            // Open the D3D11 shared surface as a D3D9 texture (pass the handle IN).
+            IntPtr sh = sharedHandle;
+            _d9Tex = _d9Device!.CreateTexture((uint)w, (uint)h, 1,
+                D9.Usage.RenderTarget, D9.Format.A8R8G8B8, D9.Pool.Default, ref sh);
+            _d9Surface = _d9Tex.GetSurfaceLevel(0);
+
+            System.Diagnostics.Trace.WriteLine($"[D3D11] Present target {w}x{h}, D3D9 surface={_d9Surface.NativePointer:X}");
+            return true;
+        }
+
+        /// <summary>
+        /// Copies the core's current output (PS-SRV-slot-0 on our shared context)
+        /// into the shared texture. Call on the emu thread inside the video_refresh
+        /// handler, right after retro_run produced the frame. Returns false if no
+        /// SRV was bound (nothing to show this frame).
+        /// </summary>
+        private readonly ID3D11ShaderResourceView[] _srvScratch = new ID3D11ShaderResourceView[1];
+        public bool CaptureCoreFrame()
+        {
+            if (_context == null || _sharedTex == null) return false;
+            _srvScratch[0] = null!;
+            _context.PSGetShaderResources(0, 1, _srvScratch);
+            var srv = _srvScratch[0];
+            if (srv == null) return false;
+            try
+            {
+                using var res = srv.Resource;
+                _context.CopyResource(_sharedTex, res);
+                _context.Flush();
+                return true;
+            }
+            finally { srv.Dispose(); }
+        }
+
+        private void ReleasePresentTarget()
+        {
+            _d9Surface?.Dispose(); _d9Surface = null;
+            _d9Tex?.Dispose();     _d9Tex = null;
+            _sharedTex?.Dispose(); _sharedTex = null;
         }
 
         public void Dispose()
         {
             if (_ifaceStruct != IntPtr.Zero) { Marshal.FreeHGlobal(_ifaceStruct); _ifaceStruct = IntPtr.Zero; }
-            // Release our COM refs (the core holds its own from QueryInterface).
-            if (Context != IntPtr.Zero) { Marshal.Release(Context); Context = IntPtr.Zero; }
-            if (Device  != IntPtr.Zero) { Marshal.Release(Device);  Device  = IntPtr.Zero; }
+            ReleasePresentTarget();
+            _d9Device?.Dispose(); _d9Device = null;
+            _d9?.Dispose();       _d9 = null;
+            _context?.Dispose();  _context = null;
+            _device?.Dispose();   _device = null;
             if (_d3dCompilerLib != IntPtr.Zero) { NativeLibrary.Free(_d3dCompilerLib); _d3dCompilerLib = IntPtr.Zero; }
         }
     }
