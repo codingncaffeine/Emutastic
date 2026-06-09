@@ -1965,7 +1965,7 @@ namespace Emutastic.Views
 
                         if (!_consoleHandler.AllowHwSharedContext && !_consoleHandler.UseEmbeddedWindow)
                         {
-                            var geom = _core.AvInfo.geometry;
+                            var geom = _core!.AvInfo.geometry;
                             uint needW = geom.max_width  > 0 ? geom.max_width  : geom.base_width;
                             uint needH = geom.max_height > 0 ? geom.max_height : geom.base_height;
                             if (needW > _fboWidth || needH > _fboHeight)
@@ -2151,7 +2151,7 @@ namespace Emutastic.Views
                             _systemRamSize = size;
                         }
 
-                        _cheats = Services.CheatService.Load(_game);
+                        _cheats = _game != null ? Services.CheatService.Load(_game) : new();
                         if (_cheats.Count > 0 && _core != null)
                             ApplyAllCheats(_cheats);
                     }
@@ -7523,7 +7523,7 @@ namespace Emutastic.Views
                     bmp.StreamSource = new System.IO.MemoryStream(bytes);
                     bmp.EndInit();
                     bmp.Freeze();
-                    Dispatcher.BeginInvoke(() =>
+                    _ = Dispatcher.BeginInvoke(() =>
                     {
                         _badgeCache[url] = bmp;
                         apply(bmp);
