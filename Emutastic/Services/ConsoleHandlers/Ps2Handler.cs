@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.RegularExpressions;
 
 namespace Emutastic.Services.ConsoleHandlers
 {
@@ -32,26 +31,20 @@ namespace Emutastic.Services.ConsoleHandlers
                 core.SetControllerPortDevice(port, RETRO_DEVICE_JOYPAD);
         }
 
-        // Cap the internal-resolution option at 6x (~4K). Above that the core's GS
-        // framebuffers (7x = 4480x3136, 8x = 5120x3584 …) risk VRAM exhaustion and
-        // crashes, and exceed any display's useful resolution — the swapchain present
-        // is display-sized regardless, so higher upscales only cost VRAM. Values look
-        // like "6x Native (~2160p/4K)"; keep the base "Native" entry and 1x–6x.
+        // NOTE: this hook feeds BOTH the in-game cog dropdown AND the launch-time
+        // value validation/clamp — so capping a value here silently overrides what
+        // the user set in Preferences → Core Options. Keep it to genuinely
+        // unsupported values only (we don't gate internal resolution here; high
+        // upscales are allowed and just cost VRAM).
         public override string[] FilterCoreOptionValues(string key, string[] values)
         {
             // Renderer: expose only the two we support — D3D11 (stable default) and
-            // paraLLEl-GS (Vulkan, no shader hitch). Hide Auto/D3D12/standard-Vulkan/
-            // OpenGL/Software to keep the choice meaningful. D3D11 is first so it stays
-            // the validation fallback.
+            // paraLLEl-GS (Vulkan). Hide Auto/D3D12/standard-Vulkan/OpenGL/Software.
+            // D3D11 is first so it stays the validation fallback.
             if (key == "pcsx2_renderer")
                 return values.Where(v => v == "D3D11" || v == "paraLLEl-GS").ToArray();
 
-            if (key != "pcsx2_upscale_multiplier") return values;
-            return values.Where(v =>
-            {
-                var m = Regex.Match(v.TrimStart(), @"^(\d+)x");
-                return !m.Success || int.Parse(m.Groups[1].Value) <= 6;
-            }).ToArray();
+            return values;
         }
 
         // RETRO_HW_CONTEXT_D3D11. EmulatorWindow's SET_HW_RENDER creates the
