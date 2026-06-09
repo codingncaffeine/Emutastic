@@ -973,6 +973,10 @@ namespace Emutastic.Views
         private uint   _hwFlippedHeight = 0;
         private volatile bool _hwVideoPending = false;  // true while a BeginInvoke frame callback is queued
 
+        // ── Direct3D 11 HW rendering (PS2 / LRPS2 D3D11 GS backend) ──────────────
+        private D3D11Context? _d3d11Context;
+        private bool _isD3d11HwRender = false;
+
         // ── Vulkan HW rendering ─────────────────────────────────────────────────
         private VulkanContext? _vulkanContext;
         private bool _isVulkanHwRender = false;
@@ -3243,6 +3247,35 @@ namespace Emutastic.Views
                             return true;
                         }
 
+                        // ── Direct3D 11 path (LRPS2 D3D11 GS backend) ────────────
+                        // We own the device; the core QIs it on context_reset via
+                        // GET_HW_RENDER_INTERFACE. No negotiation interface (unlike
+                        // Vulkan), so create the device now — it must exist before
+                        // context_reset fires post-LoadGame.
+                        if (hw.context_type == RETRO_HW_CONTEXT_D3D11)
+                        {
+                            _d3d11Context = new D3D11Context();
+                            if (!_d3d11Context.Initialize())
+                            {
+                                System.Diagnostics.Trace.WriteLine("SET_HW_RENDER: D3D11 device creation failed");
+                                _d3d11Context = null;
+                                return false;
+                            }
+                            _isD3d11HwRender = true;
+                            _hwRenderActive = true;
+                            Dispatcher.BeginInvoke(() => OverlayShaderBtn.Visibility = Visibility.Collapsed);
+
+                            if (hw.context_reset != IntPtr.Zero)
+                                _hwContextReset = Marshal.GetDelegateForFunctionPointer<retro_hw_context_reset_t>(hw.context_reset);
+                            if (hw.context_destroy != IntPtr.Zero)
+                                _hwContextDestroy = Marshal.GetDelegateForFunctionPointer<retro_hw_context_reset_t>(hw.context_destroy);
+
+                            // get_current_framebuffer / get_proc_address unused for D3D11.
+                            Marshal.WriteIntPtr(data, 16, IntPtr.Zero);
+                            System.Diagnostics.Trace.WriteLine("SET_HW_RENDER: D3D11 device ready, context_reset deferred to post-LoadGame.");
+                            return true;
+                        }
+
                         // ── OpenGL path ──────────────────────────────────────────
                         if (hw.context_type != RETRO_HW_CONTEXT_OPENGL &&
                             hw.context_type != RETRO_HW_CONTEXT_OPENGL_CORE)
@@ -3297,6 +3330,14 @@ namespace Emutastic.Views
                             IntPtr ifacePtr = _vulkanContext.BuildHwRenderInterface();
                             Marshal.WriteIntPtr(data, ifacePtr);
                             System.Diagnostics.Trace.WriteLine("GET_HW_RENDER_INTERFACE: Vulkan interface provided");
+                            return true;
+                        }
+                        if (_isD3d11HwRender && _d3d11Context != null)
+                        {
+                            IntPtr ifacePtr = _d3d11Context.BuildHwRenderInterface();
+                            if (ifacePtr == IntPtr.Zero) return false;
+                            Marshal.WriteIntPtr(data, ifacePtr);
+                            System.Diagnostics.Trace.WriteLine("GET_HW_RENDER_INTERFACE: D3D11 interface provided");
                             return true;
                         }
                         return false;
