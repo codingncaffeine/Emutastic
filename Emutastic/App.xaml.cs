@@ -151,6 +151,21 @@ namespace Emutastic
 
                 base.OnStartup(e);
 
+                // Pre-Main cold-load: the gap between OS process creation
+                // (Process.StartTime) and the first line of our code. Captures
+                // everything the in-app trace can't see — runtime load,
+                // single-file self-extract, startup-path JIT. On a warm launch
+                // this is a few hundred ms; a big value here is the fingerprint
+                // of an intermittent slow cold start (large self-contained bundle
+                // paged off a cold disk). Logged first so it heads the session.
+                try
+                {
+                    var preMainMs = (DateTime.Now - System.Diagnostics.Process
+                        .GetCurrentProcess().StartTime).TotalMilliseconds;
+                    Services.StartupTrace.Mark($"preMain_cold_load_ms={preMainMs:F0}");
+                }
+                catch { /* diagnostic only */ }
+
                 // Seed default theme resources before the window loads so DynamicResource
                 // bindings (including LibraryCardWidth) are never unset on first render.
                 Current.Resources["LibraryCardWidth"] = 148.0;
