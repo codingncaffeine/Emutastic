@@ -299,6 +299,7 @@ float4 PSMain(VSOut i) : SV_TARGET { return tex.Sample(smp, i.uv); }";
         {
             if (_context == null || _swapChain == null || _backbufferRtv == null
                 || _vs == null || _ps == null || _sampler == null) return false;
+            ApplyPendingResize();   // emu thread — serialize resize with present
             _srvScratchSc[0] = null!;
             _context.PSGetShaderResources(0, 1, _srvScratchSc);
             var srv = _srvScratchSc[0];
@@ -320,22 +321,38 @@ float4 PSMain(VSOut i) : SV_TARGET { return tex.Sample(smp, i.uv); }";
             finally { srv.Dispose(); }
         }
 
-        /// <summary>Resizes the swapchain backbuffer (display/overlay size changed).</summary>
+        // UI thread requests a resize; the emu thread applies it inside PresentFrame.
+        // DXGI forbids ResizeBuffers running concurrently with Present on the same
+        // swapchain (it would block/deadlock — the cause of multi-second locks), so
+        // the two MUST happen on the same thread.
+        private volatile int _pendingScW, _pendingScH;
+
+        /// <summary>Requests a backbuffer resize (display/overlay size changed). Safe
+        /// to call from the UI thread — the actual ResizeBuffers is deferred to the
+        /// emu thread's next PresentFrame.</summary>
         public void RecreateSwapchain(int w, int h)
         {
             if (_swapChain == null || w <= 0 || h <= 0) return;
+            _pendingScW = w; _pendingScH = h;
+        }
+
+        private void ApplyPendingResize()
+        {
+            int w = _pendingScW, h = _pendingScH;
+            if (w <= 0 || h <= 0) return;
+            _pendingScW = 0; _pendingScH = 0;
             if (w == _scW && h == _scH) return;
             try
             {
                 _backbufferRtv?.Dispose(); _backbufferRtv = null;
-                _swapChain.ResizeBuffers(2, (uint)w, (uint)h, Format.B8G8R8A8_UNorm, SwapChainFlags.None);
+                _swapChain!.ResizeBuffers(2, (uint)w, (uint)h, Format.B8G8R8A8_UNorm, SwapChainFlags.None);
                 CreateBackbufferRtv();
                 _scW = w; _scH = h;
                 System.Diagnostics.Trace.WriteLine($"[D3D11] swapchain resized {w}x{h}");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Trace.WriteLine($"[D3D11] RecreateSwapchain failed: {ex}");
+                System.Diagnostics.Trace.WriteLine($"[D3D11] ResizeBuffers failed: {ex}");
             }
         }
 
