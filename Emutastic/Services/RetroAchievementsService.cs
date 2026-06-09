@@ -893,6 +893,17 @@ namespace Emutastic.Services
                         string body = "";
                         try { body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false); } catch { }
                         if (body.Length > 240) body = body.Substring(0, 240);
+                        // RA uses HTTP 422 (Unprocessable) to signal "valid request,
+                        // no data" — e.g. "User has no leaderboards on this game" when
+                        // a player hasn't set any scores yet. That's a normal empty
+                        // result, not an error: return null quietly without polluting
+                        // the error log (FriendService calls this per friend, so an
+                        // unplayed game would otherwise spam several entries).
+                        if ((int)resp.StatusCode == 422)
+                        {
+                            RaLog.Write($"no data: op={opName} (422: {body})");
+                            return null;
+                        }
                         Trace.WriteLine($"[RA] {opName} HTTP {(int)resp.StatusCode}");
                         RaLog.Write($"http error: op={opName} status={(int)resp.StatusCode} body={body}");
                         return null;
