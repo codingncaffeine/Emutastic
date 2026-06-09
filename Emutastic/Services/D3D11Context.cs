@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using Vortice.Direct3D;
 using Vortice.Direct3D11;
 using Vortice.DXGI;
+using Vortice.D3DCompiler;
 using D9 = Vortice.Direct3D9;
 
 namespace Emutastic.Services
@@ -34,7 +35,11 @@ namespace Emutastic.Services
         private IntPtr _ifaceStruct;
 
         // ── Present bridge resources ────────────────────────────────────────
-        private ID3D11Texture2D?       _sharedTex;     // D3D11 side of the shared surface
+        private ID3D11Texture2D?       _sharedTex;     // D3D11 side of the shared surface (BGRA)
+        private ID3D11RenderTargetView? _sharedRtv;     // RTV for the converting blit
+        private ID3D11VertexShader?    _vs;
+        private ID3D11PixelShader?     _ps;
+        private ID3D11SamplerState?    _sampler;
         private D9.IDirect3D9Ex?       _d9;
         private D9.IDirect3DDevice9Ex? _d9Device;
         private D9.IDirect3DTexture9?  _d9Tex;          // D3D9 view of the same surface
@@ -105,6 +110,11 @@ namespace Emutastic.Services
             ReleasePresentTarget();
             _presentW = w; _presentH = h;
 
+            // The shared texture is BGRA — the ONLY format the D3D9 shared-open
+            // accepts here (D3D11 B8G8R8A8 <-> D3D9 A8R8G8B8). The core renders
+            // RGBA, so we can't CopyResource into this (channel-order mismatch =
+            // silent no-op); instead a shader blit samples the core's RGBA texture
+            // and writes into this BGRA target, letting the GPU do the swizzle.
             var desc = new Texture2DDescription
             {
                 Width = (uint)w, Height = (uint)h, MipLevels = 1, ArraySize = 1,
@@ -116,6 +126,8 @@ namespace Emutastic.Services
                 MiscFlags = ResourceOptionFlags.Shared,
             };
             _sharedTex = _device.CreateTexture2D(desc);
+            _sharedRtv = _device.CreateRenderTargetView(_sharedTex);
+            EnsureBlitShaders();
 
             using var dxgiRes = _sharedTex.QueryInterface<IDXGIResource>();
             IntPtr sharedHandle = dxgiRes.SharedHandle;
@@ -138,9 +150,13 @@ namespace Emutastic.Services
             }
 
             // Open the D3D11 shared surface as a D3D9 texture (pass the handle IN).
+            // A8R8G8B8 is the broadly-supported D3D9 shared-RT format (A8B8G8R8
+            // is rejected as D3DERR_INVALIDCALL on this driver). Opening an RGBA
+            // D3D11 surface as A8R8G8B8 may swap R/B; colors are corrected by a
+            // shader blit once the pipeline is confirmed visible.
             IntPtr sh = sharedHandle;
             _d9Tex = _d9Device!.CreateTexture((uint)w, (uint)h, 1,
-                D9.Usage.RenderTarget, D9.Format.A8R8G8B8, D9.Pool.Default, ref sh);
+                D9.Usage.RenderTarget, D9.Format.A8R8G8B8, D9.Pool.Default, ref sh);   // BGRA, matches shared D3D11 tex
             _d9Surface = _d9Tex.GetSurfaceLevel(0);
 
             System.Diagnostics.Trace.WriteLine($"[D3D11] Present target {w}x{h}, D3D9 surface={_d9Surface.NativePointer:X}");
@@ -153,18 +169,59 @@ namespace Emutastic.Services
         /// handler, right after retro_run produced the frame. Returns false if no
         /// SRV was bound (nothing to show this frame).
         /// </summary>
+        // Fullscreen-triangle blit: sample the core's RGBA output, write into the
+        // BGRA shared target. The output-merger writes our sampled color into the
+        // BGRA surface, so the GPU performs the RGBA→BGRA channel swizzle for free.
+        private const string BlitHlsl = @"
+struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
+VSOut VSMain(uint id : SV_VertexID) {
+  VSOut o;
+  o.uv  = float2((id << 1) & 2, id & 2);
+  o.pos = float4(o.uv * float2(2, -2) + float2(-1, 1), 0, 1);
+  return o;
+}
+Texture2D tex : register(t0);
+SamplerState smp : register(s0);
+float4 PSMain(VSOut i) : SV_TARGET { return tex.Sample(smp, i.uv); }";
+
+        private void EnsureBlitShaders()
+        {
+            if (_vs != null || _device == null) return;
+            var vsb = Compiler.Compile(BlitHlsl, "VSMain", "blit.hlsl", "vs_4_0", ShaderFlags.None, EffectFlags.None);
+            var psb = Compiler.Compile(BlitHlsl, "PSMain", "blit.hlsl", "ps_4_0", ShaderFlags.None, EffectFlags.None);
+            _vs = _device.CreateVertexShader(vsb.Span.ToArray(), null);
+            _ps = _device.CreatePixelShader(psb.Span.ToArray(), null);
+            _sampler = _device.CreateSamplerState(new SamplerDescription
+            {
+                Filter = Filter.MinMagMipLinear,
+                AddressU = TextureAddressMode.Clamp,
+                AddressV = TextureAddressMode.Clamp,
+                AddressW = TextureAddressMode.Clamp,
+                MinLOD = 0, MaxLOD = float.MaxValue,
+            });
+            System.Diagnostics.Trace.WriteLine("[D3D11] blit shaders compiled");
+        }
+
         private readonly ID3D11ShaderResourceView[] _srvScratch = new ID3D11ShaderResourceView[1];
         public bool CaptureCoreFrame()
         {
-            if (_context == null || _sharedTex == null) return false;
+            if (_context == null || _sharedTex == null || _sharedRtv == null
+                || _vs == null || _ps == null || _sampler == null) return false;
             _srvScratch[0] = null!;
             _context.PSGetShaderResources(0, 1, _srvScratch);
             var srv = _srvScratch[0];
             if (srv == null) return false;
             try
             {
-                using var res = srv.Resource;
-                _context.CopyResource(_sharedTex, res);
+                _context.OMSetRenderTargets(_sharedRtv, null);
+                _context.RSSetViewport(0, 0, _presentW, _presentH, 0f, 1f);
+                _context.VSSetShader(_vs);
+                _context.PSSetShader(_ps);
+                _context.PSSetSampler(0, _sampler);
+                _context.PSSetShaderResource(0, srv);
+                _context.IASetInputLayout(null);
+                _context.IASetPrimitiveTopology(PrimitiveTopology.TriangleList);
+                _context.Draw(3, 0);
                 _context.Flush();
                 return true;
             }
@@ -175,6 +232,7 @@ namespace Emutastic.Services
         {
             _d9Surface?.Dispose(); _d9Surface = null;
             _d9Tex?.Dispose();     _d9Tex = null;
+            _sharedRtv?.Dispose(); _sharedRtv = null;
             _sharedTex?.Dispose(); _sharedTex = null;
         }
 
@@ -182,6 +240,9 @@ namespace Emutastic.Services
         {
             if (_ifaceStruct != IntPtr.Zero) { Marshal.FreeHGlobal(_ifaceStruct); _ifaceStruct = IntPtr.Zero; }
             ReleasePresentTarget();
+            _sampler?.Dispose(); _sampler = null;
+            _ps?.Dispose();      _ps = null;
+            _vs?.Dispose();      _vs = null;
             _d9Device?.Dispose(); _d9Device = null;
             _d9?.Dispose();       _d9 = null;
             _context?.Dispose();  _context = null;
