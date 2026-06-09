@@ -81,9 +81,11 @@ namespace Emutastic.Services
         private retro_hw_render_context_negotiation_interface_vulkan _negotiation;
         private retro_vulkan_create_device_t? _coreCreateDevice;
         private retro_vulkan_create_device2_t? _coreCreateDevice2;
-        // Kept-alive wrapper delegate so it doesn't get GC'd while the core
-        // is calling back into us during create_device2.
+        private retro_vulkan_create_instance_t? _coreCreateInstance;
+        // Kept-alive wrapper delegates so they aren't GC'd while the core is
+        // calling back into us during create_instance / create_device2.
         private retro_vulkan_create_device_wrapper_t? _createDeviceWrapper;
+        private retro_vulkan_create_instance_wrapper_t? _createInstanceWrapper;
         // Cached vkCreateDevice fp resolved via the loader's vkGetInstanceProcAddr
         // so the wrapper doesn't have to re-look-it-up on every call.
         private IntPtr _vkCreateDeviceFn;
@@ -190,16 +192,18 @@ namespace Emutastic.Services
                     IntPtr destroyDevicePtr = Marshal.ReadIntPtr(negotiationPtr, 8 + IntPtr.Size * 2);
 
                     // Negotiation v2 layout adds two slots after destroy_device:
-                    //   [+3*ptr] create_instance     (we let the loader create the instance)
-                    //   [+4*ptr] create_device2      (used by Beetle PSX HW)
+                    //   [+3*ptr] create_instance     (core owns the VkInstance — parallel-GS needs this)
+                    //   [+4*ptr] create_device2      (used by Beetle PSX HW + parallel-GS)
+                    IntPtr createInstancePtr = IntPtr.Zero;
                     IntPtr createDevice2Ptr = IntPtr.Zero;
                     if (ifaceVersion >= 2)
                     {
-                        createDevice2Ptr = Marshal.ReadIntPtr(negotiationPtr, 8 + IntPtr.Size * 4);
+                        createInstancePtr = Marshal.ReadIntPtr(negotiationPtr, 8 + IntPtr.Size * 3);
+                        createDevice2Ptr  = Marshal.ReadIntPtr(negotiationPtr, 8 + IntPtr.Size * 4);
                     }
 
                     System.Diagnostics.Trace.WriteLine(
-                        $"[Vulkan] Negotiation ptrs: appInfo=0x{getAppInfoPtr:X} createDev=0x{createDevicePtr:X} destroyDev=0x{destroyDevicePtr:X} createDev2=0x{createDevice2Ptr:X}");
+                        $"[Vulkan] Negotiation ptrs: appInfo=0x{getAppInfoPtr:X} createDev=0x{createDevicePtr:X} destroyDev=0x{destroyDevicePtr:X} createInst=0x{createInstancePtr:X} createDev2=0x{createDevice2Ptr:X}");
 
                     _negotiation = new retro_hw_render_context_negotiation_interface_vulkan
                     {
@@ -214,15 +218,28 @@ namespace Emutastic.Services
                         _coreDestroyDevice = Marshal.GetDelegateForFunctionPointer<retro_vulkan_destroy_device_t>(destroyDevicePtr);
                     if (createDevice2Ptr.ToInt64() > 0x10000)
                         _coreCreateDevice2 = Marshal.GetDelegateForFunctionPointer<retro_vulkan_create_device2_t>(createDevice2Ptr);
+                    if (createInstancePtr.ToInt64() > 0x10000)
+                        _coreCreateInstance = Marshal.GetDelegateForFunctionPointer<retro_vulkan_create_instance_t>(createInstancePtr);
                 }
                 else
                 {
                     System.Diagnostics.Trace.WriteLine("[Vulkan] No negotiation interface — frontend will create device");
                 }
 
-                // 1. Create VkInstance
-                System.Diagnostics.Trace.WriteLine("[Vulkan] Creating VkInstance...");
-                if (!CreateInstance()) return false;
+                // 1. Create VkInstance. When the core provides a v2 create_instance
+                // (parallel-GS), it MUST own the instance — call its create_instance
+                // with our wrapper. Otherwise (ParaLLEl-RDP and most cores) we create
+                // the instance ourselves.
+                if (_coreCreateInstance != null)
+                {
+                    System.Diagnostics.Trace.WriteLine("[Vulkan] Creating VkInstance via core (v2 create_instance)...");
+                    if (!CreateInstanceViaCore()) return false;
+                }
+                else
+                {
+                    System.Diagnostics.Trace.WriteLine("[Vulkan] Creating VkInstance...");
+                    if (!CreateInstance()) return false;
+                }
                 System.Diagnostics.Trace.WriteLine("[Vulkan] VkInstance OK");
 
                 // 2. Pick physical device (discrete GPU preferred)
@@ -911,8 +928,14 @@ namespace Emutastic.Services
             }
 
             System.Diagnostics.Trace.WriteLine("[Vulkan] Instance created");
+            LoadInstanceSurfaceFunctions();
+            return true;
+        }
 
-            // Load surface extension function pointers
+        // Resolves the surface/swapchain instance entry points against _instance.
+        // Shared by CreateInstance and CreateInstanceViaCore.
+        private void LoadInstanceSurfaceFunctions()
+        {
             var p1 = vkGetInstanceProcAddr(_instance, "vkCreateWin32SurfaceKHR");
             var p2 = vkGetInstanceProcAddr(_instance, "vkDestroySurfaceKHR");
             var p3 = vkGetInstanceProcAddr(_instance, "vkGetPhysicalDeviceSurfaceSupportKHR");
@@ -923,8 +946,102 @@ namespace Emutastic.Services
             if (p3 != IntPtr.Zero) _vkGetPhysicalDeviceSurfaceSupportKHR = Marshal.GetDelegateForFunctionPointer<PFN_vkGetPhysicalDeviceSurfaceSupportKHR>(p3);
             if (p4 != IntPtr.Zero) _vkGetPhysicalDeviceSurfaceCapabilitiesKHR = Marshal.GetDelegateForFunctionPointer<PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR>(p4);
             if (p5 != IntPtr.Zero) _vkGetPhysicalDeviceSurfaceFormatsKHR = Marshal.GetDelegateForFunctionPointer<PFN_vkGetPhysicalDeviceSurfaceFormatsKHR>(p5);
+        }
 
+        // The frontend's instance extensions, merged into the core's create_info by
+        // InstanceWrapper so the core-owned VkInstance can still present.
+        private static readonly string[] _frontendInstanceExts = { "VK_KHR_surface", "VK_KHR_win32_surface" };
+
+        // v2 create_instance path (parallel-GS): the core builds its VkInstance via
+        // its own Granite context and calls our wrapper to perform the real
+        // vkCreateInstance. We must use the instance it returns, otherwise the core's
+        // create_device2 refuses (its internal context was never initialized).
+        private bool CreateInstanceViaCore()
+        {
+            IntPtr vulkanDll = GetModuleHandle("vulkan-1.dll");
+            IntPtr realGipa  = GetProcAddress(vulkanDll, "vkGetInstanceProcAddr");
+            if (realGipa == IntPtr.Zero)
+            {
+                System.Diagnostics.Trace.WriteLine("[Vulkan] CreateInstanceViaCore: vkGetInstanceProcAddr unavailable");
+                return false;
+            }
+
+            IntPtr appInfoPtr = IntPtr.Zero;
+            if (_negotiation.get_application_info != IntPtr.Zero)
+            {
+                var getAppInfo = Marshal.GetDelegateForFunctionPointer<retro_vulkan_get_application_info_t>(
+                    _negotiation.get_application_info);
+                appInfoPtr = getAppInfo();
+            }
+
+            _createInstanceWrapper = InstanceWrapper;   // keep alive across the native call
+            IntPtr wrapperPtr = Marshal.GetFunctionPointerForDelegate(_createInstanceWrapper);
+
+            IntPtr inst = _coreCreateInstance!(realGipa, appInfoPtr, wrapperPtr, IntPtr.Zero);
+            if (inst == IntPtr.Zero)
+            {
+                System.Diagnostics.Trace.WriteLine("[Vulkan] core create_instance returned VK_NULL_HANDLE");
+                return false;
+            }
+
+            _instance = new VkInstance { Handle = inst };
+            System.Diagnostics.Trace.WriteLine($"[Vulkan] Instance created by core: 0x{inst:X}");
+            LoadInstanceSurfaceFunctions();
             return true;
+        }
+
+        // Called by the core during create_instance. The core hands us a
+        // VkInstanceCreateInfo with its own extensions/pNext; we merge in the surface
+        // extensions we need for presentation and forward to vkCreateInstance.
+        private IntPtr InstanceWrapper(IntPtr opaque, IntPtr createInfo)
+        {
+            if (createInfo == IntPtr.Zero) return IntPtr.Zero;
+            try
+            {
+                // VkInstanceCreateInfo (x64): enabledExtensionCount @48, ppEnabledExtensionNames @56.
+                int coreExtCount    = Marshal.ReadInt32(createInfo, 48);
+                IntPtr coreExtNames = Marshal.ReadIntPtr(createInfo, 56);
+
+                var names = new System.Collections.Generic.List<string>();
+                for (int i = 0; i < coreExtCount; i++)
+                {
+                    string? s = Marshal.PtrToStringAnsi(Marshal.ReadIntPtr(coreExtNames, i * IntPtr.Size));
+                    if (!string.IsNullOrEmpty(s)) names.Add(s);
+                }
+                foreach (var e in _frontendInstanceExts)
+                    if (!names.Contains(e)) names.Add(e);
+
+                System.Diagnostics.Trace.WriteLine(
+                    $"[Vulkan] InstanceWrapper: {coreExtCount} core ext + surface → {names.Count} [{string.Join(", ", names)}]");
+
+                var extPtrs = new IntPtr[names.Count];
+                for (int i = 0; i < names.Count; i++) extPtrs[i] = Marshal.StringToHGlobalAnsi(names[i]);
+                IntPtr extArray = Marshal.AllocHGlobal(IntPtr.Size * names.Count);
+                for (int i = 0; i < names.Count; i++) Marshal.WriteIntPtr(extArray, i * IntPtr.Size, extPtrs[i]);
+
+                // Copy the 64-byte createInfo (preserving pNext/flags/appInfo/layers),
+                // patch only the extension fields.
+                IntPtr ci = Marshal.AllocHGlobal(64);
+                for (int o = 0; o < 64; o += 8) Marshal.WriteInt64(ci, o, Marshal.ReadInt64(createInfo, o));
+                Marshal.WriteInt32(ci, 48, names.Count);
+                Marshal.WriteIntPtr(ci, 56, extArray);
+
+                IntPtr fp = vkGetInstanceProcAddr(default, "vkCreateInstance");
+                var create = Marshal.GetDelegateForFunctionPointer<vkCreateInstanceRaw_t>(fp);
+                int r = create(ci, IntPtr.Zero, out IntPtr instance);
+
+                Marshal.FreeHGlobal(ci);
+                Marshal.FreeHGlobal(extArray);
+                foreach (var p in extPtrs) Marshal.FreeHGlobal(p);
+
+                System.Diagnostics.Trace.WriteLine($"[Vulkan] InstanceWrapper vkCreateInstance result={r} instance=0x{instance:X}");
+                return r == 0 ? instance : IntPtr.Zero;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[Vulkan] InstanceWrapper threw: {ex.Message}");
+                return IntPtr.Zero;
+            }
         }
 
         private bool SelectPhysicalDevice()

@@ -872,6 +872,26 @@ namespace Emutastic.Services
             IntPtr get_instance_proc_addr,
             IntPtr create_device_wrapper, IntPtr opaque);
 
+        // Negotiation v2: create_instance lets the core OWN the VkInstance. The
+        // frontend MUST call this when the interface provides it, passing a wrapper
+        // the core invokes to perform the real vkCreateInstance (the wrapper merges
+        // the frontend's surface extensions into the core's VkInstanceCreateInfo).
+        // parallel-GS REQUIRES this path — without create_instance its internal
+        // Vulkan context is never built, so create_device2 fails. Returns VkInstance.
+        //   VkInstance create_instance(get_instance_proc_addr, app, wrapper, opaque)
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        public delegate IntPtr retro_vulkan_create_instance_t(
+            IntPtr get_instance_proc_addr, IntPtr app, IntPtr create_instance_wrapper, IntPtr opaque);
+
+        //   VkInstance create_instance_wrapper(void *opaque, const VkInstanceCreateInfo *info)
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        public delegate IntPtr retro_vulkan_create_instance_wrapper_t(IntPtr opaque, IntPtr createInfo);
+
+        // Raw vkCreateInstance via loader-resolved fp — lets the wrapper pass the
+        // core's VkInstanceCreateInfo pointer through verbatim (preserving pNext).
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        public delegate int vkCreateInstanceRaw_t(IntPtr pCreateInfo, IntPtr pAllocator, out IntPtr pInstance);
+
         // set_image(handle, &retro_vulkan_image, num_semaphores, semaphores, src_queue_family)
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void retro_vulkan_set_image_t(
