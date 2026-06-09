@@ -39,6 +39,13 @@ namespace Emutastic.Services.ConsoleHandlers
         // like "6x Native (~2160p/4K)"; keep the base "Native" entry and 1x–6x.
         public override string[] FilterCoreOptionValues(string key, string[] values)
         {
+            // Renderer: expose only the two we support — D3D11 (stable default) and
+            // paraLLEl-GS (Vulkan, no shader hitch). Hide Auto/D3D12/standard-Vulkan/
+            // OpenGL/Software to keep the choice meaningful. D3D11 is first so it stays
+            // the validation fallback.
+            if (key == "pcsx2_renderer")
+                return values.Where(v => v == "D3D11" || v == "paraLLEl-GS").ToArray();
+
             if (key != "pcsx2_upscale_multiplier") return values;
             return values.Where(v =>
             {
@@ -56,6 +63,10 @@ namespace Emutastic.Services.ConsoleHandlers
         // declares it.
         public override List<(string key, string label)> GetVisualOptions() => new()
         {
+            // D3D11 (default) = rock-solid, Windows-only. paraLLEl-GS = Vulkan compute
+            // renderer with no shader-compile hitch (and the path that ports to Linux),
+            // but experimental. Both restart-gated.
+            ("pcsx2_renderer", "Renderer ⚠ restart"),
             ("pcsx2_upscale_multiplier", "Internal Resolution ⚠ restart"),
         };
 
