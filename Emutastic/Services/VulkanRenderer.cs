@@ -356,9 +356,21 @@ namespace Emutastic.Services
                     }
                 }
 
-                // Create device ourselves with ALL supported features enabled
+                // Create device ourselves with ALL supported features enabled — but
+                // ONLY when the core does NOT own the instance. A create_instance core
+                // (parallel-GS) builds its Vulkan context around its own instance and
+                // device; if its device negotiation failed, substituting a
+                // frontend-made device corrupts that context (heap-corruption AV in
+                // ntdll), so fail cleanly instead of falling back.
                 if (_device.Handle == IntPtr.Zero)
                 {
+                    if (_coreCreateInstance != null)
+                    {
+                        System.Diagnostics.Trace.WriteLine(
+                            "[Vulkan] Core owns the instance but device negotiation failed — aborting (no self-create fallback)");
+                        Cleanup();
+                        return false;
+                    }
                     System.Diagnostics.Trace.WriteLine("[Vulkan] Creating device ourselves with full feature set");
                     if (!CreateLogicalDevice()) { Cleanup(); return false; }
                 }
