@@ -4190,7 +4190,13 @@ namespace Emutastic.Views
                     if (_d3d11Context.HasSwapchain)
                     {
                         if (_d3d11Context.PresentFrame())
+                        {
                             System.Threading.Interlocked.Increment(ref _frameCount);
+                            // Route the HUD (FPS pill, cog, achievement toasts, pause
+                            // effect) onto the transparent overlay window above the
+                            // swapchain — same flag the Vulkan/GL overlay paths use.
+                            _vulkanPresenting = true;
+                        }
                         return;
                     }
 
