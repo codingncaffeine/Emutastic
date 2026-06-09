@@ -976,80 +976,9 @@ namespace Emutastic.Views
         // ── Direct3D 11 HW rendering (PS2 / LRPS2 D3D11 GS backend) ──────────────
         private D3D11Context? _d3d11Context;
         private bool _isD3d11HwRender = false;
+        private bool _d3d11VideoPending = false;
         private System.Windows.Interop.D3DImage? _d3dImage;
         private int _lastCapSrcW = -1, _lastCapSrcH = -1;   // throttles the per-frame cap log
-        // Emu thread → UI render-tick hand-off for the D3D11 present (see
-        // OnD3d11CompositionRender). The emu thread blits + sets the flag + stashes
-        // the source size; the WPF render tick consumes it at vsync.
-        private bool _d3d11FrameReady;
-        private int  _d3d11LatestW, _d3d11LatestH;
-        private bool _d3d11RenderHooked;
-
-        /// <summary>
-        /// Subscribes the D3D11 present to WPF's render tick, once. Called from the
-        /// emu thread (video_refresh runs there serially, so no double-subscribe);
-        /// the actual += happens on the UI thread where CompositionTarget lives.
-        /// </summary>
-        private void EnsureD3d11RenderHook()
-        {
-            if (_d3d11RenderHooked) return;
-            _d3d11RenderHooked = true;
-            Dispatcher.BeginInvoke(() =>
-                System.Windows.Media.CompositionTarget.Rendering += OnD3d11CompositionRender);
-        }
-
-        /// <summary>
-        /// Pulls the latest core frame onto the screen once per WPF composition pass
-        /// (vsync-aligned). Decoupled from the emu thread so a busy UI thread drops
-        /// nothing — it just presents whatever the most recent blit produced.
-        /// </summary>
-        private void OnD3d11CompositionRender(object? sender, EventArgs e)
-        {
-            if (!_isD3d11HwRender || _d3d11Context == null) return;
-            if (!System.Threading.Volatile.Read(ref _d3d11FrameReady)) return;
-            System.Threading.Volatile.Write(ref _d3d11FrameReady, false);
-            try
-            {
-                uint cw = (uint)_d3d11LatestW, ch = (uint)_d3d11LatestH;
-                if (cw == 0 || ch == 0) return;
-                IntPtr hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-                // Cap the present surface to the monitor: the display can't show more
-                // pixels than it has, and the per-frame D3DImage copy scales with
-                // surface area, so a full high-res frame (8x native = 5120x3584 =
-                // 73MB) is what stalled the present. The blit downsamples the full-res
-                // frame into the capped surface, so detail is preserved.
-                var (pw, ph) = CapPresentToDisplay((int)cw, (int)ch);
-                if ((int)cw != _lastCapSrcW || (int)ch != _lastCapSrcH)
-                {
-                    _lastCapSrcW = (int)cw; _lastCapSrcH = (int)ch;
-                    if (pw != (int)cw || ph != (int)ch)
-                        System.Diagnostics.Trace.WriteLine(
-                            $"[D3D11] capping present {cw}x{ch} -> {pw}x{ph} (monitor-bound)");
-                }
-                bool recreated = _d3d11Context.EnsurePresentTarget(pw, ph, hwnd);
-                if (recreated)
-                {
-                    _d3dImage ??= new System.Windows.Interop.D3DImage();
-                    _d3dImage.Lock();
-                    _d3dImage.SetBackBuffer(System.Windows.Interop.D3DResourceType.IDirect3DSurface9,
-                                            _d3d11Context.D9SurfacePointer);
-                    _d3dImage.Unlock();
-                    GameScreen.Source = _d3dImage;
-                    _videoWidth = cw; _videoHeight = ch;
-                    UpdateDisplayAspectRatio(cw, ch, _core?.AvInfo.geometry.aspect_ratio ?? 0f);
-                    ApplyGameScreenScalingMode(cw, ch);
-                }
-                if (_d3dImage != null && _d3dImage.IsFrontBufferAvailable
-                    && _d3d11Context.D9SurfacePointer != IntPtr.Zero)
-                {
-                    _d3dImage.Lock();
-                    _d3dImage.AddDirtyRect(new Int32Rect(0, 0, _d3dImage.PixelWidth, _d3dImage.PixelHeight));
-                    _d3dImage.Unlock();
-                    System.Threading.Interlocked.Increment(ref _frameCount);
-                }
-            }
-            catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[D3D11] present: {ex.Message}"); }
-        }
 
         /// <summary>
         /// Clamps a HW-render frame size to the monitor's pixel dimensions,
@@ -4185,22 +4114,58 @@ namespace Emutastic.Views
                 // that same shared surface (UI thread).
                 if (_isD3d11HwRender && _d3d11Context != null)
                 {
-                    // Emu thread only blits the core's output into the shared surface
-                    // (the core's SRV is valid right here, post-retro_run) and flags a
-                    // frame as ready. The actual D3DImage present is pulled by the WPF
-                    // render tick (CompositionTarget.Rendering, vsync-aligned) — see
-                    // OnD3d11CompositionRender. Pushing a BeginInvoke per emu frame and
-                    // gating it instead dropped whole frames whenever the UI thread was
-                    // busy, beating ~60fps emulation down to ~50.
-                    // Blit when the shared target already exists; flag ready and stash
-                    // the size unconditionally. The render tick must run even on the
-                    // first frame (when capture necessarily fails) to CREATE the target
-                    // — otherwise capture can never succeed and the screen stays black.
-                    _d3d11Context.CaptureCoreFrame();
-                    _d3d11LatestW = (int)width;
-                    _d3d11LatestH = (int)height;
-                    System.Threading.Volatile.Write(ref _d3d11FrameReady, true);
-                    EnsureD3d11RenderHook();
+                    if (_d3d11VideoPending) return;
+                    bool captured = _d3d11Context.CaptureCoreFrame();
+                    uint cw = width, ch = height;
+                    _d3d11VideoPending = true;
+                    Dispatcher.BeginInvoke(() =>
+                    {
+                        try
+                        {
+                            IntPtr hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+                            // Cap the present surface to the monitor. The core can
+                            // render far above display res (PS2 8x native = 5120x3584
+                            // = 73MB/frame); copying that whole surface through the
+                            // D3DImage bridge every frame is the present bottleneck
+                            // and halves the screen to 30fps. The monitor can't show
+                            // those extra pixels anyway, and the blit's linear sampler
+                            // supersamples the full-res frame down into the capped
+                            // surface for free — so detail is kept, copy cost isn't.
+                            var (pw, ph) = CapPresentToDisplay((int)cw, (int)ch);
+                            // Log only when the source size changes — this runs every
+                            // frame, so an unconditional log floods emulator.log.
+                            if ((int)cw != _lastCapSrcW || (int)ch != _lastCapSrcH)
+                            {
+                                _lastCapSrcW = (int)cw; _lastCapSrcH = (int)ch;
+                                if (pw != (int)cw || ph != (int)ch)
+                                    System.Diagnostics.Trace.WriteLine(
+                                        $"[D3D11] capping present {cw}x{ch} -> {pw}x{ph} (monitor-bound)");
+                            }
+                            bool recreated = _d3d11Context.EnsurePresentTarget(pw, ph, hwnd);
+                            if (recreated)
+                            {
+                                _d3dImage ??= new System.Windows.Interop.D3DImage();
+                                _d3dImage.Lock();
+                                _d3dImage.SetBackBuffer(System.Windows.Interop.D3DResourceType.IDirect3DSurface9,
+                                                        _d3d11Context.D9SurfacePointer);
+                                _d3dImage.Unlock();
+                                GameScreen.Source = _d3dImage;
+                                _videoWidth = cw; _videoHeight = ch;
+                                UpdateDisplayAspectRatio(cw, ch, _core?.AvInfo.geometry.aspect_ratio ?? 0f);
+                                ApplyGameScreenScalingMode(cw, ch);
+                            }
+                            if (captured && _d3dImage != null && _d3dImage.IsFrontBufferAvailable
+                                && _d3d11Context.D9SurfacePointer != IntPtr.Zero)
+                            {
+                                _d3dImage.Lock();
+                                _d3dImage.AddDirtyRect(new Int32Rect(0, 0, _d3dImage.PixelWidth, _d3dImage.PixelHeight));
+                                _d3dImage.Unlock();
+                                System.Threading.Interlocked.Increment(ref _frameCount);
+                            }
+                        }
+                        catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[D3D11] present: {ex.Message}"); }
+                        finally { _d3d11VideoPending = false; }
+                    }, DispatcherPriority.Render);
                     return;
                 }
 
@@ -8823,12 +8788,6 @@ namespace Emutastic.Views
             // subscription so it doesn't tick against the closing visual tree.
             try { _pauseEffectRunner?.Dispose(); _pauseEffectRunner = null; } catch { }
 
-            // Stop the D3D11 present pump: drop _isD3d11HwRender so the emu thread stops
-            // blitting and the render-tick handler no-ops, then unsubscribe it. The
-            // context itself is disposed below, after the emu thread has joined.
-            _isD3d11HwRender = false;
-            try { System.Windows.Media.CompositionTarget.Rendering -= OnD3d11CompositionRender; } catch { }
-
             System.Diagnostics.Trace.WriteLine("EmulatorWindow closing — deferring cleanup to background");
 
             System.Threading.Tasks.Task.Run(() =>
@@ -8846,6 +8805,7 @@ namespace Emutastic.Views
 
                 // Emu thread is gone, so nothing else touches the D3D11 device/present
                 // bridge — release it (device, D3D9Ex, shared surface, blit shaders).
+                // Previously leaked on close.
                 try { _d3d11Context?.Dispose(); } catch { /* best effort */ }
                 _d3d11Context = null;
 
