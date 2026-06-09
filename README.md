@@ -28,7 +28,7 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 ## Supported Systems
 
 <details>
-<summary><strong>35 systems across 11 manufacturers</strong> (click to expand)</summary>
+<summary><strong>36 systems across 11 manufacturers</strong> (click to expand)</summary>
 
 | System | Tag | Core (priority order) | BIOS |
 |---|---|---|---|
@@ -52,6 +52,7 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 | SG-1000 | SG1000 | genesis_plus_gx | No |
 | Dreamcast | Dreamcast | flycast | No |
 | PlayStation | PS1 | mednafen_psx_hw → mednafen_psx | Region BIOS |
+| PlayStation 2 | PS2 | pcsx2 (LRPS2) | Region BIOS |
 | PSP | PSP | ppsspp | No |
 | TurboGrafx-16 | TG16 | mednafen_pce → mednafen_pce_fast | No |
 | TurboGrafx-CD | TGCD | mednafen_pce → mednafen_pce_fast | `syscard3.pce` |
@@ -88,6 +89,8 @@ Place BIOS files in `%AppData%\Emutastic\System\` (or `PortableData\System\` nex
 **Sega Saturn** — Kronos: `system\kronos\saturn_bios.bin`. Beetle Saturn: `sega_101.bin` (JP v1.00), `mpr-17933.bin` (JP v1.01), `mpr-17941.bin` (USA/EU v1.01). Note: `mpr-17933.bin` is a Japan BIOS despite being commonly mislabeled as USA/EU.
 
 **PlayStation** — USA: `scph5501.bin`, `scph1001.bin`, `scph7001.bin`. Europe: `scph5502.bin`. Japan: `scph5500.bin`
+
+**PlayStation 2** — a PS2 BIOS dump for your region (e.g. `SCPH-39001.bin`, `SCPH-70004.bin`, `ps2-0170e-*.bin`), placed in `System\pcsx2\bios\`. The core scans that folder and accepts any valid dump regardless of filename.
 
 **TurboGrafx-CD** — Any of: `syscard3.pce`, `syscard2.pce`, `syscard1.pce`
 
