@@ -96,6 +96,7 @@ namespace Emutastic.Services
                 // Resolver accepts both naming conventions so bindings UI and
                 // any hand-edited configs match correctly.
                 case "PS1":
+                case "PS2":
                 case "PSP":
                     return n switch
                     {

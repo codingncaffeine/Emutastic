@@ -737,7 +737,7 @@
                             </Button>
                             <StackPanel x:Name="SonySection">
                                 <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="PS1"><StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/ps1.jpg" Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="PlayStation" VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="PS2"><StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/ps1.jpg" Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="PlayStation 2" VerticalAlignment="Center"/></StackPanel></Button>
+                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="PS2"><StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/ps2.png" Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="PlayStation 2" VerticalAlignment="Center"/></StackPanel></Button>
                                 <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="PSP"><StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/psp.jpg" Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="PSP"         VerticalAlignment="Center"/></StackPanel></Button>
                             </StackPanel>
 

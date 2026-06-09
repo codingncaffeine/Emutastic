@@ -14,7 +14,12 @@ namespace Emutastic.Services.ConsoleHandlers
     /// </summary>
     public class Ps2Handler : ConsoleHandlerBase
     {
-        private const uint RETRO_DEVICE_DUALSHOCK = (2 << 8) | 5; // DualShock analog (PS2 = DualShock 2)
+        // LRPS2's retro_set_controller_port_device only recognizes plain
+        // RETRO_DEVICE_JOYPAD (=1), which it maps to a DualShock2 (and still
+        // reads the analog axes). The DualShock SUBCLASS (2<<8|5 = 517) falls
+        // through its switch to "Type = None" — i.e. NO controller connected,
+        // which blocks games like God of War that gate on a detected pad.
+        private const uint RETRO_DEVICE_JOYPAD = 1;
 
         public override string ConsoleName => "PS2";
         public override bool UsesAnalogStick => true;
@@ -22,7 +27,7 @@ namespace Emutastic.Services.ConsoleHandlers
         public override void ConfigureControllerPorts(LibretroCore core)
         {
             for (uint port = 0; port < 2; port++)
-                core.SetControllerPortDevice(port, RETRO_DEVICE_DUALSHOCK);
+                core.SetControllerPortDevice(port, RETRO_DEVICE_JOYPAD);
         }
 
         // RETRO_HW_CONTEXT_D3D11. EmulatorWindow's SET_HW_RENDER creates the
