@@ -1714,7 +1714,7 @@ namespace Emutastic.Views
         {
             ("Nintendo",  new[] { "NES", "FDS", "SNES", "N64", "GameCube", "GB", "GBC", "GBA", "NDS", "3DS", "VirtualBoy" }),
             ("Sega",      new[] { "Genesis", "SegaCD", "Sega32X", "Saturn", "SMS", "GameGear", "SG1000", "Dreamcast" }),
-            ("Sony",      new[] { "PS1", "PSP" }),
+            ("Sony",      new[] { "PS1", "PS2", "PSP" }),
             ("NEC",       new[] { "TG16", "TGCD" }),
             ("Atari",     new[] { "Atari2600", "Atari7800", "Jaguar" }),
             ("Arcade",    new[] { "Arcade", "NeoGeo", "NeoCD" }),

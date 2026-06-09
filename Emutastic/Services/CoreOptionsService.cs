@@ -70,6 +70,7 @@ namespace Emutastic.Services
             ["nestopia_libretro"]         = "NES",
             ["opera_libretro"]            = "3DO",
             ["parallel_n64_libretro"]     = "N64",
+            ["pcsx2_libretro"]            = "PS2",
             ["picodrive_libretro"]        = "Sega32X",
             ["ppsspp_libretro"]           = "PSP",
             ["prosystem_libretro"]        = "Atari7800",
