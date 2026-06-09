@@ -979,6 +979,29 @@ namespace Emutastic.Views
         private bool _d3d11VideoPending = false;
         private System.Windows.Interop.D3DImage? _d3dImage;
 
+        /// <summary>
+        /// Clamps a HW-render frame size to the monitor's pixel dimensions,
+        /// preserving aspect ratio. There is no point presenting a surface larger
+        /// than the display can show, and the per-frame D3DImage copy scales with
+        /// surface area — so this is what keeps high PS2 internal resolutions at
+        /// 60fps instead of halving to 30 (see project_ps2_d3d11_present_scaling).
+        /// </summary>
+        private (int w, int h) CapPresentToDisplay(int w, int h)
+        {
+            if (w <= 0 || h <= 0) return (w, h);
+            double scale = 1.0;
+            var src = System.Windows.PresentationSource.FromVisual(this);
+            if (src?.CompositionTarget != null) scale = src.CompositionTarget.TransformToDevice.M11;
+            int maxDim = (int)System.Math.Ceiling(
+                System.Math.Max(SystemParameters.PrimaryScreenWidth, SystemParameters.PrimaryScreenHeight) * scale);
+            if (maxDim <= 0) return (w, h);
+            int longest = System.Math.Max(w, h);
+            if (longest <= maxDim) return (w, h);
+            double s = (double)maxDim / longest;
+            return (System.Math.Max(1, (int)System.Math.Round(w * s)),
+                    System.Math.Max(1, (int)System.Math.Round(h * s)));
+        }
+
         // ── Vulkan HW rendering ─────────────────────────────────────────────────
         private VulkanContext? _vulkanContext;
         private bool _isVulkanHwRender = false;
@@ -4095,7 +4118,19 @@ namespace Emutastic.Views
                         try
                         {
                             IntPtr hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-                            bool recreated = _d3d11Context.EnsurePresentTarget((int)cw, (int)ch, hwnd);
+                            // Cap the present surface to the monitor. The core can
+                            // render far above display res (PS2 8x native = 5120x3584
+                            // = 73MB/frame); copying that whole surface through the
+                            // D3DImage bridge every frame is the present bottleneck
+                            // and halves the screen to 30fps. The monitor can't show
+                            // those extra pixels anyway, and the blit's linear sampler
+                            // supersamples the full-res frame down into the capped
+                            // surface for free — so detail is kept, copy cost isn't.
+                            var (pw, ph) = CapPresentToDisplay((int)cw, (int)ch);
+                            if (pw != (int)cw || ph != (int)ch)
+                                System.Diagnostics.Trace.WriteLine(
+                                    $"[D3D11] capping present {cw}x{ch} -> {pw}x{ph} (monitor-bound)");
+                            bool recreated = _d3d11Context.EnsurePresentTarget(pw, ph, hwnd);
                             if (recreated)
                             {
                                 _d3dImage ??= new System.Windows.Interop.D3DImage();
