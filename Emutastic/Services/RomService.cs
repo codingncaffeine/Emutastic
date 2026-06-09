@@ -392,6 +392,7 @@ namespace Emutastic.Services
             { "SG1000",       0.97 },
             { "Dreamcast",    1.04 },
             { "PS1",          1.00 },
+            { "PS2",          0.71 },   // DVD-case art; tune against ScreenScraper box-2D if needed
             { "PSP",          0.98 },
             { "TG16",         0.98 },
             { "TGCD",         1.00 },

@@ -77,6 +77,7 @@ namespace Emutastic.Services
             { "SG1000",       25 },
             { "Dreamcast",    23 },
             { "PS1",          57 },
+            { "PS2",          58 },
             { "PSP",          61 },
             { "TG16",         31 },
             { "TGCD",         114},

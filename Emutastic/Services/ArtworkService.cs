@@ -71,6 +71,7 @@ namespace Emutastic.Services
             { "SG1000",       "Sega - SG-1000"                                 },
             { "Dreamcast",    "Sega - Dreamcast"                               },
             { "PS1",          "Sony - PlayStation"                             },
+            { "PS2",          "Sony - PlayStation 2"                           },
             { "PSP",          "Sony - PlayStation Portable"                    },
             { "TG16",         "NEC - PC Engine - TurboGrafx 16"               },
             { "TGCD",         "NEC - PC Engine CD - TurboGrafx-CD"            },
