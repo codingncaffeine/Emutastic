@@ -54,14 +54,35 @@ namespace Emutastic.Services.ConsoleHandlers
         // Upscale lives in the cog's Visuals menu. The panel filters to keys the
         // active core actually announced, so this is safe even before the core
         // declares it.
-        public override List<(string key, string label)> GetVisualOptions() => new()
+        // Renderer-aware: the two renderers use DIFFERENT resolution controls.
+        // GSdx HW (D3D11) uses pcsx2_upscale_multiplier; parallel-GS IGNORES that and
+        // uses its own supersampling (pcsx2_pgs_ssaa) + high-res scanout. Showing the
+        // upscale option on parallel-GS is misleading — it does nothing — so swap the
+        // visible control based on the selected renderer.
+        public override List<(string key, string label)> GetVisualOptions(IReadOnlyDictionary<string, string> coreOptions)
         {
-            // D3D11 (default) = rock-solid, Windows-only. paraLLEl-GS = Vulkan compute
-            // renderer with no shader-compile hitch (and the path that ports to Linux),
-            // but experimental. Both restart-gated.
-            ("pcsx2_renderer", "Renderer ⚠ restart"),
-            ("pcsx2_upscale_multiplier", "Internal Resolution ⚠ restart"),
-        };
+            bool pgs = coreOptions != null
+                       && coreOptions.TryGetValue("pcsx2_renderer", out var r)
+                       && r == "paraLLEl-GS";
+
+            var list = new List<(string key, string label)>
+            {
+                // D3D11 (default) = rock-solid, Windows-only. paraLLEl-GS = Vulkan
+                // compute renderer (no shader hitch, ports to Linux), experimental.
+                ("pcsx2_renderer", "Renderer ⚠ restart"),
+            };
+
+            if (pgs)
+            {
+                list.Add(("pcsx2_pgs_ssaa", "Supersampling ⚠ restart"));
+                list.Add(("pcsx2_pgs_high_res_scanout", "High-Res Scanout ⚠ restart"));
+            }
+            else
+            {
+                list.Add(("pcsx2_upscale_multiplier", "Internal Resolution ⚠ restart"));
+            }
+            return list;
+        }
 
         // Sane desktop defaults condensed from the LRPS2 integration brief
         // (project_emutastic_ps2_integration). Renderer EXPLICIT D3D11. Users

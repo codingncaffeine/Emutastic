@@ -53,5 +53,10 @@ namespace Emutastic.Services.ConsoleHandlers
         public virtual string[] FilterCoreOptionValues(string key, string[] values) => values;
 
         public virtual List<(string key, string label)> GetVisualOptions() => new();
+
+        // Renderer/option-aware variant. Defaults to the static list; handlers whose
+        // visible options depend on a selected option (PS2's renderer) override this.
+        public virtual List<(string key, string label)> GetVisualOptions(IReadOnlyDictionary<string, string> coreOptions)
+            => GetVisualOptions();
     }
 }

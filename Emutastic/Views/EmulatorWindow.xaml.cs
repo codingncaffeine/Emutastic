@@ -7781,7 +7781,7 @@ namespace Emutastic.Views
             if (OverlayMenu.Visibility == Visibility.Visible)
             {
                 if (_game?.Console == "N64") UpdatePakLabel();
-                OverlayVisualsBtn.Visibility = (_consoleHandler?.GetVisualOptions().Count ?? 0) > 0
+                OverlayVisualsBtn.Visibility = (_consoleHandler?.GetVisualOptions(_coreOptions).Count ?? 0) > 0
                     ? Visibility.Visible : Visibility.Collapsed;
             }
             ResetOverlayTimer();
@@ -8507,7 +8507,7 @@ namespace Emutastic.Views
         private void BuildVisualsPanel()
         {
             VisualOptionRows.Children.Clear();
-            var options = _consoleHandler?.GetVisualOptions();
+            var options = _consoleHandler?.GetVisualOptions(_coreOptions);
             if (options == null || options.Count == 0) return;
 
             var schema = _coreOptionSchema;

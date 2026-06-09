@@ -140,5 +140,12 @@ namespace Emutastic.Services.ConsoleHandlers
         /// Return empty list for consoles with no HW visual options.
         /// </summary>
         List<(string key, string label)> GetVisualOptions();
+
+        /// <summary>
+        /// Renderer/option-aware variant: the visible set can depend on currently
+        /// selected core options (e.g. PS2 shows internal-resolution for D3D11 but
+        /// SSAA for parallel-GS). Defaults to <see cref="GetVisualOptions()"/>.
+        /// </summary>
+        List<(string key, string label)> GetVisualOptions(IReadOnlyDictionary<string, string> coreOptions);
     }
 }
