@@ -90,8 +90,6 @@ Place BIOS files in `%AppData%\Emutastic\System\` (or `PortableData\System\` nex
 
 **PlayStation** — USA: `scph5501.bin`, `scph1001.bin`, `scph7001.bin`. Europe: `scph5502.bin`. Japan: `scph5500.bin`
 
-**PlayStation 2** — a PS2 BIOS dump for your region (e.g. `SCPH-39001.bin`, `SCPH-70004.bin`, `ps2-0170e-*.bin`), placed in `System\pcsx2\bios\`. The core scans that folder and accepts any valid dump regardless of filename.
-
 **TurboGrafx-CD** — Any of: `syscard3.pce`, `syscard2.pce`, `syscard1.pce`
 
 **3DO** — Any of: `panafz10.bin` (Panasonic), `panafz1j.bin` (Japan), `goldstar.bin` (GoldStar)
