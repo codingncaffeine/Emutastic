@@ -4192,12 +4192,14 @@ namespace Emutastic.Views
                     // OnD3d11CompositionRender. Pushing a BeginInvoke per emu frame and
                     // gating it instead dropped whole frames whenever the UI thread was
                     // busy, beating ~60fps emulation down to ~50.
-                    if (_d3d11Context.CaptureCoreFrame())
-                    {
-                        _d3d11LatestW = (int)width;
-                        _d3d11LatestH = (int)height;
-                        System.Threading.Volatile.Write(ref _d3d11FrameReady, true);
-                    }
+                    // Blit when the shared target already exists; flag ready and stash
+                    // the size unconditionally. The render tick must run even on the
+                    // first frame (when capture necessarily fails) to CREATE the target
+                    // — otherwise capture can never succeed and the screen stays black.
+                    _d3d11Context.CaptureCoreFrame();
+                    _d3d11LatestW = (int)width;
+                    _d3d11LatestH = (int)height;
+                    System.Threading.Volatile.Write(ref _d3d11FrameReady, true);
                     EnsureD3d11RenderHook();
                     return;
                 }
