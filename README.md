@@ -44,18 +44,18 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 | Nintendo DS | NDS | desmume → melonds | No |
 | Virtual Boy | VirtualBoy | mednafen_vb | No |
 | Genesis / Mega Drive | Genesis | genesis_plus_gx → picodrive | No |
-| Sega CD / Mega CD | SegaCD | genesis_plus_gx | Region BIOS |
+| Sega CD / Mega CD | SegaCD | genesis_plus_gx | `bios_CD_U.bin` (USA), `bios_CD_E.bin` (EU), `bios_CD_J.bin` (JP) |
 | Sega 32X | Sega32X | picodrive | No |
-| Sega Saturn | Saturn | mednafen_saturn → kronos → yabause | Region BIOS |
+| Sega Saturn | Saturn | mednafen_saturn → kronos → yabause | Kronos: `kronos/saturn_bios.bin`. Beetle: `sega_101.bin` / `mpr-17933.bin` (JP), `mpr-17941.bin` (USA/EU) ³ |
 | Master System | SMS | genesis_plus_gx → picodrive | No |
 | Game Gear | GameGear | genesis_plus_gx | No |
 | SG-1000 | SG1000 | genesis_plus_gx | No |
 | Dreamcast | Dreamcast | flycast | No |
-| PlayStation | PS1 | mednafen_psx_hw → mednafen_psx | Region BIOS |
-| PlayStation 2 | PS2 | pcsx2 (LRPS2) | Region BIOS |
+| PlayStation | PS1 | mednafen_psx_hw → mednafen_psx | USA: `scph5501.bin` / `scph1001.bin` / `scph7001.bin`, EU: `scph5502.bin`, JP: `scph5500.bin` |
+| PlayStation 2 | PS2 | pcsx2 (LRPS2) | Region dump, any filename (e.g. `SCPH-39001.bin`) |
 | PSP | PSP | ppsspp | No |
 | TurboGrafx-16 | TG16 | mednafen_pce → mednafen_pce_fast | No |
-| TurboGrafx-CD | TGCD | mednafen_pce → mednafen_pce_fast | `syscard3.pce` |
+| TurboGrafx-CD | TGCD | mednafen_pce → mednafen_pce_fast | Any of `syscard3.pce` / `syscard2.pce` / `syscard1.pce` |
 | Neo Geo Pocket | NGP | mednafen_ngp | No |
 | Neo Geo Pocket Color | NGPC | mednafen_ngp | No |
 | Neo Geo | NeoGeo | geolith | `neogeo.zip` + `aes.zip` |
@@ -66,7 +66,7 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 | Atari Jaguar | Jaguar | virtualjaguar | No |
 | ColecoVision | ColecoVision | gearcoleco → bluemsx | No |
 | Vectrex | Vectrex | vecx | No |
-| 3DO | 3DO | opera | `panafz10.bin` |
+| 3DO | 3DO | opera | Any of `panafz10.bin` (Panasonic) / `panafz1j.bin` (JP) / `goldstar.bin` (GoldStar) |
 | Philips CD-i | CDi | same_cdi | No |
 
 </details>
@@ -75,28 +75,13 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 
 ² Neo Geo CD plays via Geolith with full library support (import, BIOS validation, controls, artwork from ScreenScraper/libretro thumbnails). RetroAchievements identification works; **achievement triggers won't fire during play yet** — that depends on a CD-mode byteswap shadow buffer landing in Geolith upstream. The cart side has it (shipped earlier today); the CD-side patch is pending. Cart achievements (Metal Slug, KOF, etc.) work today. See the [Neo Geo wiki page](https://github.com/codingncaffeine/Emutastic/wiki/Neo-Geo) for the current status.
 
+³ Beetle Saturn's `mpr-17933.bin` is a Japan BIOS despite being commonly mislabeled as USA/EU. Kronos accepts a single `kronos/saturn_bios.bin` for any region.
+
 ---
 
 ## BIOS Files
 
-Place BIOS files in `%AppData%\Emutastic\System\` (or `PortableData\System\` next to the .exe in portable mode). The app also checks each system's ROM folder.
-
-<details>
-<summary><strong>BIOS file details by system</strong></summary>
-
-**Sega CD** — `bios_CD_U.bin` (USA), `bios_CD_E.bin` (Europe), `bios_CD_J.bin` (Japan)
-
-**Sega Saturn** — Kronos: `system\kronos\saturn_bios.bin`. Beetle Saturn: `sega_101.bin` (JP v1.00), `mpr-17933.bin` (JP v1.01), `mpr-17941.bin` (USA/EU v1.01). Note: `mpr-17933.bin` is a Japan BIOS despite being commonly mislabeled as USA/EU.
-
-**PlayStation** — USA: `scph5501.bin`, `scph1001.bin`, `scph7001.bin`. Europe: `scph5502.bin`. Japan: `scph5500.bin`
-
-**TurboGrafx-CD** — Any of: `syscard3.pce`, `syscard2.pce`, `syscard1.pce`
-
-**3DO** — Any of: `panafz10.bin` (Panasonic), `panafz1j.bin` (Japan), `goldstar.bin` (GoldStar)
-
-**Famicom Disk System** — `disksys.rom`
-
-</details>
+Place BIOS files in `%AppData%\Emutastic\System\` (or `PortableData\System\` next to the .exe in portable mode). The app also checks each system's ROM folder. The exact filenames each system needs are in the **BIOS** column of the Supported Systems table above.
 
 ---
 
