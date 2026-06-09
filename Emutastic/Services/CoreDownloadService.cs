@@ -45,6 +45,7 @@ namespace Emutastic.Services
             new() { FileName = "yabause_libretro.dll",          DisplayName = "Yabause",               Systems = ["Saturn"],                            Recommended = false },
             new() { FileName = "mednafen_psx_hw_libretro.dll",  DisplayName = "Mednafen PSX HW (Beetle)", Systems = ["PS1"],                            Recommended = true  },
             new() { FileName = "mednafen_psx_libretro.dll",     DisplayName = "Mednafen PSX (Beetle)", Systems = ["PS1"],                               Recommended = false },
+            new() { FileName = "pcsx2_libretro.dll",            DisplayName = "LRPS2 (PCSX2)",         Systems = ["PS2"],                               Recommended = true  },
             new() { FileName = "ppsspp_libretro.dll",           DisplayName = "PPSSPP",                Systems = ["PSP"],                               Recommended = true  },
             new() { FileName = "mednafen_pce_libretro.dll",     DisplayName = "Mednafen PCE",          Systems = ["TG16", "TGCD"],                      Recommended = true  },
             new() { FileName = "mednafen_pce_fast_libretro.dll",DisplayName = "Mednafen PCE Fast",     Systems = ["TG16", "TGCD"],                      Recommended = false },

@@ -58,6 +58,7 @@ namespace Emutastic.Services
             // accurate native rendering.
             { "PS1",         new[] { "mednafen_psx_hw_libretro.dll",
                                      "mednafen_psx_libretro.dll"        }},
+            { "PS2",         new[] { "pcsx2_libretro.dll"              }},
             { "PSP",         new[] { "ppsspp_libretro.dll"             }},
             { "TG16",        new[] { "mednafen_pce_libretro.dll",
                                      "mednafen_pce_fast_libretro.dll"        }},
