@@ -2143,12 +2143,14 @@ namespace Emutastic.Views
                                 VerticalAlignment = VerticalAlignment.Center,
                                 Margin = new Thickness(0, 0, 8, 0),
                                 ToolTip = "GS renderer — applies on next launch",
-                                ItemsSource = new[] { "DirectX", "OpenGL" }
+                                ItemsSource = Services.ConsoleHandlers.Ps2Handler.ExposeOpenGl
+                                    ? new[] { "DirectX", "OpenGL" } : new[] { "DirectX" }
                             };
                             string curRend = App.CoreOptions.LoadValues("pcsx2_libretro")
                                 .TryGetValue("pcsx2_renderer", out var rv) ? rv : "D3D11";
                             rendCombo.SelectedIndex =
-                                curRend.Equals("OpenGL", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+                                (Services.ConsoleHandlers.Ps2Handler.ExposeOpenGl
+                                 && curRend.Equals("OpenGL", StringComparison.OrdinalIgnoreCase)) ? 1 : 0;
                             rendCombo.SelectionChanged += (_, _) =>
                             {
                                 string val = rendCombo.SelectedIndex == 1 ? "OpenGL" : "D3D11";
