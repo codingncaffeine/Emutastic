@@ -264,6 +264,7 @@ Emulation is handled by libretro cores maintained by their upstream authors. Emu
 | Genesis Plus GX | Eke-Eke |
 | Geolith | R. Danbrook (rdanbrook) |
 | Kronos | Kronos team |
+| LRPS2 | PCSX2 team / libretro maintenance |
 | melonDS | Arisotura |
 | mGBA | Vicki Pfau (endrift) |
 | Mupen64Plus-Next | libretro team |
