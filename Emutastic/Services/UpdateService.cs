@@ -10,7 +10,7 @@ using System.Threading.Tasks;
 
 namespace Emutastic.Services
 {
-    public sealed record AppUpdate(string Tag, string DownloadUrl, string ReleaseNotes);
+    public sealed record AppUpdate(string Tag, string DownloadUrl, string ReleaseNotes, string? Digest = null);
 
     public static class UpdateService
     {
@@ -50,6 +50,7 @@ namespace Emutastic.Services
                 if (!IsNewer(tag)) return null;
 
                 string downloadUrl = "";
+                string? digest = null;
                 if (root.TryGetProperty("assets", out var assets))
                 {
                     foreach (var asset in assets.EnumerateArray())
@@ -60,6 +61,8 @@ namespace Emutastic.Services
                         {
                             downloadUrl = asset.TryGetProperty("browser_download_url", out var u)
                                 ? u.GetString() ?? "" : "";
+                            digest = asset.TryGetProperty("digest", out var d)
+                                ? d.GetString() : null;   // "sha256:…" once GitHub has computed it
                             break;
                         }
                     }
@@ -69,7 +72,7 @@ namespace Emutastic.Services
 
                 string notes = root.TryGetProperty("body", out var b) ? b.GetString() ?? "" : "";
 
-                return new AppUpdate(tag, downloadUrl, notes);
+                return new AppUpdate(tag, downloadUrl, notes, digest);
             }
             catch
             {
@@ -115,6 +118,31 @@ namespace Emutastic.Services
                     if (total > 0)
                         status?.Report($"Downloading {update.Tag}… {downloaded * 100 / total}%");
                 }
+            }
+
+            // Integrity gate: verify the downloaded zip against GitHub's published
+            // SHA-256 digest BEFORE we extract it over our own install. A mismatch
+            // means the download was corrupted or tampered with — abort rather than
+            // stage and run it. Falls back gracefully when no digest is published yet.
+            if (!string.IsNullOrEmpty(update.Digest))
+            {
+                status?.Report("Verifying…");
+                string expected = update.Digest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase)
+                    ? update.Digest[7..] : update.Digest;
+                string actual = await Sha256HexAsync(zipPath, ct);
+                if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
+                {
+                    Trace.WriteLine($"[Update] digest mismatch: expected {expected}, got {actual}");
+                    try { File.Delete(zipPath); } catch { }
+                    throw new InvalidOperationException(
+                        "Update integrity check failed — the download didn't match the expected "
+                        + "checksum, so nothing was installed. Try again, or update from the releases page.");
+                }
+                Trace.WriteLine("[Update] SHA-256 digest verified");
+            }
+            else
+            {
+                Trace.WriteLine("[Update] no SHA-256 digest published for this asset — skipping verification");
             }
 
             // Extract to staging (off UI thread)
@@ -173,6 +201,14 @@ namespace Emutastic.Services
 
             status?.Report("Restarting…");
             System.Windows.Application.Current.Shutdown();
+        }
+
+        private static async Task<string> Sha256HexAsync(string path, CancellationToken ct)
+        {
+            await using var fs = File.OpenRead(path);
+            using var sha = System.Security.Cryptography.SHA256.Create();
+            var hash = await sha.ComputeHashAsync(fs, ct);
+            return Convert.ToHexString(hash).ToLowerInvariant();
         }
 
         private static bool IsNewer(string remoteTag)
