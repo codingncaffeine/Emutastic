@@ -996,7 +996,7 @@ namespace Emutastic.Views
         {
             ("Nintendo",  new[] { "Famicom Disk System", "Game Boy Advance" }),
             ("Sega",      new[] { "Sega CD", "Saturn" }),
-            ("Sony",      new[] { "PlayStation" }),
+            ("Sony",      new[] { "PlayStation", "PlayStation 2" }),
             ("NEC",       new[] { "TurboGrafx-CD" }),
             ("Arcade",    new[] { "Neo Geo" }),
             ("Other",     new[] { "3DO", "Philips CD-i" }),
@@ -5814,6 +5814,13 @@ namespace Emutastic.Views
             new("PS1","PlayStation","scph5502.bin","Europe v3.0",524288,"32736f17079d0b2b7024407c39bd3050"),
             new("PS1","PlayStation","scph1001.bin","USA v2.2",524288,"37157331b6d4d325cb9f597ea42cd597"),
             new("PS1","PlayStation","scph7001.bin","USA v4.1",524288,"502224b6d23561a46e5a7ba01a1fed62"),
+            // PlayStation 2 — dumps live in the pcsx2/bios/ subfolder. Any valid
+            // 4 MB dump works; these are common known-good ones (any one is enough).
+            new("PS2","PlayStation 2","pcsx2/bios/ps2-0230a-20080220.bin","USA v2.30 (recommended)",4194304,"21038400dc633070a78ad53090c53017"),
+            new("PS2","PlayStation 2","pcsx2/bios/ps2-0230e-20080220.bin","Europe v2.30",4194304,"dc69f0643a3030aaa4797501b483d6c4"),
+            new("PS2","PlayStation 2","pcsx2/bios/ps2-0230j-20080220.bin","Japan v2.30",4194304,"80ac46fa7e77b8ab4366e86948e54f83"),
+            new("PS2","PlayStation 2","pcsx2/bios/ps2-0220a-20060905.bin","USA v2.20",4194304,"40c11c063b3b9409aa5e4058e984e30c"),
+            new("PS2","PlayStation 2","pcsx2/bios/ps2-0170a-20030325.bin","USA v1.70",4194304,"8aa12ce243210128c5074552d3b86251"),
             // Sega CD
             new("SegaCD","Sega CD","bios_CD_U.bin","USA",131072,"2efd74e3232ff260e371b99f84024f7f"),
             new("SegaCD","Sega CD","bios_CD_J.bin","Japan",131072,"278a9397d192149e84e820ac621a8edd"),
