@@ -9129,32 +9129,49 @@ namespace Emutastic.Views
                 try { _recordingService?.Dispose(); foreach (var c in _controllers) c?.Dispose(); _audioPlayer?.Dispose(); }
                 catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Service cleanup: {ex.Message}"); }
 
-                if (_systemDirPtr  != IntPtr.Zero) { Marshal.FreeHGlobal(_systemDirPtr);  _systemDirPtr  = IntPtr.Zero; }
-                if (_saveDirPtr    != IntPtr.Zero) { Marshal.FreeHGlobal(_saveDirPtr);    _saveDirPtr    = IntPtr.Zero; }
-                if (_contentDirPtr != IntPtr.Zero) { Marshal.FreeHGlobal(_contentDirPtr); _contentDirPtr = IntPtr.Zero; }
+                // These are all things a LIVE core still reaches into: the marshaled
+                // env strings (system/save/content dir, GET_VARIABLE values) it reads,
+                // and the callback/GL-stub delegate trampolines it CALLS (it's still
+                // logging via _logCbHandle and its GS thread may still hit the GL stubs
+                // / get_proc_address during shutdown). If the emu thread didn't exit,
+                // freeing any of these is a use-after-free — freeing a delegate collects
+                // its trampoline and the next core call executes freed memory → the DEP
+                // crash on close. Leak them all when the thread is still alive; the OS
+                // reclaims everything at app exit.
+                if (emuExited)
+                {
+                    if (_systemDirPtr  != IntPtr.Zero) { Marshal.FreeHGlobal(_systemDirPtr);  _systemDirPtr  = IntPtr.Zero; }
+                    if (_saveDirPtr    != IntPtr.Zero) { Marshal.FreeHGlobal(_saveDirPtr);    _saveDirPtr    = IntPtr.Zero; }
+                    if (_contentDirPtr != IntPtr.Zero) { Marshal.FreeHGlobal(_contentDirPtr); _contentDirPtr = IntPtr.Zero; }
 
-                // Free cached GET_VARIABLE string pointers. Iterate the full allocation list
-                // (not just the current _coreOptionPtrs map) because the map only holds the
-                // latest pointer per key — historical ones are kept in _coreOptionPtrsAllocated
-                // to avoid the use-after-free we'd hit if we freed mid-session.
-                foreach (var ptr in _coreOptionPtrsAllocated)
-                    if (ptr != IntPtr.Zero) Marshal.FreeHGlobal(ptr);
-                _coreOptionPtrsAllocated.Clear();
-                _coreOptionPtrs.Clear();
-                _coreOptionPtrValues.Clear();
+                    // Free cached GET_VARIABLE string pointers. Iterate the full allocation list
+                    // (not just the current _coreOptionPtrs map) because the map only holds the
+                    // latest pointer per key — historical ones are kept in _coreOptionPtrsAllocated
+                    // to avoid the use-after-free we'd hit if we freed mid-session.
+                    foreach (var ptr in _coreOptionPtrsAllocated)
+                        if (ptr != IntPtr.Zero) Marshal.FreeHGlobal(ptr);
+                    _coreOptionPtrsAllocated.Clear();
+                    _coreOptionPtrs.Clear();
+                    _coreOptionPtrValues.Clear();
 
-                static void FreeH(ref GCHandle? h) { if (h.HasValue) { h.Value.Free(); h = null; } }
-                FreeH(ref _envCbHandle);
-                FreeH(ref _videoCbHandle);
-                FreeH(ref _audioCbHandle);
-                FreeH(ref _audioBatchCbHandle);
-                FreeH(ref _inputPollCbHandle);
-                FreeH(ref _inputStateCbHandle);
-                FreeH(ref _logCbHandle);
-                FreeH(ref _getFramebufferHandle);
-                FreeH(ref _getProcAddressHandle);
-                if (_swapIntervalStubHandle.IsAllocated) { _swapIntervalStubHandle.Free(); }
-                if (_glFinishStubHandle.IsAllocated)    { _glFinishStubHandle.Free(); }
+                    static void FreeH(ref GCHandle? h) { if (h.HasValue) { h.Value.Free(); h = null; } }
+                    FreeH(ref _envCbHandle);
+                    FreeH(ref _videoCbHandle);
+                    FreeH(ref _audioCbHandle);
+                    FreeH(ref _audioBatchCbHandle);
+                    FreeH(ref _inputPollCbHandle);
+                    FreeH(ref _inputStateCbHandle);
+                    FreeH(ref _logCbHandle);
+                    FreeH(ref _getFramebufferHandle);
+                    FreeH(ref _getProcAddressHandle);
+                    if (_swapIntervalStubHandle.IsAllocated) { _swapIntervalStubHandle.Free(); }
+                    if (_glFinishStubHandle.IsAllocated)    { _glFinishStubHandle.Free(); }
+                }
+                else
+                {
+                    System.Diagnostics.Trace.WriteLine(
+                        "Cleanup: emu thread still alive — leaking core callbacks/marshaled memory (reclaimed on app exit)");
+                }
 
                 System.Diagnostics.Trace.WriteLine("EmulatorWindow cleanup complete");
 
