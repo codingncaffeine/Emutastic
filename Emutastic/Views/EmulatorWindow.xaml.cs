@@ -1390,6 +1390,24 @@ namespace Emutastic.Views
             // This overrides any legacy config that may still have a different plugin saved.
             if (_game.Console == "N64")
                 _coreOptions["parallel-n64-gfxplugin"] = "parallel";
+
+            // PS2: the paraLLEl-GS supersampling options (pcsx2_pgs_*) only apply to
+            // the paraLLEl-GS renderer, but a STALE persisted value (e.g. pgs_ssaa =
+            // "8x SSAA") still gets sent to D3D11/OpenGL — where the GS reserves a huge
+            // supersample buffer that fragments host memory into PCSX2's fixed-address
+            // recompiler region and intermittently AVs at boot (~60%, validated via the
+            // dev harness). Strip the pgs_* keys whenever the active renderer isn't
+            // paraLLEl-GS so the core keeps its safe defaults.
+            if (_game.Console == "PS2"
+                && (!_coreOptions.TryGetValue("pcsx2_renderer", out var ps2Renderer)
+                    || ps2Renderer != "paraLLEl-GS"))
+            {
+                foreach (var k in _coreOptions.Keys.Where(k => k.StartsWith("pcsx2_pgs", StringComparison.Ordinal)).ToList())
+                {
+                    _coreOptions.Remove(k);
+                    System.Diagnostics.Trace.WriteLine($"PS2: stripped non-paraLLEl-GS option {k}");
+                }
+            }
         }
 
         // =========================================================================
@@ -2265,29 +2283,29 @@ namespace Emutastic.Views
                         catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"wglMakeCurrent (pre-unload): {ex.Message}"); }
                     }
 
-                    // PCSX2 (LRPS2) is a hybrid: it runs a multi-threaded GS thread
-                    // (MTGS) AND we drive the overlay blit from this emu thread, so —
-                    // unlike PPSSPP/Dolphin where the core's GPU thread owns the
-                    // context — WE leave the GL context current here. retro_unload_game
-                    // calls MTGS::CloseGS(), whose GS thread must make the context
-                    // current to free its GL objects; if we still hold it, CloseGS()/
-                    // cpu_thread.join() deadlock → the emu thread never exits → zombie
-                    // core → the next launch freezes. Release the context first so the
-                    // GS thread can finish; it's re-acquired just below for context_destroy.
-                    string _preUnloadCore = _core != null ? System.IO.Path.GetFileName(_core.CorePath).ToLowerInvariant() : "";
-                    if (_preUnloadCore.Contains("pcsx2") && !_consoleHandler.AllowHwSharedContext)
+                    string _teardownCoreName = _core != null ? System.IO.Path.GetFileName(_core.CorePath).ToLowerInvariant() : "";
+
+                    // PCSX2 (LRPS2): the hang is INSIDE retro_unload_game
+                    // (CPUThreadShutdown → GSshutdown — the GS/GL teardown). LRPS2's
+                    // context_destroy is what cleanly closes MTGS (freeze + CloseGS)
+                    // while the GL context is current. So call context_destroy FIRST,
+                    // here, with the context current on this emu thread — then
+                    // UnloadGame finds the GS already torn down. (The reverse order is
+                    // what deadlocks.) [EXPERIMENT — validated via the dev harness.]
+                    if (_teardownCoreName.Contains("pcsx2") && _hwContextDestroy != null
+                        && !_consoleHandler.AllowHwSharedContext)
                     {
-                        try { wglMakeCurrent(IntPtr.Zero, IntPtr.Zero); }
-                        catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"wglMakeCurrent NULL (pre-unload PCSX2): {ex.Message}"); }
-                        System.Diagnostics.Trace.WriteLine("Released GL context before PCSX2 retro_unload_game (lets the MTGS GS thread acquire it).");
+                        IntPtr ctxP = _secondaryCtx != IntPtr.Zero ? _secondaryCtx : _hglrc;
+                        try { wglMakeCurrent(_hdc, ctxP); } catch { }
+                        System.Diagnostics.Trace.WriteLine("PCSX2: context_destroy BEFORE UnloadGame (context current)...");
+                        try { _hwContextDestroy.Invoke(); }
+                        catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"PCSX2 pre-unload context_destroy: {ex.Message}"); }
+                        System.Diagnostics.Trace.WriteLine("PCSX2: pre-unload context_destroy done.");
                     }
 
-                    // Stop emulation. Core threads run their GL cleanup while the context
-                    // is still properly owned (either by us or by the core's GPU thread).
+                    // Stop emulation.
                     try { _core?.UnloadGame(); }
                     catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"UnloadGame: {ex.Message}"); }
-
-                    string _teardownCoreName = _core != null ? System.IO.Path.GetFileName(_core.CorePath).ToLowerInvariant() : "";
 
                     // For non-shared cores: all core threads have now stopped and released
                     // the GL context (threads release context on exit). Acquire it here.
@@ -2314,7 +2332,8 @@ namespace Emutastic.Views
                     bool _skipContextDestroy = _teardownCoreName.Contains("ppsspp")
                                            || _teardownCoreName.Contains("mupen64")
                                            || _teardownCoreName.Contains("parallel_n64")
-                                           || _teardownCoreName.Contains("azahar");
+                                           || _teardownCoreName.Contains("azahar")
+                                           || _teardownCoreName.Contains("pcsx2");   // already called pre-unload
                     if (_hwContextDestroy != null && !_skipContextDestroy)
                     {
                         try { _hwContextDestroy.Invoke(); }
