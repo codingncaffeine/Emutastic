@@ -12,16 +12,16 @@ namespace Emutastic.Services
         // Ordered by most common system first (shown that way in the picker).
         public static readonly Dictionary<string, string[]> AmbiguousExtensions = new(StringComparer.OrdinalIgnoreCase)
         {
-            { ".chd", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "NeoCD", "3DO", "Dreamcast", "CDi" } },
-            { ".iso", new[] { "PSP", "GameCube", "NeoCD", "3DO" } },
+            { ".chd", new[] { "PS2", "SegaCD", "Saturn", "PS1", "TGCD", "NeoCD", "3DO", "Dreamcast", "CDi" } },
+            { ".iso", new[] { "PS2", "PSP", "GameCube", "NeoCD", "3DO" } },
             { ".cue", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "NeoCD", "3DO", "CDi" } },
             // .m3u playlists are how the libretro disc-control interface sees a
             // multi-disc set as N images. GameCube included so auto-bundled
             // multi-disc GC titles (Resident Evil 0, Baten Kaitos, etc.) get
             // routed correctly when the folder name disambiguates. Ambiguity
             // resolved via DAT lookup, folder name, or user picker.
-            { ".m3u", new[] { "SegaCD", "Saturn", "PS1", "TGCD", "NeoCD", "3DO", "CDi", "GameCube", "Amiga" } },
-            { ".bin", new[] { "PS1", "SegaCD", "Saturn", "NeoCD", "3DO", "Dreamcast", "Atari7800", "Atari2600", "Genesis", "Sega32X", "ColecoVision", "NES", "NGP" } },
+            { ".m3u", new[] { "PS2", "SegaCD", "Saturn", "PS1", "TGCD", "NeoCD", "3DO", "CDi", "GameCube", "Amiga" } },
+            { ".bin", new[] { "PS1", "PS2", "SegaCD", "Saturn", "NeoCD", "3DO", "Dreamcast", "Atari7800", "Atari2600", "Genesis", "Sega32X", "ColecoVision", "NES", "NGP" } },
         };
 
         // ROM file extensions mapped to console names
@@ -94,6 +94,7 @@ namespace Emutastic.Services
             { "SMS",          "Sega"       }, { "GameGear",  "Sega"       },
             { "SG1000",       "Sega"       }, { "Dreamcast", "Sega"       },
             { "PS1",          "Sony"       },
+            { "PS2",          "Sony"       },
             { "PSP",          "Sony"       },
             { "TG16",         "NEC"        }, { "TGCD",      "NEC"        },
             { "NGP",          "SNK"        },
@@ -129,6 +130,7 @@ namespace Emutastic.Services
             { "SMS",         ("#0A1A2E", "#3F51B5") },
             { "GameGear",    ("#2E0A1A", "#E91E63") },
             { "PS1",         ("#0A0A2E", "#2196F3") },
+            { "PS2",         ("#0A0A1A", "#3D5AFE") },
             { "PSP",         ("#0A1A2E", "#00BCD4") },
             { "Atari2600",   ("#2E1A0A", "#FF5722") },
             { "TG16",        ("#1A2E2E", "#009688") },
@@ -271,9 +273,13 @@ namespace Emutastic.Services
             ("saturn",        "Saturn"),
             ("dreamcast",     "Dreamcast"),
             // PlayStation aliases — must come in most-specific-first order so
-            // "playstation portable" matches PSP before "playstation" matches PS1.
+            // "playstation portable"/"playstation 2" match PSP/PS2 before the bare
+            // "playstation" substring falls through to PS1.
             ("playstation portable", "PSP"),
             ("psp",           "PSP"),
+            ("sony playstation 2", "PS2"),
+            ("playstation 2", "PS2"),
+            ("ps2",           "PS2"),
             ("playstation",   "PS1"),
             ("psx",           "PS1"),
             ("ps1",           "PS1"),

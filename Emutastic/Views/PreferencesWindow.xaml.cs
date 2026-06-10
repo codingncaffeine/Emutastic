@@ -2585,6 +2585,7 @@ namespace Emutastic.Views
             ("SegaCD", "Sega CD / Mega CD",  "mcd",  null),
             ("Saturn", "Sega Saturn",        "ss",   null),
             ("PS1",    "PlayStation",         "psx",  null),
+            ("PS2",    "PlayStation 2",       "ps2",  null),
             ("TGCD",   "TurboGrafx-CD",      "pce",  null),
             ("3DO",    "3DO",                 "3do",  null),
             ("CDi",    "Philips CD-i",        "cdi",  null),
@@ -2895,6 +2896,111 @@ namespace Emutastic.Views
                 Margin       = new Thickness(4, 6, 0, 10)
             });
 
+            // Shared download routine — used by each row's button AND the
+            // "Download All" button below. Each call updates its own row's
+            // progress/badge so a batch run shows per-system status.
+            async Task DownloadDatAsync(
+                string? slug, string? directUrl, string datPath,
+                ProgressBar progress, TextBlock status, Border badge, Button btn)
+            {
+                btn.IsEnabled       = false;
+                progress.Visibility = Visibility.Visible;
+                status.Visibility   = Visibility.Visible;
+                status.Text         = "Downloading…";
+                progress.Value      = 10;
+                try
+                {
+                    using var http = new System.Net.Http.HttpClient();
+                    http.DefaultRequestHeaders.Add("User-Agent", "Emutastic");
+                    string url = directUrl ?? $"http://redump.org/datfile/{slug}/";
+                    var bytes = await http.GetByteArrayAsync(url);
+                    progress.Value = 90;
+
+                    // redump.org serves DATs as a .zip (Content-Type: application/zip)
+                    // containing a single .dat. The DAT matcher parses the saved file
+                    // as raw XML, so unwrap the archive before writing — otherwise the
+                    // saved "{tag}.dat" is a zip the matcher silently fails to load.
+                    // Direct GitHub URLs (Arcade/NeoGeo/NGP/…) are already raw .dat/.xml.
+                    if (bytes.Length > 4 && bytes[0] == 'P' && bytes[1] == 'K' &&
+                        bytes[2] == 0x03 && bytes[3] == 0x04)
+                    {
+                        using var zipMs   = new System.IO.MemoryStream(bytes);
+                        using var archive = new System.IO.Compression.ZipArchive(zipMs, System.IO.Compression.ZipArchiveMode.Read);
+                        var entry = archive.Entries.FirstOrDefault(e =>
+                                        e.Name.EndsWith(".dat", StringComparison.OrdinalIgnoreCase) ||
+                                        e.Name.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
+                                    ?? archive.Entries.FirstOrDefault();
+                        if (entry == null) throw new Exception("Downloaded archive was empty.");
+                        using var entryStream = entry.Open();
+                        using var outMs       = new System.IO.MemoryStream();
+                        await entryStream.CopyToAsync(outMs);
+                        bytes = outMs.ToArray();
+                    }
+
+                    await System.IO.File.WriteAllBytesAsync(datPath, bytes);
+                    progress.Value      = 100;
+                    status.Text         = "Downloaded successfully.";
+                    badge.Background    = new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58));
+                    ((TextBlock)badge.Child).Text       = "Present";
+                    ((TextBlock)badge.Child).Foreground = new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58));
+                    btn.Content = "Re-download";
+                }
+                catch (Exception ex)
+                {
+                    status.Text = $"Failed: {ex.Message}";
+                }
+                finally { btn.IsEnabled = true; }
+            }
+
+            // Recompute the header badge (n/N + colour) after a batch download.
+            void RefreshDatHeaderBadge()
+            {
+                int found = 0;
+                foreach (var (t, _, _, _) in KnownDats)
+                    if (System.IO.File.Exists(System.IO.Path.Combine(datsDir, $"{t}.dat")))
+                        found++;
+                datHeaderBadge.Background = found == KnownDats.Length
+                    ? new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58))
+                    : found > 0
+                        ? new SolidColorBrush(Color.FromArgb(0x22, 0xFF, 0xA5, 0x00))
+                        : new SolidColorBrush(Color.FromArgb(0x22, 0x88, 0x88, 0x88));
+                var hb = (TextBlock)datHeaderBadge.Child;
+                hb.Text       = $"{found}/{KnownDats.Length}";
+                hb.Foreground = found == KnownDats.Length
+                    ? new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58))
+                    : found > 0
+                        ? new SolidColorBrush(Color.FromRgb(0xFF, 0xA5, 0x00))
+                        : _brushTextMuted;
+            }
+
+            // Per-row download actions, collected for the "Download All" button.
+            var datDownloadActions = new List<Func<Task>>();
+
+            // ── Download All row ──
+            var downloadAllBtn = new Button
+            {
+                Content             = "Download All",
+                Style               = (Style)FindResource("SmallOutlineButton"),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Margin              = new Thickness(4, 0, 0, 12)
+            };
+            downloadAllBtn.Click += async (_, _) =>
+            {
+                downloadAllBtn.IsEnabled = false;
+                int n = datDownloadActions.Count;
+                for (int k = 0; k < n; k++)
+                {
+                    downloadAllBtn.Content = $"Downloading… ({k + 1}/{n})";
+                    // Sequential — keeps us gentle on redump.org and lets each
+                    // row report its own progress as it goes.
+                    await datDownloadActions[k]();
+                }
+                RefreshDatHeaderBadge();
+                downloadAllBtn.Content   = "Download All";
+                downloadAllBtn.IsEnabled = true;
+            };
+            datBody.Children.Add(downloadAllBtn);
+
             // Per-DAT rows
             for (int i = 0; i < KnownDats.Length; i++)
             {
@@ -2912,7 +3018,6 @@ namespace Emutastic.Views
                     VerticalAlignment = VerticalAlignment.Center
                 };
 
-                var capturedTag      = tag;
                 var capturedSlug     = slug;
                 var capturedDirectUrl = directUrl;
                 var capturedDatPath  = datPath;
@@ -2921,34 +3026,13 @@ namespace Emutastic.Views
                 var capturedStatus   = datStatus;
                 var capturedBtn      = datBtn;
 
-                datBtn.Click += async (_, _) =>
-                {
-                    capturedBtn.IsEnabled       = false;
-                    capturedProgress.Visibility = Visibility.Visible;
-                    capturedStatus.Visibility   = Visibility.Visible;
-                    capturedStatus.Text         = "Downloading…";
-                    capturedProgress.Value      = 10;
-                    try
-                    {
-                        using var http = new System.Net.Http.HttpClient();
-                        http.DefaultRequestHeaders.Add("User-Agent", "Emutastic");
-                        string url = capturedDirectUrl ?? $"http://redump.org/datfile/{capturedSlug}/";
-                        var bytes = await http.GetByteArrayAsync(url);
-                        capturedProgress.Value = 90;
-                        await System.IO.File.WriteAllBytesAsync(capturedDatPath, bytes);
-                        capturedProgress.Value      = 100;
-                        capturedStatus.Text         = "Downloaded successfully.";
-                        capturedBadge.Background    = new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58));
-                        ((TextBlock)capturedBadge.Child).Text       = "Present";
-                        ((TextBlock)capturedBadge.Child).Foreground = new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58));
-                        capturedBtn.Content = "Re-download";
-                    }
-                    catch (Exception ex)
-                    {
-                        capturedStatus.Text = $"Failed: {ex.Message}";
-                    }
-                    finally { capturedBtn.IsEnabled = true; }
-                };
+                datBtn.Click += async (_, _) => await DownloadDatAsync(
+                    capturedSlug, capturedDirectUrl, capturedDatPath,
+                    capturedProgress, capturedStatus, capturedBadge, capturedBtn);
+
+                datDownloadActions.Add(() => DownloadDatAsync(
+                    capturedSlug, capturedDirectUrl, capturedDatPath,
+                    capturedProgress, capturedStatus, capturedBadge, capturedBtn));
 
                 datBody.Children.Add(MakeExtrasRow(
                     $"{tag}.dat",
