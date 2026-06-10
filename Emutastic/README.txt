@@ -132,6 +132,10 @@ using your GitHub account. Sign in once, and a private repo called
   - "Sync Now" runs a full bidirectional sync of all saves and
     the library database
 
+The library database carries your metadata — ratings, favorites,
+collections, play time, and per-game notes — so all of that, your
+notes included, follows you between PCs as part of the database sync.
+
 Optional AES-256-GCM encryption with a passphrase you choose — saves
 are encrypted before they leave your machine. The passphrase never
 leaves your PC; you'll enter it once per PC.
