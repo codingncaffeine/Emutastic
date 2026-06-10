@@ -157,6 +157,29 @@ namespace Emutastic.Services
             File.Move(backup, live);
         }
 
+        // A freshly-downloaded core must be a real Windows PE image before we accept
+        // it: "MZ" DOS header plus a valid "PE\0\0" signature at the e_lfanew offset.
+        // Cheap fail-safe so a corrupt or wrong-content download is never left in
+        // place to be loaded in-process.
+        private static bool IsPortableExecutable(string path)
+        {
+            try
+            {
+                var fi = new FileInfo(path);
+                if (!fi.Exists || fi.Length < 1024) return false;   // a real core is tens of KB+
+                using var fs = File.OpenRead(path);
+                using var br = new System.IO.BinaryReader(fs);
+                if (br.ReadByte() != (byte)'M' || br.ReadByte() != (byte)'Z') return false;
+                fs.Seek(0x3C, SeekOrigin.Begin);                    // e_lfanew → PE header offset
+                int peOffset = br.ReadInt32();
+                if (peOffset <= 0 || peOffset > fi.Length - 4) return false;
+                fs.Seek(peOffset, SeekOrigin.Begin);
+                return br.ReadByte() == (byte)'P' && br.ReadByte() == (byte)'E'
+                    && br.ReadByte() == 0 && br.ReadByte() == 0;
+            }
+            catch { return false; }
+        }
+
         // ── Download ──────────────────────────────────────────────────────────
         /// <summary>
         /// Downloads the zip, backs up the existing .dll to .dll.bak, then extracts.
@@ -169,6 +192,11 @@ namespace Emutastic.Services
 
             string localPath = Path.Combine(coresFolder, entry.FileName);
             string url       = ZipUrl(entry.FileName);
+            // Cores are native code we load in-process — only ever fetch them over
+            // TLS from the official libretro buildbot. Fail closed if the base URL is
+            // ever misconfigured to plain http.
+            if (!url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"Refusing to download a core over a non-HTTPS URL: {url}");
             string zipPath   = Path.Combine(Path.GetTempPath(), entry.FileName + ".zip");
             string phase     = "init";
 
@@ -250,6 +278,28 @@ namespace Emutastic.Services
                     Trace($"NO MATCHING ENTRY in zip — entries: [{contents}]");
                     throw new InvalidDataException(
                         $"Zip did not contain '{entry.FileName}'. Contents: [{contents}]");
+                }
+
+                // Semantic gate: the HTTPS transfer + zip CRC already fail safe on a
+                // corrupted download, but verify the extracted file is actually a
+                // valid PE image before we keep it. On failure, restore the previous
+                // core from the backup we just made so a bad download never replaces
+                // a working core. (Authenticity against a buildbot compromise would
+                // need libretro-signed cores, which don't exist — HTTPS to the
+                // official buildbot is the trust anchor, same posture as RetroArch.)
+                phase = "validate";
+                if (!IsPortableExecutable(localPath))
+                {
+                    Trace("extracted file is not a valid PE image — rejecting");
+                    try { File.Delete(localPath); } catch { }
+                    string bak = BackupPath(coresFolder, entry.FileName);
+                    if (File.Exists(bak))
+                    {
+                        try { File.Copy(bak, localPath, overwrite: true); Trace("restored previous core from backup"); }
+                        catch (Exception ex) { Trace($"backup restore failed: {ex.Message}"); }
+                    }
+                    throw new InvalidDataException(
+                        $"Downloaded '{entry.FileName}' is not a valid core binary — kept the previous version.");
                 }
 
                 // ZipArchiveEntry.ExtractToFile preserves the entry's internal
