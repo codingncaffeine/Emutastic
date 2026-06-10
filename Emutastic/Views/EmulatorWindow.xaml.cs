@@ -1351,6 +1351,20 @@ namespace Emutastic.Views
                 _coreOptions.TryAdd("desmume_pointer_device_r", "emulated");
             }
 
+            // PS2: LRPS2 defaults pcsx2_bios to the first file its folder scan
+            // returns (the oldest JP dump) and ignores region. Pre-seed a
+            // region-appropriate, newest dump. At the defaults layer, so a
+            // pcsx2_bios chosen in Core Options (applied below) still wins.
+            if (_game.Console == "PS2")
+            {
+                string? ps2Bios = Services.ConsoleHandlers.Ps2Handler.ResolveRegionBios(_game.RomPath);
+                if (ps2Bios != null)
+                {
+                    _coreOptions["pcsx2_bios"] = ps2Bios;
+                    System.Diagnostics.Trace.WriteLine($"PS2 BIOS auto-selected: {ps2Bios}");
+                }
+            }
+
             // Apply legacy per-console overrides (e.g. N64 GFX plugin selection)
             var configSvc = _configService ?? App.Configuration;
             var prefs = configSvc?.GetCorePreferences();
