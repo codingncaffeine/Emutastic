@@ -2128,6 +2128,36 @@ namespace Emutastic.Views
                             VerticalAlignment = VerticalAlignment.Center
                         };
 
+                        // PS2: renderer picker right on the core row so the GS
+                        // backend (DirectX / OpenGL) can be switched WITHOUT
+                        // launching a game — the recovery path when a renderer
+                        // crashes on boot. Writes pcsx2_renderer to the same
+                        // values.json the in-game cog and the PS2 handler read;
+                        // applies on the next launch.
+                        if (core.Installed && core.Dll.Equals("pcsx2_libretro.dll", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var rendCombo = new ComboBox
+                            {
+                                Style = (Style)FindResource("PrefComboBox"),
+                                Width = 110,
+                                VerticalAlignment = VerticalAlignment.Center,
+                                Margin = new Thickness(0, 0, 8, 0),
+                                ToolTip = "GS renderer — applies on next launch",
+                                ItemsSource = new[] { "DirectX", "OpenGL" }
+                            };
+                            string curRend = App.CoreOptions.LoadValues("pcsx2_libretro")
+                                .TryGetValue("pcsx2_renderer", out var rv) ? rv : "D3D11";
+                            rendCombo.SelectedIndex =
+                                curRend.Equals("OpenGL", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+                            rendCombo.SelectionChanged += (_, _) =>
+                            {
+                                string val = rendCombo.SelectedIndex == 1 ? "OpenGL" : "D3D11";
+                                App.CoreOptions.SaveValues("pcsx2_libretro",
+                                    new Dictionary<string, string> { ["pcsx2_renderer"] = val });
+                            };
+                            btnPanel.Children.Add(rendCombo);
+                        }
+
                         if (core.CatalogEntry != null)
                         {
                             bool hasBackup = core.Installed && CoreDownloadService.HasBackup(coresFolder, core.Dll);
