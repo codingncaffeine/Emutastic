@@ -2265,6 +2265,23 @@ namespace Emutastic.Views
                         catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"wglMakeCurrent (pre-unload): {ex.Message}"); }
                     }
 
+                    // PCSX2 (LRPS2) is a hybrid: it runs a multi-threaded GS thread
+                    // (MTGS) AND we drive the overlay blit from this emu thread, so —
+                    // unlike PPSSPP/Dolphin where the core's GPU thread owns the
+                    // context — WE leave the GL context current here. retro_unload_game
+                    // calls MTGS::CloseGS(), whose GS thread must make the context
+                    // current to free its GL objects; if we still hold it, CloseGS()/
+                    // cpu_thread.join() deadlock → the emu thread never exits → zombie
+                    // core → the next launch freezes. Release the context first so the
+                    // GS thread can finish; it's re-acquired just below for context_destroy.
+                    string _preUnloadCore = _core != null ? System.IO.Path.GetFileName(_core.CorePath).ToLowerInvariant() : "";
+                    if (_preUnloadCore.Contains("pcsx2") && !_consoleHandler.AllowHwSharedContext)
+                    {
+                        try { wglMakeCurrent(IntPtr.Zero, IntPtr.Zero); }
+                        catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"wglMakeCurrent NULL (pre-unload PCSX2): {ex.Message}"); }
+                        System.Diagnostics.Trace.WriteLine("Released GL context before PCSX2 retro_unload_game (lets the MTGS GS thread acquire it).");
+                    }
+
                     // Stop emulation. Core threads run their GL cleanup while the context
                     // is still properly owned (either by us or by the core's GPU thread).
                     try { _core?.UnloadGame(); }
