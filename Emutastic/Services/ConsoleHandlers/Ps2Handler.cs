@@ -67,6 +67,18 @@ namespace Emutastic.Services.ConsoleHandlers
                 return values.Where(v => v == "D3D11" || v == "OpenGL"
                                       || (ExposeParallelGs && v == "paraLLEl-GS")).ToArray();
 
+            // Internal resolution: cap at 6x Native (~4K). Beyond 6x, LRPS2 reports
+            // BASE geometry instead of the upscaled size, so our render FBO never
+            // sizes up and the screen goes black. 1x–6x are verified good on both
+            // D3D11 and OpenGL. (EmulatorWindow's clamp sends a stale >6x value to
+            // the highest remaining option, i.e. 6x.)
+            if (key == "pcsx2_upscale_multiplier")
+                return values.Where(v =>
+                {
+                    var m = System.Text.RegularExpressions.Regex.Match(v, @"^(\d+)x");
+                    return !m.Success || (int.TryParse(m.Groups[1].Value, out int n) && n <= 6);
+                }).ToArray();
+
             return values;
         }
 

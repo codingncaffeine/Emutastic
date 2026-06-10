@@ -3510,7 +3510,14 @@ namespace Emutastic.Views
                                             v.IndexOf("ogl", StringComparison.OrdinalIgnoreCase) >= 0 ||
                                             v.IndexOf("opengl", StringComparison.OrdinalIgnoreCase) >= 0)
                                         : null;
-                                    string fallback = oglVariant ?? validValues[0];
+                                    // A capped option (e.g. PS2 internal resolution
+                                    // hidden above 6x) should fall back to the HIGHEST
+                                    // remaining value, not the lowest — a user who set
+                                    // 8x wants the best still-allowed res (6x), not 1x.
+                                    string fallback = oglVariant
+                                        ?? (key == "pcsx2_upscale_multiplier"
+                                            ? validValues[validValues.Length - 1]
+                                            : validValues[0]);
                                     System.Diagnostics.Trace.WriteLine($"Core option INVALID: {key} = '{preSeeded}' not in [{string.Join(", ", validValues)}] — using '{fallback}'");
                                     _coreOptions[key] = fallback;
                                 }
@@ -8896,7 +8903,8 @@ namespace Emutastic.Views
                 // The emu thread now does: SRAM save → UnloadGame → context_destroy → GL release
                 // before exiting, so this join covers all of it.
                 // Allow up to 10 s for heavy cores (PPSSPP, N64) whose internal threads take time.
-                if (!(_emuThread?.Join(10000) ?? true))
+                bool emuExited = _emuThread?.Join(10000) ?? true;
+                if (!emuExited)
                     System.Diagnostics.Trace.WriteLine("WARNING: emu thread did not exit within 10s");
 
                 // Emu thread has stopped — safe to dispose the shader renderer it owned.
@@ -9038,13 +9046,28 @@ namespace Emutastic.Views
                             catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"GL sync FreeLibrary: {ex.Message}"); }
                         }
                     }
+                    else if (!emuExited)
+                    {
+                        // The emu thread is still alive (its 10s join above timed out),
+                        // so the core may still touch its GL context — deleting it now is
+                        // a use-after-free → the DEP/AV crash seen closing OpenGL games.
+                        // Leak the contexts instead; the OS reclaims them when the app
+                        // exits. Only happens on a hung/slow core shutdown (e.g. LRPS2's
+                        // GS threads). The matching DC/window is left intact below.
+                        System.Diagnostics.Trace.WriteLine(
+                            "GL quarantine: emu thread still alive — leaking contexts (reclaimed on app exit)");
+                    }
                     else
                     {
-                        // Async quarantine for cores without deferred FreeLibrary (PPSSPP, etc.).
+                        // Async quarantine for cores without deferred FreeLibrary (PPSSPP,
+                        // LRPS2, etc.). The delay lets residual driver/GPU-thread GL
+                        // callbacks (texture frees, fence signals) drain before we delete
+                        // the context, so they don't hit a null dispatch table.
                         string dllName = _core != null ? System.IO.Path.GetFileName(_core.CorePath).ToLowerInvariant() : "";
                         int quarantineMs = dllName switch
                         {
                             var d when d.Contains("ppsspp")       => 4000,
+                            var d when d.Contains("pcsx2")        => 2500,
                             var d when d.Contains("kronos")       => 2000,
                             var d when d.Contains("mednafen_psx") => 1500,
                             var d when d.Contains("pcsx_rearmed") => 1500,
@@ -9086,10 +9109,22 @@ namespace Emutastic.Views
                     }
                 }
 
-                if (_hdc != IntPtr.Zero && _glHwnd != IntPtr.Zero) { ReleaseDC(_glHwnd, _hdc); _hdc = IntPtr.Zero; }
-                // Destroy the offscreen GL window if we created it; HwndHost owns its own window.
-                if (_glHwndOwned && _glHwnd != IntPtr.Zero) { DestroyWindow(_glHwnd); _glHwndOwned = false; }
-                _glHwnd = IntPtr.Zero;
+                // Only release the DC / destroy the offscreen window once the emu
+                // thread is gone. If it timed out above we kept its GL context alive
+                // (see GL quarantine), so its paired DC/window must stay too — tearing
+                // them down under a live context is the same use-after-free. Leaked
+                // handles are reclaimed at app exit; this window is closing regardless.
+                if (emuExited)
+                {
+                    if (_hdc != IntPtr.Zero && _glHwnd != IntPtr.Zero) { ReleaseDC(_glHwnd, _hdc); _hdc = IntPtr.Zero; }
+                    // Destroy the offscreen GL window if we created it; HwndHost owns its own window.
+                    if (_glHwndOwned && _glHwnd != IntPtr.Zero) { DestroyWindow(_glHwnd); _glHwndOwned = false; }
+                    _glHwnd = IntPtr.Zero;
+                }
+                else
+                {
+                    System.Diagnostics.Trace.WriteLine("GL cleanup: emu thread still alive — leaving DC/window intact");
+                }
 
                 try { _recordingService?.Dispose(); foreach (var c in _controllers) c?.Dispose(); _audioPlayer?.Dispose(); }
                 catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Service cleanup: {ex.Message}"); }
