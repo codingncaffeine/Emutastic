@@ -648,9 +648,24 @@ namespace Emutastic.Services
                 string? autoConsole = null;
                 string? autoTitle   = null;
 
-                string? sha1 = ext.Equals(".chd", StringComparison.OrdinalIgnoreCase)
-                    ? ChdReader.ReadSha1(romPath)
-                    : null;
+                // Hash for DAT identification. A single .chd is hashed directly.
+                // An .m3u playlist is peeked: if its first referenced disc is a
+                // .chd (which carries a readable hash), a multi-disc .chd set
+                // (PS2/PS1/Saturn/…) auto-routes the same way a single disc would.
+                // .iso/.cue playlists have no readable hash → folder-name/picker.
+                string? sha1 = null;
+                if (ext.Equals(".chd", StringComparison.OrdinalIgnoreCase))
+                {
+                    sha1 = ChdReader.ReadSha1(romPath);
+                }
+                else if (ext.Equals(".m3u", StringComparison.OrdinalIgnoreCase))
+                {
+                    string? firstDisc = M3uBundler.GetReferencedAbsolutePaths(romPath).FirstOrDefault();
+                    if (firstDisc != null &&
+                        Path.GetExtension(firstDisc).Equals(".chd", StringComparison.OrdinalIgnoreCase) &&
+                        File.Exists(firstDisc))
+                        sha1 = ChdReader.ReadSha1(firstDisc);
+                }
 
                 if (sha1 != null)
                 {
@@ -658,9 +673,13 @@ namespace Emutastic.Services
                     if (match != null)
                     {
                         autoConsole = match.Console;
-                        autoTitle   = match.Title;
+                        // Single disc: adopt the DAT's clean title. For an .m3u the
+                        // DAT title is the disc-1 name ("Game (Disc 1)") — keep the
+                        // playlist's own base title (fileName) instead.
+                        autoTitle = ext.Equals(".m3u", StringComparison.OrdinalIgnoreCase)
+                            ? null : match.Title;
                         System.Diagnostics.Trace.WriteLine(
-                            $"[Import] DAT match: {fileName} → {autoConsole} \"{autoTitle}\"");
+                            $"[Import] DAT match: {fileName} → {autoConsole} \"{autoTitle ?? fileName}\"");
                     }
                 }
 
