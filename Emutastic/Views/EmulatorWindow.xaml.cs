@@ -2271,12 +2271,32 @@ namespace Emutastic.Views
                         catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"wglMakeCurrent (pre-unload): {ex.Message}"); }
                     }
 
+                    string _teardownCoreName = _core != null ? System.IO.Path.GetFileName(_core.CorePath).ToLowerInvariant() : "";
+
+                    // PCSX2 (LRPS2) OpenGL only: retro_unload_game deadlocks inside its own
+                    // GS/MTGS shutdown (CPUThreadShutdown → GSshutdown; cpu_thread.join never
+                    // returns), so UnloadGame below would hang and the emu thread is declared
+                    // hung after 10s. context_destroy cleanly closes MTGS (freeze + CloseGS)
+                    // while the GL context is current, so call it FIRST — then UnloadGame
+                    // finds the GS already torn down and returns without deadlocking. (Reverse
+                    // order is the hang.) D3D11 never reaches this branch (_hdc == 0), so this
+                    // cannot affect the DirectX path. pcsx2 is added to _skipContextDestroy
+                    // below so it isn't invoked a second time after unload.
+                    if (_teardownCoreName.Contains("pcsx2") && _hwContextDestroy != null
+                        && !_consoleHandler.AllowHwSharedContext)
+                    {
+                        IntPtr ctxP = _secondaryCtx != IntPtr.Zero ? _secondaryCtx : _hglrc;
+                        try { wglMakeCurrent(_hdc, ctxP); } catch { }
+                        System.Diagnostics.Trace.WriteLine("PCSX2: context_destroy BEFORE UnloadGame (context current)...");
+                        try { _hwContextDestroy.Invoke(); }
+                        catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"PCSX2 pre-unload context_destroy: {ex.Message}"); }
+                        System.Diagnostics.Trace.WriteLine("PCSX2: pre-unload context_destroy done.");
+                    }
+
                     // Stop emulation. Core threads run their GL cleanup while the context
                     // is still properly owned (either by us or by the core's GPU thread).
                     try { _core?.UnloadGame(); }
                     catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"UnloadGame: {ex.Message}"); }
-
-                    string _teardownCoreName = _core != null ? System.IO.Path.GetFileName(_core.CorePath).ToLowerInvariant() : "";
 
                     // For non-shared cores: all core threads have now stopped and released
                     // the GL context (threads release context on exit). Acquire it here.
@@ -2303,7 +2323,8 @@ namespace Emutastic.Views
                     bool _skipContextDestroy = _teardownCoreName.Contains("ppsspp")
                                            || _teardownCoreName.Contains("mupen64")
                                            || _teardownCoreName.Contains("parallel_n64")
-                                           || _teardownCoreName.Contains("azahar");
+                                           || _teardownCoreName.Contains("azahar")
+                                           || _teardownCoreName.Contains("pcsx2");   // already called pre-unload above
                     if (_hwContextDestroy != null && !_skipContextDestroy)
                     {
                         try { _hwContextDestroy.Invoke(); }
