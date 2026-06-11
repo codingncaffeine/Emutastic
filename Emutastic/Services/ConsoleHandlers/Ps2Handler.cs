@@ -30,13 +30,6 @@ namespace Emutastic.Services.ConsoleHandlers
         // entries below come back with it).
         private const bool ExposeParallelGs = false;
 
-        // OpenGL is hidden while its LRPS2 teardown deadlock is unsolved:
-        // retro_unload_game's cpu_thread.join() never returns (MTGS/GS shutdown),
-        // so every close leaks a live zombie core thread and switching games stacks
-        // them until the single-instance core corrupts and crashes. D3D11 is fully
-        // stable. Flip to true to re-expose OpenGL for testing a teardown fix.
-        public static readonly bool ExposeOpenGl = false;
-
         public override string ConsoleName => "PS2";
         public override bool UsesAnalogStick => true;
 
@@ -52,7 +45,6 @@ namespace Emutastic.Services.ConsoleHandlers
         // consistent for the life of a session.
         private static bool RendererIsOpenGl()
         {
-            if (!ExposeOpenGl) return false;   // OpenGL hidden → always the D3D11 path
             try
             {
                 var vals = new CoreOptionsService().LoadValues("pcsx2_libretro");
@@ -72,21 +64,8 @@ namespace Emutastic.Services.ConsoleHandlers
             // D3D11 stays first so it's the validation fallback. paraLLEl-GS only
             // when explicitly re-enabled. Hide Auto/D3D12/standard-Vulkan/Software.
             if (key == "pcsx2_renderer")
-                return values.Where(v => v == "D3D11"
-                                      || (ExposeOpenGl && v == "OpenGL")
+                return values.Where(v => v == "D3D11" || v == "OpenGL"
                                       || (ExposeParallelGs && v == "paraLLEl-GS")).ToArray();
-
-            // Internal resolution: cap at 6x Native (~4K). Beyond 6x, LRPS2 reports
-            // BASE geometry instead of the upscaled size, so our render FBO never
-            // sizes up and the screen goes black. 1x–6x are verified good on both
-            // D3D11 and OpenGL. (EmulatorWindow's clamp sends a stale >6x value to
-            // the highest remaining option, i.e. 6x.)
-            if (key == "pcsx2_upscale_multiplier")
-                return values.Where(v =>
-                {
-                    var m = System.Text.RegularExpressions.Regex.Match(v, @"^(\d+)x");
-                    return !m.Success || (int.TryParse(m.Groups[1].Value, out int n) && n <= 6);
-                }).ToArray();
 
             return values;
         }

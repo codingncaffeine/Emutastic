@@ -1382,6 +1382,12 @@ namespace Emutastic.Views
             var userValues = App.CoreOptions.LoadValues(coreName);
             foreach (var kv in userValues)
             {
+                // PS2 BIOS is region-determined per game (ResolveRegionBios, above).
+                // A single saved pcsx2_bios can't be correct for games of every
+                // region, so never let a stale saved value override the per-game
+                // region pick — that pinned one BIOS (and one boot crash) for ALL
+                // games regardless of region.
+                if (_game.Console == "PS2" && kv.Key == "pcsx2_bios") continue;
                 _coreOptions[kv.Key] = kv.Value;
                 System.Diagnostics.Trace.WriteLine($"User value: {kv.Key} = {kv.Value}");
             }
@@ -1390,24 +1396,6 @@ namespace Emutastic.Views
             // This overrides any legacy config that may still have a different plugin saved.
             if (_game.Console == "N64")
                 _coreOptions["parallel-n64-gfxplugin"] = "parallel";
-
-            // PS2: the paraLLEl-GS supersampling options (pcsx2_pgs_*) only apply to
-            // the paraLLEl-GS renderer, but a STALE persisted value (e.g. pgs_ssaa =
-            // "8x SSAA") still gets sent to D3D11/OpenGL — where the GS reserves a huge
-            // supersample buffer that fragments host memory into PCSX2's fixed-address
-            // recompiler region and intermittently AVs at boot (~60%, validated via the
-            // dev harness). Strip the pgs_* keys whenever the active renderer isn't
-            // paraLLEl-GS so the core keeps its safe defaults.
-            if (_game.Console == "PS2"
-                && (!_coreOptions.TryGetValue("pcsx2_renderer", out var ps2Renderer)
-                    || ps2Renderer != "paraLLEl-GS"))
-            {
-                foreach (var k in _coreOptions.Keys.Where(k => k.StartsWith("pcsx2_pgs", StringComparison.Ordinal)).ToList())
-                {
-                    _coreOptions.Remove(k);
-                    System.Diagnostics.Trace.WriteLine($"PS2: stripped non-paraLLEl-GS option {k}");
-                }
-            }
         }
 
         // =========================================================================
@@ -2283,29 +2271,12 @@ namespace Emutastic.Views
                         catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"wglMakeCurrent (pre-unload): {ex.Message}"); }
                     }
 
-                    string _teardownCoreName = _core != null ? System.IO.Path.GetFileName(_core.CorePath).ToLowerInvariant() : "";
-
-                    // PCSX2 (LRPS2): the hang is INSIDE retro_unload_game
-                    // (CPUThreadShutdown → GSshutdown — the GS/GL teardown). LRPS2's
-                    // context_destroy is what cleanly closes MTGS (freeze + CloseGS)
-                    // while the GL context is current. So call context_destroy FIRST,
-                    // here, with the context current on this emu thread — then
-                    // UnloadGame finds the GS already torn down. (The reverse order is
-                    // what deadlocks.) [EXPERIMENT — validated via the dev harness.]
-                    if (_teardownCoreName.Contains("pcsx2") && _hwContextDestroy != null
-                        && !_consoleHandler.AllowHwSharedContext)
-                    {
-                        IntPtr ctxP = _secondaryCtx != IntPtr.Zero ? _secondaryCtx : _hglrc;
-                        try { wglMakeCurrent(_hdc, ctxP); } catch { }
-                        System.Diagnostics.Trace.WriteLine("PCSX2: context_destroy BEFORE UnloadGame (context current)...");
-                        try { _hwContextDestroy.Invoke(); }
-                        catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"PCSX2 pre-unload context_destroy: {ex.Message}"); }
-                        System.Diagnostics.Trace.WriteLine("PCSX2: pre-unload context_destroy done.");
-                    }
-
-                    // Stop emulation.
+                    // Stop emulation. Core threads run their GL cleanup while the context
+                    // is still properly owned (either by us or by the core's GPU thread).
                     try { _core?.UnloadGame(); }
                     catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"UnloadGame: {ex.Message}"); }
+
+                    string _teardownCoreName = _core != null ? System.IO.Path.GetFileName(_core.CorePath).ToLowerInvariant() : "";
 
                     // For non-shared cores: all core threads have now stopped and released
                     // the GL context (threads release context on exit). Acquire it here.
@@ -2332,8 +2303,7 @@ namespace Emutastic.Views
                     bool _skipContextDestroy = _teardownCoreName.Contains("ppsspp")
                                            || _teardownCoreName.Contains("mupen64")
                                            || _teardownCoreName.Contains("parallel_n64")
-                                           || _teardownCoreName.Contains("azahar")
-                                           || _teardownCoreName.Contains("pcsx2");   // already called pre-unload
+                                           || _teardownCoreName.Contains("azahar");
                     if (_hwContextDestroy != null && !_skipContextDestroy)
                     {
                         try { _hwContextDestroy.Invoke(); }
@@ -3546,14 +3516,7 @@ namespace Emutastic.Views
                                             v.IndexOf("ogl", StringComparison.OrdinalIgnoreCase) >= 0 ||
                                             v.IndexOf("opengl", StringComparison.OrdinalIgnoreCase) >= 0)
                                         : null;
-                                    // A capped option (e.g. PS2 internal resolution
-                                    // hidden above 6x) should fall back to the HIGHEST
-                                    // remaining value, not the lowest — a user who set
-                                    // 8x wants the best still-allowed res (6x), not 1x.
-                                    string fallback = oglVariant
-                                        ?? (key == "pcsx2_upscale_multiplier"
-                                            ? validValues[validValues.Length - 1]
-                                            : validValues[0]);
+                                    string fallback = oglVariant ?? validValues[0];
                                     System.Diagnostics.Trace.WriteLine($"Core option INVALID: {key} = '{preSeeded}' not in [{string.Join(", ", validValues)}] — using '{fallback}'");
                                     _coreOptions[key] = fallback;
                                 }
@@ -8939,8 +8902,7 @@ namespace Emutastic.Views
                 // The emu thread now does: SRAM save → UnloadGame → context_destroy → GL release
                 // before exiting, so this join covers all of it.
                 // Allow up to 10 s for heavy cores (PPSSPP, N64) whose internal threads take time.
-                bool emuExited = _emuThread?.Join(10000) ?? true;
-                if (!emuExited)
+                if (!(_emuThread?.Join(10000) ?? true))
                     System.Diagnostics.Trace.WriteLine("WARNING: emu thread did not exit within 10s");
 
                 // Emu thread has stopped — safe to dispose the shader renderer it owned.
@@ -9082,28 +9044,13 @@ namespace Emutastic.Views
                             catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"GL sync FreeLibrary: {ex.Message}"); }
                         }
                     }
-                    else if (!emuExited)
-                    {
-                        // The emu thread is still alive (its 10s join above timed out),
-                        // so the core may still touch its GL context — deleting it now is
-                        // a use-after-free → the DEP/AV crash seen closing OpenGL games.
-                        // Leak the contexts instead; the OS reclaims them when the app
-                        // exits. Only happens on a hung/slow core shutdown (e.g. LRPS2's
-                        // GS threads). The matching DC/window is left intact below.
-                        System.Diagnostics.Trace.WriteLine(
-                            "GL quarantine: emu thread still alive — leaking contexts (reclaimed on app exit)");
-                    }
                     else
                     {
-                        // Async quarantine for cores without deferred FreeLibrary (PPSSPP,
-                        // LRPS2, etc.). The delay lets residual driver/GPU-thread GL
-                        // callbacks (texture frees, fence signals) drain before we delete
-                        // the context, so they don't hit a null dispatch table.
+                        // Async quarantine for cores without deferred FreeLibrary (PPSSPP, etc.).
                         string dllName = _core != null ? System.IO.Path.GetFileName(_core.CorePath).ToLowerInvariant() : "";
                         int quarantineMs = dllName switch
                         {
                             var d when d.Contains("ppsspp")       => 4000,
-                            var d when d.Contains("pcsx2")        => 2500,
                             var d when d.Contains("kronos")       => 2000,
                             var d when d.Contains("mednafen_psx") => 1500,
                             var d when d.Contains("pcsx_rearmed") => 1500,
@@ -9145,69 +9092,40 @@ namespace Emutastic.Views
                     }
                 }
 
-                // Only release the DC / destroy the offscreen window once the emu
-                // thread is gone. If it timed out above we kept its GL context alive
-                // (see GL quarantine), so its paired DC/window must stay too — tearing
-                // them down under a live context is the same use-after-free. Leaked
-                // handles are reclaimed at app exit; this window is closing regardless.
-                if (emuExited)
-                {
-                    if (_hdc != IntPtr.Zero && _glHwnd != IntPtr.Zero) { ReleaseDC(_glHwnd, _hdc); _hdc = IntPtr.Zero; }
-                    // Destroy the offscreen GL window if we created it; HwndHost owns its own window.
-                    if (_glHwndOwned && _glHwnd != IntPtr.Zero) { DestroyWindow(_glHwnd); _glHwndOwned = false; }
-                    _glHwnd = IntPtr.Zero;
-                }
-                else
-                {
-                    System.Diagnostics.Trace.WriteLine("GL cleanup: emu thread still alive — leaving DC/window intact");
-                }
+                if (_hdc != IntPtr.Zero && _glHwnd != IntPtr.Zero) { ReleaseDC(_glHwnd, _hdc); _hdc = IntPtr.Zero; }
+                // Destroy the offscreen GL window if we created it; HwndHost owns its own window.
+                if (_glHwndOwned && _glHwnd != IntPtr.Zero) { DestroyWindow(_glHwnd); _glHwndOwned = false; }
+                _glHwnd = IntPtr.Zero;
 
                 try { _recordingService?.Dispose(); foreach (var c in _controllers) c?.Dispose(); _audioPlayer?.Dispose(); }
                 catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"Service cleanup: {ex.Message}"); }
 
-                // These are all things a LIVE core still reaches into: the marshaled
-                // env strings (system/save/content dir, GET_VARIABLE values) it reads,
-                // and the callback/GL-stub delegate trampolines it CALLS (it's still
-                // logging via _logCbHandle and its GS thread may still hit the GL stubs
-                // / get_proc_address during shutdown). If the emu thread didn't exit,
-                // freeing any of these is a use-after-free — freeing a delegate collects
-                // its trampoline and the next core call executes freed memory → the DEP
-                // crash on close. Leak them all when the thread is still alive; the OS
-                // reclaims everything at app exit.
-                if (emuExited)
-                {
-                    if (_systemDirPtr  != IntPtr.Zero) { Marshal.FreeHGlobal(_systemDirPtr);  _systemDirPtr  = IntPtr.Zero; }
-                    if (_saveDirPtr    != IntPtr.Zero) { Marshal.FreeHGlobal(_saveDirPtr);    _saveDirPtr    = IntPtr.Zero; }
-                    if (_contentDirPtr != IntPtr.Zero) { Marshal.FreeHGlobal(_contentDirPtr); _contentDirPtr = IntPtr.Zero; }
+                if (_systemDirPtr  != IntPtr.Zero) { Marshal.FreeHGlobal(_systemDirPtr);  _systemDirPtr  = IntPtr.Zero; }
+                if (_saveDirPtr    != IntPtr.Zero) { Marshal.FreeHGlobal(_saveDirPtr);    _saveDirPtr    = IntPtr.Zero; }
+                if (_contentDirPtr != IntPtr.Zero) { Marshal.FreeHGlobal(_contentDirPtr); _contentDirPtr = IntPtr.Zero; }
 
-                    // Free cached GET_VARIABLE string pointers. Iterate the full allocation list
-                    // (not just the current _coreOptionPtrs map) because the map only holds the
-                    // latest pointer per key — historical ones are kept in _coreOptionPtrsAllocated
-                    // to avoid the use-after-free we'd hit if we freed mid-session.
-                    foreach (var ptr in _coreOptionPtrsAllocated)
-                        if (ptr != IntPtr.Zero) Marshal.FreeHGlobal(ptr);
-                    _coreOptionPtrsAllocated.Clear();
-                    _coreOptionPtrs.Clear();
-                    _coreOptionPtrValues.Clear();
+                // Free cached GET_VARIABLE string pointers. Iterate the full allocation list
+                // (not just the current _coreOptionPtrs map) because the map only holds the
+                // latest pointer per key — historical ones are kept in _coreOptionPtrsAllocated
+                // to avoid the use-after-free we'd hit if we freed mid-session.
+                foreach (var ptr in _coreOptionPtrsAllocated)
+                    if (ptr != IntPtr.Zero) Marshal.FreeHGlobal(ptr);
+                _coreOptionPtrsAllocated.Clear();
+                _coreOptionPtrs.Clear();
+                _coreOptionPtrValues.Clear();
 
-                    static void FreeH(ref GCHandle? h) { if (h.HasValue) { h.Value.Free(); h = null; } }
-                    FreeH(ref _envCbHandle);
-                    FreeH(ref _videoCbHandle);
-                    FreeH(ref _audioCbHandle);
-                    FreeH(ref _audioBatchCbHandle);
-                    FreeH(ref _inputPollCbHandle);
-                    FreeH(ref _inputStateCbHandle);
-                    FreeH(ref _logCbHandle);
-                    FreeH(ref _getFramebufferHandle);
-                    FreeH(ref _getProcAddressHandle);
-                    if (_swapIntervalStubHandle.IsAllocated) { _swapIntervalStubHandle.Free(); }
-                    if (_glFinishStubHandle.IsAllocated)    { _glFinishStubHandle.Free(); }
-                }
-                else
-                {
-                    System.Diagnostics.Trace.WriteLine(
-                        "Cleanup: emu thread still alive — leaking core callbacks/marshaled memory (reclaimed on app exit)");
-                }
+                static void FreeH(ref GCHandle? h) { if (h.HasValue) { h.Value.Free(); h = null; } }
+                FreeH(ref _envCbHandle);
+                FreeH(ref _videoCbHandle);
+                FreeH(ref _audioCbHandle);
+                FreeH(ref _audioBatchCbHandle);
+                FreeH(ref _inputPollCbHandle);
+                FreeH(ref _inputStateCbHandle);
+                FreeH(ref _logCbHandle);
+                FreeH(ref _getFramebufferHandle);
+                FreeH(ref _getProcAddressHandle);
+                if (_swapIntervalStubHandle.IsAllocated) { _swapIntervalStubHandle.Free(); }
+                if (_glFinishStubHandle.IsAllocated)    { _glFinishStubHandle.Free(); }
 
                 System.Diagnostics.Trace.WriteLine("EmulatorWindow cleanup complete");
 
