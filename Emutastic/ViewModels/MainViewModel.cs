@@ -84,6 +84,20 @@ namespace Emutastic.ViewModels
         [NotifyPropertyChangedFor(nameof(BannerText))]
         private string _notificationText = "";
 
+        // Persistent "app update available" offer. Kept in its OWN slot (not the
+        // shared NotificationText, which SetStatus / the startup artwork+import
+        // burst overwrite) so it can't be clobbered. It sits at the bottom of the
+        // banner priority, so BannerText falls back to it the moment everything
+        // transient clears — it survives the burst and re-surfaces on its own.
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(IsBannerVisible))]
+        [NotifyPropertyChangedFor(nameof(BannerText))]
+        private bool _hasAppUpdate;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(BannerText))]
+        private string _appUpdateText = "";
+
         // Surfaced from the Cores preferences "Update All" flow so the user
         // sees per-completion progress + failure summary in the same banner.
         [ObservableProperty]
@@ -118,14 +132,18 @@ namespace Emutastic.ViewModels
         [NotifyPropertyChangedFor(nameof(BannerProgressPercent))]
         private double _manualDownloadProgressPercent;
 
-        public bool IsBannerVisible => IsImporting || IsCoreUpdating || IsNotification || IsDownloadingManual;
+        public bool IsBannerVisible => IsImporting || IsCoreUpdating || IsNotification || IsDownloadingManual || HasAppUpdate;
         public bool IsProgressBarVisible => IsImporting || IsCoreUpdating || IsDownloadingManual;
 
-        // Priority: import > core-update > manual-download > notification (most-active-task wins).
+        // Priority: import > core-update > manual-download > transient notification >
+        // persistent update offer. Most-active task wins; the update offer is the
+        // baseline that re-surfaces once everything transient clears.
         public string BannerText =>
             IsImporting         ? ImportStatusText :
             IsCoreUpdating      ? CoreUpdateText :
             IsDownloadingManual ? ManualDownloadText :
+            IsNotification      ? NotificationText :
+            HasAppUpdate        ? AppUpdateText :
                                   NotificationText;
 
         public double BannerProgressPercent =>

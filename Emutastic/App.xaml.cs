@@ -215,7 +215,13 @@ namespace Emutastic
                         await Task.Delay(TimeSpan.FromSeconds(10));
                         await Services.GitHubSyncService.Instance.ValidateTokenAsync();
                         if (Services.GitHubSyncService.Instance.IsAuthenticated)
+                        {
                             await Services.GitHubSyncService.Instance.LoadManifestAsync();
+                            // Auth + manifest are ready now — THIS is where the
+                            // background full-sync belongs (MainWindow.OnLoaded was
+                            // too early: no token yet, so it bailed and never ran).
+                            Services.GitHubSyncService.Instance.StartBackgroundSync(new Services.DatabaseService());
+                        }
                     });
             }
             catch (Exception ex)

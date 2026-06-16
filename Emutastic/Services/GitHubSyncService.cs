@@ -1233,9 +1233,10 @@ namespace Emutastic.Services
         /// </summary>
         public void StartBackgroundSync(DatabaseService db)
         {
-            if (!IsAuthenticated) return;
-            if (_backgroundSync is { IsCompleted: false }) return;
+            if (!IsAuthenticated) { CloudSyncLog.Write("Background sync skipped: not authenticated"); return; }
+            if (_backgroundSync is { IsCompleted: false }) { CloudSyncLog.Write("Background sync skipped: already running"); return; }
 
+            CloudSyncLog.Write("Background sync starting");
             SyncStateChanged?.Invoke(true);
             _backgroundSync = Task.Run(async () =>
             {

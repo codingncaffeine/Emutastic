@@ -161,22 +161,20 @@ namespace Emutastic
                 Dispatcher.Invoke(() => BoxArtTogglePanel.Visibility = Visibility.Visible);
             DataContext  = _vm;                     // _vm is now non-null; clicks work
 
-            // Cloud sync: kick off a background full-sync at startup so saves are
-            // already local by the time a game launches (the launch hook then just
-            // does a quick check, not a multi-MB download). The banner shows
-            // "Syncing saves…" via SyncStateChanged — the same event also covers
-            // the sync fired right after device-flow login. A fresh DatabaseService
-            // keeps the background thread off the UI's _db connection (as SyncNow does).
+            // Cloud sync: subscribe for the "Syncing saves…" banner here, but the
+            // actual background full-sync is kicked off from App.OnStartup AFTER the
+            // token + manifest have loaded. Starting it here was a bug: at OnLoaded
+            // the service isn't authenticated yet (LoadFromConfig runs after the
+            // window is shown), so StartBackgroundSync bailed on !IsAuthenticated
+            // and the sync never ran.
             try
             {
-                var sync = Services.GitHubSyncService.Instance;
-                sync.SyncStateChanged += syncing => Dispatcher.Invoke(() =>
+                Services.GitHubSyncService.Instance.SyncStateChanged += syncing => Dispatcher.Invoke(() =>
                     SetStatus(syncing ? "Syncing saves…" : "Saves synced", autoClear: !syncing));
-                sync.StartBackgroundSync(new Services.DatabaseService());
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Trace.WriteLine($"Cloud sync startup failed: {ex.Message}");
+                System.Diagnostics.Trace.WriteLine($"Cloud sync status hookup failed: {ex.Message}");
             }
 
             _importer.StatusChanged += msg =>
@@ -405,8 +403,10 @@ namespace Emutastic
                     if (Dispatcher.HasShutdownStarted) return;
                     Dispatcher.Invoke(() =>
                     {
-                        _vm.NotificationText = $"Emutastic {update.Tag} available — click to install";
-                        _vm.IsNotification = true;
+                        // Dedicated update slot so the startup artwork/import status
+                        // can't clobber it — it survives the burst and re-surfaces.
+                        _vm.AppUpdateText = $"Emutastic {update.Tag} available — click to install";
+                        _vm.HasAppUpdate = true;
                     });
                 }
             }
@@ -428,7 +428,7 @@ namespace Emutastic
             //     the next Refresh Library click), so users can come back later.
             //   - Anything else (core-updates notification) → open Preferences →
             //     Cores so they can act on it.
-            if (!_vm.IsNotification) return;
+            if (!_vm.IsNotification && !_vm.HasAppUpdate) return;
 
             if (_metadataRefreshCts != null && !_metadataRefreshCts.IsCancellationRequested)
             {
@@ -445,6 +445,7 @@ namespace Emutastic
                 if (result != MessageBoxResult.OK) return;
 
                 _pendingAppUpdate = null;
+                _vm.HasAppUpdate = false;
 #pragma warning disable CS4014
                 Task.Run(async () =>
                 {
