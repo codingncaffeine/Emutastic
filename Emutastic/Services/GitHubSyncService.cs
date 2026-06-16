@@ -662,7 +662,7 @@ namespace Emutastic.Services
 
         public record SyncResult(int Uploaded, int Downloaded, int Errors);
 
-        public record LocalSaveInfo(string RepoPath, string LocalPath, DateTime LastModifiedUtc, long SizeBytes);
+        public record LocalSaveInfo(string RepoPath, string LocalPath, DateTime LastModifiedUtc, long SizeBytes, bool Compress = false);
 
         public static List<LocalSaveInfo> BuildLocalSaveMap(DatabaseService db)
         {
@@ -689,6 +689,237 @@ namespace Emutastic.Services
             }
 
             return result;
+        }
+
+        // ── Console-managed saves (memory cards, VMUs, save trees) ──────────────
+        // The per-game ".srm" map above only covers frontend-managed SRAM. Cores
+        // like PCSX2, PPSSPP, Dolphin and flycast write their OWN memory cards /
+        // save trees into the save directory (= BatterySaves/{Console}). Those are
+        // synced here, keyed by relative path (shared / console-level, not per-game),
+        // gzip-compressed (mostly-empty cards shrink hugely), with caches, shader
+        // caches, save-states and retired consoles excluded.
+
+        private static readonly HashSet<string> UnsupportedSaveConsoles =
+            new(StringComparer.OrdinalIgnoreCase) { "DOS" };
+
+        private static bool IsUnsupportedConsole(string console)
+            => UnsupportedSaveConsoles.Contains(console);
+
+        // Path segments that are never battery saves: emulator caches, shader
+        // caches, save-states (synced separately), dumps, logs, screenshots.
+        private static readonly HashSet<string> ExcludedSaveSegments =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                "Cache", "Shaders", "ShaderCache", "StateSaves", "PPSSPP_STATE",
+                "Dump", "Logs", "ScreenShots", "Screenshots", "Triforce", "WFS"
+            };
+
+        private static bool IsExcludedSavePath(string rel)
+        {
+            if (rel.EndsWith(".srm", StringComparison.OrdinalIgnoreCase)) return true;
+            foreach (var seg in rel.Split('/', '\\'))
+                if (ExcludedSaveSegments.Contains(seg)) return true;
+            return false;
+        }
+
+        // Sprawling emulator trees where only specific subfolders are saves; the
+        // rest (Dolphin's 160 MB+ User/Cache, Azahar's 40 MB+ shaders) must never
+        // be uploaded. Null = sync the whole console folder minus the excludes.
+        private static string[]? SaveAllowlist(string console) => console switch
+        {
+            "GameCube" => new[] { "User/GC", "User/Wii" },        // Dolphin memcards + Wii NAND
+            "3DS"      => new[] { "Azahar/nand", "Azahar/sdmc" }, // 3DS save data
+            _          => null,
+        };
+
+        /// <summary>
+        /// Every console-managed save file on disk (memory cards, VMUs, PSP/3DS/GC
+        /// save trees, arcade nvram, …) as repo-pathed, gzip-flagged entries. The
+        /// per-game ".srm" files are handled by <see cref="BuildLocalSaveMap"/>.
+        /// </summary>
+        public static List<LocalSaveInfo> BuildExtraSaveMap()
+        {
+            var result = new List<LocalSaveInfo>();
+            string root = AppPaths.GetFolder("BatterySaves");
+            if (!System.IO.Directory.Exists(root)) return result;
+
+            foreach (string consoleDir in System.IO.Directory.EnumerateDirectories(root))
+            {
+                string console = System.IO.Path.GetFileName(consoleDir);
+                if (IsUnsupportedConsole(console)) continue;
+
+                string[]? allow = SaveAllowlist(console);
+                IEnumerable<string> bases = allow == null
+                    ? new[] { consoleDir }
+                    : allow.Select(a => System.IO.Path.Combine(
+                               consoleDir, a.Replace('/', System.IO.Path.DirectorySeparatorChar)))
+                           .Where(System.IO.Directory.Exists);
+
+                foreach (string baseDir in bases)
+                {
+                    foreach (string full in System.IO.Directory.EnumerateFiles(
+                                 baseDir, "*", System.IO.SearchOption.AllDirectories))
+                    {
+                        string rel = System.IO.Path.GetRelativePath(consoleDir, full);
+                        if (IsExcludedSavePath(rel)) continue;
+
+                        var fi = new System.IO.FileInfo(full);
+                        string repoPath = $"BatterySaves/{console}/{rel.Replace('\\', '/')}";
+                        result.Add(new LocalSaveInfo(
+                            repoPath, full, fi.LastWriteTimeUtc, fi.Length, Compress: true));
+                    }
+                }
+            }
+            return result;
+        }
+
+        // Map a remote extra-save repo path back to its local path even when the
+        // file doesn't exist on this PC yet (second-machine restore). Rejects the
+        // db, per-game ".srm" (handled elsewhere), retired consoles, and excludes.
+        private static bool TryResolveExtraSaveLocalPath(string repoPath, bool encrypted, out string localPath)
+        {
+            localPath = "";
+            string p = repoPath;
+            if (encrypted && p.EndsWith(".enc", StringComparison.Ordinal)) p = p[..^4];
+            if (!p.StartsWith("BatterySaves/", StringComparison.Ordinal)) return false;
+            if (p.EndsWith(".srm", StringComparison.OrdinalIgnoreCase)) return false;
+
+            string rest = p["BatterySaves/".Length..];
+            int slash = rest.IndexOf('/');
+            if (slash <= 0) return false;
+            string console = rest[..slash];
+            string rel = rest[(slash + 1)..];
+            if (rel.Length == 0 || IsUnsupportedConsole(console) || IsExcludedSavePath(rel)) return false;
+
+            localPath = System.IO.Path.Combine(
+                AppPaths.GetFolder("BatterySaves", console),
+                rel.Replace('/', System.IO.Path.DirectorySeparatorChar));
+            return true;
+        }
+
+        private static byte[] GzipCompress(byte[] data)
+        {
+            using var ms = new System.IO.MemoryStream();
+            using (var gz = new System.IO.Compression.GZipStream(
+                       ms, System.IO.Compression.CompressionLevel.Optimal, leaveOpen: true))
+                gz.Write(data, 0, data.Length);
+            return ms.ToArray();
+        }
+
+        private static byte[] GzipDecompress(byte[] data)
+        {
+            using var input = new System.IO.MemoryStream(data);
+            using var gz = new System.IO.Compression.GZipStream(
+                input, System.IO.Compression.CompressionMode.Decompress);
+            using var output = new System.IO.MemoryStream();
+            gz.CopyTo(output);
+            return output.ToArray();
+        }
+
+        /// <summary>
+        /// Uploads this console's changed console-managed saves (memory cards, save
+        /// trees). Lightweight per-console counterpart to <see cref="FullSyncAsync"/>,
+        /// called on game close alongside the .srm upload. Fire-and-forget safe.
+        /// </summary>
+        public async Task<int> UploadConsoleExtraSavesAsync(string console, CancellationToken ct = default)
+        {
+            if (!IsAuthenticated || string.IsNullOrEmpty(console)) return 0;
+
+            var cfg = App.Configuration?.GetCloudSyncConfiguration();
+            bool encrypted = cfg is { EncryptionEnabled: true }
+                && !string.IsNullOrEmpty(cfg.PassphraseProtected);
+            byte[]? key = encrypted
+                ? DeriveKey(UnprotectString(cfg!.PassphraseProtected), _username ?? "") : null;
+            string encSuffix = encrypted ? ".enc" : "";
+            string prefix = $"BatterySaves/{console}/";
+
+            int n = 0;
+            foreach (var local in BuildExtraSaveMap())
+            {
+                if (ct.IsCancellationRequested) break;
+                if (!local.RepoPath.StartsWith(prefix, StringComparison.Ordinal)) continue;
+
+                string repoPath = local.RepoPath + encSuffix;
+                if (_manifestCache.Files.TryGetValue(repoPath, out var entry)
+                    && DateTime.TryParse(entry.LastModifiedUtc, null,
+                        System.Globalization.DateTimeStyles.RoundtripKind, out var rm)
+                    && local.LastModifiedUtc <= rm)
+                    continue;
+
+                try
+                {
+                    byte[] bytes = GzipCompress(System.IO.File.ReadAllBytes(local.LocalPath));
+                    if (encrypted && key != null) bytes = Encrypt(bytes, key);
+                    if (await UploadFileAsync(repoPath, bytes, ct).ConfigureAwait(false))
+                    {
+                        _manifestCache.Files[repoPath] = new SyncFileEntry
+                        {
+                            LastModifiedUtc = local.LastModifiedUtc.ToString("o"),
+                            SizeBytes = local.SizeBytes
+                        };
+                        n++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    CloudSyncLog.Write($"Extra-save upload failed {repoPath}: {ex.Message}");
+                }
+            }
+            if (n > 0) CloudSyncLog.Write($"Uploaded {n} {console} memory-card/save file(s)");
+            return n;
+        }
+
+        /// <summary>
+        /// Downloads this console's console-managed saves that are newer remotely
+        /// than local (or missing locally). MUST complete before the core boots,
+        /// since cores read memory cards / save trees from disk at init. Called on
+        /// game launch alongside the .srm download (usually a fast no-op when the
+        /// startup background sync already pulled them).
+        /// </summary>
+        public async Task<int> DownloadConsoleExtraSavesAsync(string console, CancellationToken ct = default)
+        {
+            if (!IsAuthenticated || string.IsNullOrEmpty(console)) return 0;
+
+            var cfg = App.Configuration?.GetCloudSyncConfiguration();
+            bool encrypted = cfg is { EncryptionEnabled: true }
+                && !string.IsNullOrEmpty(cfg.PassphraseProtected);
+            byte[]? key = encrypted
+                ? DeriveKey(UnprotectString(cfg!.PassphraseProtected), _username ?? "") : null;
+            string prefix = $"BatterySaves/{console}/";
+
+            int n = 0;
+            foreach (var (repoPath, entry) in _manifestCache.Files)
+            {
+                if (ct.IsCancellationRequested) break;
+                if (!repoPath.StartsWith(prefix, StringComparison.Ordinal)) continue;
+                if (!TryResolveExtraSaveLocalPath(repoPath, encrypted, out var targetPath)) continue;
+
+                bool hasMtime = DateTime.TryParse(entry.LastModifiedUtc, null,
+                    System.Globalization.DateTimeStyles.RoundtripKind, out var remoteMtime);
+                bool shouldDownload = !System.IO.File.Exists(targetPath)
+                    || (hasMtime && remoteMtime > System.IO.File.GetLastWriteTimeUtc(targetPath));
+                if (!shouldDownload) continue;
+
+                try
+                {
+                    byte[]? data = await DownloadFileAsync(repoPath, ct).ConfigureAwait(false);
+                    if (data != null && data.Length > 0)
+                    {
+                        if (encrypted && key != null) data = Decrypt(data, key);
+                        data = GzipDecompress(data);
+                        System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(targetPath)!);
+                        System.IO.File.WriteAllBytes(targetPath, data);
+                        if (hasMtime) System.IO.File.SetLastWriteTimeUtc(targetPath, remoteMtime);
+                        n++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    CloudSyncLog.Write($"Extra-save download failed {repoPath}: {ex.Message}");
+                }
+            }
+            if (n > 0) CloudSyncLog.Write($"Downloaded {n} {console} memory-card/save file(s)");
+            return n;
         }
 
         public async Task<SyncResult> FullSyncAsync(DatabaseService db,
@@ -726,6 +957,7 @@ namespace Emutastic.Services
             }
 
             var localSaves = BuildLocalSaveMap(db);
+            localSaves.AddRange(BuildExtraSaveMap());
             string encSuffix = encrypted ? ".enc" : "";
 
             // Upload local files that are newer than the manifest
@@ -748,6 +980,7 @@ namespace Emutastic.Services
                     try
                     {
                         byte[] bytes = System.IO.File.ReadAllBytes(local.LocalPath);
+                        if (local.Compress) bytes = GzipCompress(bytes);
                         if (encrypted && encKey != null) bytes = Encrypt(bytes, encKey);
                         if (await UploadFileAsync(repoPath, bytes, ct))
                         {
@@ -764,9 +997,10 @@ namespace Emutastic.Services
                 }
             }
 
-            // Build a lookup from repo path → local .srm path for ALL games (including never-played)
+            // Build a lookup from repo path → (local path, gzip?) for ALL games
+            // (including never-played), plus the console-managed extra saves.
             var allGames = db.GetGamesSyncMap();
-            var repoToLocalPath = new Dictionary<string, string>();
+            var repoToLocalPath = new Dictionary<string, (string LocalPath, bool Compressed)>();
             foreach (var g in allGames)
             {
                 if (string.IsNullOrEmpty(g.RomHash) || string.IsNullOrEmpty(g.Console)) continue;
@@ -775,15 +1009,32 @@ namespace Emutastic.Services
                 string localPath = System.IO.Path.Combine(batteryDir,
                     FileNameHelper.SanitizeFileName(romStem) + ".srm");
                 string rp = $"BatterySaves/{g.Console}/{g.RomHash}.srm" + encSuffix;
-                repoToLocalPath[rp] = localPath;
+                repoToLocalPath[rp] = (localPath, false);
             }
+            foreach (var extra in BuildExtraSaveMap())
+                repoToLocalPath[extra.RepoPath + encSuffix] = (extra.LocalPath, true);
 
-            // Download remote files that are newer than local (or don't exist locally)
+            // Download remote files that are newer than local (or don't exist locally).
+            // Covers per-game .srm (via repoToLocalPath) and console-managed extra
+            // saves — including ones never seen on this PC (second-machine restore).
             foreach (var (repoPath, entry) in _manifestCache.Files)
             {
                 if (ct.IsCancellationRequested) break;
                 if (!repoPath.StartsWith("BatterySaves/")) continue;
-                if (!repoToLocalPath.TryGetValue(repoPath, out string? targetPath)) continue;
+
+                string targetPath;
+                bool compressed;
+                if (repoToLocalPath.TryGetValue(repoPath, out var mapped))
+                {
+                    targetPath = mapped.LocalPath;
+                    compressed = mapped.Compressed;
+                }
+                else if (TryResolveExtraSaveLocalPath(repoPath, encrypted, out var resolved))
+                {
+                    targetPath = resolved;
+                    compressed = true;
+                }
+                else continue;
 
                 bool hasRemoteMtime = DateTime.TryParse(entry.LastModifiedUtc, null,
                     System.Globalization.DateTimeStyles.RoundtripKind, out var remoteMtime);
@@ -799,6 +1050,7 @@ namespace Emutastic.Services
                         if (data != null && data.Length > 0)
                         {
                             if (encrypted && encKey != null) data = Decrypt(data, encKey);
+                            if (compressed) data = GzipDecompress(data);
                             System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(targetPath)!);
                             System.IO.File.WriteAllBytes(targetPath, data);
                             // Stamp the manifest's mtime back onto the file — WriteAllBytes
@@ -958,6 +1210,59 @@ namespace Emutastic.Services
             CloudSyncLog.Write($"Full sync: {uploaded} up, {downloaded} down, {errors} errors");
 
             return new SyncResult(uploaded, downloaded, errors);
+        }
+
+        // ── Background sync (app startup + initial login) ────────────────────
+        // Runs a full sync OFF the UI thread so saves are already local by the
+        // time a game launches — the per-game launch hook then just does a quick
+        // local check instead of a multi-MB download. Fires SyncStateChanged so
+        // the main window can show a "Syncing saves…" banner.
+
+        private Task? _backgroundSync;
+
+        /// <summary>True while a background full-sync is in flight.</summary>
+        public bool IsSyncing => _backgroundSync is { IsCompleted: false };
+
+        /// <summary>Raised with true when a background sync starts, false when it ends.</summary>
+        public event Action<bool>? SyncStateChanged;
+
+        /// <summary>
+        /// Kicks off a full sync on a background thread (no-op if one is already
+        /// running or the user isn't signed in). Called at app startup and right
+        /// after device-flow login completes.
+        /// </summary>
+        public void StartBackgroundSync(DatabaseService db)
+        {
+            if (!IsAuthenticated) return;
+            if (_backgroundSync is { IsCompleted: false }) return;
+
+            SyncStateChanged?.Invoke(true);
+            _backgroundSync = Task.Run(async () =>
+            {
+                try { await FullSyncAsync(db).ConfigureAwait(false); }
+                catch (Exception ex) { CloudSyncLog.Write($"Background sync failed: {ex.Message}"); }
+                finally { SyncStateChanged?.Invoke(false); }
+            });
+        }
+
+        /// <summary>
+        /// Ensures this console's memory cards / save trees are on disk before the
+        /// core boots. Prefers letting the in-flight background sync finish (bounded
+        /// so a stalled sync never hangs launch) over starting a competing download;
+        /// then does a targeted per-console pull, which is a fast no-op once the
+        /// background sync has already fetched them. Call on the game-launch path.
+        /// </summary>
+        public async Task EnsureConsoleSavesReadyAsync(string console, CancellationToken ct = default)
+        {
+            if (!IsAuthenticated || string.IsNullOrEmpty(console)) return;
+
+            var bg = _backgroundSync;
+            if (bg is { IsCompleted: false })
+            {
+                try { await bg.WaitAsync(TimeSpan.FromSeconds(15), ct).ConfigureAwait(false); }
+                catch { /* timeout or fault — fall through to a targeted pull */ }
+            }
+            await DownloadConsoleExtraSavesAsync(console, ct).ConfigureAwait(false);
         }
     }
 }

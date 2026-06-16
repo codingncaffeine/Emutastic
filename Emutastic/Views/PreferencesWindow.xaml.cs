@@ -3921,6 +3921,10 @@ namespace Emutastic.Views
                     CloudSyncStatusText.Text = $"Signed in as {svc.Username}";
                     CloudSyncSignInBtn.Content = "Sign Out";
                     CloudSyncSettingsPanel.Visibility = Visibility.Visible;
+
+                    // Pull everything down right after first login (fresh-PC restore),
+                    // off the UI thread — progress shows in the main window's banner.
+                    svc.StartBackgroundSync(new Services.DatabaseService());
                 }
                 else
                 {

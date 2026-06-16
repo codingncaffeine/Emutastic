@@ -1262,6 +1262,23 @@ namespace Emutastic.Views
                 string batteryDir = AppPaths.GetFolder("BatterySaves", game.Console);
                 _consoleHandler.PrepareSaveDirectory(batteryDir);
 
+                // Cloud sync: make sure this console's memory cards / save trees are
+                // on disk BEFORE the core boots and reads them (PS2/PSP/GameCube/
+                // Dreamcast/3DS — the .srm download later only covers frontend SRAM).
+                // Usually a fast no-op: the startup/login background sync has already
+                // pulled them; this just waits for that in-flight sync if needed.
+                try
+                {
+                    var extraSync = Services.GitHubSyncService.Instance;
+                    var extraCfg  = App.Configuration?.GetCloudSyncConfiguration();
+                    if (extraSync.IsAuthenticated && extraCfg is { Enabled: true })
+                        extraSync.EnsureConsoleSavesReadyAsync(game.Console).GetAwaiter().GetResult();
+                }
+                catch (Exception ex)
+                {
+                    Services.CloudSyncLog.Write($"Pre-launch memcard sync failed: {ex.Message}");
+                }
+
                 // Per-game .srm file named after the ROM file stem (not the DB title),
                 // matching how RetroArch and most frontends identify saves.
                 string romStem = Path.GetFileNameWithoutExtension(game.RomPath);
@@ -8976,6 +8993,21 @@ namespace Emutastic.Views
                                 Services.CloudSyncLog.Write($"Upload prep failed: {ex.Message}");
                             }
                         }
+                    }
+                }
+
+                // Cloud sync: upload this console's memory cards / save trees (PS2,
+                // PSP, GameCube, Dreamcast, 3DS, …). Separate from the .srm block
+                // above because those consoles have no .srm, so that block is skipped
+                // for them. Fire-and-forget — never blocks the close path.
+                if (!_loadFailed && _game != null && !string.IsNullOrEmpty(_game.Console))
+                {
+                    var extraSvc = Services.GitHubSyncService.Instance;
+                    var extraCfg = App.Configuration?.GetCloudSyncConfiguration();
+                    if (extraSvc.IsAuthenticated && extraCfg is { Enabled: true })
+                    {
+                        try { _ = extraSvc.UploadConsoleExtraSavesAsync(_game.Console); }
+                        catch (Exception ex) { Services.CloudSyncLog.Write($"Memcard upload prep failed: {ex.Message}"); }
                     }
                 }
 

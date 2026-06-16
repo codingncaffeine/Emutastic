@@ -161,6 +161,24 @@ namespace Emutastic
                 Dispatcher.Invoke(() => BoxArtTogglePanel.Visibility = Visibility.Visible);
             DataContext  = _vm;                     // _vm is now non-null; clicks work
 
+            // Cloud sync: kick off a background full-sync at startup so saves are
+            // already local by the time a game launches (the launch hook then just
+            // does a quick check, not a multi-MB download). The banner shows
+            // "Syncing saves…" via SyncStateChanged — the same event also covers
+            // the sync fired right after device-flow login. A fresh DatabaseService
+            // keeps the background thread off the UI's _db connection (as SyncNow does).
+            try
+            {
+                var sync = Services.GitHubSyncService.Instance;
+                sync.SyncStateChanged += syncing => Dispatcher.Invoke(() =>
+                    SetStatus(syncing ? "Syncing saves…" : "Saves synced", autoClear: !syncing));
+                sync.StartBackgroundSync(new Services.DatabaseService());
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"Cloud sync startup failed: {ex.Message}");
+            }
+
             _importer.StatusChanged += msg =>
                 Dispatcher.Invoke(() =>
                 {
