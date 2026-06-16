@@ -6,7 +6,7 @@
 
 A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired by [OpenEmu](https://openemu.org/) on macOS. Games are organized by console in a clean library interface. Emulation is handled by [libretro](https://www.libretro.com/) cores loaded at runtime — no cores are bundled.
 
-If you're looking for the Linux version of Emutastic, head to [Emutastic for Linux](https://github.com/codingncaffeine/Emutastic-For-Linux).
+Emutastic also runs on other platforms — [Emutastic for Linux](https://github.com/codingncaffeine/Emutastic-For-Linux) and, new for Apple Silicon Macs, [Emutastic for Mac](https://github.com/codingncaffeine/Emutastic-for-Mac).
 
 **[Visit emutastic.com →](https://www.emutastic.com/emutasticapp.html)** for a visual tour of the app, or grab the [latest release](https://github.com/codingncaffeine/Emutastic/releases) directly.
 
