@@ -18,18 +18,18 @@ namespace Emutastic.Views
     /// <summary>
     /// EmuTV — the controller-first, 10-foot "couch" shell for Emutastic.
     ///
-    /// Increment 1c + TV preview: system carousel → A opens a gamelist (left) with
-    /// a CRT "TV" preview (right) that plays the selected game's cached video snap
-    /// over the screen, debounced as you scroll → A launches via the SAME path the
-    /// desktop uses → quitting returns here.
+    /// Three nav zones in the gamelist view:
+    ///   • Carousel   — consoles (Left/Right), A opens a console.
+    ///   • GameList   — games (Up/Down), A launches fresh, Right enters the saves.
+    ///   • SaveStates — this game's save states (Left/Right), A loads the save,
+    ///                  Left past the first returns to the game list.
     ///
-    /// IP/bundling policy: bundles NO third-party art — console tiles are our own
-    /// neon cards, the TV frame is our own image, and game art / video snaps are
-    /// the user's own library media (per-user, not redistributed by us).
+    /// IP/bundling policy: bundles only our own art (emuTV/CRT/VCR/test-card);
+    /// game art, video snaps and save thumbnails are the user's own library media.
     /// </summary>
     public partial class EmuTvWindow : Window
     {
-        private enum NavMode { Carousel, GameList }
+        private enum NavMode { Carousel, GameList, SaveStates }
 
         private readonly ControllerManager? _controller;
         private readonly DatabaseService? _db;
@@ -38,19 +38,21 @@ namespace Emutastic.Views
         private NavMode _mode = NavMode.Carousel;
         private bool _bLatch;
         private bool _aLatch;
+        private bool _rightLatch; // edge for GameList → SaveStates
         private int  _navDir;
         private int  _navHoldTicks;
 
         private const int NavRepeatDelayTicks = 4; // ~240ms before auto-repeat
         private const int NavRepeatRateTicks  = 2; // repeat every ~120ms while held
 
-        // ── TV video (VLC frames → WriteableBitmap, composited over the TV PNG) ──
+        // ── TV video ──
         private readonly DispatcherTimer _videoDebounce;
         private LibVLCSharp.Shared.MediaPlayer? _vlcPlayer;
         private WriteableBitmap? _videoBitmap;
         private IntPtr _videoBuffer;
         private bool _crossfadeDone;
         private bool _closed;
+        private int  _videoGen; // bumped on every stop/selection change to cancel in-flight video work
 
         public EmuTvWindow(ControllerManager? controller = null, DatabaseService? db = null)
         {
@@ -61,11 +63,10 @@ namespace Emutastic.Views
             PreviewKeyDown += OnPreviewKeyDown;
             SystemCarousel.SelectionChanged += (_, _) => OnCarouselSelectionChanged();
             GameList.SelectionChanged += (_, _) => OnGameSelectionChanged();
+            SaveList.SelectionChanged += (_, _) => CenterSaveSelected();
             Loaded += (_, _) => LoadConsoles();
             UpdateHint();
 
-            // Only spin up VLC once the selection settles, so fast scrolling shows
-            // instant box art (the bound fallback) without thrashing the player.
             _videoDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
             _videoDebounce.Tick += OnVideoDebounceTick;
 
@@ -80,7 +81,7 @@ namespace Emutastic.Views
             }
         }
 
-        // ── Data ──────────────────────────────────────────────────────────────
+        // ── Data: consoles ──────────────────────────────────────────────────────
         private void LoadConsoles()
         {
             var db = _db;
@@ -104,10 +105,7 @@ namespace Emutastic.Views
                         .ThenBy(cg => cg.ConsoleName, StringComparer.OrdinalIgnoreCase)
                         .ToList();
                 }
-                catch
-                {
-                    groups = new List<ConsoleGroup>();
-                }
+                catch { groups = new List<ConsoleGroup>(); }
 
                 Dispatcher.Invoke(() =>
                 {
@@ -118,74 +116,65 @@ namespace Emutastic.Views
                         SystemCarousel.SelectedIndex = 0;
                         OnCarouselSelectionChanged();
                     }
-                    else
-                    {
-                        StatusLabel.Text = "No games in your library yet.";
-                    }
+                    else StatusLabel.Text = "No games in your library yet.";
                 });
             });
         }
 
-        // ── Carousel ──────────────────────────────────────────────────────────
+        // ── Carousel (consoles) ─────────────────────────────────────────────────
         private void OnCarouselSelectionChanged()
         {
             SelectedConsoleLabel.Text = (SystemCarousel.SelectedItem as ConsoleGroup)?.ConsoleName ?? "";
-            CenterSelected();
+            CenterShift(SystemCarousel, ref _carouselShift, "CarouselShift", 340);
         }
 
         private TranslateTransform? _carouselShift;
+        private TranslateTransform? _saveShift;
 
-        // Keep the selected console centered by sliding the items panel (the
-        // CarouselShift TranslateTransform in the ListBox template). Deterministic —
-        // it directly moves the strip, so the selection always stays centered
-        // (the ScrollViewer approach wasn't following). Deferred to Loaded priority
-        // so the containers + ActualWidth are realized first.
-        private void CenterSelected()
+        // Slide a horizontal carousel's items panel so the selected item is centered.
+        private void CenterShift(ListBox list, ref TranslateTransform? cached, string transformName, double pitch)
         {
-            if (SystemCarousel.SelectedIndex < 0) return;
+            if (list.SelectedIndex < 0) return;
+            var captured = cached;
             Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
             {
-                _carouselShift ??= SystemCarousel.Template?.FindName("CarouselShift", SystemCarousel) as TranslateTransform;
-                if (_carouselShift == null) return;
-                double pitch = GetCarouselItemPitch();
-                double vw = SystemCarousel.ActualWidth;
-                if (pitch <= 0 || vw <= 0) return;
-                double target = vw / 2.0 - (SystemCarousel.SelectedIndex * pitch + pitch / 2.0);
+                captured ??= list.Template?.FindName(transformName, list) as TranslateTransform;
+                if (captured == null) return;
+                double vw = list.ActualWidth;
+                if (vw <= 0) return;
+                double target = vw / 2.0 - (list.SelectedIndex * pitch + pitch / 2.0);
                 var anim = new System.Windows.Media.Animation.DoubleAnimation(
                     target, TimeSpan.FromMilliseconds(180))
                 {
                     EasingFunction = new System.Windows.Media.Animation.CubicEase
                         { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut }
                 };
-                _carouselShift.BeginAnimation(TranslateTransform.XProperty, anim);
+                captured.BeginAnimation(TranslateTransform.XProperty, anim);
             }));
+            // Cache the resolved transform for next time.
+            if (cached == null)
+                cached = list.Template?.FindName(transformName, list) as TranslateTransform;
         }
 
-        private double GetCarouselItemPitch()
-        {
-            if (SystemCarousel.ItemContainerGenerator.ContainerFromIndex(
-                    Math.Max(0, SystemCarousel.SelectedIndex)) is ListBoxItem it && it.ActualWidth > 0)
-                return it.ActualWidth + it.Margin.Left + it.Margin.Right;
-            return 340; // 300 tile width + 20+20 margin (matches the XAML)
-        }
+        private void CenterSaveSelected() => CenterShift(SaveList, ref _saveShift, "SaveShift", 252);
 
         // ── Mode transitions ────────────────────────────────────────────────────
         private void OpenSelectedConsole()
         {
             if (SystemCarousel.SelectedItem is not ConsoleGroup cg || cg.Games.Count == 0) return;
 
-            // Switch to gamelist mode FIRST so the SelectedIndex change below arms
-            // the video debounce (which only runs while mode == GameList).
             _mode = NavMode.GameList;
             CarouselPanel.Visibility = Visibility.Collapsed;
             GameListPanel.Visibility = Visibility.Visible;
+            GameList.Opacity = 1.0;
+            SaveRow.Opacity = 0.5;
             UpdateHint();
 
             GameList.ItemsSource = cg.Games;
             GameListHeader.Text  = $"{cg.ConsoleName}  ·  {cg.TotalCount} games";
             GameList.SelectedIndex = 0;
             if (GameList.Items.Count > 0) GameList.ScrollIntoView(GameList.Items[0]);
-            OnGameSelectionChanged(); // guarantee the preview arms even if index 0 was unchanged
+            OnGameSelectionChanged();
         }
 
         private void BackToCarousel()
@@ -198,43 +187,110 @@ namespace Emutastic.Views
             UpdateHint();
         }
 
+        private void EnterSaveStates()
+        {
+            if (_mode != NavMode.GameList || SaveList.Items.Count == 0) return;
+            _mode = NavMode.SaveStates;
+            if (SaveList.SelectedIndex < 0) SaveList.SelectedIndex = 0;
+            GameList.Opacity = 0.5;
+            SaveRow.Opacity = 1.0;
+            UpdateHint();
+            // Consume the Right that brought us here so a continued hold doesn't
+            // immediately cycle off the first save.
+            _navDir = 1;
+            _navHoldTicks = 0;
+        }
+
+        private void ExitSaveStatesToList()
+        {
+            _mode = NavMode.GameList;
+            GameList.Opacity = 1.0;
+            SaveRow.Opacity = 0.5;
+            UpdateHint();
+            _navDir = 0;
+            _navHoldTicks = 0;
+        }
+
         private void UpdateHint() =>
-            HintLabel.Text = _mode == NavMode.Carousel
-                ? "◀ ▶  Navigate      A  Open      B  Back"
-                : "▲ ▼  Navigate      A  Play      B  Back";
+            HintLabel.Text = _mode switch
+            {
+                NavMode.Carousel   => "◀ ▶  Navigate      A  Open      B  Back",
+                NavMode.GameList   => "▲ ▼  Games      ▶  Save states      A  Play      B  Back",
+                _                  => "◀ ▶  Save states      A  Load      ◀  Back to games",
+            };
 
         private void OnAccept()
         {
             if (_mode == NavMode.Carousel) OpenSelectedConsole();
-            else if (GameList.SelectedItem is Game g) LaunchGame(g);
+            else if (_mode == NavMode.GameList && GameList.SelectedItem is Game g) LaunchGame(g);
+            else if (_mode == NavMode.SaveStates
+                     && GameList.SelectedItem is Game game
+                     && SaveList.SelectedItem is SaveState s)
+                LaunchGame(game, s.StatePath);
         }
 
         private void OnBack()
         {
-            if (_mode == NavMode.GameList) BackToCarousel();
-            else Close();
+            switch (_mode)
+            {
+                case NavMode.SaveStates: ExitSaveStatesToList(); break;
+                case NavMode.GameList:   BackToCarousel(); break;
+                default:                 Close(); break;
+            }
+        }
+
+        // ── Save states ──────────────────────────────────────────────────────────
+        // Load the selected game's saves OFF the UI thread, then bind if still current.
+        private void LoadSavesFor(Game g)
+        {
+            var db = _db;
+            Task.Run(() =>
+            {
+                List<SaveState> saves;
+                try { saves = db?.GetSaveStatesByGame(g.Id) ?? new List<SaveState>(); }
+                catch { saves = new List<SaveState>(); }
+
+                Dispatcher.Invoke(() =>
+                {
+                    if (_closed || !ReferenceEquals(GameList.SelectedItem, g)) return;
+                    SaveList.ItemsSource = saves;
+                    NoSavesLabel.Visibility = saves.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+                    if (saves.Count > 0) SaveList.SelectedIndex = 0;
+                });
+            });
+        }
+
+        private void MoveSave(int delta)
+        {
+            if (delta < 0 && SaveList.SelectedIndex <= 0) { ExitSaveStatesToList(); return; }
+            int n = SaveList.Items.Count;
+            if (n == 0) return;
+            int i = Math.Clamp(SaveList.SelectedIndex + delta, 0, n - 1);
+            if (i != SaveList.SelectedIndex) SaveList.SelectedIndex = i;
         }
 
         // ── TV preview video ────────────────────────────────────────────────────
-        // Selection changed: drop the current clip (the bound box art shows the new
-        // game instantly), then re-arm the debounce to play the new one once settled.
         private void OnGameSelectionChanged()
         {
             StopVideo();
             _videoDebounce.Stop();
-            if (_mode == NavMode.GameList && GameList.SelectedItem is Game)
+            if (_mode == NavMode.GameList && GameList.SelectedItem is Game g)
+            {
                 _videoDebounce.Start();
+                LoadSavesFor(g);
+            }
         }
 
         private void OnVideoDebounceTick(object? sender, EventArgs e)
         {
             _videoDebounce.Stop();
-            if (_closed || _mode != NavMode.GameList) return;
-            if (GameList.SelectedItem is Game g) _ = TryPlayVideoForAsync(g);
+            if (_closed || GameList.SelectedItem is not Game g) return;
+            _ = TryPlayVideoForAsync(g);
         }
 
         private async Task TryPlayVideoForAsync(Game g)
         {
+            int gen = _videoGen; // this request's generation; if it changes, we've moved on
             try
             {
                 var ss = new ScreenScraperService();
@@ -242,10 +298,6 @@ namespace Emutastic.Views
 
                 if (string.IsNullOrEmpty(path))
                 {
-                    // Not cached yet — auto-download in the background if ScreenScraper
-                    // is configured, the same way the desktop detail card does. Saves
-                    // users from opening every game manually to seed snaps. (No hash →
-                    // nothing to look up.)
                     var snap = App.Configuration?.GetSnapConfiguration();
                     if (snap is { ScreenScraperEnabled: true }
                         && !string.IsNullOrWhiteSpace(snap.ScreenScraperUser)
@@ -260,18 +312,17 @@ namespace Emutastic.Views
                         }
                         finally
                         {
-                            if (ReferenceEquals(GameList.SelectedItem, g)) SetTvDownloading(false);
+                            if (gen == _videoGen) SetTvDownloading(false);
                         }
                     }
                 }
 
+                // Selection moved on while we were resolving/downloading → abandon.
+                if (gen != _videoGen || _closed) return;
                 if (string.IsNullOrEmpty(path) || !System.IO.File.Exists(path)) return;
+                if (!ReferenceEquals(GameList.SelectedItem, g)) return;
 
-                // Selection may have moved during a download — only play if still current.
-                if (_closed || _mode != NavMode.GameList
-                    || !ReferenceEquals(GameList.SelectedItem, g)) return;
-
-                await PlayTvVideoAsync(path, g);
+                await PlayTvVideoAsync(path, g, gen);
             }
             catch { /* cosmetic */ }
         }
@@ -279,11 +330,13 @@ namespace Emutastic.Views
         private void SetTvDownloading(bool on) =>
             TvStandByImage.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
 
-        private async Task PlayTvVideoAsync(string mp4Path, Game forGame)
+        private async Task PlayTvVideoAsync(string mp4Path, Game forGame, int gen)
         {
+            if (gen != _videoGen || _closed) return;
+
             _crossfadeDone = false;
 
-            const int w = 320, h = 240;       // ScreenScraper snaps are 320x240
+            const int w = 320, h = 240;
             int stride = w * 4;
 
             if (_videoBuffer != IntPtr.Zero) Marshal.FreeHGlobal(_videoBuffer);
@@ -291,9 +344,12 @@ namespace Emutastic.Views
             _videoBitmap = new WriteableBitmap(w, h, 96, 96, PixelFormats.Bgr32, null);
             TvVideoImage.Source = _videoBitmap;
 
-            IntPtr bufferPtr = _videoBuffer;
+            // Per-play locals so each player only ever touches ITS OWN buffer/bitmap.
+            IntPtr localBuffer = _videoBuffer;
+            WriteableBitmap localBitmap = _videoBitmap;
 
             var libVLC = await VideoPlaybackService.Instance.GetLibVLCAsync();
+            if (gen != _videoGen || _closed) return;
 
             await Task.Run(() =>
             {
@@ -301,28 +357,25 @@ namespace Emutastic.Views
                 player.SetVideoFormat("RV32", (uint)w, (uint)h, (uint)stride);
 
                 player.SetVideoCallbacks(
-                    (IntPtr opaque, IntPtr planes) => { Marshal.WriteIntPtr(planes, bufferPtr); return IntPtr.Zero; },
+                    (IntPtr opaque, IntPtr planes) => { Marshal.WriteIntPtr(planes, localBuffer); return IntPtr.Zero; },
                     null,
                     (IntPtr opaque, IntPtr picture) =>
                     {
                         Dispatcher.BeginInvoke(() =>
                         {
-                            if (_videoBitmap == null || _videoBuffer == IntPtr.Zero) return;
-                            _videoBitmap.Lock();
+                            // Only blit if this play is still the current one AND its bitmap
+                            // is still the live one — stops a stale player flickering in.
+                            if (_closed || gen != _videoGen || !ReferenceEquals(_videoBitmap, localBitmap)) return;
+                            localBitmap.Lock();
                             unsafe
                             {
                                 Buffer.MemoryCopy(
-                                    (void*)_videoBuffer, (void*)_videoBitmap.BackBuffer,
+                                    (void*)localBuffer, (void*)localBitmap.BackBuffer,
                                     (long)stride * h, (long)stride * h);
                             }
-                            _videoBitmap.AddDirtyRect(new Int32Rect(0, 0, w, h));
-                            _videoBitmap.Unlock();
-
-                            if (!_crossfadeDone)
-                            {
-                                _crossfadeDone = true;
-                                TvVideoImage.Visibility = Visibility.Visible;
-                            }
+                            localBitmap.AddDirtyRect(new Int32Rect(0, 0, w, h));
+                            localBitmap.Unlock();
+                            if (!_crossfadeDone) { _crossfadeDone = true; TvVideoImage.Visibility = Visibility.Visible; }
                         });
                     });
 
@@ -343,10 +396,13 @@ namespace Emutastic.Views
                 {
                     Dispatcher.Invoke(() =>
                     {
-                        // Selection may have moved while we were spinning up — only
-                        // commit if this is still the chosen game and we're still live.
-                        if (_closed || _mode != NavMode.GameList
-                            || !ReferenceEquals(GameList.SelectedItem, forGame)) return;
+                        if (_closed || gen != _videoGen || !ReferenceEquals(GameList.SelectedItem, forGame)) return;
+                        // Never orphan a live player — dispose whatever's held before replacing.
+                        if (_vlcPlayer != null)
+                        {
+                            try { _vlcPlayer.Stop(); } catch { }
+                            try { _vlcPlayer.Dispose(); } catch { }
+                        }
                         _vlcPlayer = player;
                         player.Play(media);
                         keep = true;
@@ -360,6 +416,7 @@ namespace Emutastic.Views
 
         private void StopVideo()
         {
+            _videoGen++; // cancel any in-flight fetch/play for the previous selection
             var p = _vlcPlayer;
             _vlcPlayer = null;
             if (p != null)
@@ -368,12 +425,12 @@ namespace Emutastic.Views
                 try { p.Dispose(); } catch { }
             }
             _crossfadeDone = false;
-            TvVideoImage.Visibility = Visibility.Collapsed; // fall back to the bound box art
+            TvVideoImage.Visibility = Visibility.Collapsed;
             TvStandByImage.Visibility = Visibility.Collapsed;
         }
 
-        // ── Launch (reuses the desktop path exactly) ────────────────────────────
-        private void LaunchGame(Game game)
+        // ── Launch (reuses the desktop path; optional save-state to load) ─────────
+        private void LaunchGame(Game game, string? statePath = null)
         {
             try
             {
@@ -393,28 +450,33 @@ namespace Emutastic.Views
                     return;
                 }
 
-                // Free the preview's VLC + pause our input polling while the game runs.
                 StopVideo();
                 _videoDebounce.Stop();
                 _inputTimer?.Stop();
 
                 string corePath = coreManager.GetCorePathForGame(game)!;
-                EmulatorWindow.FreeStaleDll(); // must be BEFORE LoadLibrary
+                EmulatorWindow.FreeStaleDll();
                 var core = new LibretroCore(corePath);
-                var emulator = new EmulatorWindow(game, core) { Owner = this, StartInFullscreen = true };
+                var emulator = new EmulatorWindow(game, core, statePath)
+                    { Owner = this, StartInFullscreen = true };
 
                 try { emulator.ShowDialog(); }
                 finally
                 {
-                    // Require a fresh A/B press before they act again (buttons may
-                    // still be held from the in-game quit chord), then replay the
-                    // current selection's preview.
                     _aLatch = true;
                     _bLatch = true;
+                    _rightLatch = true;
                     _navDir = 0;
                     _navHoldTicks = 0;
                     _inputTimer?.Start();
-                    OnGameSelectionChanged();
+                    // Refresh preview + saves (a new save may have been made in-game),
+                    // regardless of which zone we launched from.
+                    if (GameList.SelectedItem is Game refreshGame)
+                    {
+                        _videoDebounce.Stop();
+                        _videoDebounce.Start();
+                        LoadSavesFor(refreshGame);
+                    }
                 }
             }
             catch (Exception ex)
@@ -433,10 +495,17 @@ namespace Emutastic.Views
                 case Key.Escape:
                 case Key.Back:  e.Handled = true; OnBack(); break;
                 case Key.Enter: e.Handled = true; OnAccept(); break;
-                case Key.Left:  if (_mode == NavMode.Carousel) { e.Handled = true; MoveCarousel(-1); } break;
-                case Key.Right: if (_mode == NavMode.Carousel) { e.Handled = true; MoveCarousel(1);  } break;
-                case Key.Up:    if (_mode == NavMode.GameList)  { e.Handled = true; MoveGameList(-1); } break;
-                case Key.Down:  if (_mode == NavMode.GameList)  { e.Handled = true; MoveGameList(1);  } break;
+                case Key.Left:
+                    if (_mode == NavMode.Carousel)   { e.Handled = true; MoveCarousel(-1); }
+                    else if (_mode == NavMode.SaveStates) { e.Handled = true; MoveSave(-1); }
+                    break;
+                case Key.Right:
+                    if (_mode == NavMode.Carousel)   { e.Handled = true; MoveCarousel(1); }
+                    else if (_mode == NavMode.GameList)   { e.Handled = true; EnterSaveStates(); }
+                    else if (_mode == NavMode.SaveStates) { e.Handled = true; MoveSave(1); }
+                    break;
+                case Key.Up:    if (_mode == NavMode.GameList) { e.Handled = true; MoveGameList(-1); } break;
+                case Key.Down:  if (_mode == NavMode.GameList) { e.Handled = true; MoveGameList(1);  } break;
             }
         }
 
@@ -452,6 +521,16 @@ namespace Emutastic.Views
             if (a && !_aLatch) { _aLatch = true; OnAccept(); return; }
             if (!a) _aLatch = false;
 
+            // GameList: Right (edge) enters the save states.
+            if (_mode == NavMode.GameList)
+            {
+                bool right = _controller.IsRawXInputButtonDown(ControllerManager.RAW_DPAD_RIGHT)
+                             || _controller.GetButtonState(ControllerManager.ANALOG_LEFT_RIGHT);
+                if (right && !_rightLatch) { _rightLatch = true; EnterSaveStates(); return; }
+                if (!right) _rightLatch = false;
+            }
+
+            // Directional nav with hold-to-repeat (axis depends on mode).
             int dir;
             if (_mode == NavMode.Carousel)
             {
@@ -461,13 +540,21 @@ namespace Emutastic.Views
                          || _controller.GetButtonState(ControllerManager.ANALOG_LEFT_RIGHT);
                 dir = r ? 1 : l ? -1 : 0;
             }
-            else
+            else if (_mode == NavMode.GameList)
             {
                 bool u = _controller.IsRawXInputButtonDown(ControllerManager.RAW_DPAD_UP)
                          || _controller.GetButtonState(ControllerManager.ANALOG_LEFT_UP);
                 bool d = _controller.IsRawXInputButtonDown(ControllerManager.RAW_DPAD_DOWN)
                          || _controller.GetButtonState(ControllerManager.ANALOG_LEFT_DOWN);
                 dir = d ? 1 : u ? -1 : 0;
+            }
+            else // SaveStates
+            {
+                bool l = _controller.IsRawXInputButtonDown(ControllerManager.RAW_DPAD_LEFT)
+                         || _controller.GetButtonState(ControllerManager.ANALOG_LEFT_LEFT);
+                bool r = _controller.IsRawXInputButtonDown(ControllerManager.RAW_DPAD_RIGHT)
+                         || _controller.GetButtonState(ControllerManager.ANALOG_LEFT_RIGHT);
+                dir = r ? 1 : l ? -1 : 0;
             }
 
             if (dir == 0) { _navDir = 0; _navHoldTicks = 0; return; }
@@ -489,8 +576,12 @@ namespace Emutastic.Views
 
         private void ApplyMove(int dir)
         {
-            if (_mode == NavMode.Carousel) MoveCarousel(dir);
-            else MoveGameList(dir);
+            switch (_mode)
+            {
+                case NavMode.Carousel:   MoveCarousel(dir); break;
+                case NavMode.GameList:   MoveGameList(dir); break;
+                case NavMode.SaveStates: MoveSave(dir); break;
+            }
         }
 
         private void MoveCarousel(int delta)
@@ -520,28 +611,12 @@ namespace Emutastic.Views
             _videoDebounce.Stop();
             StopVideo();
 
-            // Display callbacks marshal via BeginInvoke and can outlive Stop(); zero
-            // the guards before freeing so any in-flight blit bails instead of writing
-            // into freed memory.
             _videoBitmap = null;
             var buf = _videoBuffer;
             _videoBuffer = IntPtr.Zero;
             if (buf != IntPtr.Zero) Marshal.FreeHGlobal(buf);
 
             base.OnClosed(e);
-        }
-
-        private static T? FindChild<T>(DependencyObject parent) where T : DependencyObject
-        {
-            int count = VisualTreeHelper.GetChildrenCount(parent);
-            for (int i = 0; i < count; i++)
-            {
-                var child = VisualTreeHelper.GetChild(parent, i);
-                if (child is T t) return t;
-                var deeper = FindChild<T>(child);
-                if (deeper != null) return deeper;
-            }
-            return null;
         }
     }
 }

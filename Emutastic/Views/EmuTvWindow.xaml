@@ -36,15 +36,9 @@
                      HorizontalAlignment="Stretch" VerticalAlignment="Center"
                      Height="240" Margin="0,30,0,0"
                      Focusable="False">
-                <!-- No ScrollViewer: items overflow and are clipped; code slides the
-                     CarouselShift transform so the selected tile stays centered. -->
                 <ListBox.Template>
                     <ControlTemplate TargetType="ListBox">
                         <Grid ClipToBounds="True">
-                            <!-- Canvas gives the presenter INFINITE measure width and never
-                                 clips it, so every tile realizes + renders no matter how far
-                                 right. The parent Grid's ClipToBounds is the visible window;
-                                 Canvas.Top vertically centers the 180-tall tiles in the strip. -->
                             <Canvas>
                                 <ItemsPresenter Canvas.Left="0" Canvas.Top="30">
                                     <ItemsPresenter.RenderTransform>
@@ -71,9 +65,7 @@
                         </Setter>
                         <Setter Property="Template">
                             <Setter.Value>
-                                <ControlTemplate TargetType="ListBoxItem">
-                                    <ContentPresenter/>
-                                </ControlTemplate>
+                                <ControlTemplate TargetType="ListBoxItem"><ContentPresenter/></ControlTemplate>
                             </Setter.Value>
                         </Setter>
                         <Style.Triggers>
@@ -116,7 +108,7 @@
                        Text="Loading library…"/>
         </Grid>
 
-        <!-- ===== Gamelist view (list on the left, TV preview on the right) ===== -->
+        <!-- ===== Gamelist view: list (left) + TV & save-states (right) ===== -->
         <Grid x:Name="GameListPanel" Visibility="Collapsed" Margin="0,114,0,92">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="42*"/>
@@ -181,40 +173,123 @@
                 </ListBox>
             </Grid>
 
-            <!-- Right: TV preview. Canvas is at the image's native resolution so the
-                 video sits exactly over the (non-transparent) screen at any scale;
-                 the Viewbox scales the whole assembly together.
-                 SCREEN RECT (tweak these 4 numbers if the video doesn't line up):
-                 Canvas.Left/Top = top-left of the screen; Width/Height = its size. -->
-            <Viewbox Grid.Column="1" Stretch="Uniform" Margin="10,6,40,6">
-                <Canvas Width="1408" Height="768">
-                    <!-- Screen content sits BEHIND the TV and shows through the transparent
-                         cutout. Rect = the enclosed transparent region of proper_tv2.png,
-                         found via alpha flood-fill (Left/Top + Width/Height). -->
-                    <Border Canvas.Left="445" Canvas.Top="286" Width="415" Height="322"
-                            ClipToBounds="True" Background="#FF050608">
-                        <Grid>
-                            <!-- Fallback: the game's 2D cover, scaled to fit. Shown while
-                                 scrolling and whenever there's no cached video snap. -->
-                            <Image x:Name="TvFallbackImage" Stretch="Uniform"
-                                   Source="{Binding SelectedItem.CoverArtPath, ElementName=GameList,
-                                            Converter={StaticResource PathToImage}}"/>
-                            <!-- Video layer (VLC frames → WriteableBitmap), fills the screen.
-                                 Hidden until the first frame renders. -->
-                            <Image x:Name="TvVideoImage" Stretch="UniformToFill" Visibility="Collapsed"/>
-                            <!-- "Please Stand By" test card shown while auto-downloading a snap. -->
-                            <Image x:Name="TvStandByImage" Stretch="UniformToFill" Visibility="Collapsed"
-                                   Source="pack://application:,,,/Assets/images/emutv/please_stand_by2.png"
-                                   RenderOptions.BitmapScalingMode="HighQuality"/>
-                        </Grid>
-                    </Border>
-                    <!-- TV frame ON TOP; its transparent screen reveals the layer behind. -->
-                    <Image Source="pack://application:,,,/Assets/images/emutv/proper_tv2.png"
-                           Width="1408" Height="768" Canvas.Left="0" Canvas.Top="0"
+            <!-- Right: TV preview (top) + save-state browser (bottom) -->
+            <Grid Grid.Column="1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="196"/>
+                </Grid.RowDefinitions>
+
+                <!-- TV preview -->
+                <Viewbox Grid.Row="0" Stretch="Uniform" Margin="10,6,40,2">
+                    <Canvas Width="1408" Height="768">
+                        <!-- Screen content sits BEHIND the TV and shows through the
+                             transparent cutout (rect from alpha flood-fill). -->
+                        <Border Canvas.Left="445" Canvas.Top="286" Width="415" Height="322"
+                                ClipToBounds="True" Background="#FF050608">
+                            <Grid>
+                                <!-- Fallback: the game's 2D cover, scaled to fit. -->
+                                <Image x:Name="TvFallbackImage" Stretch="Uniform"
+                                       Source="{Binding SelectedItem.CoverArtPath, ElementName=GameList,
+                                                Converter={StaticResource PathToImage}}"/>
+                                <!-- Video layer (VLC frames → WriteableBitmap). -->
+                                <Image x:Name="TvVideoImage" Stretch="UniformToFill" Visibility="Collapsed"/>
+                                <!-- "Please Stand By" while auto-downloading a snap. -->
+                                <Image x:Name="TvStandByImage" Stretch="UniformToFill" Visibility="Collapsed"
+                                       Source="pack://application:,,,/Assets/images/emutv/please_stand_by2.png"
+                                       RenderOptions.BitmapScalingMode="HighQuality"/>
+                            </Grid>
+                        </Border>
+                        <!-- TV frame ON TOP; transparent screen reveals the layer behind. -->
+                        <Image Source="pack://application:,,,/Assets/images/emutv/proper_tv2.png"
+                               Width="1408" Height="768" Canvas.Left="0" Canvas.Top="0"
+                               RenderOptions.BitmapScalingMode="HighQuality"/>
+                    </Canvas>
+                </Viewbox>
+
+                <!-- Save-state browser: VCR-tape label (left) + saves carousel (right).
+                     Dimmed when the game list has focus; full when focused (Right). -->
+                <Grid Grid.Row="1" x:Name="SaveRow" Margin="10,2,40,6" Opacity="0.5">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Image Grid.Column="0"
+                           Source="pack://application:,,,/Assets/images/emutv/save_states.png"
+                           Width="208" Stretch="Uniform"
+                           HorizontalAlignment="Left" VerticalAlignment="Center" Margin="0,0,14,0"
                            RenderOptions.BitmapScalingMode="HighQuality"/>
-                </Canvas>
-            </Viewbox>
-        </Grid>
+
+                    <Grid Grid.Column="1">
+                        <TextBlock x:Name="NoSavesLabel" Text="No save states yet"
+                                   HorizontalAlignment="Left" VerticalAlignment="Center"
+                                   FontSize="18" Opacity="0.6" Foreground="#FF8FE3FF"/>
+                        <ListBox x:Name="SaveList"
+                                 Background="Transparent" BorderThickness="0"
+                                 HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                                 Height="160" Focusable="False">
+                            <ListBox.Template>
+                                <ControlTemplate TargetType="ListBox">
+                                    <Grid ClipToBounds="True">
+                                        <Canvas>
+                                            <ItemsPresenter Canvas.Left="0" Canvas.Top="5">
+                                                <ItemsPresenter.RenderTransform>
+                                                    <TranslateTransform x:Name="SaveShift"/>
+                                                </ItemsPresenter.RenderTransform>
+                                            </ItemsPresenter>
+                                        </Canvas>
+                                    </Grid>
+                                    </ControlTemplate>
+                                </ListBox.Template>
+                                <ListBox.ItemsPanel>
+                                    <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+                                </ListBox.ItemsPanel>
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem">
+                                        <Setter Property="Margin" Value="10,0"/>
+                                        <Setter Property="Focusable" Value="False"/>
+                                        <Setter Property="Opacity" Value="0.55"/>
+                                        <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
+                                        <Setter Property="RenderTransform">
+                                            <Setter.Value><ScaleTransform ScaleX="0.9" ScaleY="0.9"/></Setter.Value>
+                                        </Setter>
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="ListBoxItem"><ContentPresenter/></ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                        <Style.Triggers>
+                                            <Trigger Property="IsSelected" Value="True">
+                                                <Setter Property="Opacity" Value="1"/>
+                                                <Setter Property="RenderTransform">
+                                                    <Setter.Value><ScaleTransform ScaleX="1.0" ScaleY="1.0"/></Setter.Value>
+                                                </Setter>
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Width="232" Height="150" CornerRadius="10"
+                                                Background="#22000000" BorderBrush="#5500E5FF" BorderThickness="1.5">
+                                            <Grid>
+                                                <Image Source="{Binding ScreenshotPath, Converter={StaticResource PathToImage}}"
+                                                       Stretch="UniformToFill"/>
+                                                <Border VerticalAlignment="Bottom" Background="#99000000" Padding="8,3">
+                                                    <TextBlock Foreground="#FFEAF6FF" FontSize="13"
+                                                               Text="{Binding RelativeTime}"
+                                                               TextTrimming="CharacterEllipsis"/>
+                                                </Border>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Grid>
+                    </Grid>
+                </Grid>
+            </Grid>
 
         <!-- Hint bar (text updated per view) -->
         <Border VerticalAlignment="Bottom" HorizontalAlignment="Center"

@@ -4090,7 +4090,13 @@ namespace Emutastic.Views
                     group.Children.Add(new RotateTransform(-(int)effectiveRotation * 90.0));
                 GameScreen.LayoutTransform = group;
 
-                if (!_windowSized)
+                if (_isFullscreen)
+                {
+                    // Fullscreen: the window fills the screen, so constrain the viewport
+                    // to the game AR (black bars) rather than resizing the window.
+                    ApplyFullscreenAspect();
+                }
+                else if (!_windowSized)
                 {
                     _windowSized = true;
                     AutoSizeWindowToGameAr(displayAr);   // bezel-aware when a bezel is active
@@ -4173,6 +4179,55 @@ namespace Emutastic.Views
             double gameH   = gameW / displayAr;
 
             Height = Math.Max(gameH + chromeH, 200);
+        }
+
+        // Maintain the game's aspect ratio in fullscreen. The window is forced to the
+        // screen's AR, so center GameViewport at the game AR and let GameBorder's black
+        // background form the letterbox/pillarbox bars. Both the software WriteableBitmap
+        // and the HW overlay render into GameViewport, so this corrects every core path
+        // where the AR is known (WindowAr > 0). Windowed mode shapes the window itself,
+        // so there the viewport simply fills it.
+        private void ApplyFullscreenAspect()
+        {
+            if (_isFullscreen)
+            {
+                double ar    = WindowAr;
+                double availW = GameBorder.ActualWidth;
+                double availH = GameBorder.ActualHeight;
+                if (ar > 0.01 && availW > 1 && availH > 1)
+                {
+                    double rectW, rectH;
+                    if (availW / availH > ar) { rectH = availH; rectW = availH * ar; } // pillarbox
+                    else                      { rectW = availW; rectH = availW / ar; } // letterbox
+                    GameViewport.HorizontalAlignment = HorizontalAlignment.Center;
+                    GameViewport.VerticalAlignment   = VerticalAlignment.Center;
+                    GameViewport.Width  = rectW;
+                    GameViewport.Height = rectH;
+                }
+                else
+                {
+                    // AR/size not known yet — fill for now; re-applied when AR arrives.
+                    GameViewport.HorizontalAlignment = HorizontalAlignment.Stretch;
+                    GameViewport.VerticalAlignment   = VerticalAlignment.Stretch;
+                    GameViewport.Width  = double.NaN;
+                    GameViewport.Height = double.NaN;
+                }
+            }
+            else
+            {
+                GameViewport.HorizontalAlignment = HorizontalAlignment.Stretch;
+                GameViewport.VerticalAlignment   = VerticalAlignment.Stretch;
+                GameViewport.Width  = double.NaN;
+                GameViewport.Height = double.NaN;
+            }
+
+            // Re-place the separate HW overlay window(s) over the new viewport rect after
+            // layout settles. Embedded HwndHost children resize with the viewport directly.
+            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, new Action(() =>
+            {
+                try { RepositionOverlayWindow(); } catch { }
+                try { RepositionVulkanHud(); } catch { }
+            }));
         }
 
         // =========================================================================
@@ -8884,6 +8939,8 @@ namespace Emutastic.Views
 
                 _isFullscreen = true;
             }
+
+            ApplyFullscreenAspect();
         }
 
         private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
