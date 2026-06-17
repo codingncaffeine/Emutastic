@@ -45,6 +45,14 @@ namespace Emutastic.Views
         private const int NavRepeatDelayTicks = 4; // ~240ms before auto-repeat
         private const int NavRepeatRateTicks  = 2; // repeat every ~120ms while held
 
+        // L1/R1 page-jump through the gamelist, accelerating on hold.
+        private int  _pageDir;
+        private int  _pageHoldTicks;
+        private const int PageRepeatDelayTicks = 5; // ~300ms before auto-repeat
+        private const int PageRepeatStartTicks = 3; // initial repeat interval (~180ms)
+        private const int PageRepeatMinTicks   = 1; // fastest repeat (~60ms)
+        private const int PageRampEveryTicks   = 6; // shrink interval every N held ticks
+
         // ── TV video ──
         private readonly DispatcherTimer _videoDebounce;
         private LibVLCSharp.Shared.MediaPlayer? _vlcPlayer;
@@ -506,6 +514,8 @@ namespace Emutastic.Views
                     break;
                 case Key.Up:    if (_mode == NavMode.GameList) { e.Handled = true; MoveGameList(-1); } break;
                 case Key.Down:  if (_mode == NavMode.GameList) { e.Handled = true; MoveGameList(1);  } break;
+                case Key.PageUp:   if (_mode == NavMode.GameList) { e.Handled = true; MovePageGameList(-1); } break;
+                case Key.PageDown: if (_mode == NavMode.GameList) { e.Handled = true; MovePageGameList(1);  } break;
             }
         }
 
@@ -528,6 +538,26 @@ namespace Emutastic.Views
                              || _controller.GetButtonState(ControllerManager.ANALOG_LEFT_RIGHT);
                 if (right && !_rightLatch) { _rightLatch = true; EnterSaveStates(); return; }
                 if (!right) _rightLatch = false;
+            }
+
+            // GameList: L1/R1 page-jump through the library, accelerating on hold.
+            if (_mode == NavMode.GameList)
+            {
+                bool r1 = _controller.IsRawXInputButtonDown(ControllerManager.RAW_RB); // page down
+                bool l1 = _controller.IsRawXInputButtonDown(ControllerManager.RAW_LB); // page up
+                int pdir = r1 ? 1 : l1 ? -1 : 0;
+                if (pdir == 0) { _pageDir = 0; _pageHoldTicks = 0; }
+                else if (pdir != _pageDir) { _pageDir = pdir; _pageHoldTicks = 0; MovePageGameList(pdir); }
+                else
+                {
+                    _pageHoldTicks++;
+                    if (_pageHoldTicks >= PageRepeatDelayTicks)
+                    {
+                        int held = _pageHoldTicks - PageRepeatDelayTicks;
+                        int interval = Math.Max(PageRepeatMinTicks, PageRepeatStartTicks - held / PageRampEveryTicks);
+                        if (held % interval == 0) MovePageGameList(pdir);
+                    }
+                }
             }
 
             // Directional nav with hold-to-repeat (axis depends on mode).
@@ -602,6 +632,27 @@ namespace Emutastic.Views
                 GameList.SelectedIndex = i;
                 GameList.ScrollIntoView(GameList.Items[i]);
             }
+        }
+
+        private void MovePageGameList(int dir)
+        {
+            int n = GameList.Items.Count;
+            if (n == 0) return;
+            int page = GetGameListPageSize();
+            int i = Math.Clamp(GameList.SelectedIndex + dir * page, 0, n - 1);
+            if (i != GameList.SelectedIndex)
+            {
+                GameList.SelectedIndex = i;
+                GameList.ScrollIntoView(GameList.Items[i]);
+            }
+        }
+
+        // One "page" ≈ a screenful of rows (row ≈ 58 + 6 margin). Computed from the
+        // list's height so it scales with resolution; clamped to a sane range.
+        private int GetGameListPageSize()
+        {
+            int page = (int)(GameList.ActualHeight / 64.0);
+            return Math.Clamp(page, 4, 40);
         }
 
         protected override void OnClosed(EventArgs e)

@@ -550,6 +550,12 @@ namespace Emutastic.Views
         private volatile int _diskSwapKeyB = -1;
         private uint _diskSwapCtrlA = uint.MaxValue;
         private uint _diskSwapCtrlB = uint.MaxValue;
+
+        // EmuTV save/load hotkey bindings (single controller button id; MaxValue =
+        // unset → defaults L3/R2/L2). Loaded per-console in LoadKeyboardMappings.
+        private uint _hotkeyModCtrl = uint.MaxValue; // modifier, default L3 (14)
+        private uint _saveCtrl      = uint.MaxValue; // save,     default R2 (13)
+        private uint _loadCtrl      = uint.MaxValue; // load,     default L2 (12)
         private bool _diskSwapPrevHeld;
         private volatile bool _diskSwapKeyAHeld;
         private volatile bool _diskSwapKeyBHeld;
@@ -4766,6 +4772,7 @@ namespace Emutastic.Views
         private void OnInputPoll()
         {
             PollDiskSwap();
+            PollHotkeys();
             // Decrement the FDS L-injection counter once per polled frame so the
             // simulated press lasts a fixed wall-clock duration regardless of how
             // many id-queries the core makes in that frame.
@@ -4845,6 +4852,19 @@ namespace Emutastic.Views
             // but ControllerManager populates _buttonStates regardless of mapping
             // for those specific ids (lines 332-335 in ControllerManager.cs).
             return libretroId < 24 && ctl.GetButtonState(libretroId);
+        }
+
+        // Raw, mapping-independent "is this libretro button physically held", for
+        // frontend hotkeys. Triggers (L2/R2 = 12/13) read the raw analog value rather
+        // than _buttonStates — which is empty for ids a console doesn't map (e.g. SNES
+        // has no L2/R2, so GetButtonState(13) is always false). Everything else uses
+        // the raw wButtons bit.
+        private static bool IsRawButtonHeld(ControllerManager ctl, uint libretroId)
+        {
+            if (libretroId == 12) return ctl.IsRawTriggerDown(false); // L2
+            if (libretroId == 13) return ctl.IsRawTriggerDown(true);  // R2
+            ushort mask = LibretroIdToRawXInputMask(libretroId);
+            return mask != 0 && ctl.IsRawXInputButtonDown(mask);
         }
 
         private void PollDiskSwap()
@@ -4936,6 +4956,101 @@ namespace Emutastic.Views
             {
                 _quitChordFrames = 0;
             }
+        }
+
+        // ── EmuTV save/load hotkeys ───────────────────────────────────────────────
+        // Hold the modifier (default L3) ~1s to "arm", then a trigger fires an action:
+        //   R2 = Save (new state),  L2 = Load latest.
+        // R3 is gated out so this never collides with the L3+R3+L2+R2 quit chord.
+        // Stage 2 will read per-system bindings; for now the defaults are hardcoded.
+        private long _hotkeyArmSince;     // TickCount64 when the modifier went down (0 = up)
+        private bool _hotkeyArmed;
+        private bool _saveHotkeyLatch;
+        private bool _loadHotkeyLatch;
+        private const long HotkeyHoldMs = 1000;
+
+        private void PollHotkeys()
+        {
+            var ctl0 = _controllers[0];
+            bool connected = ctl0 != null && ctl0.IsConnected;
+
+            // Per-console bindings (defaults: modifier L3=14, save R2=13, load L2=12).
+            // R3 (15) held means the user is doing the quit chord, so stay out of the way.
+            uint modId  = _hotkeyModCtrl != uint.MaxValue ? _hotkeyModCtrl : 14;
+            uint saveId = _saveCtrl      != uint.MaxValue ? _saveCtrl      : 13;
+            uint loadId = _loadCtrl      != uint.MaxValue ? _loadCtrl      : 12;
+
+            bool modifier = connected && IsRawButtonHeld(ctl0!, modId);
+            // Quit-chord guard: stay out of the way while R3 is held (the quit chord is
+            // L3+R3+L2+R2) — UNLESS the user bound a hotkey to R3 itself, in which case
+            // R3 is legitimately the modifier/action and must not self-cancel.
+            bool r3IsHotkey = modId == 15 || saveId == 15 || loadId == 15;
+            bool r3Held     = connected && !r3IsHotkey && IsRawButtonHeld(ctl0!, 15);
+
+            if (!modifier || r3Held)
+            {
+                _hotkeyArmSince  = 0;
+                _hotkeyArmed     = false;
+                _saveHotkeyLatch = false;
+                _loadHotkeyLatch = false;
+                return;
+            }
+
+            if (_hotkeyArmSince == 0) _hotkeyArmSince = Environment.TickCount64;
+            if (Environment.TickCount64 - _hotkeyArmSince < HotkeyHoldMs) return; // still arming
+
+            if (!_hotkeyArmed)
+            {
+                _hotkeyArmed = true;
+                Dispatcher.BeginInvoke(() => ShowHotkeyToast("Hotkeys armed     R2  Save      L2  Load"));
+            }
+
+            bool save = IsRawButtonHeld(ctl0!, saveId);
+            bool load = IsRawButtonHeld(ctl0!, loadId);
+
+            if (save && !_saveHotkeyLatch)
+            {
+                _saveHotkeyLatch = true;
+                Dispatcher.BeginInvoke(() =>
+                {
+                    RequestSave(DateTime.Now.ToString("yyyy-MM-dd HH.mm.ss"));
+                    ShowHotkeyToast("State saved");
+                });
+            }
+            if (!save) _saveHotkeyLatch = false;
+
+            if (load && !_loadHotkeyLatch)
+            {
+                _loadHotkeyLatch = true;
+                Dispatcher.BeginInvoke(() =>
+                {
+                    var latest = _db?.GetSaveStatesByGame(_game.Id)
+                                    ?.OrderByDescending(s => s.CreatedAt).FirstOrDefault();
+                    if (latest != null) { RequestLoad(latest.StatePath, "Load Latest"); ShowHotkeyToast("Loaded latest save"); }
+                    else ShowHotkeyToast("No save states yet");
+                });
+            }
+            if (!load) _loadHotkeyLatch = false;
+        }
+
+        // Save/load hotkey feedback that shows OVER the game, so it's visible in
+        // fullscreen (where the status-bar StatusText is collapsed to zero height).
+        private System.Windows.Threading.DispatcherTimer? _hotkeyToastTimer;
+        private void ShowHotkeyToast(string text)
+        {
+            HotkeyToastText.Text   = text;
+            HotkeyToast.Visibility = Visibility.Visible;
+            _hotkeyToastTimer ??= new System.Windows.Threading.DispatcherTimer();
+            _hotkeyToastTimer.Stop();
+            _hotkeyToastTimer.Interval = TimeSpan.FromSeconds(2);
+            _hotkeyToastTimer.Tick -= HotkeyToastTick;
+            _hotkeyToastTimer.Tick += HotkeyToastTick;
+            _hotkeyToastTimer.Start();
+        }
+        private void HotkeyToastTick(object? sender, EventArgs e)
+        {
+            _hotkeyToastTimer?.Stop();
+            HotkeyToast.Visibility = Visibility.Collapsed;
         }
 
         // Show a transient disk-swap status message and auto-revert after 3 s.
@@ -5731,6 +5846,7 @@ namespace Emutastic.Views
                     : _configService.GetInputConfiguration(_game.Console); // fallback for legacy saves
                 _diskSwapKeyA = _diskSwapKeyB = -1;
                 _diskSwapCtrlA = _diskSwapCtrlB = uint.MaxValue;
+                _hotkeyModCtrl = _saveCtrl = _loadCtrl = uint.MaxValue;
                 // Clear any stale held-state from a previous binding. Prevents a
                 // spurious fire on the next poll if a key flag was left true while
                 // the prefs dialog had focus (no KeyUp delivered to this window).
@@ -5774,6 +5890,19 @@ namespace Emutastic.Views
                         break;
                     }
                 }
+
+                // EmuTV save/load hotkeys — single controller button per action. Read
+                // from the per-player controller config (p1Config) directly: _inputConfig
+                // falls back to the legacy "{console}" key when there are no KEYBOARD
+                // mappings (the norm for controller-only users), which misses the rebind.
+                foreach (var cm in p1Config.ControllerMappings)
+                {
+                    if (!uint.TryParse(cm.InputIdentifier, out uint hid) || hid >= 24) continue;
+                    if      (string.Equals(cm.ButtonName, "Hotkey",     StringComparison.OrdinalIgnoreCase)) _hotkeyModCtrl = hid;
+                    else if (string.Equals(cm.ButtonName, "Save State", StringComparison.OrdinalIgnoreCase)) _saveCtrl      = hid;
+                    else if (string.Equals(cm.ButtonName, "Load State", StringComparison.OrdinalIgnoreCase)) _loadCtrl      = hid;
+                }
+
                 System.Diagnostics.Trace.WriteLine(
                     $"Loaded {_keyboardMappings.Count} keyboard mappings " +
                     $"(disk swap key chord: {_diskSwapKeyA}+{_diskSwapKeyB}, " +

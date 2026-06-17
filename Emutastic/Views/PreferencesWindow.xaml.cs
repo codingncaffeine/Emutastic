@@ -282,6 +282,27 @@ namespace Emutastic.Views
                 _rows.Add(new MappingRow("Disk Swap", diskRow.box, diskRow.label));
             }
 
+            // Frontend-only save/load hotkeys — on every console. In-game: hold the
+            // Hotkey button ~1s, then the Save State / Load State button fires.
+            // Unbound rows use the defaults L3 (Hotkey) / R2 (Save) / L2 (Load).
+            ButtonsPanel.Children.Add(new TextBlock
+            {
+                Text  = "SAVE / LOAD HOTKEYS",
+                Style = (Style)FindResource("GroupHeader"),
+            });
+            ButtonsPanel.Children.Add(new Rectangle
+            {
+                Height = 1,
+                Fill   = (SolidColorBrush)FindResource("BorderNormalBrush"),
+                Margin = new Thickness(0, 0, 0, 6),
+            });
+            foreach (var hk in new[] { "Hotkey", "Save State", "Load State" })
+            {
+                var hkRow = BuildMappingRow(hk);
+                ButtonsPanel.Children.Add(hkRow.grid);
+                _rows.Add(new MappingRow(hk, hkRow.box, hkRow.label));
+            }
+
             // Refresh display text on all rows
             RefreshAllRows();
         }
