@@ -52,6 +52,8 @@ namespace Emutastic.Services.ConsoleHandlers
         public virtual bool UseDefaultFramebuffer => false;
         public virtual string[] FilterCoreOptionValues(string key, string[] values) => values;
 
+        public virtual string[] FilterOverlayValues(string key, string[] values) => values;
+
         public virtual List<(string key, string label)> GetVisualOptions() => new();
 
         // Renderer/option-aware variant. Defaults to the static list; handlers whose

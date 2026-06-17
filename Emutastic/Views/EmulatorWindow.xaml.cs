@@ -2393,6 +2393,8 @@ namespace Emutastic.Views
         private bool _closeStarted = false;
 
         // ── Fullscreen ──────────────────────────────────────────────────
+        // Set by the caller (e.g. EmuTV) before Show so the game opens fullscreen.
+        public bool StartInFullscreen { get; set; }
         private bool _isFullscreen;
         private WindowState _preFullscreenState;
         private double _preFsLeft, _preFsTop, _preFsWidth, _preFsHeight;
@@ -4743,6 +4745,11 @@ namespace Emutastic.Views
         private bool _diskDiagPrevControllerConnected;
         private long _diskDiagLastHeartbeat;
 
+        // EmuTV quit chord (L3+R3+L2+R2 held ~1.5s) — frame-counted on the EmuThread.
+        private int _quitChordFrames;
+        private bool _quitChordFired;
+        private const int QuitChordFramesRequired = 90; // ~1.5s at 60fps
+
         // Detect disk-swap chord on the EmuThread. Two halves both required:
         //   • Controller chord — defaults to L3 + Start when user has no binding,
         //     otherwise the user-configured pair.
@@ -4859,6 +4866,21 @@ namespace Emutastic.Views
                 SwapToNextDisk();
             }
             _diskSwapPrevHeld = held;
+
+            // EmuTV quit chord: L3+R3+L2+R2 held ~1.5s quits the game (same combo that
+            // opens EmuTV from the desktop). Independent of disk-swap; reuses ctl0.
+            if (connected && ctl0!.IsTvModeChordHeld)
+            {
+                if (!_quitChordFired && ++_quitChordFrames >= QuitChordFramesRequired)
+                {
+                    _quitChordFired = true;
+                    Dispatcher.BeginInvoke(new Action(() => { try { Close(); } catch { } }));
+                }
+            }
+            else
+            {
+                _quitChordFrames = 0;
+            }
         }
 
         // Show a transient disk-swap status message and auto-revert after 3 s.
@@ -8589,14 +8611,24 @@ namespace Emutastic.Views
                     Margin = new Thickness(0, 0, 0, 2),
                 });
 
+                string current = _coreOptions.TryGetValue(key, out var cv) ? cv : entry.DefaultValue;
+
+                // Overlay-only gating (e.g. PS2 hides sub-3x internal resolutions).
+                // Does NOT touch the saved value or Preferences; never hide the
+                // currently-active value so a sub-floor setting chosen in Preferences
+                // still shows here.
+                var overlayValues = _consoleHandler != null
+                    ? _consoleHandler.FilterOverlayValues(key, entry.ValidValues)
+                    : entry.ValidValues;
+                if (!string.IsNullOrEmpty(current) && !overlayValues.Contains(current))
+                    overlayValues = new[] { current }.Concat(overlayValues).ToArray();
+
                 var combo = new System.Windows.Controls.ComboBox
                 {
                     Style = (Style)FindResource("OverlayComboBox"),
-                    ItemsSource = entry.ValidValues,
+                    ItemsSource = overlayValues,
                     Tag = key,
                 };
-
-                string current = _coreOptions.TryGetValue(key, out var cv) ? cv : entry.DefaultValue;
                 combo.SelectedItem = current;
 
                 combo.SelectionChanged += (s, args) =>
@@ -8676,6 +8708,12 @@ namespace Emutastic.Views
             var source = System.Windows.Interop.HwndSource.FromHwnd(
                 new System.Windows.Interop.WindowInteropHelper(this).Handle);
             source?.AddHook(HwndHook);
+
+            // Launched from EmuTV (couch mode) → enter fullscreen automatically.
+            // Deferred to Loaded priority so layout/chrome is settled first.
+            if (StartInFullscreen)
+                Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded,
+                    new Action(() => { if (!_isFullscreen) ToggleFullscreen(); }));
         }
 
         private IntPtr HwndHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam,

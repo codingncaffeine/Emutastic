@@ -134,6 +134,15 @@ namespace Emutastic.Services.ConsoleHandlers
         string[] FilterCoreOptionValues(string key, string[] values);
 
         /// <summary>
+        /// Overlay-only value filter for the in-game cog dropdowns. Unlike
+        /// <see cref="FilterCoreOptionValues"/> this does NOT touch the saved value or
+        /// the launch-time validation/clamp — it only narrows what the overlay offers
+        /// (e.g. PS2 hides sub-3x internal resolutions). Preferences → Core Options
+        /// still exposes the full set. Default returns the list unchanged.
+        /// </summary>
+        string[] FilterOverlayValues(string key, string[] values);
+
+        /// <summary>
         /// Returns the curated visual options to surface in the in-game cog overlay.
         /// Each tuple is (core option key, display label). Keys are validated at
         /// runtime against the loaded core's option set — missing keys are skipped.

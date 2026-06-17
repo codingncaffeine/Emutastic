@@ -276,6 +276,11 @@ namespace Emutastic
             // upgrade to full names.
             StartControllerStatusPoll();
 
+            // EmuTV: ensure the frontend controller is polling and start watching
+            // for the TV-mode launch chord (L3+R3+L2+R2) from the library.
+            InitializeControllerManager();
+            StartTvModeComboWatch();
+
             _ = _artworkFetch.RetryMissingArtworkAsync();
             _ = _artworkFetch.BackfillMetadataAsync();
 
@@ -1503,6 +1508,70 @@ namespace Emutastic
         // (those controllers were there before the app started — not events).
         private System.Windows.Threading.DispatcherTimer? _controllerStatusTimer;
         private List<string>? _lastConnectedControllers;
+
+        // ── EmuTV launch combo ────────────────────────────────────────────────
+        // Watches the frontend controller for the L3+R3+L2+R2 chord and,
+        // once it's held ~400ms while the library is the foreground window, hands
+        // off to the full-screen EmuTV shell. Gating on IsActive keeps the chord
+        // from colliding with in-game input (EmulatorWindow is foreground during
+        // gameplay, so MainWindow.IsActive is false then).
+        private System.Windows.Threading.DispatcherTimer? _tvComboTimer;
+        private int  _tvComboTicks;
+        private bool _tvModeOpen;
+        private const int TvComboTicksRequired = 20; // ~2s at the 100ms cadence below
+
+        private void StartTvModeComboWatch()
+        {
+            if (_tvComboTimer != null) return;
+            _tvComboTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(100)
+            };
+            _tvComboTimer.Tick += (_, _) =>
+            {
+                if (_tvModeOpen || !IsActive || _controllerManager == null)
+                {
+                    _tvComboTicks = 0;
+                    return;
+                }
+
+                if (_controllerManager.IsTvModeChordHeld)
+                {
+                    if (++_tvComboTicks >= TvComboTicksRequired)
+                    {
+                        _tvComboTicks = 0;
+                        EnterTvMode();
+                    }
+                }
+                else
+                {
+                    _tvComboTicks = 0;
+                }
+            };
+            _tvComboTimer.Start();
+        }
+
+        /// <summary>
+        /// Hands off from the desktop library to the full-screen EmuTV couch shell.
+        /// MainWindow is hidden (not closed — ShutdownMode is OnLastWindowClose) and
+        /// re-shown when the shell closes. Safe to call from a future "TV Mode" menu item.
+        /// </summary>
+        public void EnterTvMode()
+        {
+            if (_tvModeOpen) return;
+            _tvModeOpen = true;
+
+            var tv = new Views.EmuTvWindow(_controllerManager, _db);
+            tv.Closed += (_, _) =>
+            {
+                _tvModeOpen = false;
+                Show();
+                Activate();
+            };
+            Hide();
+            tv.Show();
+            tv.Activate();
+        }
 
         private void StartControllerStatusPoll()
         {

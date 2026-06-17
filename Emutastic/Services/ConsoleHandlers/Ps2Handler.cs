@@ -70,6 +70,26 @@ namespace Emutastic.Services.ConsoleHandlers
             return values;
         }
 
+        // Overlay floor: 3x internal resolution. Below 3x triggers the low-res
+        // "corner only" present bug and sits under the PS2 target. This narrows ONLY
+        // the in-game overlay dropdown — Preferences → Core Options still offers 1x/2x,
+        // and a sub-3x value chosen there launches unclamped (deliberately NOT routed
+        // through FilterCoreOptionValues, which would clamp the saved value).
+        public override string[] FilterOverlayValues(string key, string[] values)
+        {
+            if (key == "pcsx2_upscale_multiplier")
+                return values.Where(v => UpscaleFactor(v) >= 3).ToArray();
+            return values;
+        }
+
+        // Parse the leading "Nx" from values like "3x Native (~1080p)" / "1x Native (PS2)".
+        // Unknown formats return a high number so they're never hidden by accident.
+        private static int UpscaleFactor(string value)
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(value ?? "", @"^(\d+)x");
+            return m.Success && int.TryParse(m.Groups[1].Value, out int n) ? n : 99;
+        }
+
         // D3D11 → RETRO_HW_CONTEXT_D3D11 (7); EmulatorWindow's SET_HW_RENDER builds
         // the D3D11Context and hands the core our device via GET_HW_RENDER_INTERFACE.
         // OpenGL → RETRO_HW_CONTEXT_OPENGL_CORE (3); the core renders pcsx2's OpenGL
@@ -118,7 +138,7 @@ namespace Emutastic.Services.ConsoleHandlers
         public override Dictionary<string, string> GetDefaultCoreOptions() => new()
         {
             ["pcsx2_renderer"]            = "D3D11",
-            ["pcsx2_upscale_multiplier"]  = "2x Native (~720p)",   // must match the core's exact value string
+            ["pcsx2_upscale_multiplier"]  = "3x Native (~1080p)",  // overlay floor is 3x (sub-3x = low-res corner bug); must match the core's exact value string
             ["pcsx2_fastboot"]            = "enabled",
             ["pcsx2_fastcdvd"]            = "disabled",
             ["pcsx2_shared_memory_cards"] = "enabled",

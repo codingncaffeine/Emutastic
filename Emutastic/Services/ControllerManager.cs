@@ -94,6 +94,38 @@ namespace Emutastic.Services
         /// </summary>
         public bool IsRawXInputButtonDown(ushort mask) => (_lastRawButtons & mask) != 0;
 
+        // Public aliases of the raw XInput masks for frontend chord / couch-nav
+        // detection (use with IsRawXInputButtonDown; bypasses per-console mapping).
+        public const ushort RAW_A          = XINPUT_GAMEPAD_A;
+        public const ushort RAW_B          = XINPUT_GAMEPAD_B;
+        public const ushort RAW_BACK       = XINPUT_GAMEPAD_BACK;
+        public const ushort RAW_START      = XINPUT_GAMEPAD_START;
+        public const ushort RAW_DPAD_UP    = XINPUT_GAMEPAD_DPAD_UP;
+        public const ushort RAW_DPAD_DOWN  = XINPUT_GAMEPAD_DPAD_DOWN;
+        public const ushort RAW_DPAD_LEFT  = XINPUT_GAMEPAD_DPAD_LEFT;
+        public const ushort RAW_DPAD_RIGHT = XINPUT_GAMEPAD_DPAD_RIGHT;
+
+        /// <summary>
+        /// Returns true if the named trigger (false = left/L2, true = right/R2) is
+        /// held past the XInput activation threshold. Snapshot from the most recent
+        /// poll; bypasses the mapping table so frontend chords (e.g. the TV-mode
+        /// launch combo) can read physical trigger state directly.
+        /// </summary>
+        public bool IsRawTriggerDown(bool rightTrigger) =>
+            (rightTrigger ? _rightTrigger : _leftTrigger) > XINPUT_GAMEPAD_TRIGGER_THRESHOLD;
+
+        /// <summary>
+        /// True while the EmuTV launch chord — L3 + R3 + L2 + R2 (both stick clicks
+        /// plus both triggers) — is physically held. Reads the raw poll snapshot,
+        /// ignoring per-console button mappings. The caller owns the hold-duration
+        /// debounce. Chosen to avoid colliding with Windows / Xbox Game Bar gestures
+        /// that grab Select / Start / Guide.
+        /// </summary>
+        public bool IsTvModeChordHeld =>
+            IsRawTriggerDown(false) && IsRawTriggerDown(true) &&
+            (_lastRawButtons & XINPUT_GAMEPAD_LEFT_THUMB)  != 0 &&
+            (_lastRawButtons & XINPUT_GAMEPAD_RIGHT_THUMB) != 0;
+
         public event Action<uint, bool>? ButtonChanged;
 
         /// <summary>
