@@ -88,10 +88,11 @@
         <!-- TV preview. The live game snap plays into the <video>; the bezel PNG (transparent
              screen cutout) sits on top so the video shows through. Screen rect = the old
              tvComposite's screenPos/screenSize resolved into absolute normalized coords. -->
+        <!-- The screen shows the "please stand by" card until a video snap loads/downloads, then the
+             live video plays over it. No imageType, so the stand-by is the poster (not the screenshot). -->
         <video name="tvScreen">
             <pos>0.6122 0.3284</pos>
             <size>0.1608 0.2179</size>
-            <imageType>screenshot, titlescreen, cover</imageType>
             <default>assets/please-stand-by.png</default>
             <zIndex>20</zIndex>
         </video>
