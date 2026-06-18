@@ -288,6 +288,7 @@ Emulation is handled by libretro cores maintained by their upstream authors. Emu
 |---|---|---|
 | [rcheevos](https://github.com/RetroAchievements/rcheevos) | RetroAchievements client | MIT |
 | [libchdr](https://github.com/rtissera/libchdr) | CHD format reader (CHD-based achievement hashing) | BSD 3-Clause |
+| [libwebp (dwebp)](https://github.com/webmproject/libwebp) | Google's WebP decoder — renders WebP art in EmuTV themes | BSD 3-Clause |
 
 Full license texts in `NOTICES.txt`.
 
@@ -300,6 +301,10 @@ Optional downloadable extras (Preferences → Cores/Extras). Emutastic bundles n
 | [librashader](https://github.com/SnowflakePowered/librashader) | Runtime that renders slang shader presets | MPL-2.0 (runtime) / MIT (headers) |
 | [libretro slang-shaders](https://github.com/libretro/slang-shaders) | Community multi-pass shader preset collection | Various (per shader) |
 | [The Bezel Project](https://github.com/thebezelproject) | Arcade & Neo Geo bezel artwork | Community artwork |
+
+### EmuTV Themes
+
+EmuTV renders themes built for [EmulationStation Desktop Edition (ES-DE)](https://es-de.org/), and the in-app theme browser downloads from the official [ES-DE themes list](https://gitlab.com/es-de/themes/themes-list). Themes are created by their respective authors under their own licenses — please support them on their project pages. Emutastic is not affiliated with or endorsed by ES-DE.
 
 ### Controller Illustrations
 Artwork from [OpenEmuControllerArt](https://github.com/kodi-game/OpenEmuControllerArt) (BSD 3-Clause). Not affiliated with or endorsed by OpenEmu.
