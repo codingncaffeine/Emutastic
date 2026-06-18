@@ -58,9 +58,18 @@ GETTING STARTED
 
 CONTROLLERS
 -----------
-Connect your controller before launching Emutastic. Button mappings are
-configurable in Preferences → Controls. Controllers are detected
-automatically — no refresh needed.
+Connect your controller before launching Emutastic. Controllers are
+detected automatically — no refresh needed. The per-console button
+mapping (which pad button drives each system's buttons) is set on the
+controller diagram in Preferences → Controls.
+
+In-game controller combos (defaults; customizable in Preferences):
+  Save state              Hold L3 (~1s to arm), then R2
+  Load latest state       Hold L3 (~1s to arm), then L2
+  Swap disc               L3 + Start   (multi-disc games)
+  Quit game / open EmuTV  L3 + R3 + L2 + R2, held ~1.5s
+
+A brief on-screen toast confirms when the save/load hotkeys arm and fire.
 
 
 KEYBOARD SHORTCUTS
@@ -77,6 +86,32 @@ In a game (move the mouse to bring up the overlay):
   Print Screen / F12   Take a screenshot
   Esc                  Exit back to the library
   Cog icon             Cheats, save/load state, settings
+
+
+EMUTV (10-FOOT / COUCH MODE)
+----------------------------
+EmuTV is a controller-only, big-screen front end for the couch. Open it
+with the  L3 + R3 + L2 + R2  chord (held ~1.5s) from the library; the
+same chord while in a game quits back to EmuTV.
+
+Controller:
+  D-pad / Left stick    Navigate
+  A                     Open / Play
+  B                     Back
+  Y                     Theme browser (switch or download ES-DE themes)
+  Start                 Save states (while browsing a console's games)
+  L1 / R1               Page up / page down (fast scroll)
+  L3+R3+L2+R2 (held)    Quit the running game back to EmuTV
+
+Keyboard (handy when setting things up on a desktop):
+  Arrow keys / Enter / Esc   Navigate / select / back
+  T                     Theme browser
+  F6                    Import a theme from a folder or zip
+  F7                    Cycle to the next installed theme
+
+EmuTV reads imported ES-DE themes: download one from the theme browser
+(Y), or drop an ES-DE theme folder into your EmuTV themes directory, then
+pick it with Y. Per-game video previews and save states work in any theme.
 
 
 SCREENSHOTS
