@@ -220,6 +220,18 @@ namespace Emutastic.Views
         {
             if (_mode != NavMode.GameList) return;
             _mode = NavMode.SaveStates;
+            // The "SAVE STATES" header is the VCR-cassette art (it carries the label). Load it once.
+            if (SaveOverlayCassette.Source == null)
+            {
+                try
+                {
+                    string cassette = System.IO.Path.Combine(AppContext.BaseDirectory,
+                        "Assets", "emutv-themes", "default", "assets", "save-states.png");
+                    if (System.IO.File.Exists(cassette))
+                        SaveOverlayCassette.Source = new System.Windows.Media.Imaging.BitmapImage(new Uri(cassette));
+                }
+                catch { /* fall back to no header art */ }
+            }
             // Lift the save carousel out of the hidden legacy panel into the visible overlay so it
             // shows over whatever the active theme is drawing.
             if (SaveList.Parent is Panel home && !ReferenceEquals(home, SaveOverlayHost))
@@ -1017,7 +1029,12 @@ namespace Emutastic.Views
             var systems = new List<ThemeSystemEntry>();
             if (SystemCarousel.ItemsSource is System.Collections.IEnumerable src)
                 foreach (ConsoleGroup c in src)
-                    systems.Add(new ThemeSystemEntry { Label = c.ConsoleName, EsName = EsSystemName.For(c.ConsoleName) });
+                    systems.Add(new ThemeSystemEntry
+                    {
+                        Label = c.ConsoleName,
+                        EsName = EsSystemName.For(c.ConsoleName),
+                        IconPath = ConsoleItem.ResolveIconUri(c.ConsoleName),
+                    });
 
             var games = new List<ThemeGameEntry>();
             var selConsole = SystemCarousel.SelectedItem as ConsoleGroup;

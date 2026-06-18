@@ -422,8 +422,9 @@
                     <RowDefinition Height="200"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
-                <TextBlock Grid.Row="0" Text="SAVE STATES" FontSize="34" FontWeight="Bold"
-                           Foreground="#FFEAF6FF" HorizontalAlignment="Center"/>
+                <Image Grid.Row="0" x:Name="SaveOverlayCassette" Height="155" Stretch="Uniform"
+                       HorizontalAlignment="Center" Margin="0,0,0,2"
+                       RenderOptions.BitmapScalingMode="HighQuality"/>
                 <TextBlock Grid.Row="1" x:Name="SaveOverlaySubtitle" Text="" FontSize="19" Opacity="0.7"
                            Foreground="#FFBFEFFF" HorizontalAlignment="Center" Margin="0,4,0,22"/>
                 <Grid Grid.Row="2" x:Name="SaveOverlayHost">

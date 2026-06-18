@@ -62,6 +62,8 @@ namespace Emutastic.Services
     {
         public string Label { get; init; } = "";
         public string EsName { get; init; } = "_default";
+        /// <summary>App-bundled console icon (pack URI), used when the theme provides no console image.</summary>
+        public string? IconPath { get; init; }
     }
 
     public sealed class ThemeGameEntry
@@ -898,8 +900,11 @@ namespace Emutastic.Services
             if (_viewKind == ThemeViewKind.System)
             {
                 if (_items == null || idx < 0 || idx >= _items.Systems.Count) return null;
-                string es = _items.Systems[idx].EsName;
-                return LoadImageForSystem(_currentStatic, es) ?? LoadImageForSystem(_currentDefault, es);
+                var sys = _items.Systems[idx];
+                return LoadImageForSystem(_currentStatic, sys.EsName)
+                    ?? LoadImageForSystem(_currentDefault, sys.EsName)
+                    ?? LoadAppIcon(sys.IconPath);     // app-bundled console icon when the theme has none
+
             }
             if (_items == null || idx < 0 || idx >= _items.Games.Count) return null;
             return ResolveGameArt(_items.Games[idx], _currentImageTypes);
@@ -1117,6 +1122,25 @@ namespace Emutastic.Services
                 return TryLoad(rel.Replace("${system.theme}", _systemTheme))
                        ?? TryLoad(rel.Replace("${system.theme}", "_default"));
             return TryLoad(rel);
+        }
+
+        // App-bundled resource image (pack:// URI), e.g. the per-console system icons. In-app only:
+        // pack resources don't exist in the headless render harness, so this returns null there.
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, ImageSource?> _appIconCache = new();
+        private static ImageSource? LoadAppIcon(string? uri)
+        {
+            if (string.IsNullOrEmpty(uri)) return null;
+            if (_appIconCache.TryGetValue(uri, out var cached)) return cached;
+            ImageSource? result = null;
+            try
+            {
+                var b = new BitmapImage();
+                b.BeginInit(); b.CacheOption = BitmapCacheOption.OnLoad; b.UriSource = new Uri(uri);
+                b.EndInit(); b.Freeze(); result = b;
+            }
+            catch { }
+            _appIconCache[uri] = result;
+            return result;
         }
 
         // User library art (absolute path outside the theme — not sandboxed).
