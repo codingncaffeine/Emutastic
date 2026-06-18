@@ -790,6 +790,16 @@ namespace Emutastic.Views
                 ThemePreviewHost.Content = _themePreview.Root;
                 ThemePreviewHost.Visibility = Visibility.Visible;
                 _videoTarget = _themePreview.VideoTarget;   // live video plays into the themed <video>
+                // If a video is already playing, re-point it at the freshly-rendered target. Without this,
+                // an async re-render (a webp decode landing, a save-list change) strands the live video in
+                // the old, now-detached target Image while the new one shows only its poster — which is why
+                // webp/async themes appeared to "lose" video. The player keeps blitting the same bitmap, so
+                // pointing the new target at it resumes playback in place.
+                if (_videoTarget != null && _crossfadeDone && _videoBitmap != null)
+                {
+                    _videoTarget.Source = _videoBitmap;
+                    _videoTarget.Visibility = Visibility.Visible;
+                }
             }
             catch { /* render is best-effort */ }
         }

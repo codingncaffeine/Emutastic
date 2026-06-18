@@ -74,6 +74,47 @@ namespace Emutastic.Services
             }
         }
 
+        /// <summary>
+        /// Searches SteamGridDB for a game by name and returns a high-res portrait cover ("grid") URL,
+        /// or null if there's no token/match. Used as an artwork fallback when the other sources miss.
+        /// </summary>
+        public async Task<string?> FetchCoverUrlAsync(string? token, string? gameName)
+        {
+            token = (token ?? "").Trim();
+            if (string.IsNullOrEmpty(token) || string.IsNullOrWhiteSpace(gameName)) return null;
+            try
+            {
+                int? gameId = await GetGameIdAsync(token, gameName);
+                if (gameId == null) { Log($"No match for \"{gameName}\"."); return null; }
+
+                // Portrait box-art grids, static only, prefer 600x900.
+                using var req = new HttpRequestMessage(HttpMethod.Get,
+                    BaseUrl + $"grids/game/{gameId}?dimensions=600x900&types=static&nsfw=false");
+                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                req.Headers.UserAgent.ParseAdd("Emutastic");
+
+                var resp = await _http.SendAsync(req);
+                if (!resp.IsSuccessStatusCode) { Log($"grids {gameId} -> {(int)resp.StatusCode}"); return null; }
+                var data = JsonNode.Parse(await resp.Content.ReadAsStringAsync())?["data"] as JsonArray;
+                string? url = data is { Count: > 0 } ? data[0]?["url"]?.GetValue<string>() : null;
+                Log($"Cover for \"{gameName}\" (id {gameId}): {url ?? "none"}");
+                return url;
+            }
+            catch (Exception ex) { Log($"FetchCoverUrl error: {ex.Message}"); return null; }
+        }
+
+        private async Task<int?> GetGameIdAsync(string token, string gameName)
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get,
+                BaseUrl + "search/autocomplete/" + Uri.EscapeDataString(gameName));
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            req.Headers.UserAgent.ParseAdd("Emutastic");
+            var resp = await _http.SendAsync(req);
+            if (!resp.IsSuccessStatusCode) return null;
+            var data = JsonNode.Parse(await resp.Content.ReadAsStringAsync())?["data"] as JsonArray;
+            return data is { Count: > 0 } ? data[0]?["id"]?.GetValue<int>() : null;
+        }
+
         private static string Trunc(string s, int n) =>
             string.IsNullOrEmpty(s) || s.Length <= n ? s : s.Substring(0, n) + "…";
     }

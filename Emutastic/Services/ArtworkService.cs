@@ -977,6 +977,29 @@ namespace Emutastic.Services
                 }
             }
 
+            // Step 4.6 — SteamGridDB cover fallback. When libretro thumbnails and OpenVGDB both miss
+            // and the user configured a SteamGridDB token (Preferences → EmuTV), pull a high-res cover
+            // from SteamGridDB — community-curated with a generous free quota, so it's a good backup
+            // when ScreenScraper is exhausted or a game simply isn't in the other sources.
+            if (artworkPath == null && !string.IsNullOrWhiteSpace(result.Title))
+            {
+                try
+                {
+                    var emuTv = App.Configuration?.GetEmuTvConfiguration();
+                    if (emuTv is { SteamGridDbEnabled: true } && !string.IsNullOrWhiteSpace(emuTv.SteamGridDbToken))
+                    {
+                        string? sgdbUrl = await new SteamGridDbService().FetchCoverUrlAsync(emuTv.SteamGridDbToken, result.Title);
+                        if (!string.IsNullOrWhiteSpace(sgdbUrl))
+                        {
+                            artworkPath = await DownloadArtworkAsync(sgdbUrl, md5Hash, console ?? "");
+                            if (artworkPath != null)
+                                System.Diagnostics.Debug.WriteLine($"Artwork found (SteamGridDB): {sgdbUrl}");
+                        }
+                    }
+                }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"SteamGridDB cover failed: {ex.Message}"); }
+            }
+
             // Step 5 — ScreenScraper 2D box art (always fetched when enabled, stored separately)
             string? screenScraperArtPath = null;
             if (!string.IsNullOrWhiteSpace(console))
