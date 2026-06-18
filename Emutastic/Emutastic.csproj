@@ -132,6 +132,7 @@
     <Resource Include="Assets\banners and icons\*.ico" />
     <Resource Include="Assets\emutastic-logo.ico" />
     <Resource Include="Assets\system_icons\*.jpg" />
+    <Resource Include="Assets\system_icons\*.jpeg" />
     <!-- Sounds copy as loose files next to the exe. WPF MediaPlayer only
          accepts site-of-origin or filesystem URIs — pack://application
          resources are rejected with "Only site-of-origin pack URIs are
