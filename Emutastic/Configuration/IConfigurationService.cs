@@ -39,6 +39,9 @@ namespace Emutastic.Configuration
         SnapConfiguration GetSnapConfiguration();
         void SetSnapConfiguration(SnapConfiguration config);
 
+        EmuTvConfiguration GetEmuTvConfiguration();
+        void SetEmuTvConfiguration(EmuTvConfiguration config);
+
         RetroAchievementsConfiguration GetRetroAchievementsConfiguration();
         void SetRetroAchievementsConfiguration(RetroAchievementsConfiguration config);
 

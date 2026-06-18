@@ -28,6 +28,7 @@ namespace Emutastic.Configuration
         public FriendsConfiguration FriendsConfiguration { get; set; } = new();
         public RecordingConfiguration RecordingConfiguration { get; set; } = new();
         public CloudSyncConfiguration CloudSyncConfiguration { get; set; } = new();
+        public EmuTvConfiguration EmuTvConfiguration { get; set; } = new();
         public Dictionary<string, InputConfiguration> InputConfigurations { get; set; } = new();
         // Generic string→JsonElement store for arbitrary SetValue<T> callers
         public Dictionary<string, JsonElement> Extra { get; set; } = new();
@@ -274,6 +275,13 @@ namespace Emutastic.Configuration
         {
             config.LastModified = DateTime.UtcNow;
             _data.SnapConfiguration = config;
+        }
+
+        public EmuTvConfiguration GetEmuTvConfiguration() => _data.EmuTvConfiguration;
+        public void SetEmuTvConfiguration(EmuTvConfiguration config)
+        {
+            config.LastModified = DateTime.UtcNow;
+            _data.EmuTvConfiguration = config;
         }
 
         public RetroAchievementsConfiguration GetRetroAchievementsConfiguration() => _data.RetroAchievementsConfiguration;

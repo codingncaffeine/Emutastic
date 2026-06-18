@@ -1,0 +1,123 @@
+<theme>
+    <!-- EmuTV Default — the shipped built-in. This declaratively reproduces the
+         current hardcoded EmuTvWindow layout, and is the pixel-parity gate for the
+         renderer refactor (P2). Coordinates are normalized 0–1; the renderer resolves
+         them against the live window aspect. -->
+
+    <variables>
+        <!-- ES-DE color format is RRGGBBAA (alpha last). -->
+        <accent>00E5FFFF</accent>          <!-- cyan -->
+        <accentMagenta>E000A0FF</accentMagenta>
+        <textPrimary>EAF6FFFF</textPrimary>
+        <textMuted>8FE3FFFF</textMuted>
+        <bg>080B12FF</bg>
+    </variables>
+
+    <colorScheme name="neon">
+        <variables>
+            <accent>00E5FFFF</accent>
+            <accentMagenta>E000A0FF</accentMagenta>
+        </variables>
+    </colorScheme>
+
+    <!-- shared chrome -->
+    <view name="system, gamelist">
+        <image name="background">
+            <pos>0 0</pos>
+            <size>1 1</size>
+            <color>${bg}</color>
+            <zIndex>0</zIndex>
+        </image>
+        <image name="logo">
+            <path>assets/logo.png</path>
+            <pos>0.019 0.022</pos>
+            <origin>0 0</origin>
+            <maxSize>0.18 0.07</maxSize>
+            <zIndex>10</zIndex>
+        </image>
+        <helpsystem name="help">
+            <pos>0 0.94</pos>
+            <size>1 0.04</size>
+            <textColor>${textMuted}</textColor>
+            <iconColor>${accent}</iconColor>
+            <fontSize>0.018</fontSize>
+            <letterCase>none</letterCase>
+        </helpsystem>
+    </view>
+
+    <!-- console carousel -->
+    <view name="system">
+        <text name="systemName">
+            <metadata>system</metadata>
+            <pos>0 0.31</pos>
+            <size>1 0.06</size>
+            <horizontalAlignment>center</horizontalAlignment>
+            <color>${textPrimary}</color>
+            <fontSize>0.043</fontSize>
+        </text>
+        <carousel name="systemCarousel">
+            <type>horizontal</type>
+            <pos>0.5 0.5</pos>
+            <origin>0.5 0.5</origin>
+            <size>1 0.24</size>
+            <maxItemCount>5</maxItemCount>
+            <itemSize>0.156 0.22</itemSize>
+            <textColor>${textPrimary}</textColor>
+            <fontSize>0.034</fontSize>
+            <selectorColor>${accent}</selectorColor>
+            <unfocusedItemOpacity>0.5</unfocusedItemOpacity>
+        </carousel>
+    </view>
+
+    <!-- gamelist: list (left) + TV preview & save-states (right) -->
+    <view name="gamelist">
+        <text name="gamelistHeader">
+            <metadata>system</metadata>
+            <pos>0.022 0.10</pos>
+            <size>0.4 0.05</size>
+            <color>${textPrimary}</color>
+            <fontSize>0.030</fontSize>
+        </text>
+        <textlist name="gameList">
+            <pos>0.022 0.155</pos>
+            <size>0.40 0.74</size>
+            <selectorColor>${accent}</selectorColor>
+            <primaryColor>${textPrimary}</primaryColor>
+            <selectedColor>${textPrimary}</selectedColor>
+        </textlist>
+        <!-- TV preview. The live game snap plays into the <video>; the bezel PNG (transparent
+             screen cutout) sits on top so the video shows through. Screen rect = the old
+             tvComposite's screenPos/screenSize resolved into absolute normalized coords. -->
+        <video name="tvScreen">
+            <pos>0.6122 0.3284</pos>
+            <size>0.1608 0.2179</size>
+            <imageType>screenshot, titlescreen, cover</imageType>
+            <default>assets/please-stand-by.png</default>
+            <zIndex>20</zIndex>
+        </video>
+        <image name="tvBezel">
+            <path>assets/tv-bezel.png</path>
+            <pos>0.44 0.135</pos>
+            <size>0.545 0.52</size>
+            <zIndex>21</zIndex>
+        </image>
+        <!-- Box art under the TV. -->
+        <image name="gameCover">
+            <imageType>cover, 3dbox, screenshot</imageType>
+            <pos>0.715 0.785</pos>
+            <origin>0.5 0.5</origin>
+            <maxSize>0.2 0.2</maxSize>
+            <zIndex>20</zIndex>
+        </image>
+        <!-- Saves are handled by the universal Start overlay, not an inline carousel. -->
+        <text name="saveHint">
+            <text>Press Start for save states</text>
+            <pos>0.715 0.905</pos>
+            <origin>0.5 0.5</origin>
+            <size>0.5 0.04</size>
+            <horizontalAlignment>center</horizontalAlignment>
+            <color>${textMuted}</color>
+            <fontSize>0.018</fontSize>
+        </text>
+    </view>
+</theme>

@@ -50,6 +50,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>libchdr.dll</Link>
     </Content>
+    <!-- Google's official WebP decoder (BSD). EMBEDDED in the app assembly (not shipped loose) and
+         extracted to a temp cache on first use, so webp themes work with nothing extra next to the
+         exe. WPF has no native WebP support; decoded off the UI thread. -->
+    <EmbeddedResource Include="Libraries\dwebp.exe" />
   </ItemGroup>
   <!-- DAT files are not bundled — users download them in-app via Preferences → Cores / Extras -->
   <ItemGroup>
@@ -67,6 +71,7 @@
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3967.48" GeneratePathProperty="true" />
     <PackageReference Include="SevenZipExtractor" Version="1.0.17" />
+    <PackageReference Include="SharpVectors.Reloaded" Version="1.8.5" />
     <PackageReference Include="Vortice.D3DCompiler" Version="3.6.2" />
     <PackageReference Include="Vortice.Direct3D11" Version="3.6.2" />
     <PackageReference Include="Vortice.Direct3D9" Version="3.6.2" />
@@ -111,6 +116,12 @@
          runtime. Re-added explicitly because the "Content Remove Assets\**" above
          strips it. Goes to both build output and the published release. -->
     <Content Include="Assets\pdfjs\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <!-- EmuTV themes ship as loose folders (parsed from disk at runtime, like a
+         drop-in community theme). Includes the bundled "EmuTV Default" built-in. -->
+    <Content Include="Assets\emutv-themes\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>

@@ -11,6 +11,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Emutastic.Models;
+using Emutastic.Models.EmuTv;
 using Emutastic.Services;
 
 namespace Emutastic.Views
@@ -29,7 +30,7 @@ namespace Emutastic.Views
     /// </summary>
     public partial class EmuTvWindow : Window
     {
-        private enum NavMode { Carousel, GameList, SaveStates }
+        private enum NavMode { Carousel, GameList, SaveStates, ThemeBrowser }
 
         private readonly ControllerManager? _controller;
         private readonly DatabaseService? _db;
@@ -38,6 +39,8 @@ namespace Emutastic.Views
         private NavMode _mode = NavMode.Carousel;
         private bool _bLatch;
         private bool _aLatch;
+        private bool _yLatch;     // edge for opening the theme browser
+        private bool _startLatch; // edge for opening/closing save states
         private bool _rightLatch; // edge for GameList → SaveStates
         private int  _navDir;
         private int  _navHoldTicks;
@@ -58,6 +61,8 @@ namespace Emutastic.Views
         private LibVLCSharp.Shared.MediaPlayer? _vlcPlayer;
         private WriteableBitmap? _videoBitmap;
         private IntPtr _videoBuffer;
+        private Image? _videoTarget;   // themed <video> element to play into; null → TvVideoImage
+        private DispatcherTimer? _imgReadyDebounce;   // coalesces re-renders as async webp decodes land
         private bool _crossfadeDone;
         private bool _closed;
         private int  _videoGen; // bumped on every stop/selection change to cancel in-flight video work
@@ -68,15 +73,26 @@ namespace Emutastic.Views
             _controller = controller;
             _db = db;
 
+            // The active theme renders into ThemePreviewHost as the real UI; show it up-front so the
+            // legacy hardcoded carousel/gamelist behind it (kept as the nav + data + video engine)
+            // never flashes through. RenderActiveView() fills it once the library loads, and again on
+            // every selection/mode change so navigation drives the themed UI.
+            ThemePreviewHost.Visibility = Visibility.Visible;
+
             PreviewKeyDown += OnPreviewKeyDown;
             SystemCarousel.SelectionChanged += (_, _) => OnCarouselSelectionChanged();
             GameList.SelectionChanged += (_, _) => OnGameSelectionChanged();
-            SaveList.SelectionChanged += (_, _) => CenterSaveSelected();
+            SaveList.SelectionChanged += (_, _) => { CenterSaveSelected(); RenderActiveView(); };
+            ThemeBrowserList.SelectionChanged += (_, _) => UpdateThemeBrowserDetail();
             Loaded += (_, _) => LoadConsoles();
             UpdateHint();
 
             _videoDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
             _videoDebounce.Tick += OnVideoDebounceTick;
+
+            _imgReadyDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(140) };
+            _imgReadyDebounce.Tick += (_, _) => { _imgReadyDebounce!.Stop(); if (!_closed) RenderActiveView(); };
+            EmuTvThemeRenderer.OnAsyncImageReady = OnThemeImageReady;
 
             if (_controller != null)
             {
@@ -134,6 +150,7 @@ namespace Emutastic.Views
         {
             SelectedConsoleLabel.Text = (SystemCarousel.SelectedItem as ConsoleGroup)?.ConsoleName ?? "";
             CenterShift(SystemCarousel, ref _carouselShift, "CarouselShift", 340);
+            RenderActiveView();
         }
 
         private TranslateTransform? _carouselShift;
@@ -193,27 +210,40 @@ namespace Emutastic.Views
             GameListPanel.Visibility = Visibility.Collapsed;
             CarouselPanel.Visibility = Visibility.Visible;
             UpdateHint();
+            RenderActiveView();
         }
 
         private void EnterSaveStates()
         {
-            if (_mode != NavMode.GameList || SaveList.Items.Count == 0) return;
+            if (_mode != NavMode.GameList) return;
             _mode = NavMode.SaveStates;
-            if (SaveList.SelectedIndex < 0) SaveList.SelectedIndex = 0;
-            GameList.Opacity = 0.5;
-            SaveRow.Opacity = 1.0;
+            // Lift the save carousel out of the hidden legacy panel into the visible overlay so it
+            // shows over whatever the active theme is drawing.
+            if (SaveList.Parent is Panel home && !ReferenceEquals(home, SaveOverlayHost))
+            {
+                home.Children.Remove(SaveList);
+                SaveOverlayHost.Children.Add(SaveList);
+            }
+            SaveOverlaySubtitle.Text = (GameList.SelectedItem as Game)?.Title ?? "";
+            bool any = SaveList.Items.Count > 0;
+            SaveOverlayEmpty.Visibility = any ? Visibility.Collapsed : Visibility.Visible;
+            if (any && SaveList.SelectedIndex < 0) SaveList.SelectedIndex = 0;
+            SaveOverlay.Visibility = Visibility.Visible;
             UpdateHint();
-            // Consume the Right that brought us here so a continued hold doesn't
-            // immediately cycle off the first save.
-            _navDir = 1;
+            _navDir = 0;
             _navHoldTicks = 0;
         }
 
         private void ExitSaveStatesToList()
         {
             _mode = NavMode.GameList;
-            GameList.Opacity = 1.0;
-            SaveRow.Opacity = 0.5;
+            SaveOverlay.Visibility = Visibility.Collapsed;
+            // Return the carousel to its home so it's ready to be reparented next time.
+            if (ReferenceEquals(SaveList.Parent, SaveOverlayHost))
+            {
+                SaveOverlayHost.Children.Remove(SaveList);
+                SaveListHome.Children.Add(SaveList);
+            }
             UpdateHint();
             _navDir = 0;
             _navHoldTicks = 0;
@@ -223,24 +253,29 @@ namespace Emutastic.Views
             HintLabel.Text = _mode switch
             {
                 NavMode.Carousel   => "◀ ▶  Navigate      A  Open      B  Back",
-                NavMode.GameList   => "▲ ▼  Games      ▶  Save states      A  Play      B  Back",
+                NavMode.GameList   => "▲ ▼  Games      Start  Save states      A  Play      B  Back",
                 _                  => "◀ ▶  Save states      A  Load      ◀  Back to games",
             };
 
         private void OnAccept()
         {
+            if (_mode == NavMode.ThemeBrowser) { AcceptThemeBrowser(); return; }
             if (_mode == NavMode.Carousel) OpenSelectedConsole();
             else if (_mode == NavMode.GameList && GameList.SelectedItem is Game g) LaunchGame(g);
             else if (_mode == NavMode.SaveStates
                      && GameList.SelectedItem is Game game
                      && SaveList.SelectedItem is SaveState s)
+            {
+                ExitSaveStatesToList();        // close the overlay before the emulator takes over
                 LaunchGame(game, s.StatePath);
+            }
         }
 
         private void OnBack()
         {
             switch (_mode)
             {
+                case NavMode.ThemeBrowser: CloseThemeBrowser(); break;
                 case NavMode.SaveStates: ExitSaveStatesToList(); break;
                 case NavMode.GameList:   BackToCarousel(); break;
                 default:                 Close(); break;
@@ -287,6 +322,7 @@ namespace Emutastic.Views
                 _videoDebounce.Start();
                 LoadSavesFor(g);
             }
+            RenderActiveView();
         }
 
         private void OnVideoDebounceTick(object? sender, EventArgs e)
@@ -350,11 +386,12 @@ namespace Emutastic.Views
             if (_videoBuffer != IntPtr.Zero) Marshal.FreeHGlobal(_videoBuffer);
             _videoBuffer = Marshal.AllocHGlobal(stride * h);
             _videoBitmap = new WriteableBitmap(w, h, 96, 96, PixelFormats.Bgr32, null);
-            TvVideoImage.Source = _videoBitmap;
 
-            // Per-play locals so each player only ever touches ITS OWN buffer/bitmap.
+            // Per-play locals so each player only ever touches ITS OWN buffer/bitmap/sink. The sink is
+            // the themed <video> element if one rendered, otherwise the default TV image.
             IntPtr localBuffer = _videoBuffer;
             WriteableBitmap localBitmap = _videoBitmap;
+            Image sink = _videoTarget ?? TvVideoImage;
 
             var libVLC = await VideoPlaybackService.Instance.GetLibVLCAsync();
             if (gen != _videoGen || _closed) return;
@@ -383,7 +420,7 @@ namespace Emutastic.Views
                             }
                             localBitmap.AddDirtyRect(new Int32Rect(0, 0, w, h));
                             localBitmap.Unlock();
-                            if (!_crossfadeDone) { _crossfadeDone = true; TvVideoImage.Visibility = Visibility.Visible; }
+                            if (!_crossfadeDone) { _crossfadeDone = true; sink.Source = localBitmap; sink.Visibility = Visibility.Visible; }
                         });
                     });
 
@@ -512,10 +549,20 @@ namespace Emutastic.Views
                     else if (_mode == NavMode.GameList)   { e.Handled = true; EnterSaveStates(); }
                     else if (_mode == NavMode.SaveStates) { e.Handled = true; MoveSave(1); }
                     break;
-                case Key.Up:    if (_mode == NavMode.GameList) { e.Handled = true; MoveGameList(-1); } break;
-                case Key.Down:  if (_mode == NavMode.GameList) { e.Handled = true; MoveGameList(1);  } break;
+                case Key.Up:    if (_mode == NavMode.GameList) { e.Handled = true; MoveGameList(-1); }
+                                else if (_mode == NavMode.ThemeBrowser) { e.Handled = true; MoveThemeBrowser(-1); } break;
+                case Key.Down:  if (_mode == NavMode.GameList) { e.Handled = true; MoveGameList(1);  }
+                                else if (_mode == NavMode.ThemeBrowser) { e.Handled = true; MoveThemeBrowser(1); } break;
                 case Key.PageUp:   if (_mode == NavMode.GameList) { e.Handled = true; MovePageGameList(-1); } break;
                 case Key.PageDown: if (_mode == NavMode.GameList) { e.Handled = true; MovePageGameList(1);  } break;
+                case Key.T:        e.Handled = true; OpenThemeBrowser(); break;
+                case Key.F6:       e.Handled = true; ImportThemeViaDialog(); break;
+                case Key.F7:       e.Handled = true; CycleActiveTheme(); break;
+                case Key.F8:       e.Handled = true;   // debug: peek at the legacy UI behind the theme
+                    ThemePreviewHost.Visibility = ThemePreviewHost.Visibility == Visibility.Visible
+                        ? Visibility.Collapsed : Visibility.Visible;
+                    break;
+                case Key.F9:       e.Handled = true; SnapshotThemeView(); break;
             }
         }
 
@@ -530,6 +577,20 @@ namespace Emutastic.Views
             bool a = _controller.IsRawXInputButtonDown(ControllerManager.RAW_A);
             if (a && !_aLatch) { _aLatch = true; OnAccept(); return; }
             if (!a) _aLatch = false;
+
+            bool y = _controller.IsRawXInputButtonDown(ControllerManager.RAW_Y);
+            if (y && !_yLatch) { _yLatch = true; OpenThemeBrowser(); return; }
+            if (!y) _yLatch = false;
+
+            bool start = _controller.IsRawXInputButtonDown(ControllerManager.RAW_START);
+            if (start && !_startLatch)
+            {
+                _startLatch = true;
+                if (_mode == NavMode.GameList) EnterSaveStates();
+                else if (_mode == NavMode.SaveStates) ExitSaveStatesToList();
+                return;
+            }
+            if (!start) _startLatch = false;
 
             // GameList: Right (edge) enters the save states.
             if (_mode == NavMode.GameList)
@@ -570,7 +631,7 @@ namespace Emutastic.Views
                          || _controller.GetButtonState(ControllerManager.ANALOG_LEFT_RIGHT);
                 dir = r ? 1 : l ? -1 : 0;
             }
-            else if (_mode == NavMode.GameList)
+            else if (_mode == NavMode.GameList || _mode == NavMode.ThemeBrowser)
             {
                 bool u = _controller.IsRawXInputButtonDown(ControllerManager.RAW_DPAD_UP)
                          || _controller.GetButtonState(ControllerManager.ANALOG_LEFT_UP);
@@ -608,9 +669,10 @@ namespace Emutastic.Views
         {
             switch (_mode)
             {
-                case NavMode.Carousel:   MoveCarousel(dir); break;
-                case NavMode.GameList:   MoveGameList(dir); break;
-                case NavMode.SaveStates: MoveSave(dir); break;
+                case NavMode.Carousel:    MoveCarousel(dir); break;
+                case NavMode.GameList:    MoveGameList(dir); break;
+                case NavMode.SaveStates:  MoveSave(dir); break;
+                case NavMode.ThemeBrowser: MoveThemeBrowser(dir); break;
             }
         }
 
@@ -655,9 +717,356 @@ namespace Emutastic.Views
             return Math.Clamp(page, 4, 40);
         }
 
+        // ── Theme preview overlay (F8) — non-destructive renderer validation ──────
+        // Renders the active EmuTV theme's current view on top of the live shell so the
+        // renderer's layout/colors/assets can be eyeballed before the full host refactor.
+        private RenderedView? _themePreview;
+        private EmuTvThemeParseResult? _activeThemeRes;
+        private string? _activeThemeId;
+
+        // Renders the active theme's current view (system/gamelist) into the window. Re-run on
+        // every navigation/selection/mode change so the themed UI tracks input. The active theme is
+        // parsed once and cached; image loads are cached too, so re-renders are cheap.
+        private void RenderActiveView()
+        {
+            try
+            {
+                string id = EmuTvThemeService.Instance.ActiveThemeId;
+                if (_activeThemeRes == null || _activeThemeId != id)
+                {
+                    _activeThemeRes = EmuTvThemeService.Instance.LoadActiveTheme();
+                    _activeThemeId = id;
+                }
+                var variant = _activeThemeRes?.Theme.Variants.Values.FirstOrDefault();
+                if (variant == null) return;
+
+                var kind = _mode == NavMode.Carousel ? ThemeViewKind.System : ThemeViewKind.Gamelist;
+                var view = variant.Views.FirstOrDefault(v => v.Kind == kind)
+                           ?? variant.Views.FirstOrDefault();
+                if (view == null) return;
+
+                double w = ActualWidth > 0 ? ActualWidth : 1920;
+                double h = ActualHeight > 0 ? ActualHeight : 1080;
+                // The faithful engine binds all data (system logos, game art, metadata text, help)
+                // directly from the snapshot during render — no post-pass slot filling needed.
+                _themePreview = new EmuTvThemeRenderer(_activeThemeRes!.Theme.RootPath).Render(view, w, h,
+                    EsSystemName.For((SystemCarousel.SelectedItem as ConsoleGroup)?.ConsoleName),
+                    BuildThemeItems());
+
+                ThemePreviewHost.Content = _themePreview.Root;
+                ThemePreviewHost.Visibility = Visibility.Visible;
+                _videoTarget = _themePreview.VideoTarget;   // live video plays into the themed <video>
+            }
+            catch { /* render is best-effort */ }
+        }
+
+        // Fired off-thread when a webp finishes decoding — coalesce into a single re-render so the
+        // newly-available images appear without blocking or thrashing.
+        private void OnThemeImageReady()
+        {
+            try { Dispatcher.BeginInvoke(() => { if (!_closed) { _imgReadyDebounce?.Stop(); _imgReadyDebounce?.Start(); } }); }
+            catch { }
+        }
+
+        // F9 — capture exactly what the themed view is rendering to a PNG, so rendering issues can be
+        // diagnosed by looking instead of guessing.
+        private void SnapshotThemeView()
+        {
+            try
+            {
+                int w = (int)ThemePreviewHost.ActualWidth, h = (int)ThemePreviewHost.ActualHeight;
+                if (w <= 0 || h <= 0) return;
+                var rtb = new RenderTargetBitmap(w, h, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+                rtb.Render(ThemePreviewHost);
+                var enc = new PngBitmapEncoder();
+                enc.Frames.Add(BitmapFrame.Create(rtb));
+                string path = @"D:\Emutastic Data\Logs\emutv-snapshot.png";
+                using var fs = System.IO.File.Create(path);
+                enc.Save(fs);
+                HintLabel.Text = "Snapshot saved";
+            }
+            catch { }
+        }
+
+        // F7 — cycle the active EmuTV theme (so an imported theme can be previewed). If the
+        // preview is open, re-render it with the newly active theme.
+        private void CycleActiveTheme()
+        {
+            var themes = EmuTvThemeService.Instance.AvailableThemes;
+            if (themes.Count == 0) return;
+            string cur = EmuTvThemeService.Instance.ActiveThemeId;
+            int idx = -1;
+            for (int i = 0; i < themes.Count; i++) if (themes[i].Id == cur) { idx = i; break; }
+            var next = themes[(idx + 1) % themes.Count];
+            EmuTvThemeService.Instance.SetActiveTheme(next.Id);
+            _activeThemeRes = null;            // force a re-parse of the newly active theme
+            ThemePreviewHost.Visibility = Visibility.Visible;
+            RenderActiveView();
+        }
+
+        // ── Unified theme browser (installed + downloadable catalog) ──────────────
+        private sealed class BrowserEntry
+        {
+            public string Name { get; init; } = "";
+            public string Author { get; set; } = "";
+            public string AuthorLine => string.IsNullOrWhiteSpace(Author) ? "" : "by " + Author;
+            public string StatusText { get; init; } = "";
+            public Brush StatusBrush { get; init; } = Brushes.Gray;
+            public bool IsInstalled { get; init; }
+            public string? ThemeId { get; init; }        // installed id (for apply)
+            public CatalogTheme? Catalog { get; init; }  // catalog source (for download)
+            public string? PreviewUrl { get; set; }      // enriched from the catalog after fetch
+            public string Meta { get; set; } = "";
+        }
+
+        private readonly System.Collections.ObjectModel.ObservableCollection<BrowserEntry> _browserEntries = new();
+        private NavMode _modeBeforeBrowser = NavMode.Carousel;
+        private bool _browserBusy;
+
+        private void OpenThemeBrowser()
+        {
+            if (_mode == NavMode.ThemeBrowser) return;
+            _modeBeforeBrowser = _mode == NavMode.SaveStates ? NavMode.GameList : _mode;
+            _mode = NavMode.ThemeBrowser;
+            ThemeBrowserList.ItemsSource = _browserEntries;
+            ThemeBrowser.Visibility = Visibility.Visible;
+            _ = PopulateThemeBrowserAsync();
+        }
+
+        private async Task PopulateThemeBrowserAsync()
+        {
+            static string Norm(string s) => new string((s ?? "").Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant();
+
+            _browserEntries.Clear();
+            var installed = EmuTvThemeService.Instance.AvailableThemes;
+            var installedByNorm = new HashSet<string>(installed.Select(i => Norm(i.Name)));
+
+            var instBrush = new SolidColorBrush(Color.FromRgb(0x6F, 0xE0, 0x9A));
+            var dlBrush   = new SolidColorBrush(Color.FromRgb(0x6F, 0xC8, 0xFF));
+
+            // Installed first (shows instantly; previews/meta are enriched from the catalog below).
+            var instEntries = new List<BrowserEntry>();
+            foreach (var i in installed)
+            {
+                var en = new BrowserEntry
+                {
+                    Name = i.Name, Author = i.Author, IsInstalled = true, ThemeId = i.Id,
+                    StatusText = "INSTALLED", StatusBrush = instBrush,
+                };
+                instEntries.Add(en);
+                _browserEntries.Add(en);
+            }
+            if (_browserEntries.Count > 0) ThemeBrowserList.SelectedIndex = 0;
+            UpdateThemeBrowserDetail();
+
+            // Catalog: match installed themes to their catalog entry (by normalized name) to borrow a
+            // preview screenshot + metadata, then append the not-yet-installed ones as downloads.
+            var catalog = await EmuTvThemeCatalog.Instance.FetchAsync();
+            var byNorm = new Dictionary<string, CatalogTheme>();
+            foreach (var c in catalog) byNorm.TryAdd(Norm(c.Name), c);
+
+            foreach (var en in instEntries)
+                if (byNorm.TryGetValue(Norm(en.Name), out var m))
+                {
+                    en.PreviewUrl = EmuTvThemeCatalog.Instance.ScreenshotUrl(m);
+                    if (string.IsNullOrWhiteSpace(en.Author)) en.Author = m.Author;
+                    en.Meta = BuildCatalogMeta(m);
+                }
+
+            foreach (var c in catalog)
+            {
+                if (installedByNorm.Contains(Norm(c.Name))) continue;
+                _browserEntries.Add(new BrowserEntry
+                {
+                    Name = c.Name, Author = c.Author, IsInstalled = false, Catalog = c,
+                    StatusText = "DOWNLOAD", StatusBrush = dlBrush,
+                    PreviewUrl = EmuTvThemeCatalog.Instance.ScreenshotUrl(c),
+                    Meta = BuildCatalogMeta(c),
+                });
+            }
+            if (ThemeBrowserList.SelectedIndex < 0 && _browserEntries.Count > 0)
+                ThemeBrowserList.SelectedIndex = 0;
+            UpdateThemeBrowserDetail();   // refresh the selected entry now that previews are enriched
+        }
+
+        private static string BuildCatalogMeta(CatalogTheme c)
+        {
+            var parts = new List<string>();
+            if (c.Variants.Count > 0) parts.Add($"{c.Variants.Count} variant{(c.Variants.Count == 1 ? "" : "s")}");
+            if (c.ColorSchemes.Count > 0) parts.Add($"{c.ColorSchemes.Count} color scheme{(c.ColorSchemes.Count == 1 ? "" : "s")}");
+            if (c.AspectRatios.Count > 0) parts.Add($"{c.AspectRatios.Count} aspect ratios");
+            return string.Join("    ·    ", parts);
+        }
+
+        private readonly Dictionary<string, ImageSource?> _previewCache = new();
+
+        private async void UpdateThemeBrowserDetail()
+        {
+            if (ThemeBrowserList.SelectedItem is not BrowserEntry e)
+            {
+                ThemeBrowserName.Text = ""; ThemeBrowserMeta.Text = ""; ThemeBrowserPreview.Source = null;
+                return;
+            }
+            ThemeBrowserName.Text = e.Name;
+            ThemeBrowserMeta.Text = string.IsNullOrEmpty(e.Meta)
+                ? e.AuthorLine
+                : (string.IsNullOrEmpty(e.AuthorLine) ? e.Meta : e.AuthorLine + "\n" + e.Meta);
+
+            ThemeBrowserPreview.Source = null;
+            string? url = e.PreviewUrl;
+            if (string.IsNullOrEmpty(url)) return;
+
+            if (_previewCache.TryGetValue(url, out var cached)) { ThemeBrowserPreview.Source = cached; return; }
+
+            // Download via the pooled HttpClient (not BitmapImage's capped URL loader), decode from
+            // memory, cache, and only apply if the user is still on this entry.
+            byte[]? bytes = await EmuTvThemeCatalog.Instance.GetBytesAsync(url);
+            ImageSource? img = null;
+            if (bytes != null)
+            {
+                try
+                {
+                    var bmp = new BitmapImage();
+                    bmp.BeginInit();
+                    bmp.CacheOption = BitmapCacheOption.OnLoad;
+                    bmp.StreamSource = new System.IO.MemoryStream(bytes);
+                    bmp.EndInit();
+                    bmp.Freeze();
+                    img = bmp;
+                }
+                catch { /* undecodable preview */ }
+            }
+            _previewCache[url] = img;
+            if (ReferenceEquals(ThemeBrowserList.SelectedItem, e))
+                ThemeBrowserPreview.Source = img;
+        }
+
+        private void MoveThemeBrowser(int delta)
+        {
+            int n = ThemeBrowserList.Items.Count;
+            if (n == 0) return;
+            int i = Math.Clamp(ThemeBrowserList.SelectedIndex + delta, 0, n - 1);
+            if (i != ThemeBrowserList.SelectedIndex)
+            {
+                ThemeBrowserList.SelectedIndex = i;
+                ThemeBrowserList.ScrollIntoView(ThemeBrowserList.Items[i]);
+            }
+        }
+
+        private async void AcceptThemeBrowser()
+        {
+            if (_browserBusy || ThemeBrowserList.SelectedItem is not BrowserEntry e) return;
+
+            if (e.IsInstalled && e.ThemeId != null) { ApplyThemeAndClose(e.ThemeId); return; }
+            if (e.Catalog == null) return;
+
+            _browserBusy = true;
+            ThemeBrowserHint.Text = $"Downloading “{e.Name}”…  please wait";
+            EsDeImportResult result;
+            try { result = await EmuTvThemeCatalog.Instance.DownloadAndInstallAsync(e.Catalog); }
+            finally { _browserBusy = false; }
+
+            if (result.Ok && result.Id != null)
+                ApplyThemeAndClose(result.Id);
+            else
+                ThemeBrowserHint.Text = "Download failed: " + result.Message + "        B  Close";
+        }
+
+        private void ApplyThemeAndClose(string themeId)
+        {
+            EmuTvThemeService.Instance.SetActiveTheme(themeId);
+            _activeThemeRes = null;
+            CloseThemeBrowser();
+            ThemePreviewHost.Visibility = Visibility.Visible;
+            RenderActiveView();
+        }
+
+        private void CloseThemeBrowser()
+        {
+            ThemeBrowser.Visibility = Visibility.Collapsed;
+            ThemeBrowserHint.Text = "▲ ▼  Browse         A  Apply / Download         B  Close";
+            _mode = _modeBeforeBrowser;
+        }
+
+        // Snapshots the real library (consoles + the selected console's games) so the renderer can
+        // draw the theme's primary-nav items — system logos, game box art — faithfully.
+        private ThemeItemData BuildThemeItems()
+        {
+            var systems = new List<ThemeSystemEntry>();
+            if (SystemCarousel.ItemsSource is System.Collections.IEnumerable src)
+                foreach (ConsoleGroup c in src)
+                    systems.Add(new ThemeSystemEntry { Label = c.ConsoleName, EsName = EsSystemName.For(c.ConsoleName) });
+
+            var games = new List<ThemeGameEntry>();
+            var selConsole = SystemCarousel.SelectedItem as ConsoleGroup;
+            if (selConsole?.Games != null)
+                foreach (var g in selConsole.Games.Take(200))
+                    games.Add(new ThemeGameEntry
+                    {
+                        Label = g.Title,
+                        CoverPath = g.CoverArtPath,
+                        ScreenshotPath = g.ScreenScraperArtPath,
+                        Box3dPath = g.BoxArt3DPath,
+                        MarqueePath = g.CoverArtPath,
+                        Developer = g.Developer,
+                        Publisher = g.Publisher,
+                        Genre = g.Genre,
+                        Description = g.Description,
+                        Year = g.Year,
+                        RatingStars = g.RatingStars,
+                        Rating = Math.Clamp(g.Rating / 5.0, 0, 1),
+                    });
+
+            return new ThemeItemData
+            {
+                Systems = systems,
+                SelectedSystem = Math.Max(0, SystemCarousel.SelectedIndex),
+                Games = games,
+                SelectedGame = Math.Max(0, GameList.SelectedIndex),
+                SystemName = selConsole?.ConsoleName ?? "",
+                SystemGameCount = selConsole != null ? $"{selConsole.TotalCount} games" : "",
+                HelpText = HintLabel.Text,
+            };
+        }
+
+        // F6 — import an ES-DE theme folder, make it active, and preview it.
+        private void ImportThemeViaDialog()
+        {
+            try
+            {
+                using var dlg = new System.Windows.Forms.FolderBrowserDialog
+                {
+                    Description = "Select an ES-DE theme folder to import into EmuTV",
+                    UseDescriptionForTitle = true,
+                };
+                if (dlg.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
+
+                var result = EsDeThemeImporter.ImportFromFolder(dlg.SelectedPath);
+                if (result.Ok && result.Id != null)
+                {
+                    EmuTvThemeService.Instance.SetActiveTheme(result.Id);
+                    _activeThemeRes = null;            // force a re-parse of the imported theme
+                    ThemePreviewHost.Visibility = Visibility.Visible;
+                    RenderActiveView();
+                }
+                else
+                {
+                    MessageBox.Show(this, result.Message, "Theme import",
+                        MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message, "Theme import failed",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
         protected override void OnClosed(EventArgs e)
         {
             _closed = true;
+            EmuTvThemeRenderer.OnAsyncImageReady = null;
+            _imgReadyDebounce?.Stop();
             _inputTimer?.Stop();
             _videoDebounce.Stop();
             StopVideo();

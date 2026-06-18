@@ -106,6 +106,8 @@ namespace Emutastic.Services
         public const ushort RAW_DPAD_RIGHT = XINPUT_GAMEPAD_DPAD_RIGHT;
         public const ushort RAW_LB         = XINPUT_GAMEPAD_LEFT_SHOULDER;
         public const ushort RAW_RB         = XINPUT_GAMEPAD_RIGHT_SHOULDER;
+        public const ushort RAW_X          = XINPUT_GAMEPAD_X;
+        public const ushort RAW_Y          = XINPUT_GAMEPAD_Y;
 
         /// <summary>
         /// Returns true if the named trigger (false = left/L2, true = right/R2) is

@@ -47,3 +47,6 @@ Emutastic/Assets/openvgdb.sqlite
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Local-only planning / design notes — never pushed to the public repo
+/local-notes/

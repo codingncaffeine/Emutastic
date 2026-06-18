@@ -178,6 +178,15 @@ namespace Emutastic.Configuration
         public double BackgroundImageOffsetY { get; set; } = 0.0;
         /// <summary>Whether the background image tiles/repeats instead of stretching.</summary>
         public bool BackgroundImageRepeat { get; set; } = false;
+
+        // ── EmuTV (couch shell) theme ──
+        /// <summary>Active EmuTV theme id (folder under EmuTvThemes/, or a built-in id). Empty = EmuTV default.</summary>
+        public string EmuTvThemeId { get; set; } = "";
+        /// <summary>Selected EmuTV theme axis values. Empty = the theme's own defaults.</summary>
+        public string EmuTvVariant { get; set; } = "";
+        public string EmuTvColorScheme { get; set; } = "";
+        public string EmuTvAspectRatio { get; set; } = "";
+        public string EmuTvFontSize { get; set; } = "";
     }
 
     // Library configuration
@@ -417,6 +426,25 @@ namespace Emutastic.Configuration
         public string EmuMoviesUser         { get; set; } = "";
         public string EmuMoviesPassword     { get; set; } = "";
         public bool   EmuMoviesEnabled      { get; set; } = false;
+    }
+
+    // EmuTV (couch shell) configuration — hi-res art, hotkeys, theme studio
+    public class EmuTvConfiguration : ConfigurationBase
+    {
+        /// <summary>Per-user SteamGridDB API token for hi-res box art / marquees.
+        /// Stored per-user only — never embedded/shared in the build.</summary>
+        public string SteamGridDbToken { get; set; } = "";
+
+        /// <summary>When true, EmuTV upgrades missing / low-res art via SteamGridDB.</summary>
+        public bool SteamGridDbEnabled { get; set; } = false;
+
+        /// <summary>
+        /// EmuTV controller hotkey overrides, keyed by action id
+        /// ("theme_browser", "save_states", "accept", "back", "page_up", "page_down")
+        /// → XInput button name ("A","B","X","Y","Start","Back","LB","RB").
+        /// Missing entries fall back to the built-in default.
+        /// </summary>
+        public Dictionary<string, string> HotkeyOverrides { get; set; } = new();
     }
 
     // Button mapping definition
