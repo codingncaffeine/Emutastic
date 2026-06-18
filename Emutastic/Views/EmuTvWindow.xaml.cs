@@ -558,16 +558,20 @@ namespace Emutastic.Views
                 case Key.Left:
                     if (_mode == NavMode.Carousel)   { e.Handled = true; MoveCarousel(-1); }
                     else if (_mode == NavMode.SaveStates) { e.Handled = true; MoveSave(-1); }
+                    else if (_mode == NavMode.ThemeBrowser) { e.Handled = true; CycleBrowserColor(-1); }
                     break;
                 case Key.Right:
                     if (_mode == NavMode.Carousel)   { e.Handled = true; MoveCarousel(1); }
                     else if (_mode == NavMode.GameList)   { e.Handled = true; EnterSaveStates(); }
                     else if (_mode == NavMode.SaveStates) { e.Handled = true; MoveSave(1); }
+                    else if (_mode == NavMode.ThemeBrowser) { e.Handled = true; CycleBrowserColor(1); }
                     break;
                 case Key.Up:    if (_mode == NavMode.GameList) { e.Handled = true; MoveGameList(-1); }
                                 else if (_mode == NavMode.ThemeBrowser) { e.Handled = true; MoveThemeBrowser(-1); } break;
                 case Key.Down:  if (_mode == NavMode.GameList) { e.Handled = true; MoveGameList(1);  }
                                 else if (_mode == NavMode.ThemeBrowser) { e.Handled = true; MoveThemeBrowser(1); } break;
+                case Key.OemOpenBrackets:  if (_mode == NavMode.ThemeBrowser) { e.Handled = true; CycleBrowserVariant(-1); } break;
+                case Key.OemCloseBrackets: if (_mode == NavMode.ThemeBrowser) { e.Handled = true; CycleBrowserVariant(1);  } break;
                 case Key.PageUp:   if (_mode == NavMode.GameList) { e.Handled = true; MovePageGameList(-1); } break;
                 case Key.PageDown: if (_mode == NavMode.GameList) { e.Handled = true; MovePageGameList(1);  } break;
                 case Key.T:        e.Handled = true; OpenThemeBrowser(); break;
@@ -653,6 +657,25 @@ namespace Emutastic.Views
                         if (held % interval == 0) MovePageGameList(pdir);
                     }
                 }
+            }
+
+            // ThemeBrowser: ◀▶ cycle colour scheme, L1/R1 cycle variant (both edge-triggered so one
+            // press = one step). Up/down still drives the theme list via the directional block below.
+            if (_mode == NavMode.ThemeBrowser)
+            {
+                bool axl = _controller.IsRawXInputButtonDown(ControllerManager.RAW_DPAD_LEFT)
+                           || _controller.GetButtonState(ControllerManager.ANALOG_LEFT_LEFT);
+                bool axr = _controller.IsRawXInputButtonDown(ControllerManager.RAW_DPAD_RIGHT)
+                           || _controller.GetButtonState(ControllerManager.ANALOG_LEFT_RIGHT);
+                int cdir = axr ? 1 : axl ? -1 : 0;
+                if (cdir != 0) { if (!_axisColorLatch) { _axisColorLatch = true; CycleBrowserColor(cdir); } }
+                else _axisColorLatch = false;
+
+                bool vl = _controller.IsRawXInputButtonDown(ControllerManager.RAW_LB);
+                bool vr = _controller.IsRawXInputButtonDown(ControllerManager.RAW_RB);
+                int vdir = vr ? 1 : vl ? -1 : 0;
+                if (vdir != 0) { if (!_axisVariantLatch) { _axisVariantLatch = true; CycleBrowserVariant(vdir); } }
+                else _axisVariantLatch = false;
             }
 
             // Directional nav with hold-to-repeat (axis depends on mode).
@@ -867,6 +890,12 @@ namespace Emutastic.Views
         private NavMode _modeBeforeBrowser = NavMode.Carousel;
         private bool _browserBusy;
 
+        // Axis picker — colour scheme + variant for the currently-selected installed browser entry.
+        private List<ColorSchemeDef> _axisColors = new();
+        private List<VariantDef> _axisVariants = new();
+        private int _axisColorIdx, _axisVariantIdx;
+        private bool _axisColorLatch, _axisVariantLatch;
+
         private void OpenThemeBrowser()
         {
             if (_mode == NavMode.ThemeBrowser) return;
@@ -949,12 +978,14 @@ namespace Emutastic.Views
             if (ThemeBrowserList.SelectedItem is not BrowserEntry e)
             {
                 ThemeBrowserName.Text = ""; ThemeBrowserMeta.Text = ""; ThemeBrowserPreview.Source = null;
+                ThemeBrowserAxes.Visibility = Visibility.Collapsed;
                 return;
             }
             ThemeBrowserName.Text = e.Name;
             ThemeBrowserMeta.Text = string.IsNullOrEmpty(e.Meta)
                 ? e.AuthorLine
                 : (string.IsNullOrEmpty(e.AuthorLine) ? e.Meta : e.AuthorLine + "\n" + e.Meta);
+            RefreshAxisOptions(e);
 
             ThemeBrowserPreview.Source = null;
             string? url = e.PreviewUrl;
@@ -997,11 +1028,70 @@ namespace Emutastic.Views
             }
         }
 
+        // ── axis picker: cycle colour scheme + variant for the selected installed theme ───────────
+        // The pick is shown in the detail pane and committed (persisted + re-parsed) on Apply.
+        private void RefreshAxisOptions(BrowserEntry e)
+        {
+            var caps = (e.IsInstalled && e.ThemeId != null)
+                ? EmuTvThemeService.Instance.GetCapabilities(e.ThemeId) : null;
+            _axisColors   = caps?.ColorSchemes ?? new List<ColorSchemeDef>();
+            _axisVariants = caps?.Variants?.Where(v => v.Selectable).ToList() ?? new List<VariantDef>();
+            // Seed each axis from the persisted pick (when this theme has it), else the theme's default (0).
+            var sel = EmuTvThemeService.Instance.GetSelection();
+            _axisColorIdx   = Math.Max(0, _axisColors.FindIndex(c => c.Name == sel.ColorScheme));
+            _axisVariantIdx = Math.Max(0, _axisVariants.FindIndex(v => v.Name == sel.Variant));
+            if (_axisColors.Count <= 1 && _axisVariants.Count <= 1)
+            {
+                ThemeBrowserAxes.Visibility = Visibility.Collapsed;
+                return;
+            }
+            ThemeBrowserAxes.Visibility = Visibility.Visible;
+            UpdateAxisLabels();
+        }
+
+        private void UpdateAxisLabels()
+        {
+            bool hasColors = _axisColors.Count > 1, hasVariants = _axisVariants.Count > 1;
+            ThemeBrowserColors.Visibility  = hasColors  ? Visibility.Visible : Visibility.Collapsed;
+            ThemeBrowserVariant.Visibility = hasVariants ? Visibility.Visible : Visibility.Collapsed;
+            if (hasColors)
+                ThemeBrowserColors.Text =
+                    $"◀  Color:  {_axisColors[_axisColorIdx].Label}  ▶    ({_axisColorIdx + 1}/{_axisColors.Count})";
+            if (hasVariants)
+                ThemeBrowserVariant.Text = $"L1 R1  Variant:  {_axisVariants[_axisVariantIdx].Label}";
+        }
+
+        private void CycleBrowserColor(int dir)
+        {
+            int n = _axisColors.Count;
+            if (n < 2) return;
+            _axisColorIdx = ((_axisColorIdx + dir) % n + n) % n;
+            UpdateAxisLabels();
+        }
+
+        private void CycleBrowserVariant(int dir)
+        {
+            int n = _axisVariants.Count;
+            if (n < 2) return;
+            _axisVariantIdx = ((_axisVariantIdx + dir) % n + n) % n;
+            UpdateAxisLabels();
+        }
+
+        // Persist the picked colour scheme + variant so the next parse (on Apply) uses them.
+        private void CommitAxisSelection()
+        {
+            if (_axisColors.Count == 0 && _axisVariants.Count == 0) return;
+            var sel = EmuTvThemeService.Instance.GetSelection();
+            if (_axisColors.Count   > 0) sel.ColorScheme = _axisColors[_axisColorIdx].Name;
+            if (_axisVariants.Count > 0) sel.Variant     = _axisVariants[_axisVariantIdx].Name;
+            EmuTvThemeService.Instance.SetSelection(sel);
+        }
+
         private async void AcceptThemeBrowser()
         {
             if (_browserBusy || ThemeBrowserList.SelectedItem is not BrowserEntry e) return;
 
-            if (e.IsInstalled && e.ThemeId != null) { ApplyThemeAndClose(e.ThemeId); return; }
+            if (e.IsInstalled && e.ThemeId != null) { CommitAxisSelection(); ApplyThemeAndClose(e.ThemeId); return; }
             if (e.Catalog == null) return;
 
             _browserBusy = true;
@@ -1028,7 +1118,7 @@ namespace Emutastic.Views
         private void CloseThemeBrowser()
         {
             ThemeBrowser.Visibility = Visibility.Collapsed;
-            ThemeBrowserHint.Text = "▲ ▼  Browse         A  Apply / Download         B  Close";
+            ThemeBrowserHint.Text = "▲ ▼  Browse      ◀ ▶  Color      L1 R1  Variant      A  Apply / Download      B  Close";
             _mode = _modeBeforeBrowser;
         }
 
@@ -1048,8 +1138,12 @@ namespace Emutastic.Views
 
             var games = new List<ThemeGameEntry>();
             var selConsole = SystemCarousel.SelectedItem as ConsoleGroup;
+            // No cap — the renderer windows the list (only a screenful of items is ever
+            // materialized, see BuildGrid/BuildTextList), so the full library navigates
+            // smoothly regardless of size. An earlier .Take(200) silently truncated large
+            // libraries (e.g. scrolling halted partway through a 700+ game console).
             if (selConsole?.Games != null)
-                foreach (var g in selConsole.Games.Take(200))
+                foreach (var g in selConsole.Games)
                     games.Add(new ThemeGameEntry
                     {
                         Label = g.Title,

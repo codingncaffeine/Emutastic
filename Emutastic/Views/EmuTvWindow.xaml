@@ -401,13 +401,19 @@
                             <TextBlock x:Name="ThemeBrowserName" FontSize="26" FontWeight="Bold" Foreground="#FFEAF6FF"/>
                             <TextBlock x:Name="ThemeBrowserMeta" FontSize="15" Opacity="0.75" Foreground="#FFC8F2FF"
                                        TextWrapping="Wrap" Margin="0,4,0,0"/>
+                            <StackPanel x:Name="ThemeBrowserAxes" Margin="0,12,0,0" Visibility="Collapsed">
+                                <TextBlock x:Name="ThemeBrowserColors" FontSize="18" FontWeight="SemiBold"
+                                           Foreground="#FFEAF6FF" Margin="0,2,0,0"/>
+                                <TextBlock x:Name="ThemeBrowserVariant" FontSize="18" FontWeight="SemiBold"
+                                           Foreground="#FFEAF6FF" Margin="0,6,0,0"/>
+                            </StackPanel>
                         </StackPanel>
                     </Grid>
                 </Grid>
 
                 <TextBlock Grid.Row="2" x:Name="ThemeBrowserHint" Margin="2,16,0,0"
                            FontSize="17" FontWeight="SemiBold" Foreground="#FFC8F2FF"
-                           Text="▲ ▼  Browse         A  Apply / Download         B  Close"/>
+                           Text="▲ ▼  Browse      ◀ ▶  Color      L1 R1  Variant      A  Apply / Download      B  Close"/>
             </Grid>
         </Border>
 

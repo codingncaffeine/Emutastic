@@ -200,6 +200,21 @@ namespace Emutastic.Services
             return string.IsNullOrEmpty(id) ? null : LoadTheme(id, GetSelection());
         }
 
+        private readonly Dictionary<string, ThemeCapabilities> _capsCache = new();
+
+        /// <summary>Parses + caches a theme's capabilities.xml — the axis options (colour schemes,
+        /// variants, aspect ratios) the EmuTV axis picker cycles through. Cheap (capabilities.xml only).</summary>
+        public ThemeCapabilities? GetCapabilities(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return null;
+            if (_capsCache.TryGetValue(id, out var cached)) return cached;
+            string? root = ResolveRoot(id);
+            if (root == null) return null;
+            var caps = new EmuTvThemeParser(root).ParseCapabilities();
+            _capsCache[id] = caps;
+            return caps;
+        }
+
         // ── install (drop-in .emutvtheme zip) ───────────────────────────────────
 
         /// <summary>Installs a .emutvtheme (or ES-DE theme) zip into the themes folder.
