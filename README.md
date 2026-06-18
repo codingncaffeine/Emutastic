@@ -88,6 +88,11 @@ Drag and drop ROMs onto the library or use **Import ROMs**. The app detects the 
 ## Features
 
 <details>
+<summary><strong>Click to expand the full feature list</strong></summary>
+
+<br>
+
+<details>
 <summary><strong>EmuTV — Big-Screen Couch Mode</strong></summary>
 
 A controller-only, 10-foot front end for the TV. Open it from the library with the **L3 + R3 + L2 + R2** chord (the same chord quits a running game back to EmuTV). Browse your consoles and games, launch with a button, and pull up save states with **Start** — no keyboard or mouse needed.
@@ -198,6 +203,8 @@ Per-game cheats from the in-game cog menu or the library detail card's `⋯` men
 Apply an IPS, BPS, or UPS patch to a base game right from the library (right-click → **Apply ROM Hack**). The patched game becomes its own library entry — with its own saves — while your original ROM is left untouched, so there's no second copy on disk. The patch is applied in memory at launch, and BPS/UPS patches are checksum-verified against your ROM, so a mismatched or wrong-region copy is caught before it loads. Available on cartridge systems (SNES, GBA, Game Boy / Game Boy Color, NES, Genesis, Nintendo 64, and more).
 
 See **[ROM Hacks](https://github.com/codingncaffeine/Emutastic/wiki/ROM-Hacks)** in the wiki for the full system list, supported patch formats, how patched ROMs are scraped, and tips on matching a patch to the right base ROM.
+
+</details>
 
 </details>
 
