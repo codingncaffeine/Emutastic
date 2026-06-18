@@ -561,6 +561,11 @@
                                  GroupName="NavGroup"
                                  Style="{StaticResource NavBtn}"
                                  Checked="NavBtn_Checked"/>
+                    <RadioButton x:Name="NavEmuTv"
+                                 Content="EmuTV"
+                                 GroupName="NavGroup"
+                                 Style="{StaticResource NavBtn}"
+                                 Checked="NavBtn_Checked"/>
                     <RadioButton x:Name="NavAbout"
                                  Content="About"
                                  GroupName="NavGroup"
@@ -2031,6 +2036,98 @@
                 </Grid>
 
                 <!-- ── PANEL: About ───────────────────────────────────────── -->
+                <!-- ── PANEL: EmuTV ─────────────────────────────────────── -->
+                <Grid x:Name="PanelEmuTv" Visibility="Collapsed">
+                    <ScrollViewer Margin="32,24,32,24" VerticalScrollBarVisibility="Auto">
+                        <StackPanel MaxWidth="620" HorizontalAlignment="Left">
+
+                            <TextBlock Text="EMUTV" Style="{StaticResource PrefLabel}"/>
+                            <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,0,0,16"/>
+
+                            <!-- Hi-res art -->
+                            <TextBlock Text="Hi-Res Box Art (SteamGridDB)"
+                                       FontSize="15" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+                            <TextBlock Text="Upgrade missing or low-res box art and logos for the couch view using SteamGridDB. Get a free token at steamgriddb.com (Profile - Preferences - API), then paste it here. Your token stays on this PC."
+                                       FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                       TextWrapping="Wrap" Margin="0,4,0,12"/>
+                            <Grid Margin="0,0,0,12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Enable SteamGridDB art"
+                                           Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                                <ToggleButton x:Name="SgdbEnabledToggle" Grid.Column="1"
+                                              Style="{StaticResource ToggleSwitch}" VerticalAlignment="Center"
+                                              Checked="EmuTvSetting_Changed" Unchecked="EmuTvSetting_Changed"/>
+                            </Grid>
+                            <TextBlock Text="API Token" FontSize="12"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,6"/>
+                            <TextBox x:Name="SgdbTokenBox" Style="{StaticResource DarkTextBox}"
+                                     Margin="0,0,0,26" LostFocus="EmuTvSetting_Changed"/>
+
+                            <!-- EmuTV controls -->
+                            <TextBlock Text="EmuTV Controls"
+                                       FontSize="15" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+                            <TextBlock Text="Change the buttons used inside EmuTV. Navigation (D-pad / stick), A (play) and B (back) are fixed."
+                                       FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                       TextWrapping="Wrap" Margin="0,4,0,12"/>
+                            <Grid Margin="0,0,0,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="170"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Theme browser"
+                                           Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                                <ComboBox x:Name="HkThemeBrowser" Grid.Column="1"
+                                          Style="{StaticResource PrefComboBox}" SelectionChanged="EmuTvHotkey_Changed"/>
+                            </Grid>
+                            <Grid Margin="0,0,0,18">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="170"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Save states"
+                                           Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                                <ComboBox x:Name="HkSaveStates" Grid.Column="1"
+                                          Style="{StaticResource PrefComboBox}" SelectionChanged="EmuTvHotkey_Changed"/>
+                            </Grid>
+
+                            <!-- In-game combo reference -->
+                            <TextBlock Text="Controller combos"
+                                       FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,2,0,6"/>
+                            <Border Background="{DynamicResource BgTertiaryBrush}"
+                                    BorderBrush="{DynamicResource BorderNormalBrush}"
+                                    BorderThickness="1" CornerRadius="6" Padding="14,12">
+                                <StackPanel>
+                                    <TextBlock FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}">
+                                        <Run FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}">Open EmuTV / quit game</Run>
+                                        <Run>    L3 + R3 + L2 + R2 (held ~1.5s)</Run>
+                                    </TextBlock>
+                                    <TextBlock FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,6,0,0">
+                                        <Run FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}">Save state</Run>
+                                        <Run>    Hold L3, then R2</Run>
+                                    </TextBlock>
+                                    <TextBlock FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,6,0,0">
+                                        <Run FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}">Load latest state</Run>
+                                        <Run>    Hold L3, then L2</Run>
+                                    </TextBlock>
+                                    <TextBlock FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,6,0,0">
+                                        <Run FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}">Swap disc</Run>
+                                        <Run>    L3 + Start (multi-disc games)</Run>
+                                    </TextBlock>
+                                    <TextBlock FontSize="11" Foreground="{DynamicResource TextMutedBrush}" Margin="0,8,0,0"
+                                               Text="The save/load/disc combos are rebindable per system under Controls."/>
+                                </StackPanel>
+                            </Border>
+                            <TextBlock x:Name="EmuTvStatusLabel" FontSize="12"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,12,0,0"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+
                 <Grid x:Name="PanelAbout" Visibility="Collapsed">
                     <ScrollViewer Margin="32,24,32,24" VerticalScrollBarVisibility="Auto">
                         <StackPanel MaxWidth="560" HorizontalAlignment="Left">

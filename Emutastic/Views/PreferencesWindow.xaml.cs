@@ -68,7 +68,7 @@ namespace Emutastic.Views
         private List<string> _lastKnownDevices = new();
 
         // ── Section navigation ────────────────────────────────────────────────
-        private enum PrefSection { Controls, SystemFiles, Cores, Library, Theme, Snaps, CoreOptions, Achievements, Media, Backups, About }
+        private enum PrefSection { Controls, SystemFiles, Cores, Library, Theme, Snaps, CoreOptions, Achievements, Media, Backups, EmuTv, About }
         private PrefSection _activeSection = PrefSection.Controls;
 
         // Lazy-tab gating: build each panel at most once per cache lifetime,
@@ -849,6 +849,7 @@ namespace Emutastic.Views
             else if (sender == NavAchievements) ShowSection(PrefSection.Achievements);
             else if (sender == NavMedia)        ShowSection(PrefSection.Media);
             else if (sender == NavBackups)      ShowSection(PrefSection.Backups);
+            else if (sender == NavEmuTv)        ShowSection(PrefSection.EmuTv);
             else if (sender == NavAbout)        ShowSection(PrefSection.About);
         }
 
@@ -866,6 +867,7 @@ namespace Emutastic.Views
             PanelAchievements.Visibility = section == PrefSection.Achievements ? Visibility.Visible : Visibility.Collapsed;
             PanelMedia.Visibility       = section == PrefSection.Media        ? Visibility.Visible : Visibility.Collapsed;
             PanelBackups.Visibility     = section == PrefSection.Backups      ? Visibility.Visible : Visibility.Collapsed;
+            PanelEmuTv.Visibility       = section == PrefSection.EmuTv        ? Visibility.Visible : Visibility.Collapsed;
             PanelAbout.Visibility       = section == PrefSection.About        ? Visibility.Visible : Visibility.Collapsed;
 
             // Lazy builder dispatch — never block the dispatcher inline. The
@@ -990,6 +992,7 @@ namespace Emutastic.Views
                     case PrefSection.CoreOptions: BuildCoreOptionsTab(); break;
                     case PrefSection.Achievements: LoadAchievementsSettings(); break;
                     case PrefSection.Backups:     LoadBackupsSettings(); break;
+                    case PrefSection.EmuTv:       LoadEmuTvSettings(); break;
                     case PrefSection.About:       LoadAboutSettings(); break;
                     case PrefSection.Controls:    /* dispatcher-affine init lives in OnLoaded */ break;
                 }
@@ -4547,6 +4550,40 @@ namespace Emutastic.Views
 
         private void SSPrefer2D_Changed(object sender, RoutedEventArgs e)
             => SaveSnapSettings();
+
+        // ── EmuTV panel ───────────────────────────────────────────────────────
+        // Buttons offered for the EmuTV navigation rebinds (A/B are reserved for play/back).
+        private static readonly string[] EmuTvButtons = { "Y", "X", "Back", "Start", "L1", "R1" };
+        private bool _emuTvLoaded;
+
+        private void LoadEmuTvSettings()
+        {
+            _suppressAutoSave = true;
+            var cfg = _configService.GetEmuTvConfiguration();
+            SgdbEnabledToggle.IsChecked = cfg.SteamGridDbEnabled;
+            SgdbTokenBox.Text           = cfg.SteamGridDbToken;
+            if (HkThemeBrowser.Items.Count == 0)
+                foreach (var b in EmuTvButtons) { HkThemeBrowser.Items.Add(b); HkSaveStates.Items.Add(b); }
+            HkThemeBrowser.SelectedItem = cfg.HotkeyOverrides.TryGetValue("theme_browser", out var tb) ? tb : "Y";
+            HkSaveStates.SelectedItem   = cfg.HotkeyOverrides.TryGetValue("save_states", out var ss) ? ss : "Start";
+            _emuTvLoaded = true;
+            _suppressAutoSave = false;
+        }
+
+        private void EmuTvSetting_Changed(object sender, RoutedEventArgs e) => SaveEmuTvSettings();
+        private void EmuTvHotkey_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e) => SaveEmuTvSettings();
+
+        private void SaveEmuTvSettings()
+        {
+            if (!_emuTvLoaded || _suppressAutoSave) return;
+            var cfg = _configService.GetEmuTvConfiguration();
+            cfg.SteamGridDbEnabled = SgdbEnabledToggle.IsChecked == true;
+            cfg.SteamGridDbToken   = SgdbTokenBox.Text.Trim();
+            cfg.HotkeyOverrides["theme_browser"] = HkThemeBrowser.SelectedItem as string ?? "Y";
+            cfg.HotkeyOverrides["save_states"]   = HkSaveStates.SelectedItem as string ?? "Start";
+            _configService.SetEmuTvConfiguration(cfg);
+            _ = _configService.SaveAsync();
+        }
 
         private void SnapsSaveBtn_Click(object sender, RoutedEventArgs e)
             => SaveSnapSettings();

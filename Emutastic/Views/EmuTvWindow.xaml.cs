@@ -41,6 +41,9 @@ namespace Emutastic.Views
         private bool _aLatch;
         private bool _yLatch;     // edge for opening the theme browser
         private bool _startLatch; // edge for opening/closing save states
+        private bool _hotkeysLoaded;
+        private ushort _hkThemeBrowser = ControllerManager.RAW_Y;   // EmuTV nav rebinds (Preferences -> EmuTV)
+        private ushort _hkSaveStates   = ControllerManager.RAW_START;
         private bool _rightLatch; // edge for GameList → SaveStates
         private int  _navDir;
         private int  _navHoldTicks;
@@ -566,9 +569,28 @@ namespace Emutastic.Views
             }
         }
 
+        // EmuTV nav hotkeys are rebindable in Preferences -> EmuTV (stored in EmuTvConfiguration).
+        private void LoadEmuTvHotkeys()
+        {
+            var cfg = App.Configuration?.GetEmuTvConfiguration();
+            if (cfg == null) return;
+            if (cfg.HotkeyOverrides.TryGetValue("theme_browser", out var tb)) _hkThemeBrowser = ButtonNameToRaw(tb, ControllerManager.RAW_Y);
+            if (cfg.HotkeyOverrides.TryGetValue("save_states", out var ss))   _hkSaveStates   = ButtonNameToRaw(ss, ControllerManager.RAW_START);
+        }
+
+        private static ushort ButtonNameToRaw(string? name, ushort dflt) => name switch
+        {
+            "A" => ControllerManager.RAW_A, "B" => ControllerManager.RAW_B,
+            "X" => ControllerManager.RAW_X, "Y" => ControllerManager.RAW_Y,
+            "Back" => ControllerManager.RAW_BACK, "Start" => ControllerManager.RAW_START,
+            "L1" => ControllerManager.RAW_LB, "R1" => ControllerManager.RAW_RB,
+            _ => dflt,
+        };
+
         private void OnInputTick(object? sender, EventArgs e)
         {
             if (_controller == null) return;
+            if (!_hotkeysLoaded) { LoadEmuTvHotkeys(); _hotkeysLoaded = true; }
 
             bool b = _controller.IsRawXInputButtonDown(ControllerManager.RAW_B);
             if (b && !_bLatch) { _bLatch = true; OnBack(); return; }
@@ -578,11 +600,11 @@ namespace Emutastic.Views
             if (a && !_aLatch) { _aLatch = true; OnAccept(); return; }
             if (!a) _aLatch = false;
 
-            bool y = _controller.IsRawXInputButtonDown(ControllerManager.RAW_Y);
+            bool y = _controller.IsRawXInputButtonDown(_hkThemeBrowser);
             if (y && !_yLatch) { _yLatch = true; OpenThemeBrowser(); return; }
             if (!y) _yLatch = false;
 
-            bool start = _controller.IsRawXInputButtonDown(ControllerManager.RAW_START);
+            bool start = _controller.IsRawXInputButtonDown(_hkSaveStates);
             if (start && !_startLatch)
             {
                 _startLatch = true;
