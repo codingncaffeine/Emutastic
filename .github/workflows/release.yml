@@ -83,12 +83,17 @@ jobs:
           echo "ZIP_NAME=$zipName" >> $env:GITHUB_ENV
         shell: pwsh
 
-      - name: Create GitHub Release
+      - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ github.ref_name }}" "$env:ZIP_NAME" `
-            --title "Emutastic ${{ github.ref_name }}" `
-            --draft `
-            --generate-notes
+          $tag = "${{ github.ref_name }}"
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            # The release already exists (version re-tagged to rebuild it) — replace the
+            # binary in place and leave the existing notes, title, and publish date alone.
+            gh release upload $tag "$env:ZIP_NAME" --clobber
+          } else {
+            gh release create $tag "$env:ZIP_NAME" --title "Emutastic $tag" --draft --generate-notes
+          }
         shell: pwsh
