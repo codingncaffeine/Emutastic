@@ -4554,7 +4554,6 @@ namespace Emutastic.Views
         // ── EmuTV panel ───────────────────────────────────────────────────────
         // Buttons offered for the EmuTV navigation rebinds (A/B are reserved for play/back).
         private static readonly string[] EmuTvButtons = { "Y", "X", "Back", "Start", "L1", "R1" };
-        private bool _emuTvLoaded;
 
         private void LoadEmuTvSettings()
         {
@@ -4566,7 +4565,6 @@ namespace Emutastic.Views
                 foreach (var b in EmuTvButtons) { HkThemeBrowser.Items.Add(b); HkSaveStates.Items.Add(b); }
             HkThemeBrowser.SelectedItem = cfg.HotkeyOverrides.TryGetValue("theme_browser", out var tb) ? tb : "Y";
             HkSaveStates.SelectedItem   = cfg.HotkeyOverrides.TryGetValue("save_states", out var ss) ? ss : "Start";
-            _emuTvLoaded = true;
             _suppressAutoSave = false;
         }
 
@@ -4575,7 +4573,7 @@ namespace Emutastic.Views
 
         private void SaveEmuTvSettings()
         {
-            if (!_emuTvLoaded || _suppressAutoSave) return;
+            if (_suppressAutoSave) return;       // only suppressed while LoadEmuTvSettings populates controls
             var cfg = _configService.GetEmuTvConfiguration();
             cfg.SteamGridDbEnabled = SgdbEnabledToggle.IsChecked == true;
             cfg.SteamGridDbToken   = SgdbTokenBox.Text.Trim();
@@ -4587,7 +4585,14 @@ namespace Emutastic.Views
 
         private async void SgdbTestBtn_Click(object sender, RoutedEventArgs e)
         {
-            SaveEmuTvSettings();                 // persist what's in the box before verifying
+            // Persist the token directly and AWAIT the write, so a verified token is always saved
+            // regardless of panel-load state (the auto-save path can be skipped/fire-and-forget).
+            var saveCfg = _configService.GetEmuTvConfiguration();
+            saveCfg.SteamGridDbToken   = SgdbTokenBox.Text.Trim();
+            saveCfg.SteamGridDbEnabled = SgdbEnabledToggle.IsChecked == true;
+            _configService.SetEmuTvConfiguration(saveCfg);
+            await _configService.SaveAsync();
+
             SgdbTestBtn.IsEnabled = false;
             SgdbStatusLabel.Text = "Verifying…";
             SgdbStatusLabel.Foreground = (System.Windows.Media.Brush)FindResource("TextMutedBrush");
