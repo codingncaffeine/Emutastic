@@ -279,13 +279,24 @@ namespace Emutastic.Services
         // tileSize across the element area instead of stretching it.
         private FrameworkElement BuildTiledImage(ImageElement im, ImageSource src)
         {
-            double tw = (im.Size?.X ?? 1) * _w, th = (im.Size?.Y ?? 1) * _h;
-            double cellW = (im.TileSize?.X ?? 0) * _w, cellH = (im.TileSize?.Y ?? 0) * _h;
-            if (cellW <= 0 || cellH <= 0)
-            {
-                if (src is BitmapSource bs && bs.PixelWidth > 0) { cellW = bs.PixelWidth; cellH = bs.PixelHeight; }
-                else { cellH = 0.1 * _h; cellW = cellH * AspectOf(src); }
-            }
+            // Size the tile area the same way a normal image is sized — honouring size/maxSize/cropSize.
+            // The old code hard-defaulted to (1,1) = the whole screen when <size> was absent, so a theme
+            // that tiles game art inside a small <cropSize> panel (caralt) sprayed it across the display.
+            double aspect = AspectOf(src);
+            var (boxW, boxH) = ImageBox(im.Size, im.MaxSize, im.CropSize, aspect);
+            bool crop = im.CropSize != null && im.Size == null;
+
+            // Tile cell size. ES-DE derives a 0 (or omitted) axis from the other preserving aspect; both
+            // omitted → the source's native pixel size. The old code treated a 0 axis as a literal zero and
+            // fell back to full pixel size — with <tileSize>0 0.1</tileSize> that meant hundreds of tiles.
+            double? tsx = im.TileSize?.X, tsy = im.TileSize?.Y;
+            double cellW, cellH;
+            if (tsx is > 0 && tsy is > 0)                        { cellW = tsx.Value * _w; cellH = tsy.Value * _h; }
+            else if (tsx is > 0)                                 { cellW = tsx.Value * _w; cellH = cellW / aspect; }
+            else if (tsy is > 0)                                 { cellH = tsy.Value * _h; cellW = cellH * aspect; }
+            else if (src is BitmapSource bs && bs.PixelWidth > 0) { cellW = bs.PixelWidth; cellH = bs.PixelHeight; }
+            else                                                 { cellH = 0.1 * _h; cellW = cellH * aspect; }
+
             var tiled = new ImageBrush(src)
             {
                 TileMode = TileMode.Tile,
@@ -296,14 +307,15 @@ namespace Emutastic.Services
             // ES-DE multiplies the tile by <color>. The very common "tiled white/neutral spacer + a
             // background colour" pattern (art-book-next) is effectively a solid colour fill; reproduce it
             // by masking the colour brush with the tile so the colour shows wherever the spacer is opaque.
-            if (im.Color != null || im.ColorEnd != null)
-                return new System.Windows.Shapes.Rectangle
-                {
-                    Width = tw, Height = th,
-                    Fill = BuildBrush(im.Color, im.ColorEnd, im.Gradient),
-                    OpacityMask = tiled,
-                };
-            return new System.Windows.Shapes.Rectangle { Width = tw, Height = th, Fill = tiled };
+            FrameworkElement rect = (im.Color != null || im.ColorEnd != null)
+                ? new System.Windows.Shapes.Rectangle
+                  {
+                      Width = boxW, Height = boxH,
+                      Fill = BuildBrush(im.Color, im.ColorEnd, im.Gradient),
+                      OpacityMask = tiled,
+                  }
+                : new System.Windows.Shapes.Rectangle { Width = boxW, Height = boxH, Fill = tiled };
+            return Boxed(rect, boxW, boxH, crop);
         }
 
         private FrameworkElement? BuildVideo(VideoElement v)
