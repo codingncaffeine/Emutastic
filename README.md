@@ -46,7 +46,7 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 | Genesis / Mega Drive | Genesis | genesis_plus_gx → picodrive | No |
 | Sega CD / Mega CD | SegaCD | genesis_plus_gx | `bios_CD_U.bin` (USA), `bios_CD_E.bin` (EU), `bios_CD_J.bin` (JP) |
 | Sega 32X | Sega32X | picodrive | No |
-| Sega Saturn | Saturn | mednafen_saturn → kronos → yabause | Kronos: `kronos/saturn_bios.bin`. Beetle: `sega_101.bin` / `mpr-17933.bin` (JP), `mpr-17941.bin` (USA/EU) ³ |
+| Sega Saturn | Saturn | mednafen_saturn → kronos → yabause | Kronos: `kronos/saturn_bios.bin`. Beetle: `sega_101.bin` / `mpr-17933.bin` (JP), `mpr-17941.bin` (USA/EU) |
 | Master System | SMS | genesis_plus_gx → picodrive | No |
 | Game Gear | GameGear | genesis_plus_gx | No |
 | SG-1000 | SG1000 | genesis_plus_gx | No |
@@ -59,8 +59,8 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 | Neo Geo Pocket | NGP | mednafen_ngp | No |
 | Neo Geo Pocket Color | NGPC | mednafen_ngp | No |
 | Neo Geo | NeoGeo | geolith | `neogeo.zip` + `aes.zip` |
-| Neo Geo CD ² | NeoCD | geolith | `neogeo.zip` + `aes.zip` + `neocdz.zip` |
-| Arcade | Arcade | fbneo + mame2003-plus ¹ | No |
+| Neo Geo CD | NeoCD | geolith | `neogeo.zip` + `aes.zip` + `neocdz.zip` |
+| Arcade | Arcade | fbneo + mame2003-plus | No |
 | Atari 2600 | Atari2600 | stella | No |
 | Atari 7800 | Atari7800 | prosystem | No |
 | Atari Jaguar | Jaguar | virtualjaguar | No |
@@ -71,17 +71,7 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 
 </details>
 
-¹ Arcade routes per-game between FBNeo (primary; better controls + save states) and MAME 2003-Plus (fills FBNeo gaps — Atari vector, Sega G-80, Cinematronics, Williams pre-MK, Killer Instinct, War Gods, etc.). MAME 2003-Plus's romset expectations have drifted over time and a few drivers (Sega ST-V, Midway Vegas) aren't fully backported — your mileage will vary on those. See the [Arcade wiki page](https://github.com/codingncaffeine/Emutastic/wiki/Arcade) for known-broken hardware.
-
-² Neo Geo CD plays via Geolith with full library support (import, BIOS validation, controls, artwork from ScreenScraper/libretro thumbnails). RetroAchievements identification works; **achievement triggers won't fire during play yet** — that depends on a CD-mode byteswap shadow buffer landing in Geolith upstream. The cart side has it (shipped earlier today); the CD-side patch is pending. Cart achievements (Metal Slug, KOF, etc.) work today. See the [Neo Geo wiki page](https://github.com/codingncaffeine/Emutastic/wiki/Neo-Geo) for the current status.
-
-³ Beetle Saturn's `mpr-17933.bin` is a Japan BIOS despite being commonly mislabeled as USA/EU. Kronos accepts a single `kronos/saturn_bios.bin` for any region.
-
----
-
-## BIOS Files
-
-Place BIOS files in `%AppData%\Emutastic\System\` (or `PortableData\System\` next to the .exe in portable mode). The app also checks each system's ROM folder. The exact filenames each system needs are in the **BIOS** column of the Supported Systems table above.
+For per-system BIOS filenames and placement, known-broken arcade hardware, the Saturn BIOS naming nuance, and Neo Geo / Neo Geo CD specifics, see the **[Wiki](https://github.com/codingncaffeine/Emutastic/wiki)**.
 
 ---
 
@@ -210,28 +200,6 @@ Apply an IPS, BPS, or UPS patch to a base game right from the library (right-cli
 See **[ROM Hacks](https://github.com/codingncaffeine/Emutastic/wiki/ROM-Hacks)** in the wiki for the full system list, supported patch formats, how patched ROMs are scraped, and tips on matching a patch to the right base ROM.
 
 </details>
-
----
-
-## Folder Layout
-
-```
-Emutastic.exe / rcheevos.dll / .NET runtime DLLs
-```
-
-```
-%AppData%\Emutastic\          (or your custom data folder)
-    library.db
-    Native\                   (SDL3.dll, ffmpeg.exe — downloadable in-app)
-    DATs\                     (No-Intro / Redump DATs — downloadable in-app)
-    Cores\                    (libretro core DLLs — downloadable in-app)
-    System\                   (BIOS files)
-    Save States\ / BatterySaves\ / Screenshots\ / Recordings\ / Artwork\ / ...
-```
-
-### Portable mode
-
-Drop an empty `portable.txt` next to `Emutastic.exe` **or** launch with the `--portable` command-line flag, and **everything** lives in `PortableData\` beside the .exe — config, library database, save states, battery saves, screenshots, recordings, artwork, BIOS files, libretro cores, and any ROMs you import. Move the install folder to a USB stick and run it on any Windows PC; library paths are stored relative to `PortableData\` so drive-letter changes (E:→F:) don't break anything. ROM imports are auto-copied into `PortableData\Roms\<Console>\` so they travel with the USB without setting up a separate library folder. See **[Portable Mode](https://github.com/codingncaffeine/Emutastic/wiki/Portable-Mode)** in the wiki for the full on-disk layout, caveats, and how to revert.
 
 ---
 
