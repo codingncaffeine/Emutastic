@@ -78,6 +78,11 @@ namespace Emutastic.Services
         public int Year { get; init; }
         public string? RatingStars { get; init; }
         public double Rating { get; init; }   // 0..1
+        public bool Favorite { get; init; }
+        public bool Completed { get; init; }
+        public bool Kidgame { get; init; }
+        public bool Broken { get; init; }
+        public int Players { get; init; }
     }
 
     /// <summary>
@@ -199,6 +204,7 @@ namespace Emutastic.Services
             DateTimeElement dt   => BuildDateTime(dt),
             GamelistInfoElement gi => BuildGamelistInfo(gi),
             AnimationElement an  => BuildAnimation(an),
+            BadgesElement bg     => BuildBadges(bg),
             _ => null,
         };
 
@@ -366,38 +372,63 @@ namespace Emutastic.Services
         private FrameworkElement? BuildRating(RatingElement ra)
         {
             var g = SelectedGame;
-            double value = g?.Rating ?? 0;                 // 0..1 (×5 stars)
+            double value = Math.Clamp(g?.Rating ?? 0, 0, 1);   // 0..1
             // size: Y axis takes precedence; height drives the icon size.
             double h = (ra.Size?.Y ?? 0.06) * _h;
             if (h <= 0) h = (ra.Size?.X ?? 0.2) * _w / 5.0;
-            double star = h;
+            double star = Math.Max(1, h);
+            double fullW = star * 5;
+
             var filledSrc = !string.IsNullOrEmpty(ra.FilledImage) ? LoadImage(ra.FilledImage) : null;
             var unfilledSrc = !string.IsNullOrEmpty(ra.UnfilledImage) ? LoadImage(ra.UnfilledImage) : null;
+            string? tintHex = NonWhite(ra.Color);
 
-            var panel = new StackPanel { Orientation = Orientation.Horizontal, Width = star * 5, Height = star };
-            var tint = ra.Color != null ? new SolidColorBrush(ColorFromHex(ra.Color)) : null;
+            if (filledSrc != null || unfilledSrc != null)
+            {
+                // Fractional fill: unfilled row underneath, filled row on top clipped to the value.
+                var grid = new Grid { Width = fullW, Height = star };
+                if (unfilledSrc != null) grid.Children.Add(StarRow(unfilledSrc, star, fullW, tintHex));
+                if (filledSrc != null)
+                {
+                    var filled = StarRow(filledSrc, star, fullW, tintHex);
+                    filled.HorizontalAlignment = HorizontalAlignment.Left;
+                    filled.Clip = new RectangleGeometry(new Rect(0, 0, Math.Max(0, value * fullW), star));
+                    grid.Children.Add(filled);
+                }
+                return grid;
+            }
+
+            // No rating graphics supplied — fractional glyph stars.
+            var panel = new StackPanel { Orientation = Orientation.Horizontal, Width = fullW, Height = star };
+            var brush = new SolidColorBrush(tintHex != null ? ColorFromHex(tintHex) : Colors.White);
             double filledStars = value * 5.0;
             for (int i = 0; i < 5; i++)
-            {
-                bool isFilled = i < Math.Round(filledStars);
-                var s = isFilled ? filledSrc : unfilledSrc;
-                if (s != null)
+                panel.Children.Add(new TextBlock
                 {
-                    var im = new Image { Source = s, Width = star, Height = star, Stretch = Stretch.Uniform };
-                    panel.Children.Add(im);
-                }
+                    Text = i < filledStars ? "★" : "☆", FontSize = star * 0.9,
+                    Width = star, TextAlignment = TextAlignment.Center, Foreground = brush,
+                });
+            return panel;
+        }
+
+        // A horizontal row of 5 identical star images, optionally colourised (white = no tint).
+        private FrameworkElement StarRow(ImageSource src, double star, double fullW, string? tintHex)
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Width = fullW, Height = star };
+            var tint = tintHex != null ? new SolidColorBrush(ColorFromHex(tintHex)) : null;
+            for (int i = 0; i < 5; i++)
+            {
+                if (tint != null)
+                    row.Children.Add(new System.Windows.Shapes.Rectangle
+                    { Width = star, Height = star, Fill = tint, OpacityMask = new ImageBrush(src) { Stretch = Stretch.Uniform } });
                 else
                 {
-                    // No rating graphics supplied — draw simple star glyphs.
-                    panel.Children.Add(new TextBlock
-                    {
-                        Text = isFilled ? "★" : "☆", FontSize = star * 0.9,
-                        Width = star, TextAlignment = TextAlignment.Center,
-                        Foreground = tint ?? new SolidColorBrush(ColorFromHex("FFFFFFFF")),
-                    });
+                    var img = new Image { Source = src, Width = star, Height = star, Stretch = Stretch.Uniform };
+                    RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality);
+                    row.Children.Add(img);
                 }
             }
-            return panel;
+            return row;
         }
 
         private FrameworkElement? BuildHelp(HelpSystemElement hs)
@@ -486,6 +517,78 @@ namespace Emutastic.Services
             };
             RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality);
             return img;
+        }
+
+        // Metadata badges (gamelist) — render the active game flags using the theme's customBadgeIcon
+        // set. We ship no default badge icons, so a slot the theme didn't give an icon for is skipped.
+        private FrameworkElement? BuildBadges(BadgesElement bd)
+        {
+            var g = SelectedGame;
+            if (g == null) return null;
+
+            var active = new List<string>();
+            foreach (var slot in SplitSlots(bd.Slots))
+            {
+                bool on = slot switch
+                {
+                    "favorite" => g.Favorite,
+                    "completed" => g.Completed,
+                    "kidgame" => g.Kidgame,
+                    "broken" => g.Broken,
+                    _ => false,            // folder/collection/controller/altemulator/manual not tracked yet
+                };
+                if (on && bd.CustomBadgeIcons.ContainsKey(slot)) active.Add(slot);
+            }
+            if (active.Count == 0) return null;
+
+            double areaW = (bd.Size?.X ?? 0.15) * _w, areaH = (bd.Size?.Y ?? 0.20) * _h;
+            int perLine = Math.Max(1, bd.ItemsPerLine ?? 4);
+            int lines = Math.Max(1, bd.Lines ?? 3);
+            double mx = (bd.ItemMargin?.X ?? 0.01) * _w, my = (bd.ItemMargin?.Y ?? 0.01) * _h;
+            if (mx < 0) mx = my; else if (my < 0) my = mx;
+            double cell = Math.Max(1, Math.Min((areaW - mx * (perLine - 1)) / perLine, areaH / lines));
+
+            string? tintHex = NonWhite(bd.IconColor);
+            var tint = tintHex != null ? BuildBrush(tintHex, bd.IconColorEnd ?? tintHex, GradientType.None) : null;
+            bool column = string.Equals(bd.Direction, "column", StringComparison.OrdinalIgnoreCase);
+
+            var canvas = new Canvas { Width = areaW, Height = areaH };
+            for (int i = 0; i < active.Count; i++)
+            {
+                var src = LoadImage(bd.CustomBadgeIcons[active[i]]);
+                if (src == null) continue;
+                int row = column ? i % lines : i / perLine;
+                int col = column ? i / lines : i % perLine;
+                FrameworkElement icon;
+                if (tint != null)
+                    icon = new System.Windows.Shapes.Rectangle
+                    { Width = cell, Height = cell, Fill = tint, OpacityMask = new ImageBrush(src) { Stretch = Stretch.Uniform } };
+                else
+                {
+                    var img = new Image { Source = src, Width = cell, Height = cell, Stretch = Stretch.Uniform };
+                    RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality);
+                    icon = img;
+                }
+                Canvas.SetLeft(icon, col * (cell + mx));
+                Canvas.SetTop(icon, row * (cell + my));
+                canvas.Children.Add(icon);
+            }
+            return canvas.Children.Count > 0 ? canvas : null;
+        }
+
+        private static readonly string[] AllBadgeSlots =
+            { "collection", "folder", "favorite", "completed", "kidgame", "broken", "controller", "altemulator", "manual" };
+        private static List<string> SplitSlots(string? slots)
+        {
+            if (string.IsNullOrWhiteSpace(slots)) return new List<string>(AllBadgeSlots);
+            var list = new List<string>();
+            foreach (var p in slots.Split(new[] { ',', ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                var t = p.Trim().ToLowerInvariant();
+                if (t == "all") return new List<string>(AllBadgeSlots);
+                list.Add(t);
+            }
+            return list;
         }
 
         // ════════════════════════ primary elements ══════════════════════════════
@@ -855,6 +958,11 @@ namespace Emutastic.Services
                     "rating" => g != null ? (g.Rating * 5).ToString("0.#") : "",
                     "releasedate" or "year" => g is { Year: > 0 } ? g.Year.ToString() : "",
                     "system" or "systemname" or "systemfullname" => _items?.SystemName ?? "",
+                    "favorite" => g?.Favorite == true ? "yes" : "no",
+                    "completed" => g?.Completed == true ? "yes" : "no",
+                    "kidgame" => g?.Kidgame == true ? "yes" : "no",
+                    "broken" => g?.Broken == true ? "yes" : "no",
+                    "players" => g is { Players: > 0 } ? g.Players.ToString() : "",
                     _ => "",
                 };
                 return string.IsNullOrEmpty(val) ? (tx.DefaultValue ?? "") : val;

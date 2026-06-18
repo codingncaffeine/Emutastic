@@ -315,7 +315,12 @@ namespace Emutastic.Models.EmuTv
         public int? ItemsPerLine { get; set; }
         public string? Slots { get; set; }              // "all" or a comma list
         public string? IconColor { get; set; }
+        public string? IconColorEnd { get; set; }
         public string? HorizontalAlignment { get; set; }
+        public string? Direction { get; set; }          // "row" | "column"
+        public Vec2? ItemMargin { get; set; }
+        /// <summary>Per-slot icon overrides, keyed by badge name (folder/favorite/completed/…).</summary>
+        public Dictionary<string, string> CustomBadgeIcons { get; } = new();
     }
 
     public sealed class RatingElement : ThemeElement

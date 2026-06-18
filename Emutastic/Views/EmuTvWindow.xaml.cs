@@ -1037,6 +1037,7 @@ namespace Emutastic.Views
                         Year = g.Year,
                         RatingStars = g.RatingStars,
                         Rating = Math.Clamp(g.Rating / 5.0, 0, 1),
+                        Favorite = g.IsFavorite,
                     });
 
             return new ThemeItemData

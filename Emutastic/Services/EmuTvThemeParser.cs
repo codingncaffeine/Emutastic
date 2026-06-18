@@ -459,7 +459,19 @@ namespace Emutastic.Services
                     x.ItemsPerLine = (int?)D(b, "itemsPerLine", c) ?? x.ItemsPerLine;
                     x.Slots = S(b, "slots", c) ?? x.Slots;
                     x.IconColor = S(b, "badgeIconColor", c) ?? x.IconColor;
+                    x.IconColorEnd = S(b, "badgeIconColorEnd", c) ?? x.IconColorEnd;
                     x.HorizontalAlignment = S(b, "horizontalAlignment", c) ?? x.HorizontalAlignment;
+                    x.Direction = S(b, "direction", c) ?? x.Direction;
+                    x.ItemMargin = Vc(b, "itemMargin", c) ?? x.ItemMargin;
+                    // customBadgeIcon repeats with a badge="..." attribute, so read all siblings.
+                    foreach (var ci in b.Elements())
+                    {
+                        if (ci.Name.LocalName != "customBadgeIcon") continue;
+                        string? badge = (string?)ci.Attribute("badge");
+                        string val = ResolveVars(ci.Value.Trim(), c.Vars);
+                        if (!string.IsNullOrEmpty(badge) && !string.IsNullOrEmpty(val) && !val.Contains("${"))
+                            x.CustomBadgeIcons[badge.Trim().ToLowerInvariant()] = val;
+                    }
                     break;
                 case RatingElement x:
                     x.Color = S(b, "color", c) ?? x.Color;
