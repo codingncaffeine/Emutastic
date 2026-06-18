@@ -2065,7 +2065,15 @@
                             <TextBlock Text="API Token" FontSize="12"
                                        Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,6"/>
                             <TextBox x:Name="SgdbTokenBox" Style="{StaticResource DarkTextBox}"
-                                     Margin="0,0,0,26" LostFocus="EmuTvSetting_Changed"/>
+                                     Margin="0,0,0,10" LostFocus="EmuTvSetting_Changed"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,26">
+                                <Button x:Name="SgdbTestBtn" Content="Verify"
+                                        Style="{StaticResource ActionBtn}"
+                                        Click="SgdbTestBtn_Click" Margin="0,0,12,0"/>
+                                <TextBlock x:Name="SgdbStatusLabel" FontSize="12"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
 
                             <!-- EmuTV controls -->
                             <TextBlock Text="EmuTV Controls"

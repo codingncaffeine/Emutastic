@@ -4585,6 +4585,29 @@ namespace Emutastic.Views
             _ = _configService.SaveAsync();
         }
 
+        private async void SgdbTestBtn_Click(object sender, RoutedEventArgs e)
+        {
+            SaveEmuTvSettings();                 // persist what's in the box before verifying
+            SgdbTestBtn.IsEnabled = false;
+            SgdbStatusLabel.Text = "Verifying…";
+            SgdbStatusLabel.Foreground = (System.Windows.Media.Brush)FindResource("TextMutedBrush");
+
+            string? error = await new Services.SteamGridDbService().TestTokenAsync(SgdbTokenBox.Text);
+
+            SgdbStatusLabel.Text = error ?? "Verified — your SteamGridDB token works.";
+            SgdbStatusLabel.Foreground = error == null
+                ? System.Windows.Media.Brushes.LightGreen
+                : (System.Windows.Media.Brush)FindResource("AccentBrush");
+            SgdbTestBtn.IsEnabled = true;
+
+            if (error == null)
+            {
+                var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+                timer.Tick += (_, _) => { SgdbStatusLabel.Text = ""; timer.Stop(); };
+                timer.Start();
+            }
+        }
+
         private void SnapsSaveBtn_Click(object sender, RoutedEventArgs e)
             => SaveSnapSettings();
 
