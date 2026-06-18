@@ -98,6 +98,17 @@ Drag and drop ROMs onto the library or use **Import ROMs**. The app detects the 
 ## Features
 
 <details>
+<summary><strong>EmuTV — Big-Screen Couch Mode</strong></summary>
+
+A controller-only, 10-foot front end for the TV. Open it from the library with the **L3 + R3 + L2 + R2** chord (the same chord quits a running game back to EmuTV). Browse your consoles and games, launch with a button, and pull up save states with **Start** — no keyboard or mouse needed.
+
+EmuTV renders themes built for **[EmulationStation Desktop Edition (ES-DE)](https://es-de.org/)**: drop an ES-DE theme into your EmuTV themes folder, or download one from the built-in theme browser (press **Y**), which pulls from the official ES-DE themes list. Carousels (including wheel layouts), grids, text lists, game metadata, rating stars, favorite/completed badges, and WebP artwork all render per the ES-DE spec.
+
+> ES-DE is a large, evolving spec — not every theme is fully supported yet, so some may render with missing or imperfect elements. The bundled **EmuTV Default** theme always works as a known-good fallback. Rebind EmuTV's controls and review every controller combo in **Preferences → EmuTV**.
+
+</details>
+
+<details>
 <summary><strong>Themes</strong></summary>
 
 Four built-in themes: **Dark** (default), **Light**, **OLED Black**, **Midnight Blue**. Full visual editor with 44 color tokens and live preview. Set custom background images with zoom, pan, and tile controls. Export/import themes as `.emutheme` files.
@@ -119,6 +130,8 @@ Sign in to **ScreenScraper** in **Preferences → Snaps** to promote it to the p
 XInput button polling during gameplay with SDL3 device name detection. Xbox, DualSense/DualShock, and hundreds of other controllers are identified by product name. Button mappings configurable per-controller in **Preferences → Input**. Falls back to generic names if `SDL3.dll` is absent.
 
 **Left analog stick works as movement input** on every old console with a digital joystick or D-pad — push the stick on the NES, SNES, Genesis, Game Boy line, Saturn, Neo Geo, Atari, ColecoVision, TurboGrafx, arcade games, and more, and your character moves. Diagonals are honored (pushing NE registers as up + right simultaneously). The D-pad still works exactly as before — use whichever you prefer.
+
+**Save and load states from the gamepad** — hold **L3** then press **R2** to save, or **L2** to load your latest state, in any game (no overlay needed). A quick on-screen toast confirms each action, and the buttons are configurable per console in **Preferences → Controls**.
 
 </details>
 
