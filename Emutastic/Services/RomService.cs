@@ -334,20 +334,39 @@ namespace Emutastic.Services
         public static string DetectRegion(string filePath)
         {
             string name = Path.GetFileNameWithoutExtension(filePath);
-            // Match the parenthesised region tag anywhere in the filename
-            if (System.Text.RegularExpressions.Regex.IsMatch(name,
-                    @"\(Japan\)|\(Japan,", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            // Match a parenthesised region tag anywhere in the filename, covering the
+            // known abbreviation variants per region (full name, short codes, single
+            // letter, NTSC/PAL, and PAL territories that share the Europe BIOS region).
+            // Each tag is anchored to "(TAG)" or "(TAG," — so it can't match a substring
+            // of the title or a language tag like "(En,Fr,De)" — and a multi-region tag
+            // returns its first-listed region (Japan→USA→Europe→World precedence).
+            // Ambiguous single-letter GoodTools country codes ((A) Asia/Australia, (C),
+            // (F), (G), (S), (I), (B)…) are deliberately excluded to avoid false hits.
+            if (RegionTagMatch(name, "Japan", "Jpn", "Jp", "JPN", "J", "NTSC-J"))
                 return "Japan";
-            if (System.Text.RegularExpressions.Regex.IsMatch(name,
-                    @"\(USA\)|\(USA,|\(U\)", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            if (RegionTagMatch(name, "USA", "US", "U", "NTSC-U", "NTSC-US"))
                 return "USA";
-            if (System.Text.RegularExpressions.Regex.IsMatch(name,
-                    @"\(Europe\)|\(Europe,|\(E\)", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            if (RegionTagMatch(name, "Europe", "Eur", "EU", "E", "PAL", "UK", "Australia", "Aus", "AU"))
                 return "Europe";
-            if (System.Text.RegularExpressions.Regex.IsMatch(name,
-                    @"\(World\)", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            if (RegionTagMatch(name, "World", "W"))
                 return "World";
             return "Unknown";
+        }
+
+        // True when any tag appears as a parenthesised region token — "(TAG)" or
+        // "(TAG," — matched case-insensitively. The trailing ")"/"," anchor stops a
+        // short tag (e.g. "U", "E") from matching inside a longer token like "(UK)".
+        private static bool RegionTagMatch(string name, params string[] tags)
+        {
+            foreach (var t in tags)
+            {
+                string esc = System.Text.RegularExpressions.Regex.Escape(t);
+                if (System.Text.RegularExpressions.Regex.IsMatch(name,
+                        $@"\({esc}(?:\)|,)",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                    return true;
+            }
+            return false;
         }
 
         public static string DetectManufacturer(string console)

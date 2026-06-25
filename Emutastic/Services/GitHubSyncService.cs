@@ -27,23 +27,41 @@ namespace Emutastic.Services
                 ? PerPcRepoName
                 : SharedRepoName;
 
-        /// <summary>This machine's dedicated repo name (for UI display).</summary>
-        public static string PerPcRepoName { get; } = BuildPerPcRepoName();
+        /// <summary>
+        /// Stable per-machine token: the hostname squashed to repo/path-safe chars.
+        /// Declared BEFORE the members that use it — static initializers run in
+        /// textual order, so a forward reference would capture null and collapse
+        /// every machine onto the same "library..db" filename, defeating the
+        /// per-machine namespacing below.
+        /// </summary>
+        private static string MachineSuffix { get; } = BuildMachineSuffix();
 
-        /// <summary>The repo currently in use (for UI display).</summary>
-        public static string EffectiveRepoName => RepoName;
-
-        private static string BuildPerPcRepoName()
+        private static string BuildMachineSuffix()
         {
-            // GitHub repo names allow letters, digits, '-', '_', '.'; squash
-            // anything else in the machine name to '-'.
+            // GitHub repo names + path segments allow letters, digits, '-', '_', '.';
+            // squash anything else in the machine name to '-'.
             var sb = new StringBuilder();
             foreach (char c in Environment.MachineName.ToLowerInvariant())
                 sb.Append(char.IsLetterOrDigit(c) || c is '-' or '_' or '.' ? c : '-');
             string suffix = sb.ToString().Trim('-');
-            if (suffix.Length == 0) suffix = "pc";
-            return $"{SharedRepoName}-{suffix}";
+            return suffix.Length == 0 ? "pc" : suffix;
         }
+
+        /// <summary>This machine's dedicated repo name (for UI display).</summary>
+        public static string PerPcRepoName { get; } = $"{SharedRepoName}-{MachineSuffix}";
+
+        /// <summary>The repo currently in use (for UI display).</summary>
+        public static string EffectiveRepoName => RepoName;
+
+        /// <summary>
+        /// The library.db filename THIS machine reads/writes in the sync repo.
+        /// Namespaced per machine so several OSes/boxes can share ONE repo without
+        /// ever clobbering each other's library: library.db is non-portable anyway
+        /// (it stores absolute, OS-specific ROM paths and back-/forward-slash art
+        /// paths), so each machine keeps its own. Game saves stay SHARED — they're
+        /// keyed by ROM hash and synced as an additive union, untouched by this.
+        /// </summary>
+        public static string DbRepoFileName { get; } = $"library.{MachineSuffix}.db";
 
         /// <summary>
         /// Drops every piece of state bound to the previous repo (sha cache,
@@ -1081,7 +1099,10 @@ namespace Emutastic.Services
             try
             {
                 string dbPath = System.IO.Path.Combine(AppPaths.DataRoot, "library.db");
-                string dbRepoPath = "library.db" + encSuffix;
+                // Per-machine remote filename (library.<host>.db): each OS/box owns
+                // its own DB in the shared repo, so last-writer-wins can never clobber
+                // another machine's library. The LOCAL path is always library.db.
+                string dbRepoPath = DbRepoFileName + encSuffix;
                 string? lastSyncedHash = LoadLastSyncedDbHash();
                 string? myHash = null;
 

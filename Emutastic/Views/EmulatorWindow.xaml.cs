@@ -1687,9 +1687,17 @@ namespace Emutastic.Views
                                     bool hasRemoteMtime = syncSvc.ManifestCache.Files.TryGetValue(repoPath, out var mEntry)
                                         && DateTime.TryParse(mEntry.LastModifiedUtc, null,
                                             System.Globalization.DateTimeStyles.RoundtripKind, out remoteMtime);
+                                    // Newest-wins, no clobber: pull only when we have no
+                                    // local save yet, or the remote is KNOWN to be strictly
+                                    // newer than ours. Never overwrite a local save that's
+                                    // newer or equal, and never overwrite an existing local
+                                    // save when the remote mtime is unknown (a stale or
+                                    // not-yet-loaded manifest must not clobber a fresh local
+                                    // save). Pulling the other machine's newer save is the
+                                    // full sync's job (startup + periodic).
                                     bool shouldDownload = !File.Exists(_srmPath)
-                                        || !hasRemoteMtime
-                                        || remoteMtime > File.GetLastWriteTimeUtc(_srmPath);
+                                        || (hasRemoteMtime
+                                            && remoteMtime > File.GetLastWriteTimeUtc(_srmPath));
 
                                     byte[]? remote = shouldDownload
                                         ? syncSvc.DownloadFileAsync(repoPath).GetAwaiter().GetResult()
@@ -9193,24 +9201,42 @@ namespace Emutastic.Views
                         var cfg = App.Configuration?.GetCloudSyncConfiguration();
                         if (cfg is { Enabled: true })
                         {
-                            string repoPath = $"BatterySaves/{_game.Console}/{_game.RomHash}.srm";
+                            bool encrypted = cfg.EncryptionEnabled
+                                && !string.IsNullOrEmpty(cfg.PassphraseProtected);
+                            string repoPath = $"BatterySaves/{_game.Console}/{_game.RomHash}.srm"
+                                + (encrypted ? ".enc" : "");
                             try
                             {
-                                byte[] srmBytes = System.IO.File.ReadAllBytes(_srmPath);
-                                if (cfg.EncryptionEnabled && !string.IsNullOrEmpty(cfg.PassphraseProtected))
+                                // Newest-wins, no clobber: don't replace a newer (or equal)
+                                // remote save with our older local one — e.g. the game was
+                                // opened and closed without writing a save while the other OS
+                                // had already uploaded newer progress. After actually playing,
+                                // the local .srm mtime is "now" and wins; a launch-without-save
+                                // keeps the remote mtime stamped on pull, so this correctly no-ops.
+                                if (syncSvc.ManifestCache.Files.TryGetValue(repoPath, out var existing)
+                                    && DateTime.TryParse(existing.LastModifiedUtc, null,
+                                        System.Globalization.DateTimeStyles.RoundtripKind, out var remoteMtime)
+                                    && remoteMtime >= System.IO.File.GetLastWriteTimeUtc(_srmPath))
                                 {
-                                    byte[] key = Services.GitHubSyncService.DeriveKey(
-                                        Services.GitHubSyncService.UnprotectString(cfg.PassphraseProtected), syncSvc.Username ?? "");
-                                    srmBytes = Services.GitHubSyncService.Encrypt(srmBytes, key);
-                                    repoPath += ".enc";
+                                    Services.CloudSyncLog.Write($"Skipped save upload (remote is newer/same): {repoPath}");
                                 }
-                                _ = syncSvc.UploadFileAsync(repoPath, srmBytes);
-                                syncSvc.ManifestCache.Files[repoPath] = new Services.GitHubSyncService.SyncFileEntry
+                                else
                                 {
-                                    LastModifiedUtc = System.IO.File.GetLastWriteTimeUtc(_srmPath).ToString("o"),
-                                    SizeBytes = new System.IO.FileInfo(_srmPath).Length
-                                };
-                                Services.CloudSyncLog.Write($"Queued upload: {repoPath}");
+                                    byte[] srmBytes = System.IO.File.ReadAllBytes(_srmPath);
+                                    if (encrypted)
+                                    {
+                                        byte[] key = Services.GitHubSyncService.DeriveKey(
+                                            Services.GitHubSyncService.UnprotectString(cfg.PassphraseProtected), syncSvc.Username ?? "");
+                                        srmBytes = Services.GitHubSyncService.Encrypt(srmBytes, key);
+                                    }
+                                    _ = syncSvc.UploadFileAsync(repoPath, srmBytes);
+                                    syncSvc.ManifestCache.Files[repoPath] = new Services.GitHubSyncService.SyncFileEntry
+                                    {
+                                        LastModifiedUtc = System.IO.File.GetLastWriteTimeUtc(_srmPath).ToString("o"),
+                                        SizeBytes = new System.IO.FileInfo(_srmPath).Length
+                                    };
+                                    Services.CloudSyncLog.Write($"Queued upload: {repoPath}");
+                                }
                             }
                             catch (Exception ex)
                             {
