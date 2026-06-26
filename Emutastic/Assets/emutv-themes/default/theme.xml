@@ -40,7 +40,8 @@
             <size>1 0.04</size>
             <textColor>${textMuted}</textColor>
             <iconColor>${accent}</iconColor>
-            <fontSize>0.018</fontSize>
+            <fontPath>assets/fonts/PressStart2P-Regular.ttf</fontPath>
+            <fontSize>0.012</fontSize>
             <letterCase>none</letterCase>
         </helpsystem>
     </view>
@@ -53,7 +54,8 @@
             <size>1 0.06</size>
             <horizontalAlignment>center</horizontalAlignment>
             <color>${textPrimary}</color>
-            <fontSize>0.043</fontSize>
+            <fontPath>assets/fonts/PressStart2P-Regular.ttf</fontPath>
+            <fontSize>0.030</fontSize>
         </text>
         <carousel name="systemCarousel">
             <type>horizontal</type>
@@ -63,7 +65,8 @@
             <maxItemCount>5</maxItemCount>
             <itemSize>0.156 0.22</itemSize>
             <textColor>${textPrimary}</textColor>
-            <fontSize>0.034</fontSize>
+            <fontPath>assets/fonts/PressStart2P-Regular.ttf</fontPath>
+            <fontSize>0.022</fontSize>
             <selectorColor>${accent}</selectorColor>
             <unfocusedItemOpacity>0.5</unfocusedItemOpacity>
         </carousel>
@@ -76,11 +79,14 @@
             <pos>0.022 0.10</pos>
             <size>0.4 0.05</size>
             <color>${textPrimary}</color>
-            <fontSize>0.030</fontSize>
+            <fontPath>assets/fonts/PressStart2P-Regular.ttf</fontPath>
+            <fontSize>0.022</fontSize>
         </text>
         <textlist name="gameList">
             <pos>0.022 0.155</pos>
             <size>0.40 0.74</size>
+            <fontPath>assets/fonts/PressStart2P-Regular.ttf</fontPath>
+            <fontSize>0.018</fontSize>
             <selectorColor>${accent}</selectorColor>
             <primaryColor>${textPrimary}</primaryColor>
             <selectedColor>${textPrimary}</selectedColor>
@@ -118,7 +124,8 @@
             <size>0.5 0.04</size>
             <horizontalAlignment>center</horizontalAlignment>
             <color>${textMuted}</color>
-            <fontSize>0.018</fontSize>
+            <fontPath>assets/fonts/PressStart2P-Regular.ttf</fontPath>
+            <fontSize>0.013</fontSize>
         </text>
     </view>
 </theme>

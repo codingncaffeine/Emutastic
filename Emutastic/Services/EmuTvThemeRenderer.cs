@@ -809,6 +809,7 @@ namespace Emutastic.Services
             var selectedCol = new SolidColorBrush(ColorFromHex(t.SelectedColor ?? t.PrimaryColor ?? "FFFFFFFF"));
             var selectorCol = new SolidColorBrush(ColorFromHex(t.SelectorColor ?? "333333FF"));
             var align = t.Alignment switch { "center" => TextAlignment.Center, "right" => TextAlignment.Right, _ => TextAlignment.Left };
+            var listFont = LoadFont(t.FontPath);
 
             var area = new Canvas { Width = areaW, Height = areaH, ClipToBounds = true };
             int first = Math.Max(0, sel - rows / 2);
@@ -832,6 +833,7 @@ namespace Emutastic.Services
                     Foreground = selected ? selectedCol : primary,
                     TextAlignment = align, TextTrimming = TextTrimming.CharacterEllipsis,
                 };
+                if (listFont != null) tb.FontFamily = listFont;
                 Canvas.SetLeft(tb, 0);
                 Canvas.SetTop(tb, y + (rowH - fontPx * 1.2) / 2);
                 area.Children.Add(tb);
