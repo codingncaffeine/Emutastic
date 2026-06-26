@@ -937,14 +937,19 @@ namespace Emutastic.Views
         /// </summary>
         private void OnHostSessionEnded(int playSeconds)
         {
-            if (playSeconds > 0)
+            // The child process owns the DB writes (it runs with the real game id): play-stats,
+            // save-state rows, per-game window size. Reload what it wrote so the card is current.
+            try
             {
-                try { _db.UpdatePlayTime(_game.Id, playSeconds); _db.UpdatePlayCount(_game.Id); }
-                catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"[ChildHost] stats write: {ex.Message}"); }
-                _game.TotalPlayTimeSeconds += playSeconds;
-                _game.PlayCount += 1;
-                _game.LastPlayed = System.DateTime.Now;
+                var fresh = _db.GetGameById(_game.Id);
+                if (fresh != null)
+                {
+                    _game.PlayCount = fresh.PlayCount;
+                    _game.LastPlayed = fresh.LastPlayed;
+                    _game.TotalPlayTimeSeconds = fresh.TotalPlayTimeSeconds;
+                }
             }
+            catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"[ChildHost] stats reload: {ex.Message}"); }
 
             if (App.Configuration != null)
             {

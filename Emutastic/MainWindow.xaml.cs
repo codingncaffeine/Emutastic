@@ -5821,12 +5821,8 @@ namespace Emutastic
                 // PS2: run out-of-process (boot-crash-free child); boot straight into the state.
                 if (string.Equals(game.Console, "PS2", StringComparison.OrdinalIgnoreCase))
                 {
-                    Services.ChildHostLauncher.Launch(game, corePath, s.StatePath, secs =>
-                    {
-                        if (secs > 0)
-                            try { _db.UpdatePlayTime(game.Id, secs); _db.UpdatePlayCount(game.Id); }
-                            catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[ChildHost] stats: {ex.Message}"); }
-                    });
+                    // Child owns DB writes (real game id) — play-stats, save-states, window size.
+                    Services.ChildHostLauncher.Launch(game, corePath, s.StatePath, null);
                     return;
                 }
 

@@ -322,9 +322,14 @@ namespace Emutastic
                 // Preserve cloud save-sync on session end (EmulatorWindow's close path uses it).
                 try { Services.GitHubSyncService.Instance.LoadFromConfig(); } catch { }
 
+                // Real library id so the child's DB writes (save-state rows have a FK to the
+                // game, per-game window size, play-stats) resolve. Cross-process writes are safe
+                // — the DB is WAL with a 5s busy_timeout. The child owns these writes; the parent
+                // no longer writes play-stats (would double-count).
+                int gameId = int.TryParse(EmuArg(e.Args, "--game-id"), out var gid) ? gid : 0;
                 var game = new Models.Game
                 {
-                    Id = 0,   // parent owns DB play-stats writes (avoids cross-process DB contention)
+                    Id = gameId,
                     Title = string.IsNullOrEmpty(title) ? Path.GetFileNameWithoutExtension(rom) : title,
                     Console = console, RomPath = rom, RomHash = romHash,
                 };

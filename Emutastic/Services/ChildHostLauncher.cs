@@ -68,6 +68,7 @@ namespace Emutastic.Services
                 if (AppPaths.IsPortable) psi.ArgumentList.Add("--portable");
                 psi.ArgumentList.Add("--rom");       psi.ArgumentList.Add(game.RomPath);
                 psi.ArgumentList.Add("--console");   psi.ArgumentList.Add(game.Console);
+                psi.ArgumentList.Add("--game-id");   psi.ArgumentList.Add(game.Id.ToString());
                 psi.ArgumentList.Add("--core");      psi.ArgumentList.Add(corePath);
                 psi.ArgumentList.Add("--title");     psi.ArgumentList.Add(game.Title ?? "");
                 psi.ArgumentList.Add("--rom-hash");  psi.ArgumentList.Add(game.RomHash ?? "");

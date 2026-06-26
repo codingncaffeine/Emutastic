@@ -521,12 +521,9 @@ namespace Emutastic.Views
                 // controller doesn't drive both the game and EmuTV at once.
                 if (string.Equals(game.Console, "PS2", StringComparison.OrdinalIgnoreCase))
                 {
-                    Services.ChildHostLauncher.Launch(game, corePath, statePath, secs =>
+                    Services.ChildHostLauncher.Launch(game, corePath, statePath, _ =>
                     {
-                        if (secs > 0)
-                            try { _db?.UpdatePlayTime(game.Id, secs); _db?.UpdatePlayCount(game.Id); }
-                            catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[ChildHost] stats: {ex.Message}"); }
-
+                        // Child owns DB writes (real game id). Just resume EmuTV input + refresh.
                         _aLatch = true;
                         _bLatch = true;
                         _rightLatch = true;
