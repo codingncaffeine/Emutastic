@@ -5818,6 +5818,18 @@ namespace Emutastic
 
             try
             {
+                // PS2: run out-of-process (boot-crash-free child); boot straight into the state.
+                if (string.Equals(game.Console, "PS2", StringComparison.OrdinalIgnoreCase))
+                {
+                    Services.ChildHostLauncher.Launch(game, corePath, s.StatePath, secs =>
+                    {
+                        if (secs > 0)
+                            try { _db.UpdatePlayTime(game.Id, secs); _db.UpdatePlayCount(game.Id); }
+                            catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[ChildHost] stats: {ex.Message}"); }
+                    });
+                    return;
+                }
+
                 // Match the launch sequence used by GameDetailWindows: free the
                 // previous run's core DLL BEFORE LoadLibrary so the refcount
                 // actually reaches zero and the DLL globals reset. Without this

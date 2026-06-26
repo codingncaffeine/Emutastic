@@ -5681,7 +5681,13 @@ namespace Emutastic.Views
                 // don't create a child HWND but still benefit from WGC's
                 // GPU-side capture instead of CPU-side glReadPixels recording.
                 IntPtr captureHwnd = IntPtr.Zero;
-                if (_isVulkanHwRender && _vulkanOverlayHwnd != IntPtr.Zero)
+                // The dedicated render overlay (a borderless WS_POPUP) holds the actual game
+                // pixels and no window chrome — capture it whenever it exists. Both the Vulkan
+                // path AND the D3D11 swapchain path render into _vulkanOverlayHwnd; gating this
+                // on _isVulkanHwRender made D3D11 (PS2) fall through to capturing the MAIN window
+                // → recorded the window chrome + a black game area (the swapchain overlay isn't
+                // composited into the parent window's capture).
+                if (_vulkanOverlayHwnd != IntPtr.Zero)
                     captureHwnd = _vulkanOverlayHwnd;
                 else if (_glOverlayHwnd != IntPtr.Zero)
                     captureHwnd = _glOverlayHwnd;

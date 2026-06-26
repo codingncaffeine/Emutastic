@@ -515,6 +515,34 @@ namespace Emutastic.Views
                 _inputTimer?.Stop();
 
                 string corePath = coreManager.GetCorePathForGame(game)!;
+
+                // PS2: run out-of-process (boot-crash-free child), fullscreen for couch mode.
+                // Input is already stopped above; resume it only when the child exits so the
+                // controller doesn't drive both the game and EmuTV at once.
+                if (string.Equals(game.Console, "PS2", StringComparison.OrdinalIgnoreCase))
+                {
+                    Services.ChildHostLauncher.Launch(game, corePath, statePath, secs =>
+                    {
+                        if (secs > 0)
+                            try { _db?.UpdatePlayTime(game.Id, secs); _db?.UpdatePlayCount(game.Id); }
+                            catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[ChildHost] stats: {ex.Message}"); }
+
+                        _aLatch = true;
+                        _bLatch = true;
+                        _rightLatch = true;
+                        _navDir = 0;
+                        _navHoldTicks = 0;
+                        _inputTimer?.Start();
+                        if (GameList.SelectedItem is Game refreshGame)
+                        {
+                            _videoDebounce.Stop();
+                            _videoDebounce.Start();
+                            LoadSavesFor(refreshGame);
+                        }
+                    }, fullscreen: true);
+                    return;
+                }
+
                 EmulatorWindow.FreeStaleDll();
                 var core = new LibretroCore(corePath);
                 var emulator = new EmulatorWindow(game, core, statePath)

@@ -37,6 +37,15 @@ namespace Emutastic
 
         protected override async void OnStartup(StartupEventArgs e)
         {
+            // Separate-process game host: boot ONE game in EmulatorWindow with no MainWindow/
+            // library. Lets the libretro core run in a clean child process (the LRPS2 boot-crash
+            // fix). No single-instance guard so it can run alongside the main app / in parallel.
+            if (e.Args.Contains("--emuhost"))
+            {
+                await RunEmuHostAsync(e);
+                return;
+            }
+
             // Single-instance guard: if Emutastic is already running, bring it to
             // the front and exit this process instead of launching a second copy.
             _singleInstanceMutex = new Mutex(true, "Emutastic_SingleInstance_v1", out bool isFirstInstance);
@@ -229,6 +238,118 @@ namespace Emutastic
                 Logger?.LogError(ex, "Failed to initialize application");
                 MessageBox.Show($"Failed to start application: {ex.Message}", "Startup Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 Shutdown();
+            }
+        }
+
+        // ── Separate-process game host (--emuhost) ─────────────────────────────
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern uint SetErrorMode(uint mode);
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern IntPtr GetCurrentProcess();
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern bool TerminateProcess(IntPtr h, uint code);
+
+        private static bool _emuHostResultWritten;
+        private static string? _emuHostResultPath;
+
+        private static string? EmuArg(string[] args, string name)
+        {
+            for (int i = 0; i < args.Length - 1; i++)
+                if (string.Equals(args[i], name, StringComparison.OrdinalIgnoreCase)) return args[i + 1];
+            return null;
+        }
+
+        private static void EmuHostResult(string status, string? detail)
+        {
+            if (_emuHostResultWritten || string.IsNullOrEmpty(_emuHostResultPath)) return;
+            _emuHostResultWritten = true;
+            try
+            {
+                string d = detail == null ? "null" : "\"" + detail.Replace("\\", "/").Replace("\"", "'") + "\"";
+                File.WriteAllText(_emuHostResultPath + ".tmp", "{ \"status\": \"" + status + "\", \"detail\": " + d + " }");
+                File.Move(_emuHostResultPath + ".tmp", _emuHostResultPath, true);
+            }
+            catch { }
+        }
+
+        private static void EmuHardExit(uint code) { try { TerminateProcess(GetCurrentProcess(), code); } catch { } }
+
+        /// <summary>
+        /// Boots one game in EmulatorWindow with no MainWindow/library — the clean child
+        /// process. Survives quit-after seconds => writes status "ok"; a boot crash kills the
+        /// process (no result) or the managed handler writes "crash". WER dialogs suppressed so
+        /// a crash never hangs a benchmark.
+        /// </summary>
+        private async System.Threading.Tasks.Task RunEmuHostAsync(StartupEventArgs e)
+        {
+            SetErrorMode(0x0001 | 0x0002); // SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX
+
+            string? rom = EmuArg(e.Args, "--rom");
+            string console = EmuArg(e.Args, "--console") ?? "PS2";
+            string? core = EmuArg(e.Args, "--core");
+            _emuHostResultPath = EmuArg(e.Args, "--result");
+            int quitAfter = int.TryParse(EmuArg(e.Args, "--quit-after"), out var q) ? q : 0;
+
+            if (!System.Diagnostics.Debugger.IsAttached)
+            {
+                System.Diagnostics.Trace.Listeners.Clear();
+                System.Diagnostics.Trace.Listeners.Add(new System.Diagnostics.ConsoleTraceListener(useErrorStream: true));
+            }
+
+            AppPaths.DetectPortableMode(e.Args);
+            InitializeLogging();
+
+            // Boot crash on any managed thread: record + hard-exit (NO MessageBox, unlike normal mode).
+            AppDomain.CurrentDomain.UnhandledException += (_, a) =>
+            {
+                EmuHostResult("crash", (a.ExceptionObject as Exception)?.Message);
+                EmuHardExit(0xC0000005);
+            };
+            DispatcherUnhandledException += (_, a) => { a.Handled = true; };
+
+            try
+            {
+                base.OnStartup(e);
+                InstallSdl3Resolver();
+                try { await InitializeConfigurationAsync(); }
+                catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[emuhost] config: {ex.Message}"); }
+                MigrateNativeAssetsIfNeeded();
+
+                if (string.IsNullOrEmpty(rom) || !File.Exists(rom)) { EmuHostResult("error", "rom missing"); EmuHardExit(2); return; }
+                if (string.IsNullOrEmpty(core) || !File.Exists(core)) { EmuHostResult("error", "core missing"); EmuHardExit(2); return; }
+
+                string? title = EmuArg(e.Args, "--title");
+                string romHash = EmuArg(e.Args, "--rom-hash") ?? "";
+                string? loadState = EmuArg(e.Args, "--load-state");
+
+                // Preserve cloud save-sync on session end (EmulatorWindow's close path uses it).
+                try { Services.GitHubSyncService.Instance.LoadFromConfig(); } catch { }
+
+                var game = new Models.Game
+                {
+                    Id = 0,   // parent owns DB play-stats writes (avoids cross-process DB contention)
+                    Title = string.IsNullOrEmpty(title) ? Path.GetFileNameWithoutExtension(rom) : title,
+                    Console = console, RomPath = rom, RomHash = romHash,
+                };
+                Views.EmulatorWindow.FreeStaleDll();
+                var libCore = new Services.LibretroCore(core);
+                var win = new Views.EmulatorWindow(game, libCore,
+                    string.IsNullOrEmpty(loadState) ? null : loadState);
+                if (e.Args.Contains("--fullscreen")) win.StartInFullscreen = true;   // EmuTV / couch mode
+                // Clean session end (user closed the window): signal the parent so it ingests
+                // play-time and does NOT auto-retry. WPF then shuts the process down normally.
+                win.Closed += (_, _) => EmuHostResult("ok", null);
+                Current.MainWindow = win;
+                win.Show();
+
+                if (quitAfter > 0)
+                {
+                    var t = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(quitAfter) };
+                    t.Tick += (_, _) => { t.Stop(); EmuHostResult("ok", null); EmuHardExit(0); };
+                    t.Start();
+                }
+            }
+            catch (Exception ex)
+            {
+                EmuHostResult("error", ex.GetType().Name + ": " + ex.Message);
+                EmuHardExit(3);
             }
         }
 

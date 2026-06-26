@@ -885,6 +885,15 @@ namespace Emutastic.Views
             try
             {
                 string corePath = coreManager.GetCorePathForGame(_game)!;
+
+                // PS2: run out-of-process (Emutastic.exe --emuhost). The clean child process
+                // makes LRPS2 boot crash-free; the main app stays usable while the game runs.
+                if (string.Equals(_game.Console, "PS2", System.StringComparison.OrdinalIgnoreCase))
+                {
+                    ChildHostLauncher.Launch(_game, corePath, null, secs => OnHostSessionEnded(secs));
+                    return;
+                }
+
                 EmulatorWindow.FreeStaleDll(); // must be BEFORE LoadLibrary
                 var core = new LibretroCore(corePath);
                 var emulator = new EmulatorWindow(_game, core);
@@ -919,6 +928,33 @@ namespace Emutastic.Views
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
             }
+        }
+
+        /// <summary>
+        /// Called on the UI thread after an out-of-process (--emuhost) session ends. The child
+        /// ran with a throwaway Game.Id so it didn't touch the DB; the parent ingests play-stats
+        /// here, then mirrors the in-process post-play RA cache invalidation + stats refresh.
+        /// </summary>
+        private void OnHostSessionEnded(int playSeconds)
+        {
+            if (playSeconds > 0)
+            {
+                try { _db.UpdatePlayTime(_game.Id, playSeconds); _db.UpdatePlayCount(_game.Id); }
+                catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"[ChildHost] stats write: {ex.Message}"); }
+                _game.TotalPlayTimeSeconds += playSeconds;
+                _game.PlayCount += 1;
+                _game.LastPlayed = System.DateTime.Now;
+            }
+
+            if (App.Configuration != null)
+            {
+                var ra = new RetroAchievementsService(App.Configuration, _db);
+                ra.InvalidateUserProgressForGame(_game);
+                var raData = new RaDataService(App.Configuration, _db, ra);
+                raData.InvalidatePostPlay();
+            }
+
+            if (IsVisible) RefreshStats();
         }
 
         private void FavoriteButton_Click(object sender, RoutedEventArgs e)
