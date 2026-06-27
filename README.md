@@ -271,6 +271,10 @@ Emulation is handled by libretro cores maintained by their upstream authors. Emu
 | Virtual Jaguar | Virtual Jaguar team |
 | Yabause | Yabause team |
 
+### PlayStation 3
+
+Experimental PlayStation 3 support is provided by [RPCS3](https://rpcs3.net/) ([GPLv2](https://github.com/RPCS3/rpcs3)), the open-source PlayStation 3 emulator. Emutastic bundles none of it — the in-app downloader fetches the official build on demand (Preferences → Cores / Extras), and it runs as a separate process. Please support the project directly. Box-art lookups can use [SteamGridDB](https://www.steamgriddb.com/) when a token is configured.
+
 ### Libraries
 
 | Library | Purpose | License |
