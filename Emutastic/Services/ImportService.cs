@@ -247,7 +247,7 @@ namespace Emutastic.Services
         /// same, so artwork lookup is driven by the title (read from PARAM.SFO by the caller).
         /// Placement is owned by the PS3 importer, so the standard copy-to-library step is skipped.
         /// </summary>
-        internal Game RegisterPs3Game(string title, string romPath, string sourcePath, string? bundledArtPath = null)
+        internal Game RegisterPs3Game(string title, string romPath, string sourcePath, string? bundledArtPath = null, string? bundledSnapPath = null)
         {
             var colors = RomService.GetConsoleColors("PS3");
             string finalTitle = string.IsNullOrWhiteSpace(title)
@@ -284,6 +284,21 @@ namespace Emutastic.Services
                     GameImported?.Invoke(game);
                 }
                 catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[PS3] bundled art: {ex.Message}"); }
+            }
+
+            // Offline snap from the title's own HD background image; a network lookup can replace it.
+            if (!string.IsNullOrEmpty(bundledSnapPath) && File.Exists(bundledSnapPath))
+            {
+                try
+                {
+                    string snapDir = AppPaths.GetFolder("Snaps", "PS3");
+                    string dest = Path.Combine(snapDir, $"{game.Id}.png");
+                    File.Copy(bundledSnapPath, dest, overwrite: true);
+                    _db.UpdateScreenScraperArt(game.Id, dest);
+                    game.ScreenScraperArtPath = dest;
+                    GameImported?.Invoke(game);
+                }
+                catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[PS3] bundled snap: {ex.Message}"); }
             }
 
             Interlocked.Increment(ref _artworkTotal);

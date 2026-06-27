@@ -72,7 +72,7 @@ namespace Emutastic.Services.Ps3
                 foreach (string boot in boots)
                 {
                     string title = ResolveTitle(boot) ?? Path.GetFileName(folder);
-                    owner.RegisterPs3Game(title, boot, source, FindBundledArt(boot));
+                    owner.RegisterPs3Game(title, boot, source, FindBundledCover(boot), FindBundledSnap(boot));
                 }
                 return;
             }
@@ -140,7 +140,7 @@ namespace Emutastic.Services.Ps3
                 string boot = Path.Combine(dir, "USRDIR", "EBOOT.BIN");
                 if (!File.Exists(boot)) continue;
                 string title = ResolveTitle(boot) ?? serial;
-                owner.RegisterPs3Game(title, boot, source, FindBundledArt(boot));
+                owner.RegisterPs3Game(title, boot, source, FindBundledCover(boot), FindBundledSnap(boot));
             }
         }
 
@@ -215,16 +215,19 @@ namespace Emutastic.Services.Ps3
         private static bool IsDiscImage(string ext)
             => ext.Equals(".iso", StringComparison.OrdinalIgnoreCase);
 
-        // Every PS3 title ships its own art locally — used as an offline cover that always
-        // works, even before (or instead of) any network lookup.
-        private static string? FindBundledArt(string bootFile)
+        // Every PS3 title ships its own art locally. ICON0 is the cover; PIC1 is the HD background
+        // (a good snap). Both work offline, before (or instead of) any network lookup.
+        private static string? FindBundledCover(string bootFile) => FindBundled(bootFile, "ICON0.PNG", "PIC0.PNG");
+        private static string? FindBundledSnap(string bootFile) => FindBundled(bootFile, "PIC1.PNG", "PIC0.PNG");
+
+        private static string? FindBundled(string bootFile, params string[] names)
         {
             string? usrDir = Path.GetDirectoryName(bootFile);
             string? gameRoot = usrDir != null ? Path.GetDirectoryName(usrDir) : null;
             foreach (string? dir in new[] { gameRoot, usrDir })
             {
                 if (dir == null) continue;
-                foreach (string name in new[] { "ICON0.PNG", "PIC1.PNG", "PIC0.PNG" })
+                foreach (string name in names)
                 {
                     string candidate = Path.Combine(dir, name);
                     if (File.Exists(candidate)) return candidate;

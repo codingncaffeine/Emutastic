@@ -3635,73 +3635,6 @@ namespace Emutastic.Views
 
             compatCard.Child = compatStack;
             CoresListPanel.Children.Add(compatCard);
-
-            BuildPs3Section();
-        }
-
-        private void BuildPs3Section()
-        {
-            CoresListPanel.Children.Add(new TextBlock
-            {
-                Text       = "PLAYSTATION 3",
-                FontSize   = 10,
-                FontWeight = FontWeights.SemiBold,
-                Foreground = _brushTextMuted,
-                Margin     = new Thickness(0, 12, 0, 8)
-            });
-
-            var card = new Border
-            {
-                Background   = new SolidColorBrush(Color.FromRgb(0x1F, 0x1F, 0x21)),
-                CornerRadius = new CornerRadius(6),
-                Padding      = new Thickness(14, 10, 14, 10),
-                Margin       = new Thickness(0, 0, 0, 4)
-            };
-            var stack = new StackPanel();
-            stack.Children.Add(new TextBlock
-            {
-                Text       = "Internal resolution",
-                Foreground = _brushText,
-                FontSize   = 13,
-            });
-
-            var combo = new ComboBox
-            {
-                Width               = 220,
-                HorizontalAlignment = HorizontalAlignment.Left,
-                Margin              = new Thickness(0, 6, 0, 0),
-                Cursor              = System.Windows.Input.Cursors.Hand,
-            };
-            var options = new (string label, int scale)[]
-            {
-                ("Native (720p)", 100),
-                ("1080p", 150),
-                ("1440p", 200),
-                ("4K", 300),
-            };
-            int current = _configService.GetEmulatorConfiguration().Ps3ResolutionScale;
-            foreach (var o in options)
-                combo.Items.Add(new ComboBoxItem { Content = o.label, Tag = o.scale });
-            int idx = System.Array.FindIndex(options, o => o.scale == current);
-            combo.SelectedIndex = idx >= 0 ? idx : 0;
-            combo.SelectionChanged += (_, _) =>
-            {
-                if (combo.SelectedItem is ComboBoxItem ci && ci.Tag is int v)
-                    SaveCompatToggle(c => c.Ps3ResolutionScale = v);
-            };
-            stack.Children.Add(combo);
-
-            stack.Children.Add(new TextBlock
-            {
-                Text         = "Higher resolutions look sharper but need a stronger GPU. Applies on the next launch.",
-                FontSize     = 11,
-                Foreground   = _brushTextMuted,
-                TextWrapping = TextWrapping.Wrap,
-                Margin       = new Thickness(0, 6, 0, 0),
-            });
-
-            card.Child = stack;
-            CoresListPanel.Children.Add(card);
         }
 
         // PS3 accordion for the cores list (Sony group). PS3 has no libretro core, so its body
@@ -6057,19 +5990,6 @@ namespace Emutastic.Views
 
             var cores = App.CoreOptions.GetCoresWithSchema();
 
-            if (cores.Count == 0)
-            {
-                CoreOptionsOptionList.Children.Add(new TextBlock
-                {
-                    Text = "No core options have been discovered yet.\n\nLaunch a game for any system — options will be captured automatically the first time a core loads.",
-                    FontSize = 12,
-                    Foreground = _brushTextMuted,
-                    TextWrapping = TextWrapping.Wrap,
-                    Margin = new Thickness(0, 16, 0, 0)
-                });
-                return;
-            }
-
             // Build a console→category lookup from ConsoleCategories
             var consoleToCat = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var (cat, consoles) in ConsoleCategories)
@@ -6085,6 +6005,15 @@ namespace Emutastic.Views
                     coresByCategory[cat] = new();
                 coresByCategory[cat].Add(core);
             }
+
+            // PlayStation 3 has no libretro core, but its internal-resolution option is exposed here
+            // for consistency — injected manually into the Sony group.
+            if (!coresByCategory.TryGetValue("Sony", out var sonyCores))
+            {
+                sonyCores = new();
+                coresByCategory["Sony"] = sonyCores;
+            }
+            sonyCores.Add((Ps3CoreOptionsKey, "PlayStation 3", ""));
 
             // Render grouped list — category headers with cores underneath
             string? firstCoreName = null;
@@ -6133,10 +6062,59 @@ namespace Emutastic.Views
                 LoadCoreOptionsForCore(firstCoreName);
         }
 
+        private const string Ps3CoreOptionsKey = "__ps3_internal__";
+
+        // PlayStation 3 has no libretro core; show its single manual option (internal resolution).
+        private void LoadPs3CoreOptions()
+        {
+            CoreOptionsResetBtn.IsEnabled = false;
+            CoreOptionsResetBtn.Content   = "Reset to Defaults";
+            CoreOptionsSaveBtn.IsEnabled  = false;
+            foreach (Button b in CoreOptionsCoreList.Children.OfType<Button>())
+                b.Background = Brushes.Transparent;
+
+            CoreOptionsOptionList.Children.Add(new TextBlock
+            {
+                Text = "PlayStation 3",
+                FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = _brushText,
+                Margin = new Thickness(0, 0, 0, 12),
+            });
+            CoreOptionsOptionList.Children.Add(new TextBlock
+            {
+                Text = "Internal resolution", Foreground = _brushText, FontSize = 13, Margin = new Thickness(0, 0, 0, 4),
+            });
+
+            var combo = new ComboBox { Width = 240, HorizontalAlignment = HorizontalAlignment.Left };
+            var options = new (string label, int scale)[] { ("Native (720p)", 100), ("1080p", 150), ("1440p", 200), ("4K", 300) };
+            int current = _configService?.GetEmulatorConfiguration().Ps3ResolutionScale ?? 100;
+            foreach (var o in options) combo.Items.Add(new ComboBoxItem { Content = o.label, Tag = o.scale });
+            int idx = System.Array.FindIndex(options, o => o.scale == current);
+            combo.SelectedIndex = idx >= 0 ? idx : 0;
+            combo.SelectionChanged += (_, _) =>
+            {
+                if (combo.SelectedItem is ComboBoxItem ci && ci.Tag is int v && _configService != null)
+                {
+                    var cfg = _configService.GetEmulatorConfiguration();
+                    cfg.Ps3ResolutionScale = v;
+                    _configService.SetEmulatorConfiguration(cfg);
+                    _ = _configService.SaveAsync();
+                }
+            };
+            CoreOptionsOptionList.Children.Add(combo);
+
+            CoreOptionsOptionList.Children.Add(new TextBlock
+            {
+                Text = "Higher resolutions look sharper but need a stronger GPU. Applies on the next launch.",
+                FontSize = 11, Foreground = _brushTextMuted, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0),
+            });
+        }
+
         private void LoadCoreOptionsForCore(string coreName)
         {
             _selectedCoreOptionsName = coreName;
             CoreOptionsOptionList.Children.Clear();
+
+            if (coreName == Ps3CoreOptionsKey) { LoadPs3CoreOptions(); return; }
 
             var schema = App.CoreOptions.LoadSchema(coreName);
             if (schema == null || schema.Options.Count == 0)
