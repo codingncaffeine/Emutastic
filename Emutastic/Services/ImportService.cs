@@ -192,6 +192,17 @@ namespace Emutastic.Services
                 _batchSkipSet.Clear();
                 var generatedM3usToImport = await PrepareBatchBundlingAsync(paths);
 
+                // PS3 content (installable packages, license files, extracted game
+                // folders, disc images) doesn't fit the single-ROM model — a dedicated
+                // importer provisions it and registers the resulting library entries.
+                if (string.Equals(_activeHintedConsole, "PS3", StringComparison.OrdinalIgnoreCase))
+                {
+                    await Ps3.Ps3ImportService.ImportBatchAsync(paths, this);
+                    Interlocked.Add(ref _progressCurrent, paths.Count);
+                    ProgressChanged?.Invoke(_progressCurrent, _progressTotal);
+                    continue;
+                }
+
                 // Process this batch.
                 foreach (string path in paths)
                 {
@@ -225,6 +236,109 @@ namespace Emutastic.Services
             ProgressChanged?.Invoke(_progressTotal, _progressTotal);
             IsImporting = false;
             ImportQueueDrained?.Invoke();
+        }
+
+        /// <summary>Surfaces a status message from a specialised importer (e.g. PS3 provisioning).</summary>
+        internal void ReportImportStatus(string message) => StatusChanged?.Invoke(message);
+
+        /// <summary>
+        /// Registers a resolved PS3 title in the library: inserts it immediately, then hashes,
+        /// de-duplicates, and fetches artwork in the background. PS3 boot files are all named the
+        /// same, so artwork lookup is driven by the title (read from PARAM.SFO by the caller).
+        /// Placement is owned by the PS3 importer, so the standard copy-to-library step is skipped.
+        /// </summary>
+        internal Game RegisterPs3Game(string title, string romPath, string sourcePath, string? bundledArtPath = null)
+        {
+            var colors = RomService.GetConsoleColors("PS3");
+            string finalTitle = string.IsNullOrWhiteSpace(title)
+                ? Path.GetFileNameWithoutExtension(romPath) : title;
+
+            var game = new Game
+            {
+                Title = finalTitle,
+                Console = "PS3",
+                Manufacturer = "Sony",
+                RomPath = romPath,
+                OriginalSourcePath = sourcePath,
+                RomHash = string.Empty,
+                BackgroundColor = colors.bg,
+                AccentColor = colors.accent,
+            };
+
+            _db.InsertGame(game);
+            _knownPaths.Add(romPath);
+            ImportLog($"[PS3] INSERTED {finalTitle} (id={game.Id})");
+            GameImported?.Invoke(game);
+
+            // Offline cover from the title's own bundled art — instant and always available;
+            // the network lookup below can still replace it with a nicer box scan.
+            if (!string.IsNullOrEmpty(bundledArtPath) && File.Exists(bundledArtPath))
+            {
+                try
+                {
+                    string artDir = AppPaths.GetFolder("CoverArt", "PS3");
+                    string dest = Path.Combine(artDir, $"{game.Id}.png");
+                    File.Copy(bundledArtPath, dest, overwrite: true);
+                    _db.UpdateCoverArt(game.Id, dest);
+                    game.CoverArtPath = dest;
+                    GameImported?.Invoke(game);
+                }
+                catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[PS3] bundled art: {ex.Message}"); }
+            }
+
+            Interlocked.Increment(ref _artworkTotal);
+            int taskGen = _drainGeneration;
+            _ = Task.Run(async () =>
+            {
+                await _hashSemaphore.WaitAsync();
+                try
+                {
+                    string hash = RomService.HashRom(romPath);
+                    game.RomHash = hash;
+                    _db.UpdateHash(game.Id, hash);
+
+                    int? existingId = _db.GetExistingGameIdByHash(hash, "PS3");
+                    if (existingId != null && existingId.Value != game.Id)
+                    {
+                        _db.DeleteGame(game.Id);
+                        ImportLog($"[PS3] DUPLICATE of id={existingId.Value}, deleted id={game.Id}");
+                        return;
+                    }
+
+                    // Artwork search keys off the file name, but PS3 boot files are all
+                    // named the same — search under the resolved title instead.
+                    string artName = Path.Combine(Path.GetDirectoryName(romPath) ?? "",
+                        SanitizeFileName(finalTitle) + ".bin");
+                    var (cover, ssArt, metadata) = await _artwork.FetchArtworkAsync(hash, artName, "PS3");
+
+                    if (ssArt != null) { _db.UpdateScreenScraperArt(game.Id, ssArt); game.ScreenScraperArtPath = ssArt; }
+                    if (cover != null)
+                    {
+                        _db.UpdateCoverArt(game.Id, cover);
+                        game.CoverArtPath = cover;
+                        PersistMetadataFields(game, metadata);
+                        GameImported?.Invoke(game);
+                    }
+                    else if (ssArt != null)
+                    {
+                        PersistMetadataFields(game, metadata);
+                        GameImported?.Invoke(game);
+                    }
+                    else
+                    {
+                        _db.IncrementArtworkAttempts(game.Id);
+                    }
+
+                    DiscoverSaveStates(game);
+
+                    if (taskGen == _drainGeneration)
+                        Interlocked.Increment(ref _artworkDone);
+                }
+                catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[PS3] hash/artwork failed: {ex.Message}"); }
+                finally { _hashSemaphore.Release(); }
+            });
+
+            return game;
         }
 
         /// <summary>
