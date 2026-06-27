@@ -90,6 +90,20 @@ namespace Emutastic
             // --portable on the command line.
             AppPaths.DetectPortableMode(e.Args);
 
+            // Capture Trace diagnostics (core load, game launch, decode errors) to a file. In a
+            // Release build these otherwise go nowhere, so failures can't be diagnosed after the
+            // fact. Truncated each launch; flushed immediately so the latest session is readable
+            // even while the app is still running.
+            try
+            {
+                string logDir = System.IO.Path.Combine(AppPaths.DataRoot, "Logs");
+                System.IO.Directory.CreateDirectory(logDir);
+                var writer = new System.IO.StreamWriter(System.IO.Path.Combine(logDir, "emutastic.log"), append: false) { AutoFlush = true };
+                System.Diagnostics.Trace.Listeners.Add(new System.Diagnostics.TextWriterTraceListener(writer));
+                System.Diagnostics.Trace.WriteLine($"=== session start {DateTime.Now:yyyy-MM-dd HH:mm:ss} | v{System.Reflection.Assembly.GetExecutingAssembly().GetName().Version} ===");
+            }
+            catch { /* logging is best-effort */ }
+
             // WPF's BitmapImage UriSource downloads go through .NET's classic
             // WebRequest pool, which defaults to 2 connections per host. The
             // Achievements tab's trophy case can request 100+ tiles from

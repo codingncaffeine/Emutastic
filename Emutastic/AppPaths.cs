@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 namespace Emutastic
 {
@@ -148,13 +150,128 @@ namespace Emutastic
         /// sits inside PortableData/. In normal mode it's [exe]/Cores/ as before.
         /// Cores are downloaded into this folder by CoreManager.
         /// </summary>
+        private static bool _coresMigrated;
+
         public static string GetCoresFolder()
         {
-            string folder = _portable && !string.IsNullOrEmpty(_portableRoot)
-                ? Path.Combine(_portableRoot, "Cores")
-                : Path.Combine(AppContext.BaseDirectory, "Cores");
+            // Cores live next to the real executable in a normal install. But a self-contained
+            // single-file build extracts to a per-version %TEMP%\.net\... dir, and every exe-path
+            // API can resolve there. Cores must NEVER live in a temporary/extraction dir — it's
+            // wiped per version, and external emulators (RPCS3) refuse to run from temp. If the exe
+            // resolves under temp, anchor Cores at the stable per-user data root instead. Portable
+            // mode keeps everything inside PortableData.
+            string folder;
+            if (_portable && !string.IsNullOrEmpty(_portableRoot))
+                folder = Path.Combine(_portableRoot, "Cores");
+            else
+            {
+                string exeCores = Path.Combine(GetExeFolder(), "Cores");
+                folder = IsTemporaryPath(exeCores) ? Path.Combine(DataRoot, "Cores") : exeCores;
+            }
             Directory.CreateDirectory(folder);
+
+            if (!_coresMigrated)
+            {
+                _coresMigrated = true;
+                try { MigrateCoresFromExtractionDirs(folder); } catch { /* best effort */ }
+            }
             return folder;
+        }
+
+        /// <summary>True when the path lives under the system temp dir or a .NET single-file
+        /// extraction dir (…\.net\…) — locations Cores must never be anchored to.</summary>
+        private static bool IsTemporaryPath(string path)
+        {
+            try
+            {
+                string full = Path.GetFullPath(path);
+                string tmp = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar);
+                if (full.StartsWith(tmp + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                    return true;
+                return full.Replace('/', '\\').IndexOf("\\.net\\", StringComparison.OrdinalIgnoreCase) >= 0;
+            }
+            catch { return false; }
+        }
+
+        // One-time recovery for installs made before the fix above, where cores were written under
+        // the single-file extraction directory (a per-version temp folder). Recover any core DLL or
+        // emulator subfolder the persistent location is MISSING from a prior extraction directory —
+        // a merge, not just an empty-folder fill, so a stranded emulator is recovered even when the
+        // libretro cores were already re-downloaded into the persistent folder.
+        private static void MigrateCoresFromExtractionDirs(string targetCores)
+        {
+            if (_portable) return;
+
+            string targetFull = Path.GetFullPath(targetCores).TrimEnd(Path.DirectorySeparatorChar);
+
+            var sources = new List<string> { Path.Combine(AppContext.BaseDirectory, "Cores") };
+            try
+            {
+                string netExtract = Path.Combine(Path.GetTempPath(), ".net");
+                if (Directory.Exists(netExtract))
+                    foreach (string appDir in Directory.GetDirectories(netExtract))
+                        foreach (string verDir in Directory.GetDirectories(appDir))
+                            sources.Add(Path.Combine(verDir, "Cores"));
+            }
+            catch { }
+
+            // Richest prior install first, so the most complete copy wins for any given entry.
+            foreach (string src in sources
+                         .Distinct(StringComparer.OrdinalIgnoreCase)
+                         .Where(s => Directory.Exists(s) &&
+                                     !string.Equals(Path.GetFullPath(s).TrimEnd(Path.DirectorySeparatorChar), targetFull, StringComparison.OrdinalIgnoreCase))
+                         .OrderByDescending(SafeFileCount))
+            {
+                try
+                {
+                    foreach (string file in Directory.GetFiles(src, "*.dll", SearchOption.TopDirectoryOnly))
+                    {
+                        string dest = Path.Combine(targetCores, Path.GetFileName(file));
+                        if (!File.Exists(dest)) SafeRelocate(file, dest, isDir: false);
+                    }
+                    foreach (string dir in Directory.GetDirectories(src))
+                    {
+                        string dest = Path.Combine(targetCores, Path.GetFileName(dir));
+                        if (!Directory.Exists(dest)) SafeRelocate(dir, dest, isDir: true);
+                    }
+                }
+                catch { /* skip this source */ }
+            }
+        }
+
+        private static int SafeFileCount(string dir)
+        {
+            try { return Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Take(5000).Count(); }
+            catch { return 0; }
+        }
+
+        private static void SafeRelocate(string source, string dest, bool isDir)
+        {
+            try
+            {
+                if (isDir) { if (!Directory.Exists(dest)) Directory.Move(source, dest); }
+                else { if (!File.Exists(dest)) File.Move(source, dest); }
+            }
+            catch
+            {
+                try
+                {
+                    if (isDir) CopyDirectory(source, dest);
+                    else File.Copy(source, dest, overwrite: false);
+                }
+                catch { /* best effort */ }
+            }
+        }
+
+        private static void CopyDirectory(string src, string dst)
+        {
+            Directory.CreateDirectory(dst);
+            foreach (string dir in Directory.GetDirectories(src, "*", SearchOption.AllDirectories))
+                Directory.CreateDirectory(dir.Replace(src, dst));
+            foreach (string file in Directory.GetFiles(src, "*", SearchOption.AllDirectories))
+            {
+                try { File.Copy(file, file.Replace(src, dst), overwrite: false); } catch { }
+            }
         }
 
         /// <summary>
@@ -234,7 +351,13 @@ namespace Emutastic
         {
             try
             {
-                string? exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
+                // Environment.ProcessPath is the real launched executable. For a self-contained
+                // single-file build this is the bundle .exe, whereas MainModule and
+                // AppContext.BaseDirectory can both resolve to the per-version %TEMP%\.net\
+                // extraction dir.
+                string? exePath = Environment.ProcessPath;
+                if (string.IsNullOrEmpty(exePath))
+                    exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
                 return !string.IsNullOrEmpty(exePath)
                     ? Path.GetDirectoryName(exePath)!
                     : AppContext.BaseDirectory;
