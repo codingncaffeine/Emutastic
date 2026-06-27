@@ -104,7 +104,15 @@ namespace Emutastic.Services.Ps3
             {
                 string dir = Path.Combine(GetDir(), "config", "input_configs", "global");
                 string file = Path.Combine(dir, "Default.yml");
-                if (File.Exists(file)) return;
+                if (File.Exists(file))
+                {
+                    // Self-heal an earlier config where the device name lost its "#1" suffix to a
+                    // YAML comment — the value must be quoted because of the '#'.
+                    string existing = File.ReadAllText(file);
+                    if (existing.Contains("Device: XInput Pad #1"))
+                        File.WriteAllText(file, existing.Replace("Device: XInput Pad #1", "Device: \"XInput Pad #1\""));
+                    return;
+                }
                 Directory.CreateDirectory(dir);
                 File.WriteAllText(file, DefaultInputConfig);
             }
@@ -117,7 +125,7 @@ namespace Emutastic.Services.Ps3
             """
             Player 1 Input:
               Handler: XInput
-              Device: XInput Pad #1
+              Device: "XInput Pad #1"
               Config:
                 Left Stick Left: LS X-
                 Left Stick Down: LS Y-

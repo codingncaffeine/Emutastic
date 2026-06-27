@@ -18,7 +18,7 @@ namespace Emutastic.Views
     /// </summary>
     public sealed class Ps3HostWindow : Window
     {
-        private const double TitleBarHeight = 34;
+        private const double TitleBarHeight = 32;
 
         private readonly Game _game;
         private readonly bool _fullscreen;
@@ -29,6 +29,7 @@ namespace Emutastic.Views
         private DateTime _startUtc;
         private bool _embedded;
         private bool _ended;
+        private bool _fs;
 
         /// <summary>Raised on the UI thread with elapsed play-seconds once the session ends.</summary>
         public event Action<int>? SessionEnded;
@@ -45,31 +46,30 @@ namespace Emutastic.Views
             Background = Res("BgPrimaryBrush", Color.FromRgb(0x12, 0x12, 0x14));
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
 
-            // ── Title bar (drag to move, close button) ──
+            // ── Title bar (matches the standard emulator window: title + traffic-light buttons) ──
             var title = new TextBlock
             {
                 Text = string.IsNullOrWhiteSpace(_game.Title) ? "PlayStation 3" : _game.Title,
-                Foreground = Res("TextPrimaryBrush", Colors.White),
                 FontSize = 12,
                 FontWeight = FontWeights.SemiBold,
+                Foreground = Res("TextSecondaryBrush", Colors.Gainsboro),
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(12, 0, 0, 0),
             };
-            var closeBtn = new Button
+
+            var dots = new StackPanel
             {
-                Content = "✕",
-                Width = 46,
-                Foreground = Res("TextSecondaryBrush", Colors.Gainsboro),
-                Background = Brushes.Transparent,
-                BorderThickness = new Thickness(0),
-                Cursor = Cursors.Hand,
-                FontSize = 13,
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0),
             };
-            closeBtn.Click += (_, _) => Close();
+            dots.Children.Add(MakeDot(Res("TrafficYellowBrush", Color.FromRgb(0xFF, 0xBD, 0x2E)), (_, _) => WindowState = WindowState.Minimized));
+            dots.Children.Add(MakeDot(Res("GreenBrush", Color.FromRgb(0x28, 0xC8, 0x40)), (_, _) => ToggleFullscreen()));
+            dots.Children.Add(MakeDot(Res("TrafficRedBrush", Color.FromRgb(0xFF, 0x5F, 0x57)), (_, _) => Close()));
 
             var barContent = new DockPanel();
-            DockPanel.SetDock(closeBtn, Dock.Right);
-            barContent.Children.Add(closeBtn);
+            DockPanel.SetDock(dots, Dock.Right);
+            barContent.Children.Add(dots);
             barContent.Children.Add(title);
 
             _titleBar = new Border
@@ -78,7 +78,12 @@ namespace Emutastic.Views
                 Background = Res("BgSecondaryBrush", Color.FromRgb(0x1A, 0x1A, 0x1C)),
                 Child = barContent,
             };
-            _titleBar.MouseLeftButtonDown += (_, e) => { if (e.ButtonState == MouseButtonState.Pressed) DragMove(); };
+            _titleBar.MouseLeftButtonDown += (_, e) =>
+            {
+                if (e.ButtonState != MouseButtonState.Pressed) return;
+                if (e.ClickCount == 2) ToggleFullscreen();
+                else DragMove();
+            };
 
             // ── Game host area (the emulator window embeds here) ──
             _status = new TextBlock
@@ -111,9 +116,30 @@ namespace Emutastic.Views
         // Title-bar height in physical pixels (0 in fullscreen, where the bar is hidden).
         private int TopOffsetPx()
         {
-            if (_fullscreen) return 0;
+            if (_fullscreen || _fs) return 0;
             double scale = VisualTreeHelper.GetDpi(this).DpiScaleY;
             return (int)Math.Round(TitleBarHeight * scale);
+        }
+
+        // A circular title-bar button (the traffic-light style used by the emulator window).
+        private Button MakeDot(Brush fill, RoutedEventHandler onClick)
+        {
+            var btn = new Button { Width = 12, Height = 12, Margin = new Thickness(5, 0, 0, 0), Cursor = Cursors.Hand, Focusable = false };
+            var template = new ControlTemplate(typeof(Button));
+            var ellipse = new FrameworkElementFactory(typeof(System.Windows.Shapes.Ellipse));
+            ellipse.SetValue(System.Windows.Shapes.Shape.FillProperty, fill);
+            template.VisualTree = ellipse;
+            btn.Template = template;
+            btn.Click += onClick;
+            return btn;
+        }
+
+        private void ToggleFullscreen()
+        {
+            _fs = !_fs;
+            _titleBar.Visibility = _fs ? Visibility.Collapsed : Visibility.Visible;
+            WindowState = _fs ? WindowState.Maximized : WindowState.Normal;
+            if (_embedded) _session.FitTo(Handle, TopOffsetPx());
         }
 
         private static Brush Res(string key, Color fallback)
