@@ -1738,7 +1738,7 @@ namespace Emutastic.Views
         {
             ("Nintendo",  new[] { "NES", "FDS", "SNES", "N64", "GameCube", "GB", "GBC", "GBA", "NDS", "3DS", "VirtualBoy" }),
             ("Sega",      new[] { "Genesis", "SegaCD", "Sega32X", "Saturn", "SMS", "GameGear", "SG1000", "Dreamcast" }),
-            ("Sony",      new[] { "PS1", "PS2", "PSP" }),
+            ("Sony",      new[] { "PS1", "PS2", "PS3", "PSP" }),
             ("NEC",       new[] { "TG16", "TGCD" }),
             ("Atari",     new[] { "Atari2600", "Atari7800", "Jaguar" }),
             ("Arcade",    new[] { "Arcade", "NeoGeo", "NeoCD" }),
@@ -1845,7 +1845,7 @@ namespace Emutastic.Views
             foreach (var (category, consoleList) in ConsoleCategories)
             {
                 var categoryConsoles = consoleList
-                    .Where(c => Services.CoreManager.ConsoleCoreMap.ContainsKey(c))
+                    .Where(c => Services.CoreManager.ConsoleCoreMap.ContainsKey(c) || c == "PS3")
                     .ToList();
                 if (categoryConsoles.Count == 0) continue;
 
@@ -1853,6 +1853,13 @@ namespace Emutastic.Views
                 int catInstalled = 0, catTotal = 0;
                 foreach (string c in categoryConsoles)
                 {
+                    // PS3 uses the external emulator, not a libretro core.
+                    if (c == "PS3")
+                    {
+                        catTotal += 1;
+                        if (Services.Ps3.Rpcs3Runtime.IsInstalled()) catInstalled += 1;
+                        continue;
+                    }
                     var cores = Services.CoreManager.ConsoleCoreMap[c];
                     catTotal += cores.Length;
                     catInstalled += cores.Count(dll => IsInstalled(dll));
@@ -1945,6 +1952,10 @@ namespace Emutastic.Views
                 // Console accordions inside the category body
                 foreach (string consoleName in categoryConsoles)
                 {
+                    // PS3 isn't a libretro core — it's the external emulator, shown as its own
+                    // accordion with the download row (sits in the Sony group next to PS2).
+                    if (consoleName == "PS3") { BuildPs3CoreEntry(catBody); continue; }
+
                     string[] candidates = Services.CoreManager.ConsoleCoreMap[consoleName];
 
                     // Build full core list: ALL candidates from ConsoleCoreMap + download catalog
@@ -2837,122 +2848,6 @@ namespace Emutastic.Views
                 ffmpegBadge, ffmpegProgress, ffmpegStatusText, ffmpegBtn,
                 isLast: false));
 
-            // ── RPCS3 (PlayStation 3) row ──
-            bool rpcs3Present = Services.Ps3.Rpcs3Runtime.IsInstalled();
-            var rpcs3StatusText = new TextBlock { FontSize = 10, Foreground = _brushTextMuted, Visibility = Visibility.Collapsed };
-            var rpcs3Progress   = new ProgressBar { Height = 4, Minimum = 0, Maximum = 100, Value = 0, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 4, 0, 0) };
-            var rpcs3Badge      = MakeBadge(rpcs3Present);
-            var rpcs3Btn        = new Button
-            {
-                Content = rpcs3Present ? "Re-download" : "Download",
-                Style   = (Style)FindResource("SmallOutlineButton"),
-                VerticalAlignment = VerticalAlignment.Center
-            };
-
-            rpcs3Btn.Click += async (_, _) =>
-            {
-                rpcs3Btn.IsEnabled         = false;
-                rpcs3Progress.Visibility   = Visibility.Visible;
-                rpcs3StatusText.Visibility = Visibility.Visible;
-                rpcs3StatusText.Text       = "Fetching latest release…";
-                rpcs3Progress.Value        = 0;
-                string? tmp7z = null;
-                try
-                {
-                    using var http = new System.Net.Http.HttpClient();
-                    http.DefaultRequestHeaders.Add("User-Agent", "Emutastic");
-
-                    // Official Windows build artifacts.
-                    string rel = await http.GetStringAsync("https://api.github.com/repos/RPCS3/rpcs3-binaries-win/releases/latest");
-                    using var doc = System.Text.Json.JsonDocument.Parse(rel);
-                    string? url = null;
-                    foreach (var a in doc.RootElement.GetProperty("assets").EnumerateArray())
-                    {
-                        string? n = a.GetProperty("name").GetString();
-                        if (n != null && n.EndsWith(".7z", StringComparison.OrdinalIgnoreCase))
-                        { url = a.GetProperty("browser_download_url").GetString(); break; }
-                    }
-                    if (url == null) throw new Exception("No download found in the latest release.");
-
-                    rpcs3StatusText.Text = "Downloading (~35 MB)…";
-                    rpcs3Progress.Value  = 10;
-
-                    tmp7z = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"rpcs3_{Guid.NewGuid():N}.7z");
-                    using (var resp = await http.GetAsync(url, System.Net.Http.HttpCompletionOption.ResponseHeadersRead))
-                    {
-                        resp.EnsureSuccessStatusCode();
-                        long totalBytes = resp.Content.Headers.ContentLength ?? -1;
-                        using var fs = System.IO.File.Create(tmp7z);
-                        using var stream = await resp.Content.ReadAsStreamAsync();
-                        byte[] buffer = new byte[81920];
-                        long downloaded = 0; int read;
-                        while ((read = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
-                        {
-                            await fs.WriteAsync(buffer, 0, read);
-                            downloaded += read;
-                            if (totalBytes > 0)
-                            {
-                                int pct = (int)(downloaded * 80 / totalBytes) + 10; // 10-90 range
-                                rpcs3Progress.Value = Math.Min(pct, 90);
-                                rpcs3StatusText.Text = $"Downloading… {downloaded / (1024 * 1024)} / {totalBytes / (1024 * 1024)} MB";
-                            }
-                        }
-                    }
-
-                    rpcs3StatusText.Text = "Extracting…";
-                    rpcs3Progress.Value  = 92;
-
-                    string dir = Services.Ps3.Rpcs3Runtime.GetDir();
-                    // Back up any existing install so a failed extract is recoverable.
-                    if (System.IO.Directory.Exists(dir))
-                    {
-                        string bak = dir + ".bak";
-                        if (System.IO.Directory.Exists(bak)) System.IO.Directory.Delete(bak, true);
-                        System.IO.Directory.Move(dir, bak);
-                    }
-                    System.IO.Directory.CreateDirectory(dir);
-
-                    string sevenZip = tmp7z;
-                    await System.Threading.Tasks.Task.Run(() =>
-                    {
-                        using var archive = new SevenZipExtractor.ArchiveFile(sevenZip);
-                        foreach (var entry in archive.Entries)
-                        {
-                            if (entry.IsFolder) continue;
-                            string outPath = System.IO.Path.Combine(dir, entry.FileName);
-                            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(outPath)!);
-                            using var dst = System.IO.File.Create(outPath);
-                            entry.Extract(dst);
-                        }
-                    });
-
-                    if (!Services.Ps3.Rpcs3Runtime.IsInstalled())
-                        throw new Exception("Downloaded files didn't contain the emulator.");
-
-                    rpcs3Progress.Value  = 100;
-                    rpcs3StatusText.Text = "Downloaded — install system firmware, then launch a PS3 game.";
-                    rpcs3Badge.Background = new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58));
-                    ((TextBlock)rpcs3Badge.Child).Text       = "Present";
-                    ((TextBlock)rpcs3Badge.Child).Foreground = new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58));
-                    rpcs3Btn.Content = "Re-download";
-                }
-                catch (Exception ex)
-                {
-                    rpcs3StatusText.Text = $"Failed: {ex.Message}";
-                }
-                finally
-                {
-                    try { if (tmp7z != null && System.IO.File.Exists(tmp7z)) System.IO.File.Delete(tmp7z); } catch { }
-                    rpcs3Btn.IsEnabled = true;
-                }
-            };
-
-            extrasStack.Children.Add(MakeExtrasRow(
-                "RPCS3 (PlayStation 3)",
-                "Required to play PS3 games. Downloads the official build (~35 MB) from GitHub. System firmware and games are provided by you.",
-                rpcs3Badge, rpcs3Progress, rpcs3StatusText, rpcs3Btn,
-                isLast: false));
-
             // ── DAT files separator ──
             extrasStack.Children.Add(new Rectangle
             {
@@ -3699,6 +3594,189 @@ namespace Emutastic.Views
 
             card.Child = stack;
             CoresListPanel.Children.Add(card);
+        }
+
+        // PS3 accordion for the cores list (Sony group). PS3 has no libretro core, so its body
+        // is the external-emulator download row rather than core rows.
+        private void BuildPs3CoreEntry(StackPanel catBody)
+        {
+            bool present = Services.Ps3.Rpcs3Runtime.IsInstalled();
+
+            var bodyPanel = new StackPanel { Visibility = Visibility.Collapsed };
+            var chevron = new TextBlock
+            {
+                Text = "▸", FontSize = 12, Foreground = _brushTextMuted,
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0),
+                RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = new RotateTransform(0)
+            };
+
+            var headerGrid = new Grid { Cursor = Cursors.Hand };
+            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetColumn(chevron, 0);
+
+            var consoleLbl = new TextBlock { Text = "PS3", FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = _brushText, VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetColumn(consoleLbl, 1);
+            var activeLbl = new TextBlock { Text = present ? "RPCS3" : "Not installed", FontSize = 11, Foreground = _brushTextMuted, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
+            Grid.SetColumn(activeLbl, 2);
+            var countBadge = new Border
+            {
+                Background = present ? new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58)) : new SolidColorBrush(Color.FromArgb(0x22, 0x88, 0x88, 0x88)),
+                CornerRadius = new CornerRadius(4), Padding = new Thickness(6, 2, 6, 2), VerticalAlignment = VerticalAlignment.Center
+            };
+            countBadge.Child = new TextBlock { Text = present ? "1" : "0/1", FontSize = 10, Foreground = present ? new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58)) : _brushTextMuted };
+            Grid.SetColumn(countBadge, 3);
+
+            headerGrid.Children.Add(chevron);
+            headerGrid.Children.Add(consoleLbl);
+            headerGrid.Children.Add(activeLbl);
+            headerGrid.Children.Add(countBadge);
+
+            var headerBorder = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(0x1A, 0x1A, 0x1C)),
+                CornerRadius = new CornerRadius(6), Padding = new Thickness(12, 8, 14, 8), Margin = new Thickness(12, 2, 0, 2),
+                Child = headerGrid
+            };
+            var capturedBody = bodyPanel;
+            var capturedChevron = chevron;
+            headerBorder.MouseLeftButtonUp += (_, _) =>
+            {
+                bool expanding = capturedBody.Visibility == Visibility.Collapsed;
+                capturedBody.Visibility = expanding ? Visibility.Visible : Visibility.Collapsed;
+                ((RotateTransform)capturedChevron.RenderTransform).Angle = expanding ? 90 : 0;
+            };
+            catBody.Children.Add(headerBorder);
+
+            var bodyCard = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(0x17, 0x17, 0x19)),
+                CornerRadius = new CornerRadius(0, 0, 6, 6), Padding = new Thickness(14, 8, 14, 10), Margin = new Thickness(24, 0, 0, 4)
+            };
+            var bodyStack = new StackPanel();
+            bodyStack.Children.Add(BuildRpcs3Row());
+            bodyCard.Child = bodyStack;
+            bodyPanel.Children.Add(bodyCard);
+            catBody.Children.Add(bodyPanel);
+        }
+
+        // The external PS3 emulator download row: pulls the official build's latest archive from
+        // its release artifacts and extracts it to the emulator folder. Nothing proprietary bundled.
+        private Grid BuildRpcs3Row()
+        {
+            bool present = Services.Ps3.Rpcs3Runtime.IsInstalled();
+            var statusText = new TextBlock { FontSize = 10, Foreground = _brushTextMuted, Visibility = Visibility.Collapsed };
+            var progress   = new ProgressBar { Height = 4, Minimum = 0, Maximum = 100, Value = 0, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 4, 0, 0) };
+            var badge      = MakeBadge(present);
+            var btn        = new Button
+            {
+                Content = present ? "Re-download" : "Download",
+                Style   = (Style)FindResource("SmallOutlineButton"),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            btn.Click += async (_, _) =>
+            {
+                btn.IsEnabled         = false;
+                progress.Visibility   = Visibility.Visible;
+                statusText.Visibility = Visibility.Visible;
+                statusText.Text       = "Fetching latest release…";
+                progress.Value        = 0;
+                string? tmp7z = null;
+                try
+                {
+                    using var http = new System.Net.Http.HttpClient();
+                    http.DefaultRequestHeaders.Add("User-Agent", "Emutastic");
+
+                    string rel = await http.GetStringAsync("https://api.github.com/repos/RPCS3/rpcs3-binaries-win/releases/latest");
+                    using var doc = System.Text.Json.JsonDocument.Parse(rel);
+                    string? url = null;
+                    foreach (var a in doc.RootElement.GetProperty("assets").EnumerateArray())
+                    {
+                        string? n = a.GetProperty("name").GetString();
+                        if (n != null && n.EndsWith(".7z", StringComparison.OrdinalIgnoreCase))
+                        { url = a.GetProperty("browser_download_url").GetString(); break; }
+                    }
+                    if (url == null) throw new Exception("No download found in the latest release.");
+
+                    statusText.Text = "Downloading (~35 MB)…";
+                    progress.Value  = 10;
+
+                    tmp7z = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"rpcs3_{Guid.NewGuid():N}.7z");
+                    using (var resp = await http.GetAsync(url, System.Net.Http.HttpCompletionOption.ResponseHeadersRead))
+                    {
+                        resp.EnsureSuccessStatusCode();
+                        long totalBytes = resp.Content.Headers.ContentLength ?? -1;
+                        using var fs = System.IO.File.Create(tmp7z);
+                        using var stream = await resp.Content.ReadAsStreamAsync();
+                        byte[] buffer = new byte[81920];
+                        long downloaded = 0; int read;
+                        while ((read = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                        {
+                            await fs.WriteAsync(buffer, 0, read);
+                            downloaded += read;
+                            if (totalBytes > 0)
+                            {
+                                int pct = (int)(downloaded * 80 / totalBytes) + 10;
+                                progress.Value = Math.Min(pct, 90);
+                                statusText.Text = $"Downloading… {downloaded / (1024 * 1024)} / {totalBytes / (1024 * 1024)} MB";
+                            }
+                        }
+                    }
+
+                    statusText.Text = "Extracting…";
+                    progress.Value  = 92;
+
+                    string dir = Services.Ps3.Rpcs3Runtime.GetDir();
+                    if (System.IO.Directory.Exists(dir))
+                    {
+                        string bak = dir + ".bak";
+                        if (System.IO.Directory.Exists(bak)) System.IO.Directory.Delete(bak, true);
+                        System.IO.Directory.Move(dir, bak);
+                    }
+                    System.IO.Directory.CreateDirectory(dir);
+
+                    string sevenZip = tmp7z;
+                    await System.Threading.Tasks.Task.Run(() =>
+                    {
+                        using var archive = new SevenZipExtractor.ArchiveFile(sevenZip);
+                        foreach (var entry in archive.Entries)
+                        {
+                            if (entry.IsFolder) continue;
+                            string outPath = System.IO.Path.Combine(dir, entry.FileName);
+                            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(outPath)!);
+                            using var dst = System.IO.File.Create(outPath);
+                            entry.Extract(dst);
+                        }
+                    });
+
+                    if (!Services.Ps3.Rpcs3Runtime.IsInstalled())
+                        throw new Exception("Downloaded files didn't contain the emulator.");
+
+                    progress.Value  = 100;
+                    statusText.Text = "Downloaded — install system firmware, then launch a PS3 game.";
+                    badge.Background = new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58));
+                    ((TextBlock)badge.Child).Text       = "Present";
+                    ((TextBlock)badge.Child).Foreground = new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58));
+                    btn.Content = "Re-download";
+                }
+                catch (Exception ex)
+                {
+                    statusText.Text = $"Failed: {ex.Message}";
+                }
+                finally
+                {
+                    try { if (tmp7z != null && System.IO.File.Exists(tmp7z)) System.IO.File.Delete(tmp7z); } catch { }
+                    btn.IsEnabled = true;
+                }
+            };
+
+            return MakeExtrasRow(
+                "RPCS3",
+                "Official PlayStation 3 emulator. Downloads the latest build (~35 MB) from GitHub. System firmware and games are provided by you.",
+                badge, progress, statusText, btn, isLast: true);
         }
 
         private void SaveCompatToggle(System.Action<Configuration.EmulatorConfiguration> mutate)
