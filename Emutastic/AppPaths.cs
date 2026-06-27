@@ -154,13 +154,20 @@ namespace Emutastic
 
         public static string GetCoresFolder()
         {
-            // Cores live next to the REAL executable, not under AppContext.BaseDirectory: for the
-            // single-file release the latter is a per-version temp extraction dir, so cores (and the
-            // downloaded PS3 emulator) appeared to vanish after every update. Portable keeps them in
-            // PortableData. GetExeFolder resolves the actual .exe location via the main module path.
-            string folder = _portable && !string.IsNullOrEmpty(_portableRoot)
-                ? Path.Combine(_portableRoot, "Cores")
-                : Path.Combine(GetExeFolder(), "Cores");
+            // Cores live next to the real executable in a normal install. But a self-contained
+            // single-file build extracts to a per-version %TEMP%\.net\... dir, and every exe-path
+            // API can resolve there. Cores must NEVER live in a temporary/extraction dir — it's
+            // wiped per version, and external emulators (RPCS3) refuse to run from temp. If the exe
+            // resolves under temp, anchor Cores at the stable per-user data root instead. Portable
+            // mode keeps everything inside PortableData.
+            string folder;
+            if (_portable && !string.IsNullOrEmpty(_portableRoot))
+                folder = Path.Combine(_portableRoot, "Cores");
+            else
+            {
+                string exeCores = Path.Combine(GetExeFolder(), "Cores");
+                folder = IsTemporaryPath(exeCores) ? Path.Combine(DataRoot, "Cores") : exeCores;
+            }
             Directory.CreateDirectory(folder);
 
             if (!_coresMigrated)
@@ -169,6 +176,21 @@ namespace Emutastic
                 try { MigrateCoresFromExtractionDirs(folder); } catch { /* best effort */ }
             }
             return folder;
+        }
+
+        /// <summary>True when the path lives under the system temp dir or a .NET single-file
+        /// extraction dir (…\.net\…) — locations Cores must never be anchored to.</summary>
+        private static bool IsTemporaryPath(string path)
+        {
+            try
+            {
+                string full = Path.GetFullPath(path);
+                string tmp = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar);
+                if (full.StartsWith(tmp + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                    return true;
+                return full.Replace('/', '\\').IndexOf("\\.net\\", StringComparison.OrdinalIgnoreCase) >= 0;
+            }
+            catch { return false; }
         }
 
         // One-time recovery for installs made before the fix above, where cores were written under
@@ -329,7 +351,13 @@ namespace Emutastic
         {
             try
             {
-                string? exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
+                // Environment.ProcessPath is the real launched executable. For a self-contained
+                // single-file build this is the bundle .exe, whereas MainModule and
+                // AppContext.BaseDirectory can both resolve to the per-version %TEMP%\.net\
+                // extraction dir.
+                string? exePath = Environment.ProcessPath;
+                if (string.IsNullOrEmpty(exePath))
+                    exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
                 return !string.IsNullOrEmpty(exePath)
                     ? Path.GetDirectoryName(exePath)!
                     : AppContext.BaseDirectory;
