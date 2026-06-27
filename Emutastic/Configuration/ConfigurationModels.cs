@@ -81,6 +81,13 @@ namespace Emutastic.Configuration
         /// </summary>
         public bool ResolveAmdIntelCompat()
             => AmdIntelGpuCompatibility || GameCubeUseDefaultFramebuffer;
+
+        /// <summary>
+        /// PlayStation 3 internal render resolution, as the external emulator's resolution-scale
+        /// percentage (100 = native 720p, 150 ≈ 1080p, 200 ≈ 1440p, 300 ≈ 4K). Higher looks
+        /// sharper but needs a stronger GPU. Applied to the emulator config at launch.
+        /// </summary>
+        public int Ps3ResolutionScale { get; set; } = 100;
     }
 
     // User preferences

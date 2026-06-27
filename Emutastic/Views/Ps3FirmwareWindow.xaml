@@ -1,0 +1,56 @@
+<Window x:Class="Emutastic.Views.Ps3FirmwareWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Width="470" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner">
+
+    <Border Background="{DynamicResource BgSecondaryBrush}"
+            BorderBrush="{DynamicResource BorderNormalBrush}"
+            BorderThickness="1"
+            CornerRadius="10">
+        <StackPanel Margin="24">
+
+            <TextBlock Text="PlayStation 3 Firmware"
+                       FontFamily="{StaticResource PrimaryFont}"
+                       FontSize="15"
+                       FontWeight="SemiBold"
+                       Foreground="{DynamicResource TextPrimaryBrush}"
+                       Margin="0,0,0,10"/>
+
+            <TextBlock Text="PlayStation 3 games need the system firmware, which is not included. Select your own firmware update file (PS3UPDAT.PUP) to install it."
+                       FontFamily="{StaticResource PrimaryFont}"
+                       FontSize="12"
+                       Foreground="{DynamicResource TextSecondaryBrush}"
+                       TextWrapping="Wrap"
+                       Margin="0,0,0,16"/>
+
+            <TextBlock x:Name="StatusText"
+                       FontFamily="{StaticResource PrimaryFont}"
+                       FontSize="11"
+                       Foreground="{DynamicResource TextMutedBrush}"
+                       TextWrapping="Wrap"
+                       Margin="0,0,0,16"
+                       Visibility="Collapsed"/>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="CancelButton"
+                        Content="Cancel"
+                        Style="{StaticResource SecondaryButtonStyle}"
+                        Padding="18,8"
+                        Margin="0,0,8,0"
+                        Click="Cancel_Click"/>
+                <Button x:Name="ChooseButton"
+                        Content="Choose firmware file…"
+                        Style="{StaticResource PlayButtonStyle}"
+                        Padding="18,8"
+                        Click="Choose_Click"/>
+            </StackPanel>
+
+        </StackPanel>
+    </Border>
+</Window>

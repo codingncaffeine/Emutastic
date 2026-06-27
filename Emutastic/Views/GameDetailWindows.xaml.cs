@@ -855,6 +855,17 @@ namespace Emutastic.Views
                 return;
             }
 
+            // PS3: driven by an external emulator in its own process (no in-process libretro
+            // core). Host its render window inside the app shell; report play time on exit.
+            if (string.Equals(_game.Console, "PS3", System.StringComparison.OrdinalIgnoreCase))
+            {
+                if (!Services.Ps3.Ps3Launch.EnsureReady(this)) return;
+                var ps3Host = new Ps3HostWindow(_game);
+                ps3Host.SessionEnded += secs => OnHostSessionEnded(secs);
+                ps3Host.Show();
+                return;
+            }
+
             if (!coreManager.HasCore(_game.Console))
             {
                 MessageBox.Show(
