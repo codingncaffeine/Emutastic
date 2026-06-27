@@ -63,17 +63,9 @@ namespace Emutastic.Services.Ps3
 
         private static async Task ImportFolderAsync(string folder, string source, ImportService owner)
         {
-            // Installable packages take priority — install them and register what appears.
-            var packages = SafeEnumerate(folder, "*.pkg");
-            if (packages.Count > 0)
-            {
-                var licenses = SafeEnumerate(folder, "*.rap");
-                foreach (string pkg in packages)
-                    await InstallPackageAsync(pkg, licenses, source, owner);
-                return;
-            }
-
-            // Extracted game folder(s): every boot file is a bootable title.
+            // Bootable game first: a disc dump (PS3_GAME/USRDIR/EBOOT.BIN) or an extracted game
+            // (USRDIR/EBOOT.BIN). A dump can contain internal *.pkg game-data files (e.g. shaders)
+            // that are NOT installable packages, so the boot file must take priority over them.
             var boots = SafeEnumerate(folder, "EBOOT.BIN");
             if (boots.Count > 0)
             {
@@ -85,11 +77,35 @@ namespace Emutastic.Services.Ps3
                 return;
             }
 
-            // Or a disc image sitting inside the folder.
-            foreach (string image in SafeEnumerate(folder, "*.iso"))
-                owner.RegisterPs3Game(Path.GetFileNameWithoutExtension(image), image, source);
+            // Installable packages: a real package sits at the import root, never inside a game's
+            // data folders — exclude any *.pkg that lives under a game's USRDIR (that's game data).
+            var packages = SafeEnumerate(folder, "*.pkg").Where(p => !IsGameData(p)).ToList();
+            if (packages.Count > 0)
+            {
+                var licenses = SafeEnumerate(folder, "*.rap");
+                foreach (string pkg in packages)
+                    await InstallPackageAsync(pkg, licenses, source, owner);
+                return;
+            }
 
+            var images = SafeEnumerate(folder, "*.iso");
+            if (images.Count > 0)
+            {
+                foreach (string image in images)
+                    owner.RegisterPs3Game(Path.GetFileNameWithoutExtension(image), image, source);
+                return;
+            }
+
+            owner.ReportImportStatus($"No PlayStation 3 content found in {Path.GetFileName(folder)}.");
             await Task.CompletedTask;
+        }
+
+        // True for *.pkg files that are game data inside a dump (e.g. shaders), not installable packages.
+        private static bool IsGameData(string path)
+        {
+            string p = path.Replace('/', '\\');
+            return p.IndexOf("\\USRDIR\\", StringComparison.OrdinalIgnoreCase) >= 0
+                || p.IndexOf("\\PS3_GAME\\", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static async Task InstallPackageAsync(string package, List<string> licenses, string source, ImportService owner)
