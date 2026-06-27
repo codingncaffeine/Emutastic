@@ -32,6 +32,13 @@ namespace Emutastic.Views
         private bool _fs;
         private Ps3OverlayHud? _overlay;
 
+        // Follow the user's window-chrome choice (Preferences → theme): true = native Windows
+        // title bar + buttons; false = the custom frameless (macOS-style) title bar.
+        private readonly bool _windowsChrome = App.Configuration?.GetThemeConfiguration()?.UseWindowsChrome == true;
+
+        [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
         /// <summary>Raised on the UI thread with elapsed play-seconds once the session ends.</summary>
         public event Action<int>? SessionEnded;
 
@@ -107,6 +114,15 @@ namespace Emutastic.Views
             root.Children.Add(hostArea);
             Content = root;
 
+            // Native Windows chrome: use the system title bar + buttons and drop the custom one.
+            if (_windowsChrome && !_fullscreen)
+            {
+                WindowStyle = WindowStyle.SingleBorderWindow;
+                Title = string.IsNullOrWhiteSpace(_game.Title) ? "PlayStation 3" : _game.Title;
+                _titleBar.Visibility = Visibility.Collapsed;
+                root.RowDefinitions[0].Height = new GridLength(0);
+            }
+
             SourceInitialized += OnSourceInitialized;
             SizeChanged += (_, _) => { if (_embedded) _session.FitTo(Handle, TopOffsetPx()); _overlay?.Reposition(); };
             LocationChanged += (_, _) => _overlay?.Reposition();
@@ -119,7 +135,7 @@ namespace Emutastic.Views
         // Title-bar height in physical pixels (0 in fullscreen, where the bar is hidden).
         private int TopOffsetPx()
         {
-            if (_fullscreen || _fs) return 0;
+            if (_windowsChrome || _fullscreen || _fs) return 0;
             double scale = VisualTreeHelper.GetDpi(this).DpiScaleY;
             return (int)Math.Round(TitleBarHeight * scale);
         }
@@ -140,8 +156,18 @@ namespace Emutastic.Views
         private void ToggleFullscreen()
         {
             _fs = !_fs;
-            _titleBar.Visibility = _fs ? Visibility.Collapsed : Visibility.Visible;
-            WindowState = _fs ? WindowState.Maximized : WindowState.Normal;
+            if (_fs)
+            {
+                WindowStyle = WindowStyle.None;
+                _titleBar.Visibility = Visibility.Collapsed;
+                WindowState = WindowState.Maximized;
+            }
+            else
+            {
+                WindowStyle = _windowsChrome ? WindowStyle.SingleBorderWindow : WindowStyle.None;
+                _titleBar.Visibility = _windowsChrome ? Visibility.Collapsed : Visibility.Visible;
+                WindowState = WindowState.Normal;
+            }
             if (_embedded) _session.FitTo(Handle, TopOffsetPx());
         }
 
@@ -154,6 +180,11 @@ namespace Emutastic.Views
             {
                 _titleBar.Visibility = Visibility.Collapsed;
                 WindowState = WindowState.Maximized;
+            }
+            else if (_windowsChrome)
+            {
+                // Dark native title bar to match the app's theme (DWMWA_USE_IMMERSIVE_DARK_MODE).
+                try { int dark = 1; DwmSetWindowAttribute(Handle, 20, ref dark, sizeof(int)); } catch { }
             }
 
             if (!Rpcs3Runtime.IsInstalled())
