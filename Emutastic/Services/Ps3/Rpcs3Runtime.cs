@@ -88,6 +88,107 @@ namespace Emutastic.Services.Ps3
                 }
             }
             catch { /* best effort */ }
+
+            EnsureInputConfig();
         }
+
+        /// <summary>
+        /// Writes a default controller mapping (a standard gamepad bound to player one) if the user
+        /// has none. The emulator's settings UI is unavailable when launched without its own UI, so
+        /// without this a controller is unbound and nothing responds. Never overwrites an existing
+        /// config, so a user who set up their own pad keeps it.
+        /// </summary>
+        private static void EnsureInputConfig()
+        {
+            try
+            {
+                string dir = Path.Combine(GetDir(), "config", "input_configs", "global");
+                string file = Path.Combine(dir, "Default.yml");
+                if (File.Exists(file)) return;
+                Directory.CreateDirectory(dir);
+                File.WriteAllText(file, DefaultInputConfig);
+            }
+            catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[Ps3] input config: {ex.Message}"); }
+        }
+
+        // Player one bound to the standard gamepad handler; the values are the emulator's own
+        // built-in defaults, so a controller works out of the box. Other players default to none.
+        private const string DefaultInputConfig =
+            """
+            Player 1 Input:
+              Handler: XInput
+              Device: XInput Pad #1
+              Config:
+                Left Stick Left: LS X-
+                Left Stick Down: LS Y-
+                Left Stick Right: LS X+
+                Left Stick Up: LS Y+
+                Right Stick Left: RS X-
+                Right Stick Down: RS Y-
+                Right Stick Right: RS X+
+                Right Stick Up: RS Y+
+                Start: Start
+                Select: Back
+                PS Button: "Guide,Back&Start"
+                Square: X
+                Cross: A
+                Circle: B
+                Triangle: Y
+                Left: Left
+                Down: Down
+                Right: Right
+                Up: Up
+                R1: RB
+                R2: RT
+                R3: RS
+                L1: LB
+                L2: LT
+                L3: LS
+                IR Nose: ""
+                IR Tail: ""
+                IR Left: ""
+                IR Right: ""
+                Tilt Left: ""
+                Tilt Right: ""
+                Pressure Intensity Button: ""
+                Pressure Intensity Percent: 50
+                Pressure Intensity Toggle Mode: false
+                Pressure Intensity Deadzone: 0
+                Analog Limiter Button: ""
+                Analog Limiter Toggle Mode: false
+                Left Stick Multiplier: 100
+                Right Stick Multiplier: 100
+                Left Stick Deadzone: 7849
+                Right Stick Deadzone: 8689
+                Left Stick Anti-Deadzone: 4259
+                Right Stick Anti-Deadzone: 4259
+                Left Pad Squircling Factor: 8000
+                Right Pad Squircling Factor: 8000
+                Left Trigger Threshold: 30
+                Right Trigger Threshold: 30
+                Color Value R: 0
+                Color Value G: 0
+                Color Value B: 0
+                Blink LED when battery is below 20%: true
+                Use LED as a battery indicator: false
+                LED battery indicator brightness: 50
+                Player LED enabled: true
+                Large Vibration Motor Multiplier: 100
+                Small Vibration Motor Multiplier: 100
+                Switch Vibration Motors: false
+                Mouse Movement Mode: relative
+                Mouse Deadzone X Axis: 60
+                Mouse Deadzone Y Axis: 60
+                Mouse Acceleration X Axis: 200
+                Mouse Acceleration Y Axis: 250
+                Left Stick Lerp Factor: 100
+                Right Stick Lerp Factor: 100
+                Analog Button Lerp Factor: 100
+                Trigger Lerp Factor: 100
+                Device Class Type: 0
+                Vendor ID: 0
+                Product ID: 0
+              Buddy Device: ""
+            """;
     }
 }
