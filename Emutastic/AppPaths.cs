@@ -151,22 +151,26 @@ namespace Emutastic
         /// Cores are downloaded into this folder by CoreManager.
         /// </summary>
         private static bool _coresMigrated;
+        private static bool? _exeCoresWritable;
 
         public static string GetCoresFolder()
         {
             // Cores live next to the real executable in a normal install. But a self-contained
             // single-file build extracts to a per-version %TEMP%\.net\... dir, and every exe-path
             // API can resolve there. Cores must NEVER live in a temporary/extraction dir — it's
-            // wiped per version, and external emulators (RPCS3) refuse to run from temp. If the exe
-            // resolves under temp, anchor Cores at the stable per-user data root instead. Portable
-            // mode keeps everything inside PortableData.
+            // wiped per version, and external emulators (RPCS3) refuse to run from temp. Fall back to
+            // the stable, always-writable per-user data root when the exe folder is temporary OR
+            // read-only (e.g. a Program Files install). Portable mode keeps everything in PortableData.
             string folder;
             if (_portable && !string.IsNullOrEmpty(_portableRoot))
                 folder = Path.Combine(_portableRoot, "Cores");
             else
             {
                 string exeCores = Path.Combine(GetExeFolder(), "Cores");
-                folder = IsTemporaryPath(exeCores) ? Path.Combine(DataRoot, "Cores") : exeCores;
+                _exeCoresWritable ??= CanCreateAndWrite(exeCores);
+                folder = (IsTemporaryPath(exeCores) || !_exeCoresWritable.Value)
+                    ? Path.Combine(DataRoot, "Cores")
+                    : exeCores;
             }
             Directory.CreateDirectory(folder);
 
@@ -189,6 +193,21 @@ namespace Emutastic
                 if (full.StartsWith(tmp + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
                     return true;
                 return full.Replace('/', '\\').IndexOf("\\.net\\", StringComparison.OrdinalIgnoreCase) >= 0;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>True when a directory can be created and written to — used to fall back off a
+        /// read-only install location (e.g. Program Files) to the per-user data root.</summary>
+        private static bool CanCreateAndWrite(string dir)
+        {
+            try
+            {
+                Directory.CreateDirectory(dir);
+                string probe = Path.Combine(dir, ".write_test");
+                File.WriteAllText(probe, "");
+                File.Delete(probe);
+                return true;
             }
             catch { return false; }
         }
