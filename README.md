@@ -4,9 +4,23 @@
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired by [OpenEmu](https://openemu.org/) on macOS. Games are organized by console in a clean library interface. Emulation is handled by [libretro](https://www.libretro.com/) cores loaded at runtime — no cores are bundled. If you're looking for the Linux version of Emutastic, head to [Emutastic for Linux](https://github.com/codingncaffeine/Emutastic-For-Linux), or the new Apple Silicon Mac build at [Emutastic for Mac](https://github.com/codingncaffeine/Emutastic-for-Mac).
+A full-featured multi-system emulator frontend for Windows — built with WPF and .NET 8 — that turns your game collection into a clean, console-organized library spanning **37 systems** from the 8-bit era through **PlayStation 3**. Emulation is handled by [libretro](https://www.libretro.com/) cores loaded at runtime; no cores or BIOS files are bundled.
+
+Also available for [Linux](https://github.com/codingncaffeine/Emutastic-For-Linux) and [Apple Silicon Mac](https://github.com/codingncaffeine/Emutastic-for-Mac).
 
 **[Visit emutastic.com →](https://www.emutastic.com/emutasticapp.html)** for a visual tour of the app, or grab the [latest release](https://github.com/codingncaffeine/Emutastic/releases) directly.
+
+## Highlights
+
+- 🎮 **37 systems** — 8-bit classics through **PlayStation 3** (PS2 via LRPS2, PS3 via RPCS3)
+- 🗂️ **Clean, console-organized library** with box art and rich metadata (OpenVGDB + ScreenScraper)
+- 🏆 **RetroAchievements** — full hardcore-mode compliance, in-game unlock toasts, and per-game stats
+- 🎨 **Deep theming** — a visual editor with live preview, plus a controller-only **TV mode** that renders **ES-DE themes**
+- ☁️ **GitHub cloud sync** — battery saves and your library follow you across PCs, with optional encryption
+- 🔧 **Built-in ROM patching** — apply IPS / BPS / UPS hacks and translations at launch, original ROM left untouched
+- 📖 **In-app game manuals** · 🎥 **gameplay recording** · 📝 **per-game notes**
+- 🎛️ **Full controller support** — analog-as-D-pad, gamepad save states, disk swapping, and per-system cheats
+- 🧩 **No cores or BIOS bundled** — libretro cores download in-app, on demand
 
 > **Legal notice:** This project is a frontend only. It does not include, distribute, or facilitate the acquisition of any copyrighted software, ROM images, BIOS files, or other proprietary system files. You are solely responsible for ensuring you have the legal right to use any software you load into this application.
 
@@ -306,7 +320,7 @@ Artwork from [OpenEmuControllerArt](https://github.com/kodi-game/OpenEmuControll
 | **Craig Erskine** ([@qrayg](https://twitter.com/qrayg/)) | GameCube, Neo Geo Pocket, PC Engine / TG16 |
 | **Salvo Zummo** / **David Everly** / **Kate Schroeder** | Atari 7800, 3DO, ColecoVision |
 
-Inspired by [OpenEmu](https://openemu.org/) for macOS.
+Emutastic's clean, library-first design was inspired by [OpenEmu](https://openemu.org/), the superb multi-system emulator for macOS — the project that started it all. Not affiliated with or endorsed by OpenEmu.
 
 </details>
 
