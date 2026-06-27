@@ -20,7 +20,6 @@ Also available for [Linux](https://github.com/codingncaffeine/Emutastic-For-Linu
 - 🔧 **Built-in ROM patching** — apply IPS / BPS / UPS hacks and translations at launch, original ROM left untouched
 - 📖 **In-app game manuals** · 🎥 **gameplay recording** · 📝 **per-game notes**
 - 🎛️ **Full controller support** — analog-as-D-pad, gamepad save states, disk swapping, and per-system cheats
-- 🧩 **No cores or BIOS bundled** — libretro cores download in-app, on demand
 
 > **Legal notice:** This project is a frontend only. It does not include, distribute, or facilitate the acquisition of any copyrighted software, ROM images, BIOS files, or other proprietary system files. You are solely responsible for ensuring you have the legal right to use any software you load into this application.
 
