@@ -2837,6 +2837,122 @@ namespace Emutastic.Views
                 ffmpegBadge, ffmpegProgress, ffmpegStatusText, ffmpegBtn,
                 isLast: false));
 
+            // ── RPCS3 (PlayStation 3) row ──
+            bool rpcs3Present = Services.Ps3.Rpcs3Runtime.IsInstalled();
+            var rpcs3StatusText = new TextBlock { FontSize = 10, Foreground = _brushTextMuted, Visibility = Visibility.Collapsed };
+            var rpcs3Progress   = new ProgressBar { Height = 4, Minimum = 0, Maximum = 100, Value = 0, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 4, 0, 0) };
+            var rpcs3Badge      = MakeBadge(rpcs3Present);
+            var rpcs3Btn        = new Button
+            {
+                Content = rpcs3Present ? "Re-download" : "Download",
+                Style   = (Style)FindResource("SmallOutlineButton"),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            rpcs3Btn.Click += async (_, _) =>
+            {
+                rpcs3Btn.IsEnabled         = false;
+                rpcs3Progress.Visibility   = Visibility.Visible;
+                rpcs3StatusText.Visibility = Visibility.Visible;
+                rpcs3StatusText.Text       = "Fetching latest release…";
+                rpcs3Progress.Value        = 0;
+                string? tmp7z = null;
+                try
+                {
+                    using var http = new System.Net.Http.HttpClient();
+                    http.DefaultRequestHeaders.Add("User-Agent", "Emutastic");
+
+                    // Official Windows build artifacts.
+                    string rel = await http.GetStringAsync("https://api.github.com/repos/RPCS3/rpcs3-binaries-win/releases/latest");
+                    using var doc = System.Text.Json.JsonDocument.Parse(rel);
+                    string? url = null;
+                    foreach (var a in doc.RootElement.GetProperty("assets").EnumerateArray())
+                    {
+                        string? n = a.GetProperty("name").GetString();
+                        if (n != null && n.EndsWith(".7z", StringComparison.OrdinalIgnoreCase))
+                        { url = a.GetProperty("browser_download_url").GetString(); break; }
+                    }
+                    if (url == null) throw new Exception("No download found in the latest release.");
+
+                    rpcs3StatusText.Text = "Downloading (~35 MB)…";
+                    rpcs3Progress.Value  = 10;
+
+                    tmp7z = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"rpcs3_{Guid.NewGuid():N}.7z");
+                    using (var resp = await http.GetAsync(url, System.Net.Http.HttpCompletionOption.ResponseHeadersRead))
+                    {
+                        resp.EnsureSuccessStatusCode();
+                        long totalBytes = resp.Content.Headers.ContentLength ?? -1;
+                        using var fs = System.IO.File.Create(tmp7z);
+                        using var stream = await resp.Content.ReadAsStreamAsync();
+                        byte[] buffer = new byte[81920];
+                        long downloaded = 0; int read;
+                        while ((read = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                        {
+                            await fs.WriteAsync(buffer, 0, read);
+                            downloaded += read;
+                            if (totalBytes > 0)
+                            {
+                                int pct = (int)(downloaded * 80 / totalBytes) + 10; // 10-90 range
+                                rpcs3Progress.Value = Math.Min(pct, 90);
+                                rpcs3StatusText.Text = $"Downloading… {downloaded / (1024 * 1024)} / {totalBytes / (1024 * 1024)} MB";
+                            }
+                        }
+                    }
+
+                    rpcs3StatusText.Text = "Extracting…";
+                    rpcs3Progress.Value  = 92;
+
+                    string dir = Services.Ps3.Rpcs3Runtime.GetDir();
+                    // Back up any existing install so a failed extract is recoverable.
+                    if (System.IO.Directory.Exists(dir))
+                    {
+                        string bak = dir + ".bak";
+                        if (System.IO.Directory.Exists(bak)) System.IO.Directory.Delete(bak, true);
+                        System.IO.Directory.Move(dir, bak);
+                    }
+                    System.IO.Directory.CreateDirectory(dir);
+
+                    string sevenZip = tmp7z;
+                    await System.Threading.Tasks.Task.Run(() =>
+                    {
+                        using var archive = new SevenZipExtractor.ArchiveFile(sevenZip);
+                        foreach (var entry in archive.Entries)
+                        {
+                            if (entry.IsFolder) continue;
+                            string outPath = System.IO.Path.Combine(dir, entry.FileName);
+                            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(outPath)!);
+                            using var dst = System.IO.File.Create(outPath);
+                            entry.Extract(dst);
+                        }
+                    });
+
+                    if (!Services.Ps3.Rpcs3Runtime.IsInstalled())
+                        throw new Exception("Downloaded files didn't contain the emulator.");
+
+                    rpcs3Progress.Value  = 100;
+                    rpcs3StatusText.Text = "Downloaded — install system firmware, then launch a PS3 game.";
+                    rpcs3Badge.Background = new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58));
+                    ((TextBlock)rpcs3Badge.Child).Text       = "Present";
+                    ((TextBlock)rpcs3Badge.Child).Foreground = new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58));
+                    rpcs3Btn.Content = "Re-download";
+                }
+                catch (Exception ex)
+                {
+                    rpcs3StatusText.Text = $"Failed: {ex.Message}";
+                }
+                finally
+                {
+                    try { if (tmp7z != null && System.IO.File.Exists(tmp7z)) System.IO.File.Delete(tmp7z); } catch { }
+                    rpcs3Btn.IsEnabled = true;
+                }
+            };
+
+            extrasStack.Children.Add(MakeExtrasRow(
+                "RPCS3 (PlayStation 3)",
+                "Required to play PS3 games. Downloads the official build (~35 MB) from GitHub. System firmware and games are provided by you.",
+                rpcs3Badge, rpcs3Progress, rpcs3StatusText, rpcs3Btn,
+                isLast: false));
+
             // ── DAT files separator ──
             extrasStack.Children.Add(new Rectangle
             {
@@ -3516,6 +3632,73 @@ namespace Emutastic.Views
 
             compatCard.Child = compatStack;
             CoresListPanel.Children.Add(compatCard);
+
+            BuildPs3Section();
+        }
+
+        private void BuildPs3Section()
+        {
+            CoresListPanel.Children.Add(new TextBlock
+            {
+                Text       = "PLAYSTATION 3",
+                FontSize   = 10,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = _brushTextMuted,
+                Margin     = new Thickness(0, 12, 0, 8)
+            });
+
+            var card = new Border
+            {
+                Background   = new SolidColorBrush(Color.FromRgb(0x1F, 0x1F, 0x21)),
+                CornerRadius = new CornerRadius(6),
+                Padding      = new Thickness(14, 10, 14, 10),
+                Margin       = new Thickness(0, 0, 0, 4)
+            };
+            var stack = new StackPanel();
+            stack.Children.Add(new TextBlock
+            {
+                Text       = "Internal resolution",
+                Foreground = _brushText,
+                FontSize   = 13,
+            });
+
+            var combo = new ComboBox
+            {
+                Width               = 220,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Margin              = new Thickness(0, 6, 0, 0),
+                Cursor              = System.Windows.Input.Cursors.Hand,
+            };
+            var options = new (string label, int scale)[]
+            {
+                ("Native (720p)", 100),
+                ("1080p", 150),
+                ("1440p", 200),
+                ("4K", 300),
+            };
+            int current = _configService.GetEmulatorConfiguration().Ps3ResolutionScale;
+            foreach (var o in options)
+                combo.Items.Add(new ComboBoxItem { Content = o.label, Tag = o.scale });
+            int idx = System.Array.FindIndex(options, o => o.scale == current);
+            combo.SelectedIndex = idx >= 0 ? idx : 0;
+            combo.SelectionChanged += (_, _) =>
+            {
+                if (combo.SelectedItem is ComboBoxItem ci && ci.Tag is int v)
+                    SaveCompatToggle(c => c.Ps3ResolutionScale = v);
+            };
+            stack.Children.Add(combo);
+
+            stack.Children.Add(new TextBlock
+            {
+                Text         = "Higher resolutions look sharper but need a stronger GPU. Applies on the next launch.",
+                FontSize     = 11,
+                Foreground   = _brushTextMuted,
+                TextWrapping = TextWrapping.Wrap,
+                Margin       = new Thickness(0, 6, 0, 0),
+            });
+
+            card.Child = stack;
+            CoresListPanel.Children.Add(card);
         }
 
         private void SaveCompatToggle(System.Action<Configuration.EmulatorConfiguration> mutate)

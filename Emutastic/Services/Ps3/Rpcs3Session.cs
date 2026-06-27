@@ -28,6 +28,7 @@ namespace Emutastic.Services.Ps3
         [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int w, int ht, uint flags);
         [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
         [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr h, out RECT r);
+        [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr h);
 
         private delegate bool EnumProc(IntPtr h, IntPtr p);
         [StructLayout(LayoutKind.Sequential)] private struct RECT { public int Left, Top, Right, Bottom; }
@@ -47,6 +48,15 @@ namespace Emutastic.Services.Ps3
 
         public bool HasExited => _proc?.HasExited ?? true;
         public IntPtr RenderWindow => _renderWindow;
+
+        /// <summary>True while the currently embedded render window still exists.</summary>
+        public bool RenderWindowAlive => _renderWindow != IntPtr.Zero && IsWindow(_renderWindow);
+
+        /// <summary>
+        /// Drops the cached render window so the next acquire finds a freshly created one — e.g.
+        /// after a launcher boot chains to the game and spawns a new window (issue #14255).
+        /// </summary>
+        public void ForgetRenderWindow() => _renderWindow = IntPtr.Zero;
 
         /// <summary>Launches the emulator on the given boot file, windowed and without the game-list UI.</summary>
         public bool Start(string emulatorExe, string bootPath)

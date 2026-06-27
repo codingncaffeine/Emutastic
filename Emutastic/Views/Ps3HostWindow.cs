@@ -104,11 +104,24 @@ namespace Emutastic.Views
                 Close();
                 return;
             }
-            if (!_session.TryAcquireRenderWindow()) return;
 
-            _acquire?.Stop();
+            // Once embedded, keep watching: if the embedded window dies but the emulator is
+            // still running, a launcher boot has chained to the game and spawned a new window
+            // (issue #14255). Drop the stale handle and re-acquire + re-embed the new one.
+            if (_embedded)
+            {
+                if (!_session.RenderWindowAlive)
+                {
+                    _embedded = false;
+                    _session.ForgetRenderWindow();
+                    _status.Visibility = Visibility.Visible;
+                }
+                return;
+            }
+
+            if (!_session.TryAcquireRenderWindow()) return;
             _embedded = _session.EmbedInto(Handle);
-            _status.Visibility = Visibility.Collapsed;
+            _status.Visibility = _embedded ? Visibility.Collapsed : Visibility.Visible;
         }
 
         private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)

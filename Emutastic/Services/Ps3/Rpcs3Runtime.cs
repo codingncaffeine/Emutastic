@@ -53,11 +53,15 @@ namespace Emutastic.Services.Ps3
                 Directory.CreateDirectory(cfgDir);
                 string cfg = Path.Combine(cfgDir, "config.yml");
 
+                int scale = App.Configuration?.GetEmulatorConfiguration().Ps3ResolutionScale ?? 100;
+                if (scale < 100) scale = 100;
+
                 if (File.Exists(cfg))
                 {
                     string y = File.ReadAllText(cfg);
                     y = y.Replace("Multithreaded RSX: false", "Multithreaded RSX: true");
                     y = y.Replace("Start games in fullscreen mode: true", "Start games in fullscreen mode: false");
+                    y = System.Text.RegularExpressions.Regex.Replace(y, @"Resolution Scale: \d+", $"Resolution Scale: {scale}");
                     File.WriteAllText(cfg, y);
                 }
                 else
@@ -65,7 +69,7 @@ namespace Emutastic.Services.Ps3
                     // No config generated yet (fresh install). Write only the keys we need;
                     // the emulator fills in defaults for everything else.
                     File.WriteAllText(cfg,
-                        "Video:\n  Multithreaded RSX: true\n" +
+                        "Video:\n  Multithreaded RSX: true\n  Resolution Scale: " + scale + "\n" +
                         "Miscellaneous:\n  Start games in fullscreen mode: false\n");
                 }
             }
