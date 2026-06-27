@@ -19,12 +19,15 @@ namespace Emutastic.Views
     public sealed class Ps3HostWindow : Window
     {
         private const double TitleBarHeight = 32;
+        private const double StatusBarHeight = 22;
 
         private readonly Game _game;
         private readonly bool _fullscreen;
         private readonly Rpcs3Session _session = new();
         private readonly TextBlock _status;
         private readonly Border _titleBar;
+        private readonly Border _statusBar;
+        private readonly TextBlock _fpsText;
         private DispatcherTimer? _acquire;
         private DateTime _startUtc;
         private bool _embedded;
@@ -105,13 +108,32 @@ namespace Emutastic.Views
             };
             var hostArea = new Grid { Background = Brushes.Black, Children = { _status } };
 
+            // ── Bottom status bar (live FPS, like the other consoles) ──
+            _fpsText = new TextBlock
+            {
+                Text = "",
+                Foreground = Res("TextSecondaryBrush", Colors.Gainsboro),
+                FontSize = 11,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(10, 0, 0, 0),
+            };
+            _statusBar = new Border
+            {
+                Height = StatusBarHeight,
+                Background = Res("BgSecondaryBrush", Color.FromRgb(0x1A, 0x1A, 0x1C)),
+                Child = _fpsText,
+            };
+
             var root = new Grid();
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             Grid.SetRow(_titleBar, 0);
             Grid.SetRow(hostArea, 1);
+            Grid.SetRow(_statusBar, 2);
             root.Children.Add(_titleBar);
             root.Children.Add(hostArea);
+            root.Children.Add(_statusBar);
             Content = root;
 
             // Native Windows chrome: use the system title bar + buttons and drop the custom one.
@@ -124,9 +146,9 @@ namespace Emutastic.Views
             }
 
             SourceInitialized += OnSourceInitialized;
-            SizeChanged += (_, _) => { if (_embedded) _session.FitTo(Handle, TopOffsetPx()); _overlay?.Reposition(); };
+            SizeChanged += (_, _) => { if (_embedded) _session.FitTo(Handle, TopOffsetPx(), BottomOffsetPx()); _overlay?.Reposition(); };
             LocationChanged += (_, _) => _overlay?.Reposition();
-            StateChanged += (_, _) => { if (_embedded) _session.FitTo(Handle, TopOffsetPx()); _overlay?.Reposition(); };
+            StateChanged += (_, _) => { if (_embedded) _session.FitTo(Handle, TopOffsetPx(), BottomOffsetPx()); _overlay?.Reposition(); };
             Closing += OnClosing;
         }
 
@@ -138,6 +160,20 @@ namespace Emutastic.Views
             if (_windowsChrome || _fullscreen || _fs) return 0;
             double scale = VisualTreeHelper.GetDpi(this).DpiScaleY;
             return (int)Math.Round(TitleBarHeight * scale);
+        }
+
+        // Status-bar height in physical pixels (0 in fullscreen, where the bar is hidden).
+        private int BottomOffsetPx()
+        {
+            if (_fullscreen || _fs) return 0;
+            double scale = VisualTreeHelper.GetDpi(this).DpiScaleY;
+            return (int)Math.Round(StatusBarHeight * scale);
+        }
+
+        private void UpdateFps()
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(_session.RenderTitle, @"FPS:\s*([\d.]+)");
+            _fpsText.Text = m.Success ? $"FPS  {m.Groups[1].Value}" : "";
         }
 
         // A circular title-bar button (the traffic-light style used by the emulator window).
@@ -160,15 +196,17 @@ namespace Emutastic.Views
             {
                 WindowStyle = WindowStyle.None;
                 _titleBar.Visibility = Visibility.Collapsed;
+                _statusBar.Visibility = Visibility.Collapsed;
                 WindowState = WindowState.Maximized;
             }
             else
             {
                 WindowStyle = _windowsChrome ? WindowStyle.SingleBorderWindow : WindowStyle.None;
                 _titleBar.Visibility = _windowsChrome ? Visibility.Collapsed : Visibility.Visible;
+                _statusBar.Visibility = Visibility.Visible;
                 WindowState = WindowState.Normal;
             }
-            if (_embedded) _session.FitTo(Handle, TopOffsetPx());
+            if (_embedded) _session.FitTo(Handle, TopOffsetPx(), BottomOffsetPx());
         }
 
         private static Brush Res(string key, Color fallback)
@@ -179,6 +217,7 @@ namespace Emutastic.Views
             if (_fullscreen)
             {
                 _titleBar.Visibility = Visibility.Collapsed;
+                _statusBar.Visibility = Visibility.Collapsed;
                 WindowState = WindowState.Maximized;
             }
             else if (_windowsChrome)
@@ -234,12 +273,14 @@ namespace Emutastic.Views
                     _embedded = false;
                     _session.ForgetRenderWindow();
                     _status.Visibility = Visibility.Visible;
+                    return;
                 }
+                UpdateFps();
                 return;
             }
 
             if (!_session.TryAcquireRenderWindow()) return;
-            _embedded = _session.EmbedInto(Handle, TopOffsetPx());
+            _embedded = _session.EmbedInto(Handle, TopOffsetPx(), BottomOffsetPx());
             _status.Visibility = _embedded ? Visibility.Collapsed : Visibility.Visible;
 
             if (_embedded && _overlay == null)

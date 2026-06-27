@@ -107,26 +107,38 @@ namespace Emutastic.Services.Ps3
         /// Re-parents the render window into the host, strips its frame, and fits it to the host's
         /// client area. Returns true when the OS confirms the new parent.
         /// </summary>
-        public bool EmbedInto(IntPtr host, int topOffset = 0)
+        public bool EmbedInto(IntPtr host, int topOffset = 0, int bottomOffset = 0)
         {
             if (_renderWindow == IntPtr.Zero || host == IntPtr.Zero) return false;
             SetParent(_renderWindow, host);
             int style = GetWindowLong(_renderWindow, GWL_STYLE);
             SetWindowLong(_renderWindow, GWL_STYLE, (style & ~StyleStrip) | WS_CHILD | WS_VISIBLE);
             SetWindowPos(_renderWindow, IntPtr.Zero, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOMOVE | SWP_NOSIZE);
-            FitTo(host, topOffset);
+            FitTo(host, topOffset, bottomOffset);
             return GetParent(_renderWindow) == host;
         }
 
         /// <summary>
-        /// Resizes the embedded render window to fill the host's client area below an optional top
-        /// offset (physical pixels) reserved for the host's own chrome (e.g. a title bar).
+        /// Resizes the embedded render window to fill the host's client area between an optional top
+        /// and bottom offset (physical pixels) reserved for the host's own chrome (title/status bar).
         /// </summary>
-        public void FitTo(IntPtr host, int topOffset = 0)
+        public void FitTo(IntPtr host, int topOffset = 0, int bottomOffset = 0)
         {
             if (_renderWindow == IntPtr.Zero || host == IntPtr.Zero) return;
             if (GetClientRect(host, out RECT r))
-                MoveWindow(_renderWindow, 0, topOffset, r.Right - r.Left, (r.Bottom - r.Top) - topOffset, true);
+                MoveWindow(_renderWindow, 0, topOffset, r.Right - r.Left, (r.Bottom - r.Top) - topOffset - bottomOffset, true);
+        }
+
+        /// <summary>The render window's current title, which carries a live "FPS: n" readout.</summary>
+        public string RenderTitle
+        {
+            get
+            {
+                if (_renderWindow == IntPtr.Zero) return "";
+                var sb = new StringBuilder(256);
+                GetWindowText(_renderWindow, sb, sb.Capacity);
+                return sb.ToString();
+            }
         }
 
         /// <summary>
