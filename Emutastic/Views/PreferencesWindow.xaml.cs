@@ -6130,6 +6130,39 @@ namespace Emutastic.Views
                 Text = "Higher resolutions look sharper but need a stronger GPU. Applies on the next launch.",
                 FontSize = 11, Foreground = _brushTextMuted, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0),
             });
+
+            // ── Player name (the PS3 "username" games display) ──
+            CoreOptionsOptionList.Children.Add(new TextBlock
+            {
+                Text = "Player name", Foreground = _brushText, FontSize = 13, Margin = new Thickness(0, 22, 0, 4),
+            });
+
+            var nameBox = new TextBox
+            {
+                Width = 240, HorizontalAlignment = HorizontalAlignment.Left, MaxLength = 16,
+                Text = _configService?.GetEmulatorConfiguration().Ps3Username ?? "",
+                Background = new SolidColorBrush(Color.FromRgb(0x1F, 0x1F, 0x21)),
+                Foreground = _brushText,
+                CaretBrush = _brushText,
+                BorderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x3A, 0x3D)),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(6, 4, 6, 4),
+            };
+            nameBox.TextChanged += (_, _) =>
+            {
+                if (_configService == null) return;
+                var cfg = _configService.GetEmulatorConfiguration();
+                cfg.Ps3Username = nameBox.Text;
+                _configService.SetEmulatorConfiguration(cfg);
+                _ = _configService.SaveAsync();
+            };
+            CoreOptionsOptionList.Children.Add(nameBox);
+
+            CoreOptionsOptionList.Children.Add(new TextBlock
+            {
+                Text = "The name games display for the current player (up to 16 characters). Leave blank for the default. Applies on the next launch.",
+                FontSize = 11, Foreground = _brushTextMuted, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0),
+            });
         }
 
         private void LoadCoreOptionsForCore(string coreName)
