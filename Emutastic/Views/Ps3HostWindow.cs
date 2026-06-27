@@ -1,6 +1,7 @@
 using System;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -10,17 +11,20 @@ using Emutastic.Services.Ps3;
 namespace Emutastic.Views
 {
     /// <summary>
-    /// In-process host window for a PlayStation 3 title. It launches the external emulator and
-    /// re-parents the emulator's render window into itself, so the game appears inside the app
-    /// shell. The emulator's own process provides crash isolation; this window owns the frame,
-    /// keeps the embedded output fitted on resize, and shuts the emulator down cleanly on close.
+    /// In-process host window for a PlayStation 3 title. Launches the external emulator and
+    /// re-parents its render window into the area below a slim themed title bar. The emulator's
+    /// own process provides crash isolation; this window owns the frame, keeps the embedded
+    /// output fitted on resize, and shuts the emulator down cleanly on close.
     /// </summary>
     public sealed class Ps3HostWindow : Window
     {
+        private const double TitleBarHeight = 34;
+
         private readonly Game _game;
         private readonly bool _fullscreen;
         private readonly Rpcs3Session _session = new();
         private readonly TextBlock _status;
+        private readonly Border _titleBar;
         private DispatcherTimer? _acquire;
         private DateTime _startUtc;
         private bool _embedded;
@@ -34,35 +38,92 @@ namespace Emutastic.Views
             _game = game;
             _fullscreen = fullscreen;
 
-            Title = "Emutastic";
+            WindowStyle = WindowStyle.None;
+            ResizeMode = ResizeMode.CanResize;
             Width = 1280;
-            Height = 720;
-            Background = Brushes.Black;
+            Height = 720 + TitleBarHeight;
+            Background = Res("BgPrimaryBrush", Color.FromRgb(0x12, 0x12, 0x14));
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
 
+            // ── Title bar (drag to move, close button) ──
+            var title = new TextBlock
+            {
+                Text = string.IsNullOrWhiteSpace(_game.Title) ? "PlayStation 3" : _game.Title,
+                Foreground = Res("TextPrimaryBrush", Colors.White),
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(12, 0, 0, 0),
+            };
+            var closeBtn = new Button
+            {
+                Content = "✕",
+                Width = 46,
+                Foreground = Res("TextSecondaryBrush", Colors.Gainsboro),
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Cursor = Cursors.Hand,
+                FontSize = 13,
+            };
+            closeBtn.Click += (_, _) => Close();
+
+            var barContent = new DockPanel();
+            DockPanel.SetDock(closeBtn, Dock.Right);
+            barContent.Children.Add(closeBtn);
+            barContent.Children.Add(title);
+
+            _titleBar = new Border
+            {
+                Height = TitleBarHeight,
+                Background = Res("BgSecondaryBrush", Color.FromRgb(0x1A, 0x1A, 0x1C)),
+                Child = barContent,
+            };
+            _titleBar.MouseLeftButtonDown += (_, e) => { if (e.ButtonState == MouseButtonState.Pressed) DragMove(); };
+
+            // ── Game host area (the emulator window embeds here) ──
             _status = new TextBlock
             {
                 Text = "Loading…",
-                Foreground = Brushes.White,
+                Foreground = Res("TextSecondaryBrush", Colors.White),
                 FontSize = 18,
                 TextAlignment = TextAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
             };
-            Content = new Grid { Children = { _status } };
+            var hostArea = new Grid { Background = Brushes.Black, Children = { _status } };
+
+            var root = new Grid();
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            Grid.SetRow(_titleBar, 0);
+            Grid.SetRow(hostArea, 1);
+            root.Children.Add(_titleBar);
+            root.Children.Add(hostArea);
+            Content = root;
 
             SourceInitialized += OnSourceInitialized;
-            SizeChanged += (_, _) => { if (_embedded) _session.FitTo(Handle); };
+            SizeChanged += (_, _) => { if (_embedded) _session.FitTo(Handle, TopOffsetPx()); };
             Closing += OnClosing;
         }
 
         private IntPtr Handle => new WindowInteropHelper(this).Handle;
 
+        // Title-bar height in physical pixels (0 in fullscreen, where the bar is hidden).
+        private int TopOffsetPx()
+        {
+            if (_fullscreen) return 0;
+            double scale = VisualTreeHelper.GetDpi(this).DpiScaleY;
+            return (int)Math.Round(TitleBarHeight * scale);
+        }
+
+        private static Brush Res(string key, Color fallback)
+            => Application.Current?.TryFindResource(key) as Brush ?? new SolidColorBrush(fallback);
+
         private void OnSourceInitialized(object? sender, EventArgs e)
         {
             if (_fullscreen)
             {
-                WindowStyle = WindowStyle.None;
+                _titleBar.Visibility = Visibility.Collapsed;
                 WindowState = WindowState.Maximized;
             }
 
@@ -86,7 +147,6 @@ namespace Emutastic.Views
                 return;
             }
 
-            // First launch compiles modules/shaders to an on-disk cache; later launches reuse it.
             _status.Text = Rpcs3Runtime.HasAnyCache()
                 ? "Loading…"
                 : "Starting…\n\nThe first launch compiles shaders and may take a minute. Later launches are quick.";
@@ -105,9 +165,8 @@ namespace Emutastic.Views
                 return;
             }
 
-            // Once embedded, keep watching: if the embedded window dies but the emulator is
-            // still running, a launcher boot has chained to the game and spawned a new window
-            // (issue #14255). Drop the stale handle and re-acquire + re-embed the new one.
+            // Once embedded, keep watching: if the embedded window dies but the emulator is still
+            // running, a launcher boot has chained to the game and spawned a new window (#14255).
             if (_embedded)
             {
                 if (!_session.RenderWindowAlive)
@@ -120,7 +179,7 @@ namespace Emutastic.Views
             }
 
             if (!_session.TryAcquireRenderWindow()) return;
-            _embedded = _session.EmbedInto(Handle);
+            _embedded = _session.EmbedInto(Handle, TopOffsetPx());
             _status.Visibility = _embedded ? Visibility.Collapsed : Visibility.Visible;
         }
 

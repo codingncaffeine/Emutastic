@@ -107,23 +107,26 @@ namespace Emutastic.Services.Ps3
         /// Re-parents the render window into the host, strips its frame, and fits it to the host's
         /// client area. Returns true when the OS confirms the new parent.
         /// </summary>
-        public bool EmbedInto(IntPtr host)
+        public bool EmbedInto(IntPtr host, int topOffset = 0)
         {
             if (_renderWindow == IntPtr.Zero || host == IntPtr.Zero) return false;
             SetParent(_renderWindow, host);
             int style = GetWindowLong(_renderWindow, GWL_STYLE);
             SetWindowLong(_renderWindow, GWL_STYLE, (style & ~StyleStrip) | WS_CHILD | WS_VISIBLE);
             SetWindowPos(_renderWindow, IntPtr.Zero, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOMOVE | SWP_NOSIZE);
-            FitTo(host);
+            FitTo(host, topOffset);
             return GetParent(_renderWindow) == host;
         }
 
-        /// <summary>Resizes the embedded render window to fill the host's client area (physical pixels).</summary>
-        public void FitTo(IntPtr host)
+        /// <summary>
+        /// Resizes the embedded render window to fill the host's client area below an optional top
+        /// offset (physical pixels) reserved for the host's own chrome (e.g. a title bar).
+        /// </summary>
+        public void FitTo(IntPtr host, int topOffset = 0)
         {
             if (_renderWindow == IntPtr.Zero || host == IntPtr.Zero) return;
             if (GetClientRect(host, out RECT r))
-                MoveWindow(_renderWindow, 0, 0, r.Right - r.Left, r.Bottom - r.Top, true);
+                MoveWindow(_renderWindow, 0, topOffset, r.Right - r.Left, (r.Bottom - r.Top) - topOffset, true);
         }
 
         /// <summary>
