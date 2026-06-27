@@ -28,7 +28,7 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 ## Supported Systems
 
 <details>
-<summary><strong>36 systems across 11 manufacturers</strong> (click to expand)</summary>
+<summary><strong>37 systems across 11 manufacturers</strong> (click to expand)</summary>
 
 | System | Tag | Core (priority order) | BIOS |
 |---|---|---|---|
@@ -53,6 +53,7 @@ A multi-system emulator frontend for Windows built with WPF and .NET 8, inspired
 | Dreamcast | Dreamcast | flycast | No |
 | PlayStation | PS1 | mednafen_psx_hw → mednafen_psx | USA: `scph5501.bin` / `scph1001.bin` / `scph7001.bin`, EU: `scph5502.bin`, JP: `scph5500.bin` |
 | PlayStation 2 | PS2 | pcsx2 (LRPS2) | Region dump, any filename (e.g. `SCPH-39001.bin`) |
+| PlayStation 3 | PS3 | RPCS3 (installed via Cores / Extras) | System firmware (`PS3UPDAT.PUP`), user-provided |
 | PSP | PSP | ppsspp | No |
 | TurboGrafx-16 | TG16 | mednafen_pce → mednafen_pce_fast | No |
 | TurboGrafx-CD | TGCD | mednafen_pce → mednafen_pce_fast | Any of `syscard3.pce` / `syscard2.pce` / `syscard1.pce` |

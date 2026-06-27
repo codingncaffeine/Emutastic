@@ -859,6 +859,7 @@ namespace Emutastic.Views
             // core). Host its render window inside the app shell; report play time on exit.
             if (string.Equals(_game.Console, "PS3", System.StringComparison.OrdinalIgnoreCase))
             {
+                if (!Services.Ps3.Ps3Launch.EnsureReady(this)) return;
                 var ps3Host = new Ps3HostWindow(_game);
                 ps3Host.SessionEnded += secs => OnHostSessionEnded(secs);
                 ps3Host.Show();

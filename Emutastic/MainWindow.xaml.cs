@@ -5812,6 +5812,7 @@ namespace Emutastic
             // managed by the emulator itself, so just boot the title in the host window.
             if (string.Equals(game.Console, "PS3", StringComparison.OrdinalIgnoreCase))
             {
+                if (!Services.Ps3.Ps3Launch.EnsureReady(this)) return;
                 new Views.Ps3HostWindow(game).Show();
                 return;
             }

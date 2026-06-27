@@ -500,6 +500,7 @@ namespace Emutastic.Views
                 // input/video while it runs and resume on exit, same as the PS2 out-of-process path.
                 if (string.Equals(game.Console, "PS3", StringComparison.OrdinalIgnoreCase))
                 {
+                    if (!Services.Ps3.Ps3Launch.EnsureReady(this)) return;
                     if (!System.IO.File.Exists(game.RomPath))
                     {
                         MessageBox.Show(this, $"Game file not found:\n{game.RomPath}",
