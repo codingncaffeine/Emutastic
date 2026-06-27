@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 namespace Emutastic
 {
@@ -148,13 +150,96 @@ namespace Emutastic
         /// sits inside PortableData/. In normal mode it's [exe]/Cores/ as before.
         /// Cores are downloaded into this folder by CoreManager.
         /// </summary>
+        private static bool _coresMigrated;
+
         public static string GetCoresFolder()
         {
+            // Cores live next to the REAL executable, not under AppContext.BaseDirectory: for the
+            // single-file release the latter is a per-version temp extraction dir, so cores (and the
+            // downloaded PS3 emulator) appeared to vanish after every update. Portable keeps them in
+            // PortableData. GetExeFolder resolves the actual .exe location via the main module path.
             string folder = _portable && !string.IsNullOrEmpty(_portableRoot)
                 ? Path.Combine(_portableRoot, "Cores")
-                : Path.Combine(AppContext.BaseDirectory, "Cores");
+                : Path.Combine(GetExeFolder(), "Cores");
             Directory.CreateDirectory(folder);
+
+            if (!_coresMigrated)
+            {
+                _coresMigrated = true;
+                try { MigrateCoresFromExtractionDirs(folder); } catch { /* best effort */ }
+            }
             return folder;
+        }
+
+        // One-time recovery for installs made before the fix above, where cores were written under
+        // the single-file extraction directory (a per-version temp folder). If the persistent
+        // location is empty, move any cores found in a prior extraction directory into it.
+        private static void MigrateCoresFromExtractionDirs(string targetCores)
+        {
+            if (_portable) return;
+            if (Directory.EnumerateFiles(targetCores, "*.dll", SearchOption.TopDirectoryOnly).Any()
+                || Directory.GetDirectories(targetCores).Length > 0)
+                return; // already populated
+
+            string targetFull = Path.GetFullPath(targetCores).TrimEnd(Path.DirectorySeparatorChar);
+
+            var candidates = new List<string> { Path.Combine(AppContext.BaseDirectory, "Cores") };
+            try
+            {
+                string netExtract = Path.Combine(Path.GetTempPath(), ".net");
+                if (Directory.Exists(netExtract))
+                    foreach (string appDir in Directory.GetDirectories(netExtract))
+                        foreach (string verDir in Directory.GetDirectories(appDir))
+                            candidates.Add(Path.Combine(verDir, "Cores"));
+            }
+            catch { }
+
+            // Pick the candidate with the most content (the newest / most complete install).
+            string? best = null; int bestScore = 0;
+            foreach (string c in candidates.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                if (!Directory.Exists(c)) continue;
+                if (string.Equals(Path.GetFullPath(c).TrimEnd(Path.DirectorySeparatorChar), targetFull, StringComparison.OrdinalIgnoreCase)) continue;
+                int score = 0;
+                try { score = Directory.EnumerateFiles(c, "*", SearchOption.AllDirectories).Take(5000).Count(); } catch { }
+                if (score > bestScore) { bestScore = score; best = c; }
+            }
+            if (best == null || bestScore == 0) return;
+
+            // Move each top-level entry over — a fast rename on the same volume, copy fallback otherwise.
+            foreach (string file in Directory.GetFiles(best, "*", SearchOption.TopDirectoryOnly))
+                SafeRelocate(file, Path.Combine(targetCores, Path.GetFileName(file)), isDir: false);
+            foreach (string dir in Directory.GetDirectories(best))
+                SafeRelocate(dir, Path.Combine(targetCores, Path.GetFileName(dir)), isDir: true);
+        }
+
+        private static void SafeRelocate(string source, string dest, bool isDir)
+        {
+            try
+            {
+                if (isDir) { if (!Directory.Exists(dest)) Directory.Move(source, dest); }
+                else { if (!File.Exists(dest)) File.Move(source, dest); }
+            }
+            catch
+            {
+                try
+                {
+                    if (isDir) CopyDirectory(source, dest);
+                    else File.Copy(source, dest, overwrite: false);
+                }
+                catch { /* best effort */ }
+            }
+        }
+
+        private static void CopyDirectory(string src, string dst)
+        {
+            Directory.CreateDirectory(dst);
+            foreach (string dir in Directory.GetDirectories(src, "*", SearchOption.AllDirectories))
+                Directory.CreateDirectory(dir.Replace(src, dst));
+            foreach (string file in Directory.GetFiles(src, "*", SearchOption.AllDirectories))
+            {
+                try { File.Copy(file, file.Replace(src, dst), overwrite: false); } catch { }
+            }
         }
 
         /// <summary>
