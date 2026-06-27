@@ -6,6 +6,8 @@
 
 A full-featured multi-system emulator frontend for Windows — built with WPF and .NET 8 — that turns your game collection into a clean, console-organized library spanning **37 systems** from the 8-bit era through **PlayStation 3**. Emulation is handled by [libretro](https://www.libretro.com/) cores loaded at runtime; no cores or BIOS files are bundled.
 
+**Two ways to play:** a full-power desktop library at your monitor, or **EmuTV** — a controller-only, big-screen mode for the couch.
+
 Also available for [Linux](https://github.com/codingncaffeine/Emutastic-For-Linux) and [Apple Silicon Mac](https://github.com/codingncaffeine/Emutastic-for-Mac).
 
 **[Visit emutastic.com →](https://www.emutastic.com/emutasticapp.html)** for a visual tour of the app, or grab the [latest release](https://github.com/codingncaffeine/Emutastic/releases) directly.
@@ -15,11 +17,20 @@ Also available for [Linux](https://github.com/codingncaffeine/Emutastic-For-Linu
 - 🎮 **37 systems** — 8-bit classics through **PlayStation 3** (PS2 via LRPS2, PS3 via RPCS3)
 - 🗂️ **Clean, console-organized library** with box art and rich metadata (OpenVGDB + ScreenScraper)
 - 🏆 **RetroAchievements** — full hardcore-mode compliance, in-game unlock toasts, and per-game stats
-- 🎨 **Deep theming** — a visual editor with live preview, plus a controller-only **TV mode** that renders **ES-DE themes**
+- 📺 **EmuTV** — a controller-only, couch-friendly console mode for the living room (renders ES-DE themes)
+- 🎨 **Deep theming** — a visual editor with live preview and 44 color tokens
 - ☁️ **GitHub cloud sync** — battery saves and your library follow you across PCs, with optional encryption
 - 🔧 **Built-in ROM patching** — apply IPS / BPS / UPS hacks and translations at launch, original ROM left untouched
 - 📖 **In-app game manuals** · 🎥 **gameplay recording** · 📝 **per-game notes**
 - 🎛️ **Full controller support** — analog-as-D-pad, gamepad save states, disk swapping, and per-system cheats
+
+## 📺 EmuTV — the living-room mode
+
+![EmuTV](Emutastic/Assets/banners%20and%20icons/emutv_banner.png)
+
+EmuTV turns Emutastic into a **couch-first console interface** — browse your entire library, launch games, and load save states with **only a controller**, no keyboard or mouse. Think Steam Big Picture or LaunchBox Big Box, built for your TV and living-room setup.
+
+It renders **[ES-DE](https://es-de.org/) themes** out of the box — carousels, wheels, grids, box art, and metadata — so your shelf looks exactly how you want it. Same Emutastic underneath; a completely different experience on the couch.
 
 > **Legal notice:** This project is a frontend only. It does not include, distribute, or facilitate the acquisition of any copyrighted software, ROM images, BIOS files, or other proprietary system files. You are solely responsible for ensuring you have the legal right to use any software you load into this application.
 
