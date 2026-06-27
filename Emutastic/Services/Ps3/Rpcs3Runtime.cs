@@ -40,6 +40,20 @@ namespace Emutastic.Services.Ps3
             catch { return false; }
         }
 
+        // Records the installed build's release id so the Cores / Extras tab can detect updates.
+        private static string BuildMarkerPath => Path.Combine(GetDir(), "emutastic_build.txt");
+
+        public static string? GetInstalledBuild()
+        {
+            try { return File.Exists(BuildMarkerPath) ? File.ReadAllText(BuildMarkerPath).Trim() : null; }
+            catch { return null; }
+        }
+
+        public static void SetInstalledBuild(string id)
+        {
+            try { File.WriteAllText(BuildMarkerPath, id); } catch { }
+        }
+
         /// <summary>
         /// Ensures the emulator outputs to a normal, embeddable window (not fullscreen) with the
         /// multi-threaded renderer enabled, and attempts to suppress the one-time first-run notice

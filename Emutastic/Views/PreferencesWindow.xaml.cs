@@ -3733,6 +3733,7 @@ namespace Emutastic.Views
 
                     string rel = await http.GetStringAsync("https://api.github.com/repos/RPCS3/rpcs3-binaries-win/releases/latest");
                     using var doc = System.Text.Json.JsonDocument.Parse(rel);
+                    string? tag = doc.RootElement.TryGetProperty("tag_name", out var tagEl) ? tagEl.GetString() : null;
                     string? url = null;
                     foreach (var a in doc.RootElement.GetProperty("assets").EnumerateArray())
                     {
@@ -3796,6 +3797,8 @@ namespace Emutastic.Views
                     if (!Services.Ps3.Rpcs3Runtime.IsInstalled())
                         throw new Exception("Downloaded files didn't contain the emulator.");
 
+                    if (!string.IsNullOrEmpty(tag)) Services.Ps3.Rpcs3Runtime.SetInstalledBuild(tag);
+
                     progress.Value  = 100;
                     statusText.Text = "Downloaded — install system firmware, then launch a PS3 game.";
                     badge.Background = new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58));
@@ -3814,10 +3817,30 @@ namespace Emutastic.Views
                 }
             };
 
+            if (present) _ = CheckRpcs3UpdateAsync(btn);
+
             return MakeExtrasRow(
                 "RPCS3",
                 "Official PlayStation 3 emulator. Downloads the latest build (~35 MB) from GitHub. System firmware and games are provided by you.",
                 badge, progress, statusText, btn, isLast: true);
+        }
+
+        // Flips the button to "Update available" when GitHub has a newer build than the installed one.
+        private static async System.Threading.Tasks.Task CheckRpcs3UpdateAsync(Button btn)
+        {
+            try
+            {
+                string? installed = Services.Ps3.Rpcs3Runtime.GetInstalledBuild();
+                if (string.IsNullOrEmpty(installed)) return;
+                using var http = new System.Net.Http.HttpClient();
+                http.DefaultRequestHeaders.Add("User-Agent", "Emutastic");
+                string rel = await http.GetStringAsync("https://api.github.com/repos/RPCS3/rpcs3-binaries-win/releases/latest");
+                using var doc = System.Text.Json.JsonDocument.Parse(rel);
+                string? latest = doc.RootElement.TryGetProperty("tag_name", out var t) ? t.GetString() : null;
+                if (!string.IsNullOrEmpty(latest) && latest != installed)
+                    btn.Dispatcher.Invoke(() => btn.Content = "Update available");
+            }
+            catch { /* offline or rate-limited — leave the button as-is */ }
         }
 
         private void SaveCompatToggle(System.Action<Configuration.EmulatorConfiguration> mutate)
