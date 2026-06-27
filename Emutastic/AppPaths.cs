@@ -172,45 +172,55 @@ namespace Emutastic
         }
 
         // One-time recovery for installs made before the fix above, where cores were written under
-        // the single-file extraction directory (a per-version temp folder). If the persistent
-        // location is empty, move any cores found in a prior extraction directory into it.
+        // the single-file extraction directory (a per-version temp folder). Recover any core DLL or
+        // emulator subfolder the persistent location is MISSING from a prior extraction directory —
+        // a merge, not just an empty-folder fill, so a stranded emulator is recovered even when the
+        // libretro cores were already re-downloaded into the persistent folder.
         private static void MigrateCoresFromExtractionDirs(string targetCores)
         {
             if (_portable) return;
-            if (Directory.EnumerateFiles(targetCores, "*.dll", SearchOption.TopDirectoryOnly).Any()
-                || Directory.GetDirectories(targetCores).Length > 0)
-                return; // already populated
 
             string targetFull = Path.GetFullPath(targetCores).TrimEnd(Path.DirectorySeparatorChar);
 
-            var candidates = new List<string> { Path.Combine(AppContext.BaseDirectory, "Cores") };
+            var sources = new List<string> { Path.Combine(AppContext.BaseDirectory, "Cores") };
             try
             {
                 string netExtract = Path.Combine(Path.GetTempPath(), ".net");
                 if (Directory.Exists(netExtract))
                     foreach (string appDir in Directory.GetDirectories(netExtract))
                         foreach (string verDir in Directory.GetDirectories(appDir))
-                            candidates.Add(Path.Combine(verDir, "Cores"));
+                            sources.Add(Path.Combine(verDir, "Cores"));
             }
             catch { }
 
-            // Pick the candidate with the most content (the newest / most complete install).
-            string? best = null; int bestScore = 0;
-            foreach (string c in candidates.Distinct(StringComparer.OrdinalIgnoreCase))
+            // Richest prior install first, so the most complete copy wins for any given entry.
+            foreach (string src in sources
+                         .Distinct(StringComparer.OrdinalIgnoreCase)
+                         .Where(s => Directory.Exists(s) &&
+                                     !string.Equals(Path.GetFullPath(s).TrimEnd(Path.DirectorySeparatorChar), targetFull, StringComparison.OrdinalIgnoreCase))
+                         .OrderByDescending(SafeFileCount))
             {
-                if (!Directory.Exists(c)) continue;
-                if (string.Equals(Path.GetFullPath(c).TrimEnd(Path.DirectorySeparatorChar), targetFull, StringComparison.OrdinalIgnoreCase)) continue;
-                int score = 0;
-                try { score = Directory.EnumerateFiles(c, "*", SearchOption.AllDirectories).Take(5000).Count(); } catch { }
-                if (score > bestScore) { bestScore = score; best = c; }
+                try
+                {
+                    foreach (string file in Directory.GetFiles(src, "*.dll", SearchOption.TopDirectoryOnly))
+                    {
+                        string dest = Path.Combine(targetCores, Path.GetFileName(file));
+                        if (!File.Exists(dest)) SafeRelocate(file, dest, isDir: false);
+                    }
+                    foreach (string dir in Directory.GetDirectories(src))
+                    {
+                        string dest = Path.Combine(targetCores, Path.GetFileName(dir));
+                        if (!Directory.Exists(dest)) SafeRelocate(dir, dest, isDir: true);
+                    }
+                }
+                catch { /* skip this source */ }
             }
-            if (best == null || bestScore == 0) return;
+        }
 
-            // Move each top-level entry over — a fast rename on the same volume, copy fallback otherwise.
-            foreach (string file in Directory.GetFiles(best, "*", SearchOption.TopDirectoryOnly))
-                SafeRelocate(file, Path.Combine(targetCores, Path.GetFileName(file)), isDir: false);
-            foreach (string dir in Directory.GetDirectories(best))
-                SafeRelocate(dir, Path.Combine(targetCores, Path.GetFileName(dir)), isDir: true);
+        private static int SafeFileCount(string dir)
+        {
+            try { return Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Take(5000).Count(); }
+            catch { return 0; }
         }
 
         private static void SafeRelocate(string source, string dest, bool isDir)
