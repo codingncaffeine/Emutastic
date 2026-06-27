@@ -104,6 +104,28 @@ namespace Emutastic.Services.Ps3
             catch { /* best effort */ }
 
             EnsureInputConfig();
+            EnsureUserName();
+        }
+
+        /// <summary>
+        /// Writes the player display name (the PS3 "username" games read) to the active user
+        /// profile. Falls back to "User" when unset; capped to the platform's 16-character limit.
+        /// </summary>
+        private static void EnsureUserName()
+        {
+            try
+            {
+                string name = (App.Configuration?.GetEmulatorConfiguration().Ps3Username ?? "").Trim();
+                if (name.Length == 0) name = "User";
+                if (name.Length > 16) name = name.Substring(0, 16);
+
+                string userDir = Path.Combine(GetDir(), "dev_hdd0", "home", "00000001");
+                Directory.CreateDirectory(Path.Combine(userDir, "exdata"));
+                Directory.CreateDirectory(Path.Combine(userDir, "savedata"));
+                Directory.CreateDirectory(Path.Combine(userDir, "trophy"));
+                File.WriteAllText(Path.Combine(userDir, "localusername"), name, new System.Text.UTF8Encoding(false));
+            }
+            catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[Ps3] username: {ex.Message}"); }
         }
 
         /// <summary>

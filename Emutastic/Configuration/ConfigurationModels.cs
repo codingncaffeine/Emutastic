@@ -88,6 +88,13 @@ namespace Emutastic.Configuration
         /// sharper but needs a stronger GPU. Applied to the emulator config at launch.
         /// </summary>
         public int Ps3ResolutionScale { get; set; } = 100;
+
+        /// <summary>
+        /// Display name the PlayStation 3 shows for the current player (the "username" games read).
+        /// Empty falls back to the emulator default ("User"). Written to the active user profile at
+        /// launch; capped to the platform's 16-character limit.
+        /// </summary>
+        public string Ps3Username { get; set; } = "";
     }
 
     // User preferences
