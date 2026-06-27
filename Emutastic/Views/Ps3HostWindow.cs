@@ -86,9 +86,10 @@ namespace Emutastic.Views
                 return;
             }
 
-            // First launch of a title compiles modules/shaders to an on-disk cache; later
-            // launches reuse it and start quickly.
-            _status.Text = "Starting…\n\nThe first launch of a game may take a while while it optimises.";
+            // First launch compiles modules/shaders to an on-disk cache; later launches reuse it.
+            _status.Text = Rpcs3Runtime.HasAnyCache()
+                ? "Loading…"
+                : "Starting…\n\nThe first launch compiles shaders and may take a minute. Later launches are quick.";
 
             _acquire = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
             _acquire.Tick += OnAcquireTick;

@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 
 namespace Emutastic.Services.Ps3
 {
@@ -24,6 +25,20 @@ namespace Emutastic.Services.Ps3
         public static string GetExe() => Path.Combine(GetDir(), "rpcs3.exe");
 
         public static bool IsInstalled() => File.Exists(GetExe());
+
+        /// <summary>
+        /// True if the emulator has compiled anything to its on-disk cache yet. Used to tailor the
+        /// first-launch wait message — a cold cache means a longer one-time optimisation step.
+        /// </summary>
+        public static bool HasAnyCache()
+        {
+            try
+            {
+                string cache = Path.Combine(GetDir(), "cache");
+                return Directory.Exists(cache) && Directory.EnumerateFileSystemEntries(cache).Any();
+            }
+            catch { return false; }
+        }
 
         /// <summary>
         /// Ensures the emulator outputs to a normal, embeddable window (not fullscreen) with the
