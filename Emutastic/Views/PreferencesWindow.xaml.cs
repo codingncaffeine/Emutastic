@@ -1020,13 +1020,111 @@ namespace Emutastic.Views
         {
             ("Nintendo",  new[] { "Famicom Disk System", "Game Boy Advance" }),
             ("Sega",      new[] { "Sega CD", "Saturn" }),
-            ("Sony",      new[] { "PlayStation", "PlayStation 2" }),
+            ("Sony",      new[] { "PlayStation", "PlayStation 2", "PlayStation 3" }),
             ("NEC",       new[] { "TurboGrafx-CD" }),
             ("Arcade",    new[] { "Neo Geo" }),
             ("Other",     new[] { "3DO", "Philips CD-i" }),
         };
 
         private void BuildBiosPanel() => _ = BuildBiosPanelAsync();
+
+        // PlayStation 3 entry for the System Files tab (Sony group). PS3's "system file" is the
+        // firmware, which isn't a file-based BIOS — presence is read from the emulator's state.
+        private void BuildPs3FirmwareEntry(StackPanel catBody)
+        {
+            bool present = Services.Ps3.Rpcs3Firmware.IsInstalled();
+            string? version = present ? Services.Ps3.Rpcs3Firmware.GetVersion() : null;
+
+            var bodyPanel = new StackPanel { Visibility = Visibility.Collapsed };
+            var chevron = new TextBlock
+            {
+                Text = "▸", FontSize = 12, Foreground = _brushTextMuted,
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0),
+                RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = new RotateTransform(0)
+            };
+
+            var headerGrid = new Grid { Cursor = Cursors.Hand };
+            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetColumn(chevron, 0);
+
+            var nameLbl = new TextBlock { Text = "PlayStation 3", FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = _brushText, VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetColumn(nameLbl, 1);
+
+            var headBadge = new Border
+            {
+                Background = present ? new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58)) : new SolidColorBrush(Color.FromArgb(0x22, 0x88, 0x88, 0x88)),
+                CornerRadius = new CornerRadius(4), Padding = new Thickness(6, 2, 6, 2), VerticalAlignment = VerticalAlignment.Center
+            };
+            var headBadgeText = new TextBlock { Text = present ? "1/1" : "0/1", FontSize = 10, Foreground = present ? new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58)) : _brushTextMuted };
+            headBadge.Child = headBadgeText;
+            Grid.SetColumn(headBadge, 2);
+
+            headerGrid.Children.Add(chevron);
+            headerGrid.Children.Add(nameLbl);
+            headerGrid.Children.Add(headBadge);
+
+            var headerBorder = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(0x1A, 0x1A, 0x1C)),
+                CornerRadius = new CornerRadius(6), Padding = new Thickness(12, 8, 14, 8), Margin = new Thickness(12, 2, 0, 2),
+                Child = headerGrid
+            };
+            var capturedBody = bodyPanel;
+            var capturedChevron = chevron;
+            headerBorder.MouseLeftButtonUp += (_, _) =>
+            {
+                bool expanding = capturedBody.Visibility == Visibility.Collapsed;
+                capturedBody.Visibility = expanding ? Visibility.Visible : Visibility.Collapsed;
+                ((RotateTransform)capturedChevron.RenderTransform).Angle = expanding ? 90 : 0;
+            };
+            catBody.Children.Add(headerBorder);
+
+            // Body: firmware presence + install action.
+            var fwBadge = MakeBadge(present);
+            var installBtn = new Button
+            {
+                Content = present ? "Reinstall" : "Install…",
+                Style = (Style)FindResource("SmallOutlineButton"),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            installBtn.Click += (_, _) =>
+            {
+                if (!Services.Ps3.Rpcs3Runtime.IsInstalled())
+                {
+                    MessageBox.Show(this, "Install RPCS3 from the Cores tab first, then add firmware.",
+                        "PlayStation 3", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+                var dlg = new Ps3FirmwareWindow { Owner = this };
+                dlg.ShowDialog();
+
+                // Reflect the new state without rebuilding the whole panel.
+                bool now = Services.Ps3.Rpcs3Firmware.IsInstalled();
+                ((TextBlock)fwBadge.Child).Text = now ? "Present" : "Not found";
+                ((TextBlock)fwBadge.Child).Foreground = now ? new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58)) : _brushTextMuted;
+                fwBadge.Background = now ? new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58)) : new SolidColorBrush(Color.FromArgb(0x22, 0x88, 0x88, 0x88));
+                headBadgeText.Text = now ? "1/1" : "0/1";
+                headBadgeText.Foreground = now ? new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58)) : _brushTextMuted;
+                headBadge.Background = now ? new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58)) : new SolidColorBrush(Color.FromArgb(0x22, 0x88, 0x88, 0x88));
+                installBtn.Content = now ? "Reinstall" : "Install…";
+            };
+
+            var bodyCard = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(0x17, 0x17, 0x19)),
+                CornerRadius = new CornerRadius(0, 0, 6, 6), Padding = new Thickness(14, 8, 14, 10), Margin = new Thickness(24, 0, 0, 4)
+            };
+            var bodyStack = new StackPanel();
+            bodyStack.Children.Add(MakeExtrasRow(
+                present ? $"System firmware {version}" : "System firmware",
+                "PS3 games need the system firmware (you provide your own PS3UPDAT.PUP). Install the emulator first, then add firmware.",
+                fwBadge, null, null, installBtn, isLast: true));
+            bodyCard.Child = bodyStack;
+            bodyPanel.Children.Add(bodyCard);
+            catBody.Children.Add(bodyPanel);
+        }
 
         /// <returns>
         /// true when the panel was actually populated; false when the build
@@ -1106,7 +1204,7 @@ namespace Emutastic.Views
             foreach (var (category, consoleDisplays) in BiosCategories)
             {
                 var activeDisplays = consoleDisplays
-                    .Where(d => biosGroups.ContainsKey(d))
+                    .Where(d => biosGroups.ContainsKey(d) || d == "PlayStation 3")
                     .ToList();
                 if (activeDisplays.Count == 0) continue;
 
@@ -1114,6 +1212,13 @@ namespace Emutastic.Views
                 int catFound = 0, catTotal = 0;
                 foreach (string display in activeDisplays)
                 {
+                    // PS3 firmware isn't a file-based BIOS — count it from the emulator's state.
+                    if (display == "PlayStation 3")
+                    {
+                        catTotal++;
+                        if (Services.Ps3.Rpcs3Firmware.IsInstalled()) catFound++;
+                        continue;
+                    }
                     foreach (var entry in biosGroups[display])
                     {
                         catTotal++;
@@ -1228,6 +1333,9 @@ namespace Emutastic.Views
                 // Console accordions inside the category
                 foreach (string consoleDisplay in activeDisplays)
                 {
+                    // PS3 firmware gets its own entry (not a file-based BIOS).
+                    if (consoleDisplay == "PlayStation 3") { BuildPs3FirmwareEntry(catBody); continue; }
+
                     var entries = biosGroups[consoleDisplay];
 
                     // ROM dirs for this console group
