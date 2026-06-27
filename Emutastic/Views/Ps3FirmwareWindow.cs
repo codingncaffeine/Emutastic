@@ -26,6 +26,15 @@ namespace Emutastic.Views
             };
             if (dlg.ShowDialog(this) != true) return;
 
+            // Firmware installs through the emulator, so it has to be present first. Report that
+            // distinctly — otherwise a missing emulator looks like a bad firmware file.
+            if (!Rpcs3Runtime.IsInstalled())
+            {
+                StatusText.Visibility = Visibility.Visible;
+                StatusText.Text = "The PlayStation 3 emulator isn't installed yet. Install it from the Cores / Extras tab, then try again.";
+                return;
+            }
+
             ChooseButton.IsEnabled = false;
             CancelButton.IsEnabled = false;
             StatusText.Visibility = Visibility.Visible;
@@ -40,7 +49,7 @@ namespace Emutastic.Views
             }
             else
             {
-                StatusText.Text = "That file couldn't be installed. Make sure it's a valid firmware update file and try again.";
+                StatusText.Text = "That file couldn't be installed. Make sure it's an official PS3 firmware update file (PS3UPDAT.PUP) and try again.";
                 ChooseButton.IsEnabled = true;
                 CancelButton.IsEnabled = true;
             }
