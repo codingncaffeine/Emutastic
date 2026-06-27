@@ -30,6 +30,7 @@ namespace Emutastic.Views
         private bool _embedded;
         private bool _ended;
         private bool _fs;
+        private Ps3OverlayHud? _overlay;
 
         /// <summary>Raised on the UI thread with elapsed play-seconds once the session ends.</summary>
         public event Action<int>? SessionEnded;
@@ -107,7 +108,9 @@ namespace Emutastic.Views
             Content = root;
 
             SourceInitialized += OnSourceInitialized;
-            SizeChanged += (_, _) => { if (_embedded) _session.FitTo(Handle, TopOffsetPx()); };
+            SizeChanged += (_, _) => { if (_embedded) _session.FitTo(Handle, TopOffsetPx()); _overlay?.Reposition(); };
+            LocationChanged += (_, _) => _overlay?.Reposition();
+            StateChanged += (_, _) => { if (_embedded) _session.FitTo(Handle, TopOffsetPx()); _overlay?.Reposition(); };
             Closing += OnClosing;
         }
 
@@ -207,11 +210,18 @@ namespace Emutastic.Views
             if (!_session.TryAcquireRenderWindow()) return;
             _embedded = _session.EmbedInto(Handle, TopOffsetPx());
             _status.Visibility = _embedded ? Visibility.Collapsed : Visibility.Visible;
+
+            if (_embedded && _overlay == null)
+            {
+                _overlay = new Ps3OverlayHud(this, () => _session.RenderWindow, Close, ToggleFullscreen);
+                _overlay.Start();
+            }
         }
 
         private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
         {
             _acquire?.Stop();
+            _overlay?.Dispose();
             _session.CloseGracefully();
             _session.Dispose();
 
