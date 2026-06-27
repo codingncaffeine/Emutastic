@@ -6083,6 +6083,7 @@ namespace Emutastic.Views
             "Dreamcast"    => "pack://application:,,,/Assets/system_icons/dreamcast.jpg",
             "PS1"          => "pack://application:,,,/Assets/system_icons/ps1.jpg",
             "PS2"          => "pack://application:,,,/Assets/system_icons/ps2.png",
+            "PS3"          => "pack://application:,,,/Assets/system_icons/ps3.png",
             "PSP"          => "pack://application:,,,/Assets/system_icons/psp.jpg",
             "TG16"         => "pack://application:,,,/Assets/system_icons/tg16.png",
             "TGCD"         => "pack://application:,,,/Assets/system_icons/tg16.png",
