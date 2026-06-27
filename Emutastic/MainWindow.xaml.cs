@@ -5808,6 +5808,14 @@ namespace Emutastic
                 return;
             }
 
+            // PS3: external emulator in its own process. Emulator-native save states are
+            // managed by the emulator itself, so just boot the title in the host window.
+            if (string.Equals(game.Console, "PS3", StringComparison.OrdinalIgnoreCase))
+            {
+                new Views.Ps3HostWindow(game).Show();
+                return;
+            }
+
             string? corePath = _coreManager.GetCorePathForGame(game);
             if (corePath == null)
             {

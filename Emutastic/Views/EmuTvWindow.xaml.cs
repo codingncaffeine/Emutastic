@@ -495,6 +495,40 @@ namespace Emutastic.Views
             try
             {
                 var coreManager = new CoreManager(App.Configuration!);
+
+                // PS3: external emulator in its own process (no libretro core). Stop EmuTV
+                // input/video while it runs and resume on exit, same as the PS2 out-of-process path.
+                if (string.Equals(game.Console, "PS3", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!System.IO.File.Exists(game.RomPath))
+                    {
+                        MessageBox.Show(this, $"Game file not found:\n{game.RomPath}",
+                            "File Not Found", MessageBoxButton.OK, MessageBoxImage.Error);
+                        return;
+                    }
+                    StopVideo();
+                    _videoDebounce.Stop();
+                    _inputTimer?.Stop();
+                    var ps3Host = new Ps3HostWindow(game, fullscreen: true);
+                    ps3Host.SessionEnded += _ =>
+                    {
+                        _aLatch = true;
+                        _bLatch = true;
+                        _rightLatch = true;
+                        _navDir = 0;
+                        _navHoldTicks = 0;
+                        _inputTimer?.Start();
+                        if (GameList.SelectedItem is Game refreshGame)
+                        {
+                            _videoDebounce.Stop();
+                            _videoDebounce.Start();
+                            LoadSavesFor(refreshGame);
+                        }
+                    };
+                    ps3Host.Show();
+                    return;
+                }
+
                 if (!coreManager.HasCore(game.Console))
                 {
                     MessageBox.Show(this,
