@@ -75,6 +75,7 @@ namespace Emutastic.Services
             { "Vectrex",     new[] { "vecx_libretro.dll"                }},
             { "3DO",         new[] { "opera_libretro.dll"               }},
             { "CDi",         new[] { "same_cdi_libretro.dll"            }},
+            { "GameCom",     new[] { "tigerbyte_libretro.dll"           }},
             { "NeoGeo",      new[] { "geolith_libretro.dll"              }},
             { "NeoCD",       new[] { "geolith_libretro.dll"              }},
             { "Arcade",      new[] { "fbneo_libretro.dll",
@@ -137,6 +138,8 @@ namespace Emutastic.Services
             // BIOS is reused too — Geolith expects neogeo.zip + aes.zip
             // for the AES/MVS layer regardless of mode.
             { "NeoCD",    new[] { "neogeo.zip", "aes.zip", "neocdz.zip" } },
+            // Game.com boots from both system ROMs; games call into the external kernel.
+            { "GameCom",  new[] { "internal.bin", "external.bin" } },
         };
 
         // Core-specific BIOS requirements — keyed by substring of the core DLL name.

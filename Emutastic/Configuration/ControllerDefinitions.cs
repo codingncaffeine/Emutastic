@@ -730,6 +730,25 @@ namespace Emutastic.Configuration
                     new("4",            "Y",           420, 140, ButtonType.Button,          35, 35, GFace),
                 }
             },
+            ["GameCom"] = new ControllerDefinition
+            {
+                Name = "Tiger Game.com",
+                ControllerImage = "/Assets/images/Tiger_Game.com/tiger_game.com_front_.png",
+                Buttons = new List<ButtonDefinition>
+                {
+                    new("Up",    "Up",     70,  80, ButtonType.DPad,   55, 55, GDPad),
+                    new("Down",  "Down",   70, 150, ButtonType.DPad,   55, 55, GDPad),
+                    new("Left",  "Left",   35, 115, ButtonType.DPad,   55, 55, GDPad),
+                    new("Right", "Right", 105, 115, ButtonType.DPad,   55, 55, GDPad),
+                    new("A",     "A",     380, 100, ButtonType.Button, 35, 35, GFace),
+                    new("B",     "B",     430, 100, ButtonType.Button, 35, 35, GFace),
+                    new("C",     "C",     380, 150, ButtonType.Button, 35, 35, GFace),
+                    new("D",     "D",     430, 150, ButtonType.Button, 35, 35, GFace),
+                    new("Menu",  "Menu",  175, 195, ButtonType.Button, 40, 18, GSystem),
+                    new("Pause", "Pause", 230, 195, ButtonType.Button, 40, 18, GSystem),
+                    new("Sound", "Sound", 120, 195, ButtonType.Button, 40, 18, GSystem),
+                }
+            },
             ["CDi"] = new ControllerDefinition
             {
                 Name = "Philips CD-i",

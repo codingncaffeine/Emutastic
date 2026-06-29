@@ -95,6 +95,7 @@ namespace Emutastic.Services
             { "NeoGeo",       142},
             { "NeoCD",         70},
             { "CDi",          133},
+            { "GameCom",      121},
             { "Odyssey2",     104},
         };
 

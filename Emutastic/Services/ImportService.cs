@@ -39,6 +39,9 @@ namespace Emutastic.Services
 
         public event Action<string>? StatusChanged;
         public event Action<Game>? GameImported;
+        // (consoleDisplay, installedFilename) — a dropped file was recognized as a known
+        // BIOS and installed into the System dir instead of imported as a game.
+        public event Action<string, string>? BiosInstalled;
         public event Action<int, int>? ProgressChanged; // (current, total)
         public event Action? ImportQueueDrained; // fired when all queued batches finish
 
@@ -848,6 +851,27 @@ namespace Emutastic.Services
         private async Task ImportRomFileAsync(string romPath, string console, string fileName,
             string? overrideTitle = null, string? originalSourcePath = null)
         {
+            // ── BIOS auto-install (before any game logic) ──
+            // If this file is actually a known BIOS (matched by content hash), install it
+            // into the System dir instead of importing it as a game. This lets users drop
+            // BIOS files anywhere — e.g. sitting among their games with full No-Intro names —
+            // and have them "just work", and keeps BIOS out of the library entirely (no
+            // bogus game entry, no cover art fetch).
+            var biosMatch = BiosInstaller.TryInstall(romPath);
+            if (biosMatch != null)
+            {
+                ImportLog($"[{fileName}] BIOS auto-installed → System\\{biosMatch.Filename} ({biosMatch.ConsoleDisplay})");
+                BiosInstalled?.Invoke(biosMatch.ConsoleDisplay, Path.GetFileName(biosMatch.Filename));
+                return;
+            }
+            // Plainly a BIOS by name but not an installable match (e.g. an alternate dump) —
+            // keep it out of the library rather than create a bogus game with cover art.
+            if (BiosInstaller.LooksLikeBiosName(fileName))
+            {
+                ImportLog($"[{fileName}] looks like a BIOS — skipped (not imported as a game)");
+                return;
+            }
+
             // Capture the user's original selection BEFORE any defensive
             // extraction reassigns romPath. This is what the per-console
             // Refresh Library action keys off — the actual on-disk location

@@ -1023,7 +1023,7 @@ namespace Emutastic.Views
             ("Sony",      new[] { "PlayStation", "PlayStation 2", "PlayStation 3" }),
             ("NEC",       new[] { "TurboGrafx-CD" }),
             ("Arcade",    new[] { "Neo Geo" }),
-            ("Other",     new[] { "3DO", "Philips CD-i" }),
+            ("Other",     new[] { "Tiger Game.com", "3DO", "Philips CD-i" }),
         };
 
         private void BuildBiosPanel() => _ = BuildBiosPanelAsync();
@@ -1146,6 +1146,10 @@ namespace Emutastic.Views
             BiosPanel.Children.Clear(); // strip the "Loading…" placeholder
             var romDirsByConsole = scan.RomDirsByConsole;
             bool BiosExists(string path) => scan.ExistingPathsLower.Contains(path);
+            string gcDirs   = romDirsByConsole.TryGetValue("GameCom", out var gcd) ? string.Join("|", gcd) : "(none)";
+            bool gcInternal = BiosExists(System.IO.Path.Combine(sysDir, "internal.bin"));
+            bool gcExternal = BiosExists(System.IO.Path.Combine(sysDir, "external.bin"));
+            BiosLog($"SCAN sysDir={sysDir}; existing paths={scan.ExistingPathsLower.Count}; GameCom romDirs={gcDirs}; internal.bin@sys={gcInternal}; external.bin@sys={gcExternal}");
 
             // Info banner
             var accent = (Color)FindResource("AccentColor");
@@ -1665,12 +1669,29 @@ namespace Emutastic.Views
             e.Handled = true;
         }
 
+        // Diagnostic log for BIOS import/scan — written to [DataRoot]/Logs/bios.log.
+        private static void BiosLog(string msg)
+        {
+            try
+            {
+                string line = $"[{DateTime.Now:HH:mm:ss.fff}] [BIOS] {msg}";
+                System.Diagnostics.Trace.WriteLine(line);
+                string logPath = System.IO.Path.Combine(AppPaths.GetFolder("Logs"), "bios.log");
+                System.IO.File.AppendAllText(logPath, line + Environment.NewLine);
+            }
+            catch { /* logging is best-effort */ }
+        }
+
         private void BiosPanel_Drop(object sender, System.Windows.DragEventArgs e)
         {
             if (!e.Data.GetDataPresent(System.Windows.DataFormats.FileDrop)) return;
             if (e.Data.GetData(System.Windows.DataFormats.FileDrop) is not string[] paths) return;
 
             string sysDir = AppPaths.GetFolder("System");
+            int md5Count = KnownBios.All.Count(b => b.Md5 != null);
+            int gcCount  = KnownBios.All.Count(b => b.Console == "GameCom");
+            BiosLog($"DROP {paths.Length} item(s); sysDir={sysDir}");
+            BiosLog($"  KnownBios entries with MD5: {md5Count}; GameCom entries: {gcCount}");
             int imported = 0, skipped = 0;
             var messages = new System.Collections.Generic.List<string>();
 
@@ -1801,6 +1822,9 @@ namespace Emutastic.Views
             string? fileMd5 = null;
             if (KnownBios.All.Any(b => b.Md5 != null)) fileMd5 = ComputeMd5(src);
             var fileMatch = MatchKnownBios(srcName, size, fileMd5);
+            string md5Str   = fileMd5 ?? "(none)";
+            string matchStr = fileMatch != null ? $"MATCH {fileMatch.Filename} ({fileMatch.ConsoleDisplay})" : "NO MATCH";
+            BiosLog($"  file='{srcName}' size={size} md5={md5Str} → {matchStr}");
 
             string destPath;
             string label;
@@ -1820,6 +1844,7 @@ namespace Emutastic.Views
             try
             {
                 System.IO.File.Copy(src, destPath, overwrite: true);
+                BiosLog($"  copied → {destPath} (exists now: {System.IO.File.Exists(destPath)})");
                 messages.Add($"✓ {label}");
                 imported++;
             }
@@ -1850,7 +1875,7 @@ namespace Emutastic.Views
             ("NEC",       new[] { "TG16", "TGCD" }),
             ("Atari",     new[] { "Atari2600", "Atari7800", "Jaguar" }),
             ("Arcade",    new[] { "Arcade", "NeoGeo", "NeoCD" }),
-            ("Other",     new[] { "NGP", "ColecoVision", "Vectrex", "3DO", "CDi" }),
+            ("Other",     new[] { "NGP", "ColecoVision", "Vectrex", "3DO", "CDi", "GameCom" }),
         };
 
         private void BuildCoresPanel() => _ = BuildCoresPanelAsync();
@@ -6315,6 +6340,7 @@ namespace Emutastic.Views
             "CDi"          => "pack://application:,,,/Assets/system_icons/cdi_icon.jpg",
             "ColecoVision" => "pack://application:,,,/Assets/system_icons/coleco.jpg",
             "Vectrex"      => "pack://application:,,,/Assets/system_icons/vectrex.jpg",
+            "GameCom"      => "pack://application:,,,/Assets/system_icons/tigerbyte.jpg",
             "Arcade"       => "pack://application:,,,/Assets/system_icons/arcade.png",
             _              => null,
         };
@@ -6361,6 +6387,9 @@ namespace Emutastic.Views
             new("TGCD","TurboGrafx-CD","syscard3.pce","System Card v3.0 (recommended)",262144,"0754f903b52e3b3342202bdafb13efa5"),
             new("TGCD","TurboGrafx-CD","syscard2.pce","System Card v2.1",131072,null),
             new("TGCD","TurboGrafx-CD","syscard1.pce","System Card v1.0",131072,null),
+            // Tiger Game.com (Tigerbyte — both ROMs required to boot)
+            new("GameCom","Tiger Game.com","internal.bin","Internal boot ROM (required)",4096,"f7bcefb6daf923c8e5ea2eb69f619efe"),
+            new("GameCom","Tiger Game.com","external.bin","External kernel ROM (required)",262144,"813364d4863b1d7b7b8fd6a97a416bcf"),
             // 3DO
             new("3DO","3DO","panafz10.bin","Panasonic FZ-10",1048576,"51f2f43ae2f3508a14d9f56597e2d3ce"),
             new("3DO","3DO","panafz1j.bin","Panasonic FZ-1 (Japan)",1048576,null),

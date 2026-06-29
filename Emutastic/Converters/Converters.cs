@@ -464,6 +464,7 @@ namespace Emutastic.Converters
                 "CDi"          => "pack://application:,,,/Assets/system_icons/cdi_icon.jpg",
                 "ColecoVision" => "pack://application:,,,/Assets/system_icons/coleco.jpg",
                 "Vectrex"      => "pack://application:,,,/Assets/system_icons/vectrex.jpg",
+                "GameCom"      => "pack://application:,,,/Assets/system_icons/tigerbyte.jpg",
                 "Arcade"       => "pack://application:,,,/Assets/system_icons/arcade.png",
                 _              => null,
             };

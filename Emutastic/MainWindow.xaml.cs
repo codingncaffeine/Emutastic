@@ -211,6 +211,11 @@ namespace Emutastic
                     _vm.RefreshGame(game);
                     UpdateBoxArtToggleVisibility();
                 });
+            // A dropped file was recognized as a known BIOS and installed into the System
+            // dir (not added to the library). Confirm it so the user knows it worked.
+            _importer.BiosInstalled += (consoleDisplay, fileName) =>
+                Dispatcher.Invoke(() =>
+                    SetStatus($"Installed BIOS: {fileName} ({consoleDisplay})", autoClear: true));
             _importer.ImportQueueDrained += () =>
                 Dispatcher.Invoke(async () =>
                 {

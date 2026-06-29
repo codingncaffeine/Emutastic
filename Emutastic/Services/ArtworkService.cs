@@ -87,6 +87,7 @@ namespace Emutastic.Services
             { "Vectrex",      "GCE - Vectrex"                                  },
             { "3DO",          "The 3DO Company - 3DO"                          },
             { "CDi",          "Philips - CD-i"                                 },
+            { "GameCom",      "Tiger - Game.com"                               },
             { "NeoGeo",       "SNK - Neo Geo"                                  },
             { "NeoCD",        "SNK - Neo Geo CD"                               },
             { "Arcade",       "FBNeo - Arcade Games"                           },
@@ -201,9 +202,32 @@ namespace Emutastic.Services
             }
         }
 
-        public async Task<ArtworkResult?> LookupByFilenameAsync(string romPath)
+        // Emutastic console tag → OpenVGDB systemID (from the DB's SYSTEMS table).
+        // Only consoles OpenVGDB actually covers are listed; everything else
+        // (Game.com, Dreamcast, PS2/PS3, CD-i, Neo Geo, 3DS…) is intentionally absent
+        // so its filename lookup is skipped rather than cross-matched to another system.
+        private static readonly Dictionary<string, int> VgdbSystemIds = new()
+        {
+            { "3DO", 1 }, { "Arcade", 2 }, { "Atari2600", 3 }, { "Atari7800", 5 },
+            { "Jaguar", 7 }, { "ColecoVision", 11 }, { "Vectrex", 12 }, { "TG16", 14 },
+            { "TGCD", 15 }, { "FDS", 18 }, { "GB", 19 }, { "GBA", 20 }, { "GBC", 21 },
+            { "GameCube", 22 }, { "N64", 23 }, { "NDS", 24 }, { "NES", 25 },
+            { "SNES", 26 }, { "VirtualBoy", 27 }, { "Sega32X", 29 }, { "GameGear", 30 },
+            { "SMS", 31 }, { "SegaCD", 32 }, { "Genesis", 33 }, { "Saturn", 34 },
+            { "SG1000", 35 }, { "NGP", 36 }, { "PS1", 38 }, { "PSP", 39 },
+        };
+
+        public async Task<ArtworkResult?> LookupByFilenameAsync(string romPath, string? console = null)
         {
             if (!File.Exists(_vgdbPath)) return null;
+
+            // Scope the search to the game's platform. Without a platform filter a title
+            // like "Batman and Robin" matches an entry from a DIFFERENT console (e.g. the
+            // Sega CD game) and returns its box art. Skip the tier entirely when the
+            // console isn't an OpenVGDB platform — let the platform-scoped thumbnail
+            // lookup downstream handle it instead.
+            if (string.IsNullOrEmpty(console) || !VgdbSystemIds.TryGetValue(console, out int systemId))
+                return null;
 
             try
             {
@@ -226,9 +250,10 @@ namespace Emutastic.Services
                 exactCmd.CommandText = @"
                     SELECT romID, romExtensionlessFileName
                     FROM ROMs
-                    WHERE romExtensionlessFileName = $name
+                    WHERE romExtensionlessFileName = $name AND systemID = $sid
                     LIMIT 1;";
                 exactCmd.Parameters.AddWithValue("$name", fileName);
+                exactCmd.Parameters.AddWithValue("$sid", systemId);
 
                 using (var reader = exactCmd.ExecuteReader())
                 {
@@ -248,9 +273,10 @@ namespace Emutastic.Services
                     likeCmd.CommandText = @"
                         SELECT romID, romExtensionlessFileName
                         FROM ROMs
-                        WHERE romExtensionlessFileName LIKE $name
+                        WHERE romExtensionlessFileName LIKE $name AND systemID = $sid
                         LIMIT 1;";
                     likeCmd.Parameters.AddWithValue("$name", $"%{cleaned}%");
+                    likeCmd.Parameters.AddWithValue("$sid", systemId);
 
                     using var likeReader = likeCmd.ExecuteReader();
                     if (likeReader.Read())
@@ -830,11 +856,16 @@ namespace Emutastic.Services
                 }
             }
 
-            // ── Tier 2: OpenVGDB (primary if SS unavailable; fallback if SS missed) ──
-            if (result == null)
+            // ── Tier 2: OpenVGDB — fallback when SS missed (or primary when the user
+            // isn't logged into SS). Only consulted for consoles OpenVGDB actually
+            // covers; for anything else (Game.com, Dreamcast, PS2/3, CD-i, Neo Geo…)
+            // it would cross-match a same-named game on another system, so we skip it
+            // and let the platform-scoped thumbnail lookup handle artwork instead.
+            bool vgdbCovers = !string.IsNullOrEmpty(console) && VgdbSystemIds.ContainsKey(console);
+            if (result == null && vgdbCovers)
                 result = await LookupByHashAsync(md5Hash);
-            if (result == null && !string.IsNullOrWhiteSpace(romPath))
-                result = await LookupByFilenameAsync(romPath);
+            if (result == null && vgdbCovers && !string.IsNullOrWhiteSpace(romPath))
+                result = await LookupByFilenameAsync(romPath, console);
 
             // ── Tier 3: cleaned filename last resort. Arcade/NeoGeo get the
             // DAT title here so libretro thumbnail lookup matches downstream.

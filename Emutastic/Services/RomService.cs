@@ -72,6 +72,7 @@ namespace Emutastic.Services
             { ".col",  "ColecoVision"},
 
             { ".vec",  "Vectrex"     },
+            { ".tgc",  "GameCom"     },
             { ".gdi",  "Dreamcast"   },
             { ".cdi",  "Dreamcast"   },
             { ".neo",  "NeoGeo"      },
@@ -110,6 +111,7 @@ namespace Emutastic.Services
             { "Vectrex",      "GCE"        },
             { "3DO",          "3DO"        },
             { "CDi",          "Philips"    },
+            { "GameCom",      "Tiger"      },
             { "Arcade",       "Arcade"     },
         };
 
@@ -138,6 +140,7 @@ namespace Emutastic.Services
             { "TG16",        ("#1A2E2E", "#009688") },
             { "Dreamcast",   ("#1A0A0A", "#FF6600") },
             { "CDi",         ("#1A1A2E", "#00897B") },
+            { "GameCom",     ("#101810", "#9FCF5F") },
             { "NGP",         ("#1A0A1A", "#C8A951") },
             { "NGPC",        ("#1A0A1A", "#D4A843") },
             { "NeoGeo",      ("#1A0A1A", "#FFD700") },
@@ -305,6 +308,9 @@ namespace Emutastic.Services
             ("philips cdi",   "CDi"),
             ("cd-i",          "CDi"),
             ("cdi",           "CDi"),
+            ("tiger game.com","GameCom"),
+            ("game.com",      "GameCom"),
+            ("gamecom",       "GameCom"),
         ];
 
         /// <summary>
@@ -432,6 +438,7 @@ namespace Emutastic.Services
             { "Vectrex",      0.76 },
             { "3DO",          1.09 },
             { "CDi",          1.02 },
+            { "GameCom",      0.72 },
             { "NeoGeo",       0.81 },
             { "NeoCD",        1.00 },
             { "Arcade",       0.84 },

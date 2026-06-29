@@ -50,3 +50,6 @@ Desktop.ini
 
 # Local-only planning / design notes — never pushed to the public repo
 /local-notes/
+
+# Local dev tooling (release download stats, etc.)
+build-stage/
