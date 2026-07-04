@@ -1261,7 +1261,7 @@ namespace Emutastic.Views
                 InitBezelOverlay(game);
 
                 _core = core;
-                _consoleHandler = ConsoleHandlerFactory.Create(game.Console);
+                _consoleHandler = ConsoleHandlerFactory.Create(game.Console, game);
                 Title = $"{game.Title} - {game.Console}";
 
                 string sysDir     = AppPaths.GetFolder("System");

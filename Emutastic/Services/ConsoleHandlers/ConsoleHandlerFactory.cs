@@ -1,3 +1,5 @@
+using Emutastic.Models;
+
 namespace Emutastic.Services.ConsoleHandlers
 {
     /// <summary>
@@ -7,13 +9,15 @@ namespace Emutastic.Services.ConsoleHandlers
     /// </summary>
     public static class ConsoleHandlerFactory
     {
-        public static IConsoleHandler Create(string console) => console switch
+        // The game is optional so callers that only need console-level behaviour
+        // (and tests) can omit it. PS1 uses it to pick digital vs DualShock per title.
+        public static IConsoleHandler Create(string console, Game? game = null) => console switch
         {
             "NES"  or "FDS"  => new NesHandler(console),
             "SNES"           => new SnesHandler(),
             "N64"            => new N64Handler(),
             "GameCube"       => new GameCubeHandler(),
-            "PS1"            => new Ps1Handler(),
+            "PS1"            => new Ps1Handler(game),
             "PS2"            => new Ps2Handler(),
             "TG16" or "TGCD" => new Tg16Handler(console),
             "Dreamcast"      => new DreamcastHandler(),

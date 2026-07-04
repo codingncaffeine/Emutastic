@@ -1,4 +1,8 @@
+using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using Emutastic.Models;
 
 namespace Emutastic.Services.ConsoleHandlers
 {
@@ -10,15 +14,59 @@ namespace Emutastic.Services.ConsoleHandlers
     /// </summary>
     public class Ps1Handler : ConsoleHandlerBase
     {
-        private const uint RETRO_DEVICE_DUALSHOCK = (2 << 8) | 5; // RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 1) = 517
+        private const uint RETRO_DEVICE_JOYPAD    = 1;           // digital PlayStation Controller (SCPH-1080), reports SIO id 0x41
+        private const uint RETRO_DEVICE_DUALSHOCK = (2 << 8) | 5; // RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 1) = 517, reports 0x73
+
+        private readonly Game? _game;
+
+        public Ps1Handler(Game? game = null) => _game = game;
 
         public override string ConsoleName => "PS1";
         public override bool UsesAnalogStick => true;
 
         public override void ConfigureControllerPorts(LibretroCore core)
         {
+            // Most PS1 games run best as a DualShock (d-pad + analog sticks). But a
+            // handful of early titles read NO controller input at all — not even Start —
+            // when the pad reports as an analog DualShock (SIO id 0x73); they only
+            // recognise the original digital PlayStation Controller (0x41). SOTN is the
+            // canonical example. For those, hand the core a digital pad so input works;
+            // everyone else keeps analog. (Emulators like DuckStation force digital the
+            // same way for these games.)
+            uint device = IsDigitalOnly(_game?.Title) ? RETRO_DEVICE_JOYPAD : RETRO_DEVICE_DUALSHOCK;
             for (uint port = 0; port < 2; port++)
-                core.SetControllerPortDevice(port, RETRO_DEVICE_DUALSHOCK);
+                core.SetControllerPortDevice(port, device);
+        }
+
+        // PS1 titles that must use the digital controller — the analog DualShock leaves
+        // them completely unresponsive. Conservative: only games confirmed to *break*
+        // under analog, not games that merely ignore the sticks. Stored as normalized
+        // titles (see NormalizeTitle) so region/dump tags in the library name don't matter.
+        // To extend: DuckStation's gamedb.yaml is the authoritative source — entries whose
+        // supported_controllers omit AnalogController are the digital-only set.
+        private static readonly HashSet<string> DigitalOnlyTitles = new(StringComparer.Ordinal)
+        {
+            "castlevania symphony of the night",
+        };
+
+        private static bool IsDigitalOnly(string? title)
+            => !string.IsNullOrEmpty(title) && DigitalOnlyTitles.Contains(NormalizeTitle(title));
+
+        // Lowercase, drop (parenthetical) / [bracketed] tags (region, dump flags, disc
+        // numbers), reduce the rest to alphanumeric words, collapse whitespace. So
+        // "Castlevania - Symphony of the Night (USA)" -> "castlevania symphony of the night".
+        private static string NormalizeTitle(string title)
+        {
+            var sb = new StringBuilder(title.Length);
+            int depth = 0;
+            foreach (char c in title)
+            {
+                if (c == '(' || c == '[') { depth++; continue; }
+                if (c == ')' || c == ']') { if (depth > 0) depth--; continue; }
+                if (depth > 0) continue;
+                sb.Append(char.IsLetterOrDigit(c) ? char.ToLowerInvariant(c) : ' ');
+            }
+            return string.Join(' ', sb.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries));
         }
 
         // Request OpenGL Core context for Beetle PSX HW. The Vulkan path was
