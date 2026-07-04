@@ -182,22 +182,24 @@ namespace Emutastic.Services
 
         // ── loading (full parse) ────────────────────────────────────────────────
 
-        /// <summary>Parses a theme by id for the given selection (or the persisted one).</summary>
-        public EmuTvThemeParseResult? LoadTheme(string id, ThemeSelection? selection = null)
+        /// <summary>Parses a theme by id for the given selection (or the persisted one).
+        /// <paramref name="systemTheme"/> is the selected console's ES-DE name so the theme's
+        /// per-system include files (metadata variables, layout tweaks) load too.</summary>
+        public EmuTvThemeParseResult? LoadTheme(string id, ThemeSelection? selection = null, string? systemTheme = null)
         {
             string? root = ResolveRoot(id);
             if (root == null) return null;
-            var res = new EmuTvThemeParser(root).Parse(selection ?? GetSelection());
+            var res = new EmuTvThemeParser(root).Parse(selection ?? GetSelection(), systemTheme);
             res.Theme.Id = id;
             res.Theme.IsBuiltin = _builtins.ContainsKey(id);
             return res;
         }
 
         /// <summary>Parses the active theme for the persisted selection. Null if nothing's installed.</summary>
-        public EmuTvThemeParseResult? LoadActiveTheme()
+        public EmuTvThemeParseResult? LoadActiveTheme(string? systemTheme = null)
         {
             string id = ActiveThemeId;
-            return string.IsNullOrEmpty(id) ? null : LoadTheme(id, GetSelection());
+            return string.IsNullOrEmpty(id) ? null : LoadTheme(id, GetSelection(), systemTheme);
         }
 
         private readonly Dictionary<string, ThemeCapabilities> _capsCache = new();

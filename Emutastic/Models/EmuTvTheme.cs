@@ -44,7 +44,7 @@ namespace Emutastic.Models.EmuTv
         // secondary
         Image, Video, Text, Badges, Rating, DateTime, GamelistInfo, Animation,
         // special
-        HelpSystem,
+        HelpSystem, GameSelector,
         // EmuTV-only (no ES-DE equivalent; importer skips these)
         TvComposite, SaveStateCarousel, ContinueTile,
     }
@@ -361,6 +361,15 @@ namespace Emutastic.Models.EmuTv
     }
 
     // special --------------------------------------------------------------
+
+    /// <summary>Non-visual: selects which game the SYSTEM view's game-bound elements (image/video/
+    /// text/rating/datetime with metadata or imageType) display — e.g. a "Last Played" panel.</summary>
+    public sealed class GameSelectorElement : ThemeElement
+    {
+        public override ElementKind Kind => ElementKind.GameSelector;
+        public string Selection { get; set; } = "random";   // random | lastplayed | mostplayed
+        public int GameCount { get; set; } = 1;
+    }
 
     public sealed class HelpSystemElement : ThemeElement
     {

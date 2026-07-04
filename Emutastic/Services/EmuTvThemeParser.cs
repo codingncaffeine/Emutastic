@@ -43,14 +43,20 @@ namespace Emutastic.Services
         private readonly HashSet<string> _warnedTags = new();
         private int _includeDepth;
         private bool _quiet; // suppress warnings during the variables-only pre-pass
+        private string? _systemThemeName; // ES-DE system name for per-system ${system.theme} includes
         private const int MaxIncludeDepth = 24;
 
         public EmuTvThemeParser(string themeRootPath) => _root = Path.GetFullPath(themeRootPath);
 
         // ── public API ───────────────────────────────────────────────────────
 
-        public EmuTvThemeParseResult Parse(ThemeSelection? selection = null)
+        /// <param name="systemTheme">The selected console's ES-DE name. Themes ship per-system
+        /// include files (<c>&lt;include&gt;…/${system.theme}.xml</c>) carrying that system's
+        /// metadata variables and layout tweaks; those only load when a system context is given,
+        /// so the host parses per selected system (cheap — cache per system).</param>
+        public EmuTvThemeParseResult Parse(ThemeSelection? selection = null, string? systemTheme = null)
         {
+            _systemThemeName = string.IsNullOrWhiteSpace(systemTheme) ? null : systemTheme;
             var result = new EmuTvThemeParseResult();
             var theme = result.Theme;
             theme.RootPath = _root;
@@ -240,10 +246,23 @@ namespace Emutastic.Services
         private void HandleInclude(XElement el, Ctx ctx, Dictionary<ThemeViewKind, OrderedElements> acc, string baseDir, bool varsOnly)
         {
             string rel = ResolveVars(el.Value.Trim(), ctx.Vars);
-            if (rel.Length == 0 || rel.Contains("${")) return;
+            if (rel.Length == 0) return;
+            // Per-system include (ES-DE ships one file per console; most consoles have none).
+            // Resolved against the parse's system context; a missing file is normal, not a warning.
+            bool systemInclude = rel.Contains("${system.theme}");
+            if (systemInclude)
+            {
+                if (_systemThemeName == null) return;   // system-agnostic parse (capabilities probe etc.)
+                rel = rel.Replace("${system.theme}", _systemThemeName);
+            }
+            if (rel.Contains("${"))
+            {
+                if (_warnedTags.Add("inc:" + rel)) Warn($"include skipped (unresolved variable): {rel}");
+                return;
+            }
             string? abs = SandboxResolve(rel, baseDir);
             if (abs == null) { Warn($"include outside theme root ignored: {rel}"); return; }
-            if (!File.Exists(abs)) { Warn($"include not found: {rel}"); return; }
+            if (!File.Exists(abs)) { if (!systemInclude) Warn($"include not found: {rel}"); return; }
             if (_includeDepth >= MaxIncludeDepth) { Warn("include depth limit reached."); return; }
             _includeDepth++;
             try { ProcessFile(abs, ctx, acc, varsOnly); }
@@ -316,6 +335,7 @@ namespace Emutastic.Services
             "gamelistinfo" => new GamelistInfoElement { Name = name },
             "animation" => new AnimationElement { Name = name },
             "helpsystem" => new HelpSystemElement { Name = name },
+            "gameselector" => new GameSelectorElement { Name = name },
             "tvComposite" => new TvCompositeElement { Name = name },
             "saveStateCarousel" => new SaveStateCarouselElement { Name = name },
             "continueTile" => new ContinueTileElement { Name = name },
@@ -505,6 +525,10 @@ namespace Emutastic.Services
                     x.LetterCase = S(b, "letterCase", c) ?? x.LetterCase;
                     x.BackgroundColor = S(b, "backgroundColor", c) ?? x.BackgroundColor;
                     break;
+                case GameSelectorElement x:
+                    x.Selection = S(b, "selection", c) ?? x.Selection;
+                    x.GameCount = (int?)D(b, "gameCount", c) ?? x.GameCount;
+                    break;
                 case TvCompositeElement x:
                     x.BezelImage = S(b, "bezelImage", c) ?? x.BezelImage;
                     x.ScreenPos = Vc(b, "screenPos", c) ?? x.ScreenPos;
@@ -583,6 +607,11 @@ namespace Emutastic.Services
             return s;
         }
 
+        // Real themes ship labels like "Game & Watch" with a bare ampersand; ES-DE's parser
+        // (pugixml) tolerates that as literal text, so the official catalog contains such files.
+        // Escape any '&' that doesn't start a valid entity to match that tolerance.
+        private static readonly Regex BareAmpRx = new(@"&(?![a-zA-Z][a-zA-Z0-9]*;|#[0-9]+;|#x[0-9a-fA-F]+;)", RegexOptions.Compiled);
+
         private XDocument LoadXml(string path)
         {
             var settings = new XmlReaderSettings
@@ -591,18 +620,20 @@ namespace Emutastic.Services
                 XmlResolver = null,
                 IgnoreComments = true,
             };
-            using var stream = File.OpenRead(path);
-            using var reader = XmlReader.Create(stream, settings);
+            string text = BareAmpRx.Replace(File.ReadAllText(path), "&amp;");
+            using var reader = XmlReader.Create(new StringReader(text), settings);
             return XDocument.Load(reader);
         }
 
         /// <summary>Resolves <paramref name="rel"/> against <paramref name="baseDir"/> and returns
-        /// it only if it stays inside the theme root; otherwise null (blocks path traversal).</summary>
+        /// it only if it stays inside the theme root; otherwise null (blocks path traversal).
+        /// Rooted inputs are legal — ${rootpath} is seeded as the absolute theme root and
+        /// MergeVariables normalises path variables to absolute — the containment check below
+        /// is the actual sandbox.</summary>
         private string? SandboxResolve(string rel, string baseDir)
         {
-            if (Path.IsPathRooted(rel)) return null;
             string full;
-            try { full = Path.GetFullPath(Path.Combine(baseDir, rel)); }
+            try { full = Path.GetFullPath(Path.IsPathRooted(rel) ? rel : Path.Combine(baseDir, rel)); }
             catch { return null; }
             string rootWithSep = _root.EndsWith(Path.DirectorySeparatorChar) ? _root : _root + Path.DirectorySeparatorChar;
             return full.StartsWith(rootWithSep, StringComparison.OrdinalIgnoreCase) || full.Equals(_root, StringComparison.OrdinalIgnoreCase)
