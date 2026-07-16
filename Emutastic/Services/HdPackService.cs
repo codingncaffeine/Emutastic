@@ -118,11 +118,24 @@ namespace Emutastic.Services
                 // Resolve the target game + the file the core will actually load.
                 Game? target = explicitTarget;
                 string? loadable = null;
+                string mismatchNote = "";
                 if (target != null)
                 {
                     loadable = ResolveLoadableRom(target);
                     if (loadable == null)
                         return HdPackInstallResult.Fail($"The ROM file for '{target.Title}' couldn't be found.");
+
+                    // Parity with the ROM-hack flow's source-CRC validation: when
+                    // the pack declares the ROMs it supports and this game's dump
+                    // isn't among them, install anyway (folder-form packs load
+                    // regardless, and authors don't always list every revision)
+                    // but say so — mismatched revisions show broken tiles.
+                    if (supported.Count > 0)
+                    {
+                        string? sha1 = Sha1OfFile(loadable);
+                        if (sha1 == null || !supported.Contains(sha1))
+                            mismatchNote = " Note: the pack declares support for a different ROM dump — if graphics look wrong, this ROM revision may not match.";
+                    }
                 }
                 else
                 {
