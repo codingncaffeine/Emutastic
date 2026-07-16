@@ -1177,7 +1177,7 @@ namespace Emutastic.Views
             });
             bannerStack.Children.Add(new TextBlock
             {
-                Text = "Alternatively, place a BIOS file in the same folder as the ROMs for that system — it will be found automatically.",
+                Text = "Alternatively, place BIOS files anywhere in a system's ROM folder (subfolders are fine) — recognized files are imported into the System folder automatically.",
                 FontSize = 11,
                 Foreground = _brushTextMuted,
                 TextWrapping = TextWrapping.Wrap,
@@ -1707,89 +1707,6 @@ namespace Emutastic.Views
                 imported > 0 ? System.Windows.MessageBoxImage.Information : System.Windows.MessageBoxImage.Warning);
         }
 
-        // Returns the best KnownBios match for (filename, size, md5). md5 may be null
-        // when the caller hasn't computed it yet — tier 1 is skipped in that case.
-        // openStream (optional) lets content-based tiers peek at the file bytes
-        // (used for GameCube IPL dumps, which ship under arbitrary filenames).
-        private static BiosEntry? MatchKnownBios(string entryName, long size, string? md5,
-            Func<System.IO.Stream>? openStream = null)
-        {
-            if (md5 != null)
-            {
-                var hashMatch = KnownBios.All.FirstOrDefault(b =>
-                    (b.Md5 != null && string.Equals(b.Md5, md5, StringComparison.OrdinalIgnoreCase))
-                    || (b.AltMd5s != null && b.AltMd5s.Contains(md5, StringComparer.OrdinalIgnoreCase)));
-                if (hashMatch != null) return hashMatch;
-            }
-
-            // GameCube IPL dumps: identify by content (exact 2 MB + plaintext
-            // copyright header) so revisions missing from the hash table still
-            // route to the right region folder regardless of filename.
-            if (size == GcIplSize && openStream != null)
-            {
-                string? gcRegion = SniffGcIplRegion(openStream);
-                if (gcRegion != null)
-                    return KnownBios.All.FirstOrDefault(b => b.Filename == $"GC/{gcRegion}/IPL.bin");
-            }
-
-            var sizeMatch = KnownBios.All.FirstOrDefault(b =>
-                string.Equals(System.IO.Path.GetFileName(b.Filename), entryName, StringComparison.OrdinalIgnoreCase)
-                && (b.ExpectedSize == 0 || b.ExpectedSize == size));
-            if (sizeMatch != null) return sizeMatch;
-
-            return KnownBios.All.FirstOrDefault(b =>
-                string.Equals(System.IO.Path.GetFileName(b.Filename), entryName, StringComparison.OrdinalIgnoreCase));
-        }
-
-        private const long GcIplSize = 2097152; // every retail GC IPL dump is exactly 2 MB
-
-        // Every retail GameCube IPL begins with this plaintext copyright header
-        // (verbatim from Dolphin's EXI_DeviceIPL.cpp; the rest of the ROM is
-        // scrambled). PAL revisions append a "PAL  Revision …" marker; NTSC
-        // revisions (shared by USA and Japan) do not.
-        private const string GcIplHeader =
-            "(C) 1999-2001 Nintendo.  All rights reserved."
-          + "(C) 1999 ArtX Inc.  All rights reserved.";
-
-        // Returns "EUR" or "USA" when the stream is a GameCube IPL dump, else null.
-        // (NTSC dumps land on USA; the drop path mirrors them to JAP as well.)
-        private static string? SniffGcIplRegion(Func<System.IO.Stream> openStream)
-        {
-            try
-            {
-                using var s = openStream();
-                byte[] head = new byte[0x100];
-                int read = 0;
-                while (read < head.Length)
-                {
-                    int n = s.Read(head, read, head.Length - read);
-                    if (n <= 0) break;
-                    read += n;
-                }
-                if (read < head.Length) return null;
-                string text = System.Text.Encoding.ASCII.GetString(head);
-                if (!text.StartsWith(GcIplHeader, StringComparison.Ordinal)) return null;
-                return text.Contains("PAL", StringComparison.Ordinal) ? "EUR" : "USA";
-            }
-            catch { return null; }
-        }
-
-        // The NTSC GameCube IPL serves both the USA and JAP folders — a
-        // recognized NTSC dump is written to both so either region's games
-        // pick it up. Everything else maps to exactly its own entry.
-        private static BiosEntry[] GcIplTargets(BiosEntry match)
-        {
-            if (match.Console != "GameCube") return new[] { match };
-            string sibling = match.Filename switch
-            {
-                "GC/USA/IPL.bin" => "GC/JAP/IPL.bin",
-                "GC/JAP/IPL.bin" => "GC/USA/IPL.bin",
-                _ => ""
-            };
-            var sib = KnownBios.All.FirstOrDefault(b => b.Filename == sibling);
-            return sib != null ? new[] { match, sib } : new[] { match };
-        }
-
         private static void CopyEntryToSystem(BiosEntry match, System.IO.Stream source, string sysDir)
         {
             string destPath = System.IO.Path.Combine(sysDir, match.Filename);
@@ -1841,13 +1758,13 @@ namespace Emutastic.Views
                             catch { }
                         }
 
-                        var match = MatchKnownBios(entryName, entry.Size, entryMd5,
+                        var match = KnownBios.MatchKnownBios(entryName, entry.Size, entryMd5,
                             () => entry.OpenEntryStream());
                         if (match == null) continue;
 
                         try
                         {
-                            var targets = GcIplTargets(match);
+                            var targets = KnownBios.GcIplTargets(match);
                             foreach (var target in targets)
                             {
                                 using var es = entry.OpenEntryStream();
@@ -1877,7 +1794,7 @@ namespace Emutastic.Views
             // Loose file (or archive that IS the BIOS)
             string? fileMd5 = null;
             if (KnownBios.All.Any(b => b.Md5 != null)) fileMd5 = ComputeMd5(src);
-            var fileMatch = MatchKnownBios(srcName, size, fileMd5,
+            var fileMatch = KnownBios.MatchKnownBios(srcName, size, fileMd5,
                 () => System.IO.File.OpenRead(src));
 
             if (fileMatch == null)
@@ -1889,7 +1806,7 @@ namespace Emutastic.Views
 
             try
             {
-                var targets = GcIplTargets(fileMatch);
+                var targets = KnownBios.GcIplTargets(fileMatch);
                 foreach (var target in targets)
                 {
                     string destPath = System.IO.Path.Combine(sysDir, target.Filename);
@@ -6484,5 +6401,90 @@ namespace Emutastic.Views
                        "db92574caab77a7ec99d4605fd6f2450" }), // PAL 1.2
 
         };
+
+        // ── Recognition (shared by drag-drop and the ROM-folder auto-import) ──
+
+        // Returns the best KnownBios match for (filename, size, md5). md5 may be null
+        // when the caller hasn't computed it yet — tier 1 is skipped in that case.
+        // openStream (optional) lets content-based tiers peek at the file bytes
+        // (used for GameCube IPL dumps, which ship under arbitrary filenames).
+        internal static BiosEntry? MatchKnownBios(string entryName, long size, string? md5,
+            Func<System.IO.Stream>? openStream = null)
+        {
+            if (md5 != null)
+            {
+                var hashMatch = All.FirstOrDefault(b =>
+                    (b.Md5 != null && string.Equals(b.Md5, md5, StringComparison.OrdinalIgnoreCase))
+                    || (b.AltMd5s != null && b.AltMd5s.Contains(md5, StringComparer.OrdinalIgnoreCase)));
+                if (hashMatch != null) return hashMatch;
+            }
+
+            // GameCube IPL dumps: identify by content (exact 2 MB + plaintext
+            // copyright header) so revisions missing from the hash table still
+            // route to the right region folder regardless of filename.
+            if (size == GcIplSize && openStream != null)
+            {
+                string? gcRegion = SniffGcIplRegion(openStream);
+                if (gcRegion != null)
+                    return All.FirstOrDefault(b => b.Filename == $"GC/{gcRegion}/IPL.bin");
+            }
+
+            var sizeMatch = All.FirstOrDefault(b =>
+                string.Equals(System.IO.Path.GetFileName(b.Filename), entryName, StringComparison.OrdinalIgnoreCase)
+                && (b.ExpectedSize == 0 || b.ExpectedSize == size));
+            if (sizeMatch != null) return sizeMatch;
+
+            return All.FirstOrDefault(b =>
+                string.Equals(System.IO.Path.GetFileName(b.Filename), entryName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        internal const long GcIplSize = 2097152; // every retail GC IPL dump is exactly 2 MB
+
+        // Every retail GameCube IPL begins with this plaintext copyright header
+        // (verbatim from Dolphin's EXI_DeviceIPL.cpp; the rest of the ROM is
+        // scrambled). PAL revisions append a "PAL  Revision …" marker; NTSC
+        // revisions (shared by USA and Japan) do not.
+        private const string GcIplHeader =
+            "(C) 1999-2001 Nintendo.  All rights reserved."
+          + "(C) 1999 ArtX Inc.  All rights reserved.";
+
+        // Returns "EUR" or "USA" when the stream is a GameCube IPL dump, else null.
+        // (NTSC dumps land on USA; callers mirror them to JAP via GcIplTargets.)
+        private static string? SniffGcIplRegion(Func<System.IO.Stream> openStream)
+        {
+            try
+            {
+                using var s = openStream();
+                byte[] head = new byte[0x100];
+                int read = 0;
+                while (read < head.Length)
+                {
+                    int n = s.Read(head, read, head.Length - read);
+                    if (n <= 0) break;
+                    read += n;
+                }
+                if (read < head.Length) return null;
+                string text = System.Text.Encoding.ASCII.GetString(head);
+                if (!text.StartsWith(GcIplHeader, StringComparison.Ordinal)) return null;
+                return text.Contains("PAL", StringComparison.Ordinal) ? "EUR" : "USA";
+            }
+            catch { return null; }
+        }
+
+        // The NTSC GameCube IPL serves both the USA and JAP folders — a
+        // recognized NTSC dump is written to both so either region's games
+        // pick it up. Everything else maps to exactly its own entry.
+        internal static BiosEntry[] GcIplTargets(BiosEntry match)
+        {
+            if (match.Console != "GameCube") return new[] { match };
+            string sibling = match.Filename switch
+            {
+                "GC/USA/IPL.bin" => "GC/JAP/IPL.bin",
+                "GC/JAP/IPL.bin" => "GC/USA/IPL.bin",
+                _ => ""
+            };
+            var sib = All.FirstOrDefault(b => b.Filename == sibling);
+            return sib != null ? new[] { match, sib } : new[] { match };
+        }
     }
 }

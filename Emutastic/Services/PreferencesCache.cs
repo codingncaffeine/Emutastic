@@ -90,6 +90,25 @@ namespace Emutastic.Services
                         return expanded.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
                     });
 
+            // Auto-import: recognize BIOS files parked in (sub)folders of the ROM
+            // directories — same identification the System Files drag-drop uses
+            // (MD5 / GameCube IPL content sniff / canonical name+size) — and copy
+            // matches into the System folder's canonical layout, so the panel,
+            // the launch checks and per-console launch syncs all see them.
+            // Non-destructive: originals stay put; existing System-folder files
+            // are never overwritten. Runs on this scan's worker thread.
+            try
+            {
+                var baseRomDirs = games
+                    .Where(g => !string.IsNullOrEmpty(g.RomPath))
+                    .Select(g => Path.GetDirectoryName(g.RomPath))
+                    .Where(d => !string.IsNullOrEmpty(d))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                AutoImportRomDirBios(baseRomDirs!, sysDir, biosEntries);
+            }
+            catch { /* the sweep must never break the scan */ }
+
             var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             // System-dir candidates: every known BIOS filename
@@ -118,6 +137,107 @@ namespace Emutastic.Services
         private static bool SafeExists(string p)
         {
             try { return File.Exists(p); } catch { return false; }
+        }
+
+        // Recognize-and-import sweep over the ROM directories (see call site in
+        // BuildBiosScan). Each ROM base dir is walked up to three subfolder
+        // levels, so BIOS packs nested a few folders deep (e.g.
+        // Roms\GameCube\BIOS\GC\USA\IPL.bin) are still found. Identification is
+        // KnownBios.MatchKnownBios — hashing is only attempted on files whose
+        // size exactly matches a known dump, so multi-GB ROMs are never read.
+        private static void AutoImportRomDirBios(
+            IEnumerable<string> baseRomDirs, string sysDir,
+            IReadOnlyList<BiosEntry> biosEntries)
+        {
+            // Candidate gates are built from entries whose System-folder file is
+            // still MISSING — once a size/name class is fully satisfied, files of
+            // that size are never even hashed again (steady state: sweep is free).
+            var missing = biosEntries
+                .Where(b => !SafeExists(Path.Combine(sysDir, b.Filename)))
+                .ToList();
+            if (missing.Count == 0) return;
+
+            var knownSizes = missing.Where(b => b.ExpectedSize > 0)
+                .Select(b => b.ExpectedSize).ToHashSet();
+            var knownNames = missing
+                .Select(b => Path.GetFileName(b.Filename))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            string sysPrefix;
+            try
+            {
+                sysPrefix = Path.GetFullPath(sysDir)
+                    .TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            }
+            catch { return; }
+
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var root in baseRomDirs.Distinct(StringComparer.OrdinalIgnoreCase))
+                Walk(root, 3);
+
+            void Walk(string dir, int remainingDepth)
+            {
+                string full;
+                try { full = Path.GetFullPath(dir); } catch { return; }
+                if (!visited.Add(full)) return;
+                // Never treat the System folder itself as an import source.
+                if ((full.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar)
+                        .StartsWith(sysPrefix, StringComparison.OrdinalIgnoreCase)) return;
+
+                IEnumerable<FileInfo> files;
+                try { files = new DirectoryInfo(full).EnumerateFiles(); }
+                catch { return; }
+                foreach (var fi in files) Consider(fi);
+
+                if (remainingDepth <= 0) return;
+                IEnumerable<string> subs;
+                try { subs = Directory.EnumerateDirectories(full); }
+                catch { return; }
+                foreach (var sub in subs) Walk(sub, remainingDepth - 1);
+            }
+
+            void Consider(FileInfo fi)
+            {
+                long len;
+                try { len = fi.Length; } catch { return; }
+                bool sizeCandidate = knownSizes.Contains(len);
+                bool nameCandidate = knownNames.Contains(fi.Name);
+                if (!sizeCandidate && !nameCandidate) return;
+
+                string? md5 = sizeCandidate ? Md5Of(fi.FullName) : null;
+                var match = KnownBios.MatchKnownBios(fi.Name, len, md5,
+                    () => File.OpenRead(fi.FullName));
+                if (match == null) return;
+                // The passive sweep is stricter than an explicit drop: never
+                // import a name-only match whose size doesn't fit the entry.
+                if (match.ExpectedSize > 0 && match.ExpectedSize != len) return;
+
+                foreach (var target in KnownBios.GcIplTargets(match))
+                {
+                    string dest = Path.Combine(sysDir, target.Filename);
+                    if (SafeExists(dest)) continue;
+                    try
+                    {
+                        Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+                        File.Copy(fi.FullName, dest);
+                        System.Diagnostics.Trace.WriteLine(
+                            $"[BiosScan] Auto-imported {fi.FullName} → {dest}");
+                    }
+                    catch { /* locked or unwritable — retried on a later scan */ }
+                }
+            }
+
+            static string? Md5Of(string path)
+            {
+                try
+                {
+                    using var md5 = System.Security.Cryptography.MD5.Create();
+                    using var stream = File.OpenRead(path);
+                    return BitConverter.ToString(md5.ComputeHash(stream))
+                        .Replace("-", "").ToLowerInvariant();
+                }
+                catch { return null; }
+            }
         }
 
         // ── Installed cores (Fix 3) ───────────────────────────────────────────
