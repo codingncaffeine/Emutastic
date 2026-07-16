@@ -1791,6 +1791,16 @@ namespace Emutastic.Views
                 // (e.g. neogeo.zip, cdibios.zip).
             }
 
+            // Mesen HD packs land here when no BIOS entry matched — they belong
+            // to the library import flow (which matches them to their game and
+            // creates the "(HD)" entry), not the System folder. Point the user there.
+            if (isArchive && Emutastic.Services.HdPackService.IsMesenHdPackArchive(src))
+            {
+                messages.Add($"ℹ {srcName}: this is a Mesen HD pack, not a BIOS — drop it on the main library window (or right-click the game → Install HD Pack…) to install it.");
+                skipped++;
+                return;
+            }
+
             // Loose file (or archive that IS the BIOS)
             string? fileMd5 = null;
             if (KnownBios.All.Any(b => b.Md5 != null)) fileMd5 = ComputeMd5(src);

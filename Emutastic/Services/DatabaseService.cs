@@ -194,6 +194,9 @@ namespace Emutastic.Services
             TryAddColumn(connection, "Games", "Notes",      "TEXT DEFAULT ''");
             TryAddColumn(connection, "Games", "ManualPath", "TEXT DEFAULT ''");
             TryAddColumn(connection, "Games", "PatchPath",  "TEXT DEFAULT ''");
+            // Enhancement pack (Mesen HD pack / texture pack) folder for "(HD)"
+            // entries — set post-hoc via UpdateHdPackPath like the columns above.
+            TryAddColumn(connection, "Games", "HdPackPath", "TEXT DEFAULT ''");
 
             // RetroAchievements cache. RAGameId is captured at launch from
             // rcheevos's identify-game callback; the *Json columns hold the
@@ -1531,6 +1534,17 @@ namespace Emutastic.Services
             cmd.ExecuteNonQuery();
         }
 
+        public void UpdateHdPackPath(int gameId, string hdPackPath)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "UPDATE Games SET HdPackPath = $path WHERE Id = $id;";
+            cmd.Parameters.AddWithValue("$path", AppPaths.ToStoragePath(hdPackPath ?? ""));
+            cmd.Parameters.AddWithValue("$id", gameId);
+            cmd.ExecuteNonQuery();
+        }
+
         /// <summary>
         /// Last-read position for a game's manual, or null if never opened.
         /// Page is 1-based; ScrollFraction is scrollTop/scrollHeight (0..1) so it
@@ -2040,7 +2054,7 @@ namespace Emutastic.Services
                 RAGameId, RAProgressionJson, RAProgressionFetchedAt,
                 RAUserProgressJson, RAUserProgressFetchedAt,
                 RALiveProgressJson, RALiveProgressFetchedAt,
-                RALastLaunchOutcome, TotalPlayTimeSeconds, Notes, ManualPath, PatchPath;
+                RALastLaunchOutcome, TotalPlayTimeSeconds, Notes, ManualPath, PatchPath, HdPackPath;
 
             public OrdinalMap(SqliteDataReader reader)
             {
@@ -2082,6 +2096,7 @@ namespace Emutastic.Services
                 Notes                   = TryOrd(reader, "Notes");
                 ManualPath              = TryOrd(reader, "ManualPath");
                 PatchPath               = TryOrd(reader, "PatchPath");
+                HdPackPath              = TryOrd(reader, "HdPackPath");
             }
 
             private static int TryOrd(SqliteDataReader r, string col)
@@ -2133,6 +2148,7 @@ namespace Emutastic.Services
                 Notes                   = GetStr(reader, o.Notes),
                 ManualPath              = AppPaths.FromStoragePath(GetStr(reader, o.ManualPath)),
                 PatchPath               = AppPaths.FromStoragePath(GetStr(reader, o.PatchPath)),
+                HdPackPath              = AppPaths.FromStoragePath(GetStr(reader, o.HdPackPath)),
             };
         }
 

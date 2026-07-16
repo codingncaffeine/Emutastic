@@ -2308,6 +2308,12 @@ namespace Emutastic
             if (!game.HasPatch && Services.RomPatcher.SupportedConsoles.Contains(game.Console))
                 menu.Items.Add(MakeMenuItem("🧩  Apply ROM Hack…", async () => await ApplyRomHackAsync(game)));
 
+            // ── Install enhancement pack (Mesen HD pack / texture pack) → "(HD)" entry ──
+            if (!game.HasHdPack && Services.HdPackService.IsMesenConsole(game.Console))
+                menu.Items.Add(MakeMenuItem("🖼  Install HD Pack…", async () => await InstallEnhancementPackAsync(game)));
+            if (!game.HasHdPack && Services.HdPackService.IsTexturePackConsole(game.Console))
+                menu.Items.Add(MakeMenuItem("🖼  Install Texture Pack…", async () => await InstallEnhancementPackAsync(game)));
+
             // ── Show in Explorer ──
             menu.Items.Add(MakeMenuItem("📁  Show in Explorer", () =>
             {
@@ -2587,6 +2593,37 @@ namespace Emutastic
             await Task.Run(() => _vm.Reload());
             await _vm.FilterGamesAsync();
             _vm.SetStatus($"Added ROM hack: {hackTitle}", autoClear: true);
+        }
+
+        // Install a Mesen HD pack (NES/FDS) or texture pack (GameCube/N64/PSP)
+        // for a specific game — the deterministic path (no hash-matching needed;
+        // the user told us the game). Creates the "(HD)" entry via HdPackService.
+        private async Task InstallEnhancementPackAsync(Game game)
+        {
+            bool mesen = Services.HdPackService.IsMesenConsole(game.Console);
+            var dlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Title  = mesen ? "Select an HD pack archive" : "Select a texture pack archive",
+                Filter = "Pack archives (*.zip;*.7z;*.rar;*.hdn)|*.zip;*.7z;*.rar;*.hdn|All files|*.*"
+            };
+            if (dlg.ShowDialog() != true) return;
+
+            _vm.SetStatus($"Installing pack for {game.Title}…");
+            var library = await Task.Run(() => _db.GetAllGames());
+            var result = mesen
+                ? await Services.HdPackService.InstallMesenPackAsync(dlg.FileName, _db, library, game)
+                : await Services.HdPackService.InstallTexturePackAsync(dlg.FileName, _db, library, game);
+
+            if (!result.Ok)
+            {
+                _vm.SetStatus("Pack not installed", autoClear: true);
+                ShowInfoDialog(mesen ? "HD Pack" : "Texture Pack", result.Message);
+                return;
+            }
+
+            await Task.Run(() => _vm.Reload());
+            await _vm.FilterGamesAsync();
+            _vm.SetStatus(result.Message, autoClear: true);
         }
 
         private void ShowInfoDialog(string title, string message)

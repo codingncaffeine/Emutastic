@@ -16,8 +16,10 @@ namespace Emutastic.Services
         {
             { "NES",         new[] { "nestopia_libretro.dll",
                                      "quicknes_libretro.dll",
-                                     "fceumm_libretro.dll"            }},
-            { "FDS",         new[] { "nestopia_libretro.dll"            }},
+                                     "fceumm_libretro.dll",
+                                     "mesen_libretro.dll"             }},
+            { "FDS",         new[] { "nestopia_libretro.dll",
+                                     "mesen_libretro.dll"             }},
             { "SNES",        new[] { "snes9x_libretro.dll",
                                      "bsnes_libretro.dll"               }},
             { "N64",         new[] { "parallel_n64_libretro.dll",

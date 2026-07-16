@@ -855,6 +855,25 @@ namespace Emutastic.Views
                 return;
             }
 
+            // "(HD)" entries are pinned to a pack-capable core (e.g. Mesen). When
+            // that core isn't installed, GetCorePathForGame silently falls back to
+            // the console default and the pack wouldn't render — ask first.
+            if (_game.HasHdPack)
+            {
+                string preferredDll = Services.HdPackService.PreferredCoreFor(_game.Console);
+                if (preferredDll.Length > 0 &&
+                    !System.IO.File.Exists(System.IO.Path.Combine(AppPaths.GetCoresFolder(), preferredDll)))
+                {
+                    string coreLabel = System.IO.Path.GetFileNameWithoutExtension(preferredDll)
+                        .Replace("_libretro", "");
+                    var hdDialog = new ConfirmDialog("HD Pack",
+                        $"This entry uses an HD pack that needs the '{coreLabel}' core, which isn't installed yet.\n\n" +
+                        "Install it from Preferences → Cores, or play without the HD pack for now.",
+                        "Play without HD pack", danger: false) { Owner = this };
+                    if (hdDialog.ShowDialog() != true) return;
+                }
+            }
+
             // PS3: driven by an external emulator in its own process (no in-process libretro
             // core). Host its render window inside the app shell; report play time on exit.
             if (string.Equals(_game.Console, "PS3", System.StringComparison.OrdinalIgnoreCase))

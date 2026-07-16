@@ -1310,6 +1310,14 @@ namespace Emutastic.Views
 
                 SeedDefaultCoreOptions();
 
+                // "(HD)" entries get an in-game toggle for their enhancement pack.
+                // After SeedDefaultCoreOptions so the label reflects the forced-on state.
+                if (game.HasHdPack)
+                {
+                    OverlayHdPackBtn.Visibility = Visibility.Visible;
+                    UpdateHdPackLabel();
+                }
+
                 // Clear any descriptors captured from a prior session — fresh start.
                 _pendingMemoryRegions = null;
 
@@ -1419,6 +1427,19 @@ namespace Emutastic.Views
             // This overrides any legacy config that may still have a different plugin saved.
             if (_game.Console == "N64")
                 _coreOptions["parallel-n64-gfxplugin"] = "parallel";
+
+            // "(HD)" entries: force the enhancement-pack options on, after user
+            // values — these entries exist precisely to render with the pack (a
+            // globally saved "disabled" must not win here; base entries stay
+            // untouched). Session-only; the overlay HD Pack toggle flips it live.
+            if (_game.HasHdPack)
+            {
+                foreach (var kv in Services.HdPackService.ForcedOptionsFor(_game.Console))
+                {
+                    _coreOptions[kv.Key] = kv.Value;
+                    System.Diagnostics.Trace.WriteLine($"HD pack entry: forced {kv.Key} = {kv.Value}");
+                }
+            }
         }
 
         // =========================================================================
@@ -8416,6 +8437,49 @@ namespace Emutastic.Views
             App.CoreOptions.SaveValues(coreName, new Dictionary<string, string>
                 { { "desmume_screens_layout", newLayout } });
 
+            ResetOverlayTimer();
+        }
+
+        // ── HD pack toggle (enhancement-pack "(HD)" entries) ──────────────
+        // Flips every pack option for this console between on and off; the core
+        // picks the change up via _coreOptionsDirty + check_variables(). Mesen
+        // reloads its HD pack live (UpdateHdPackMode) and Dolphin re-reads the
+        // custom-texture flag; mupen64plus-next and PPSSPP read theirs at boot,
+        // so those apply on the next launch. Deliberately NOT persisted via
+        // App.CoreOptions — the forced-on state is per-entry (re-applied by
+        // SeedDefaultCoreOptions), never a per-core global that could leak onto
+        // base games running the same core.
+        private bool IsHdPackToggledOn()
+        {
+            var forced = Services.HdPackService.ForcedOptionsFor(_game.Console);
+            foreach (var kv in forced)
+                return _coreOptions.TryGetValue(kv.Key, out var v) && v == kv.Value;
+            return false;
+        }
+
+        private void UpdateHdPackLabel()
+        {
+            OverlayHdPackBtn.Content = $"HD Pack: {(IsHdPackToggledOn() ? "On" : "Off")}";
+        }
+
+        private void OverlayHdPack_Click(object sender, RoutedEventArgs e)
+        {
+            bool turnOn = !IsHdPackToggledOn();
+            foreach (var kv in Services.HdPackService.ForcedOptionsFor(_game.Console))
+            {
+                // Off value mirrors each option's own vocabulary (True/False vs enabled/disabled).
+                string off = kv.Value == "True" ? "False" : "disabled";
+                _coreOptions[kv.Key] = turnOn ? kv.Value : off;
+            }
+            _coreOptionsDirty = true;
+            UpdateHdPackLabel();
+
+            // Mesen/Dolphin apply live; the others read the option at core boot.
+            if (_game.Console == "N64" || _game.Console == "PSP")
+            {
+                _transientMsg    = "Applies on next launch";
+                _transientExpiry = DateTime.Now.AddSeconds(3);
+            }
             ResetOverlayTimer();
         }
 

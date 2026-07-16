@@ -26,6 +26,9 @@ namespace Emutastic.Services
             new() { FileName = "nestopia_libretro.dll",         DisplayName = "Nestopia",              Systems = ["NES", "FDS"],                        Recommended = true  },
             new() { FileName = "quicknes_libretro.dll",         DisplayName = "QuickNES",              Systems = ["NES"],                               Recommended = false },
             new() { FileName = "fceumm_libretro.dll",           DisplayName = "FCE Ultra MM",          Systems = ["NES"],                               Recommended = false },
+            // Mesen: the only NES core with HD pack support (used by "(HD)" library
+            // entries created from imported HD packs — see HdPackService).
+            new() { FileName = "mesen_libretro.dll",            DisplayName = "Mesen",                 Systems = ["NES", "FDS"],                        Recommended = false },
             new() { FileName = "snes9x_libretro.dll",           DisplayName = "Snes9x",                Systems = ["SNES"],                              Recommended = true  },
             new() { FileName = "bsnes_libretro.dll",            DisplayName = "bsnes",                 Systems = ["SNES"],                              Recommended = false },
             new() { FileName = "parallel_n64_libretro.dll",     DisplayName = "Parallel N64",          Systems = ["N64"],                               Recommended = true  },
