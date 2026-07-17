@@ -7237,8 +7237,40 @@ namespace Emutastic.Views
                 }
                 System.Diagnostics.Trace.WriteLine("[RA] Login OK");
 
+                // ROM-hack entries: hash the PATCHED bytes, not the base file on
+                // disk — the running game is the hack, so its RA identity must
+                // follow the patch (hacks with their own sets identify correctly;
+                // base-game sets are never credited from modified code).
+                byte[]? raRomData = null;
+                if (_game.HasPatch && System.IO.File.Exists(_game.PatchPath))
+                {
+                    try
+                    {
+                        string raw = _game.RomPath;
+                        string rext = System.IO.Path.GetExtension(raw);
+                        if (Services.ZipRomExtractor.IsArchiveExtension(rext)
+                            && Services.ZipRomExtractor.ConsoleNeedsExtraction(_game.Console))
+                        {
+                            string? extracted = Services.ZipRomExtractor.ExtractSync(raw, _game.Console);
+                            if (!string.IsNullOrEmpty(extracted) && System.IO.File.Exists(extracted)) raw = extracted;
+                        }
+                        var pr = Services.RomPatcher.Apply(
+                            System.IO.File.ReadAllBytes(raw),
+                            System.IO.File.ReadAllBytes(_game.PatchPath));
+                        if (pr.Ok && pr.Patched != null)
+                        {
+                            raRomData = pr.Patched;
+                            System.Diagnostics.Trace.WriteLine("[RA] Hashing patched ROM bytes (hack entry)");
+                        }
+                    }
+                    catch (Exception pex)
+                    {
+                        System.Diagnostics.Trace.WriteLine($"[RA] Patched-hash prep failed, falling back to file hash: {pex.Message}");
+                    }
+                }
+
                 System.Diagnostics.Trace.WriteLine($"[RA] Loading game: {_game.RomPath} (console {consoleId})");
-                var (loadOk, loadErr) = _raClient.LoadGame(_game.RomPath, consoleId);
+                var (loadOk, loadErr) = _raClient.LoadGame(_game.RomPath, consoleId, raRomData);
                 if (!loadOk)
                 {
                     System.Diagnostics.Trace.WriteLine($"[RA] Game load failed: {loadErr}");
