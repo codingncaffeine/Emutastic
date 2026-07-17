@@ -8442,15 +8442,26 @@ namespace Emutastic.Views
         }
 
         // ── HD mod picker / pack toggle (games with installed packs) ──────
-        // Mesen consoles: cycles None → each installed mod. Mesen reloads packs
-        // FROM DISK when the mesen_hdpacks flag flips (UpdateHdPackMode does a
-        // savestate → PPU swap → loadstate round-trip), so switching is live and
-        // position-preserving: unload the pack (flag off), swap the active mod
-        // folder, flag back on. State lives on disk — nothing else to persist.
+        // Mesen consoles: cycles None → each installed mod BY RESTARTING the
+        // game. Mesen's live-toggle path (UpdateHdPackMode) has a use-after-free
+        // in its audio-device handling — flipping mesen_hdpacks mid-game with a
+        // BGM/SFX pack crashes the core (verified in an isolated harness; fix
+        // exists in repos/mesen-upstream but we ship the stock core). A fresh
+        // launch loads the pack through Console::Initialize, which builds the
+        // audio device correctly — so the picker requests a restart: the window
+        // closes normally (core disposed, pack files released), the LAUNCHING
+        // window applies the mod folder swap and reopens the game.
         // Texture consoles: plain On/Off, persisted per game via HdPackEnabled
         // (live on GameCube; N64/PSP read the option at boot → next launch).
         // Deliberately NOT persisted via App.CoreOptions — never a per-core
         // global that could leak onto other games running the same core.
+
+        /// <summary>True when the window closed to switch HD mods — the opener
+        /// applies <see cref="PendingHdMod"/> and relaunches the game.</summary>
+        public bool RestartRequested { get; private set; }
+        /// <summary>Mod to activate on relaunch (null = None/vanilla).</summary>
+        public string? PendingHdMod { get; private set; }
+
         private bool IsHdPackToggledOn()
         {
             var forced = Services.HdPackService.ForcedOptionsFor(_game.Console);
@@ -8474,88 +8485,30 @@ namespace Emutastic.Views
             }
         }
 
-        // True while a mod switch round-trip is in flight — clicks are ignored
-        // until the core has fully unloaded/reloaded, because folder renames
-        // racing the core's pack loader was a real crash (AV in the loader).
-        private bool _hdModSwitching;
-
-        // The emu thread consumed a pending option change when GET_VARIABLE
-        // clears the dirty flag (first read inside check_variables); the port's
-        // follow-up work (UpdateHdPackMode load/unload) completes inside the
-        // same retro_run call, so one extra frame of margin covers it. False =
-        // the core never got there (paused/stalled) — callers must not touch
-        // pack folders in that case.
-        private async System.Threading.Tasks.Task<bool> WaitForCoreOptionConsumeAsync(int timeoutMs = 700)
-        {
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-            while (_coreOptionsDirty && sw.ElapsedMilliseconds < timeoutMs)
-                await System.Threading.Tasks.Task.Delay(16);
-            if (_coreOptionsDirty) return false;
-            await System.Threading.Tasks.Task.Delay(40);
-            return true;
-        }
-
-        private async void OverlayHdPack_Click(object sender, RoutedEventArgs e)
+        private void OverlayHdPack_Click(object sender, RoutedEventArgs e)
         {
             try
             {
                 if (Services.HdPackService.IsMesenConsole(_game.Console))
                 {
-                    if (_hdModSwitching) { ResetOverlayTimer(); return; }
-                    _hdModSwitching = true;
-                    try
+                    var (active, all) = Services.HdPackService.ListMods(_game);
+                    if (all.Count == 0) { ResetOverlayTimer(); return; }
+
+                    // Cycle: None → all[0] → all[1] → … → None
+                    string? next;
+                    if (active == null) next = all[0];
+                    else
                     {
-                        var (active, all) = Services.HdPackService.ListMods(_game);
-                        if (all.Count == 0) return;
-
-                        // Cycle: None → all[0] → all[1] → … → None
-                        string? next;
-                        if (active == null) next = all[0];
-                        else
-                        {
-                            int idx = all.FindIndex(m => string.Equals(m, active, StringComparison.OrdinalIgnoreCase));
-                            next = idx >= 0 && idx + 1 < all.Count ? all[idx + 1] : null;
-                        }
-
-                        OverlayHdPackBtn.Content = "HD Mod: switching…";
-
-                        // 1) Unload: flag off, then WAIT for the core to consume it —
-                        //    only then is nothing reading the pack files.
-                        _coreOptions["mesen_hdpacks"] = "disabled";
-                        _coreOptionsDirty = true;
-                        if (!await WaitForCoreOptionConsumeAsync())
-                        {
-                            // Paused or stalled — restore the flag, leave folders alone.
-                            _coreOptions["mesen_hdpacks"] = active != null ? "enabled" : "disabled";
-                            _coreOptionsDirty = true;
-                            _transientMsg    = "Couldn't switch mod (emulation paused?)";
-                            _transientExpiry = DateTime.Now.AddSeconds(3);
-                            return;
-                        }
-
-                        // 2) Swap the active mod folder while the core is hands-off.
-                        bool ok = Services.HdPackService.ActivateMod(_game, next);
-
-                        // 3) Reload: flag back on for the new mod, and wait again so
-                        //    the next click can't race this load.
-                        if (ok && next != null)
-                        {
-                            _coreOptions["mesen_hdpacks"] = "enabled";
-                            _coreOptionsDirty = true;
-                            await WaitForCoreOptionConsumeAsync();
-                        }
-                        if (!ok)
-                        {
-                            _transientMsg    = "Couldn't switch mod (files in use)";
-                            _transientExpiry = DateTime.Now.AddSeconds(3);
-                        }
+                        int idx = all.FindIndex(m => string.Equals(m, active, StringComparison.OrdinalIgnoreCase));
+                        next = idx >= 0 && idx + 1 < all.Count ? all[idx + 1] : null;
                     }
-                    finally
-                    {
-                        _hdModSwitching = false;
-                        UpdateHdPackLabel();
-                        ResetOverlayTimer();
-                    }
+
+                    // Request a restart — the opener swaps the mod folder once the
+                    // core is fully disposed, then relaunches. Never flips
+                    // mesen_hdpacks mid-game (that path crashes the stock core).
+                    PendingHdMod = next;
+                    RestartRequested = true;
+                    Close();
                     return;
                 }
 
@@ -8584,10 +8537,9 @@ namespace Emutastic.Views
             }
             catch (Exception ex)
             {
-                // async void: an exception escaping this handler would take the
-                // whole process down — log and keep the session alive instead.
+                // An exception escaping a click handler would surface as an
+                // unhandled dispatcher exception — log and keep the session alive.
                 System.Diagnostics.Trace.WriteLine($"HD mod switch failed: {ex}");
-                _hdModSwitching = false;
             }
         }
 

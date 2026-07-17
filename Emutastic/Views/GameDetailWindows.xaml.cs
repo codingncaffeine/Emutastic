@@ -836,7 +836,7 @@ namespace Emutastic.Views
         private void Overlay_Click(object sender, MouseButtonEventArgs e) => Close();
         private void CloseButton_Click(object sender, MouseButtonEventArgs e) => Close();
 
-        private void PlayButton_Click(object sender, RoutedEventArgs e)
+        private async void PlayButton_Click(object sender, RoutedEventArgs e)
         {
             var coreManager = new CoreManager(App.Configuration!);
 
@@ -926,10 +926,38 @@ namespace Emutastic.Views
                     return;
                 }
 
-                EmulatorWindow.FreeStaleDll(); // must be BEFORE LoadLibrary
-                var core = new LibretroCore(corePath);
-                var emulator = new EmulatorWindow(_game, core);
-                emulator.ShowDialog();
+                // HD-mod switches close the window with RestartRequested set —
+                // apply the mod folder swap while no core holds the pack files,
+                // re-resolve the core (an active mod routes to Mesen) and relaunch.
+                bool relaunch;
+                do
+                {
+                    relaunch = false;
+                    EmulatorWindow.FreeStaleDll(); // must be BEFORE LoadLibrary
+                    var core = new LibretroCore(corePath);
+                    var emulator = new EmulatorWindow(_game, core);
+                    emulator.ShowDialog();
+
+                    if (emulator.RestartRequested)
+                    {
+                        // Core disposal is deferred to a background worker; pack
+                        // files (BGM oggs) may be open for a moment — retry briefly.
+                        bool swapped = false;
+                        for (int attempt = 0; attempt < 10 && !swapped; attempt++)
+                        {
+                            swapped = Services.HdPackService.ActivateMod(_game, emulator.PendingHdMod);
+                            if (!swapped) await System.Threading.Tasks.Task.Delay(200);
+                        }
+                        if (!swapped)
+                        {
+                            MessageBox.Show(this,
+                                "Couldn't switch the HD mod — its files were still in use. Launch the game again to retry.",
+                                "HD Mod", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        }
+                        corePath = coreManager.GetCorePathForGame(_game) ?? corePath;
+                        relaunch = true;
+                    }
+                } while (relaunch);
 
                 // The user just played — any cached per-user achievement state
                 // is potentially stale. Mark it invalid so the next time the
