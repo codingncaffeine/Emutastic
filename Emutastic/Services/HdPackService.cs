@@ -87,6 +87,26 @@ namespace Emutastic.Services
             => VerRegex.Match(hiresText) is { Success: true } m
                && int.TryParse(m.Groups[1].Value, out int v) ? v : 0;
 
+        /// <summary>
+        /// True when the game's ACTIVE mod declares &lt;patch&gt; entries. Mesen
+        /// applies those IPS patches to the ROM internally at load, so the
+        /// running game differs from the file rcheevos hashed — RA hardcore
+        /// must not credit base-game unlocks from patched code.
+        /// </summary>
+        public static bool ActiveModHasRomPatch(Game game)
+        {
+            if (!IsMesenConsole(game.Console)) return false;
+            string? stem = RomStemFor(game);
+            if (stem == null || ReadActiveName(stem) == null) return false;
+            try
+            {
+                string p = Path.Combine(ActiveModDir(stem), "hires.txt");
+                return File.Exists(p) &&
+                       File.ReadAllText(p).IndexOf("<patch>", StringComparison.OrdinalIgnoreCase) >= 0;
+            }
+            catch { return false; }
+        }
+
         /// <summary>Pack format version of an installed mod (0 = no version tag).</summary>
         public static int GetModVersion(Game game, string modName)
         {

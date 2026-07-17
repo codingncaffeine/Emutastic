@@ -7110,6 +7110,24 @@ namespace Emutastic.Views
                     });
                 }
 
+                // RA hardcore-compliance carve-out for HD mods that embed ROM
+                // patches (<patch> in hires.txt): Mesen patches the ROM
+                // internally at load, so rcheevos hashed the clean file while
+                // the running game is modified code — crediting hardcore
+                // unlocks against the base game's set wouldn't be compliant.
+                // Softcore still tracks; switching the mod to None restores
+                // hardcore on the next launch.
+                if (effectiveHardcore && Services.HdPackService.ActiveModHasRomPatch(_game))
+                {
+                    effectiveHardcore = false;
+                    System.Diagnostics.Trace.WriteLine("[RA] Hardcore refused — active HD mod patches the ROM (pack <patch> tag); softcore for this session.");
+                    Dispatcher.BeginInvoke(() =>
+                    {
+                        _transientMsg = "Hardcore disabled — the active HD mod patches the ROM; achievements still track";
+                        _transientExpiry = DateTime.Now.AddSeconds(6);
+                    });
+                }
+
                 // Stamp the active libretro core into the rcheevos HTTP User-Agent
                 // so RA's logs can correlate unlock requests to a specific core +
                 // version. Per RA's UA format: "Emutastic/<v> (OS) coreName/coreVersion".
