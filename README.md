@@ -20,7 +20,7 @@ Also available for [Linux](https://github.com/codingncaffeine/Emutastic-For-Linu
 - 📺 **EmuTV** — a controller-only, couch-friendly console mode for the living room (renders ES-DE themes)
 - 🎨 **Deep theming** — a visual editor with live preview and 44 color tokens
 - ☁️ **GitHub cloud sync** — battery saves and your library follow you across PCs, with optional encryption
-- 🔧 **Built-in ROM patching** — apply IPS / BPS / UPS hacks and translations at launch, original ROM left untouched
+- 🔧 **ROM hacks & HD mods** — IPS / BPS / UPS soft-patching on every core (originals untouched), NES HD packs via Mesen, and HD Mode 7 + widescreen SNES via bsnes-hd
 - 📖 **In-app game manuals** · 🎥 **gameplay recording** · 📝 **per-game notes**
 - 🎛️ **Full controller support** — analog-as-D-pad, gamepad save states, disk swapping, and per-system cheats
 
@@ -58,7 +58,7 @@ It renders **[ES-DE](https://es-de.org/) themes** out of the box — carousels, 
 |---|---|---|---|
 | NES | NES | nestopia → quicknes → fceumm | No |
 | Famicom Disk System | FDS | nestopia | `disksys.rom` |
-| SNES | SNES | snes9x → bsnes | No |
+| SNES | SNES | snes9x → bsnes → bsnes-hd beta | No |
 | Nintendo 64 | N64 | parallel_n64 → mupen64plus_next | No |
 | GameCube | GameCube | dolphin | No |
 | Game Boy | GB | mgba → gambatte → sameboy | No |
@@ -225,7 +225,7 @@ Per-game cheats from the in-game cog menu or the library detail card's `⋯` men
 <details>
 <summary><strong>ROM Hacks</strong></summary>
 
-Apply an IPS, BPS, or UPS patch to a base game right from the library (right-click → **Apply ROM Hack**). The patched game becomes its own library entry — with its own saves — while your original ROM is left untouched, so there's no second copy on disk. The patch is applied in memory at launch, and BPS/UPS patches are checksum-verified against your ROM, so a mismatched or wrong-region copy is caught before it loads. Available on cartridge systems (SNES, GBA, Game Boy / Game Boy Color, NES, Genesis, Nintendo 64, and more).
+Apply an IPS, BPS, or UPS patch to a base game right from the library (right-click → **Apply ROM Hack**) — you can pick the patch file or its downloaded zip directly. The patched game becomes its own library entry — with its own saves — while your original ROM is left untouched. Patches work on every core (cores that load by file path get an automatically staged patched copy), and BPS/UPS patches are checksum-verified against your ROM, so a mismatched or wrong-region copy is caught before it loads. Available on cartridge systems (SNES, GBA, Game Boy / Game Boy Color, NES, Genesis, Nintendo 64, and more). NES also supports **Mesen HD packs** — install from the same right-click menu and switch mods from the game card's **…** menu.
 
 See **[ROM Hacks](https://github.com/codingncaffeine/Emutastic/wiki/ROM-Hacks)** in the wiki for the full system list, supported patch formats, how patched ROMs are scraped, and tips on matching a patch to the right base ROM.
 
@@ -266,6 +266,7 @@ Emulation is handled by libretro cores maintained by their upstream authors. Emu
 | Beetle PSX / Saturn / PCE / VB / NGP | Mednafen team (Ryphecha) |
 | blueMSX | blueMSX team (Daniel Vik and contributors) |
 | bsnes | byuu / near and contributors |
+| bsnes-hd beta (SNES HD Mode 7 / widescreen) | DerKoun and contributors |
 | DeSmuME | DeSmuME team |
 | Dolphin | Dolphin team |
 | FBNeo (FinalBurn Neo) | FBNeo team |
