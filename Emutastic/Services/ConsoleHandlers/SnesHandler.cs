@@ -7,15 +7,19 @@ namespace Emutastic.Services.ConsoleHandlers
         public override string ConsoleName => "SNES";
         public override bool PromoteAnalogStickToDpad => true;
 
-        // Quick visual options surfaced in the in-game cog when the running core
-        // announces them. The bsnes_* keys exist only on bsnes-hd beta — sessions
-        // on snes9x/bsnes simply don't announce them, so the rows stay hidden.
+        // Quick visual options surfaced in the in-game cog (Visuals panel) when
+        // the running core announces them — the panel is schema-gated, so the
+        // bsnes_* rows appear only on bsnes-hd beta sessions; snes9x/bsnes
+        // sessions never announce these keys and the rows stay hidden.
         public override List<(string key, string label)> GetVisualOptions() => new()
         {
-            ("bsnes_mode7_scale",       "HD Mode 7 Scale"),
-            ("bsnes_mode7_widescreen",  "Widescreen"),
-            ("bsnes_mode7_perspective", "Perspective Correction"),
-            ("bsnes_mode7_supersample", "Supersampling"),
+            ("bsnes_mode7_scale",        "HD Mode 7 Scale"),
+            ("bsnes_mode7_supersample",  "Supersampling"),
+            ("bsnes_mode7_perspective",  "Perspective Correction"),
+            ("bsnes_mode7_widescreen",   "Widescreen"),
+            ("bsnes_mode7_wsMode",       "Widescreen Scenes"),
+            ("bsnes_mode7_wsBgCol",      "Widescreen Edge Fill"),
+            ("bsnes_ppu_no_sprite_limit","Remove Sprite Limit"),
         };
 
         public override Dictionary<string, string> GetDefaultCoreOptions()
