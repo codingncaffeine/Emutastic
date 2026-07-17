@@ -1310,15 +1310,6 @@ namespace Emutastic.Views
 
                 SeedDefaultCoreOptions();
 
-                // In-game HD mod picker / pack toggle — shown whenever mods exist
-                // for this game (filesystem-based on Mesen consoles, so packs
-                // installed by any build or by hand still surface the control).
-                // After SeedDefaultCoreOptions so the label reflects seeded state.
-                if (Services.HdPackService.ModsExist(game))
-                {
-                    OverlayHdPackBtn.Visibility = Visibility.Visible;
-                    UpdateHdPackLabel();
-                }
 
                 // Clear any descriptors captured from a prior session — fresh start.
                 _pendingMemoryRegions = null;
@@ -8441,107 +8432,13 @@ namespace Emutastic.Views
             ResetOverlayTimer();
         }
 
-        // ── HD mod picker / pack toggle (games with installed packs) ──────
-        // Mesen consoles: cycles None → each installed mod BY RESTARTING the
-        // game. Mesen's live-toggle path (UpdateHdPackMode) has a use-after-free
-        // in its audio-device handling — flipping mesen_hdpacks mid-game with a
-        // BGM/SFX pack crashes the core (verified in an isolated harness; fix
-        // exists in repos/mesen-upstream but we ship the stock core). A fresh
-        // launch loads the pack through Console::Initialize, which builds the
-        // audio device correctly — so the picker requests a restart: the window
-        // closes normally (core disposed, pack files released), the LAUNCHING
-        // window applies the mod folder swap and reopens the game.
-        // Texture consoles: plain On/Off, persisted per game via HdPackEnabled
-        // (live on GameCube; N64/PSP read the option at boot → next launch).
-        // Deliberately NOT persisted via App.CoreOptions — never a per-core
-        // global that could leak onto other games running the same core.
-
-        /// <summary>True when the window closed to switch HD mods — the opener
-        /// applies <see cref="PendingHdMod"/> and relaunches the game.</summary>
-        public bool RestartRequested { get; private set; }
-        /// <summary>Mod to activate on relaunch (null = None/vanilla).</summary>
-        public string? PendingHdMod { get; private set; }
-
-        private bool IsHdPackToggledOn()
-        {
-            var forced = Services.HdPackService.ForcedOptionsFor(_game.Console);
-            foreach (var kv in forced)
-                return _coreOptions.TryGetValue(kv.Key, out var v) && v == kv.Value;
-            return false;
-        }
-
-        private void UpdateHdPackLabel()
-        {
-            if (Services.HdPackService.IsMesenConsole(_game.Console))
-            {
-                var (active, _) = Services.HdPackService.ListMods(_game);
-                string label = active ?? "None";
-                if (label.Length > 26) label = label[..25] + "…";
-                OverlayHdPackBtn.Content = $"HD Mod: {label}";
-            }
-            else
-            {
-                OverlayHdPackBtn.Content = $"HD Pack: {(IsHdPackToggledOn() ? "On" : "Off")}";
-            }
-        }
-
-        private void OverlayHdPack_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                if (Services.HdPackService.IsMesenConsole(_game.Console))
-                {
-                    var (active, all) = Services.HdPackService.ListMods(_game);
-                    if (all.Count == 0) { ResetOverlayTimer(); return; }
-
-                    // Cycle: None → all[0] → all[1] → … → None
-                    string? next;
-                    if (active == null) next = all[0];
-                    else
-                    {
-                        int idx = all.FindIndex(m => string.Equals(m, active, StringComparison.OrdinalIgnoreCase));
-                        next = idx >= 0 && idx + 1 < all.Count ? all[idx + 1] : null;
-                    }
-
-                    // Request a restart — the opener swaps the mod folder once the
-                    // core is fully disposed, then relaunches. Never flips
-                    // mesen_hdpacks mid-game (that path crashes the stock core).
-                    PendingHdMod = next;
-                    RestartRequested = true;
-                    Close();
-                    return;
-                }
-
-                // Texture-pack consoles: On/Off, persisted per game.
-                bool turnOn = !IsHdPackToggledOn();
-                foreach (var kv in Services.HdPackService.ForcedOptionsFor(_game.Console))
-                {
-                    // Off value mirrors each option's own vocabulary (True/False vs enabled/disabled).
-                    string off = kv.Value == "True" ? "False" : "disabled";
-                    _coreOptions[kv.Key] = turnOn ? kv.Value : off;
-                }
-                _coreOptionsDirty = true;
-                UpdateHdPackLabel();
-
-                _game.HdPackEnabled = turnOn;
-                try { _db?.UpdateHdPackEnabled(_game.Id, turnOn); }
-                catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"HD pack toggle persist failed: {ex.Message}"); }
-
-                // GameCube applies live; N64/PSP read the option at core boot.
-                if (_game.Console == "N64" || _game.Console == "PSP")
-                {
-                    _transientMsg    = "Applies on next launch";
-                    _transientExpiry = DateTime.Now.AddSeconds(3);
-                }
-                ResetOverlayTimer();
-            }
-            catch (Exception ex)
-            {
-                // An exception escaping a click handler would surface as an
-                // unhandled dispatcher exception — log and keep the session alive.
-                System.Diagnostics.Trace.WriteLine($"HD mod switch failed: {ex}");
-            }
-        }
+        // HD mods are chosen on the game card ("…" menu → HD Mod) BEFORE launch —
+        // there is deliberately NO in-game switch. Flipping mesen_hdpacks at
+        // runtime crashes the stock Mesen core (use-after-free in its
+        // UpdateHdPackMode audio-device handling; harness-verified), and even
+        // restart-based switching from inside the session proved fragile. The
+        // launch path seeds the pack options once (SeedDefaultCoreOptions) and
+        // they stay fixed for the session.
 
         // ── N64 Controller Pak swap (Memory ↔ Rumble) ─────────────────────
         // N64 hardware only allows one pak per controller at a time, so games that

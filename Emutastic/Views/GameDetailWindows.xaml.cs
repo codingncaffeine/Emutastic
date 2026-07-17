@@ -836,7 +836,7 @@ namespace Emutastic.Views
         private void Overlay_Click(object sender, MouseButtonEventArgs e) => Close();
         private void CloseButton_Click(object sender, MouseButtonEventArgs e) => Close();
 
-        private async void PlayButton_Click(object sender, RoutedEventArgs e)
+        private void PlayButton_Click(object sender, RoutedEventArgs e)
         {
             var coreManager = new CoreManager(App.Configuration!);
 
@@ -926,38 +926,10 @@ namespace Emutastic.Views
                     return;
                 }
 
-                // HD-mod switches close the window with RestartRequested set —
-                // apply the mod folder swap while no core holds the pack files,
-                // re-resolve the core (an active mod routes to Mesen) and relaunch.
-                bool relaunch;
-                do
-                {
-                    relaunch = false;
-                    EmulatorWindow.FreeStaleDll(); // must be BEFORE LoadLibrary
-                    var core = new LibretroCore(corePath);
-                    var emulator = new EmulatorWindow(_game, core);
-                    emulator.ShowDialog();
-
-                    if (emulator.RestartRequested)
-                    {
-                        // Core disposal is deferred to a background worker; pack
-                        // files (BGM oggs) may be open for a moment — retry briefly.
-                        bool swapped = false;
-                        for (int attempt = 0; attempt < 10 && !swapped; attempt++)
-                        {
-                            swapped = Services.HdPackService.ActivateMod(_game, emulator.PendingHdMod);
-                            if (!swapped) await System.Threading.Tasks.Task.Delay(200);
-                        }
-                        if (!swapped)
-                        {
-                            MessageBox.Show(this,
-                                "Couldn't switch the HD mod — its files were still in use. Launch the game again to retry.",
-                                "HD Mod", MessageBoxButton.OK, MessageBoxImage.Warning);
-                        }
-                        corePath = coreManager.GetCorePathForGame(_game) ?? corePath;
-                        relaunch = true;
-                    }
-                } while (relaunch);
+                EmulatorWindow.FreeStaleDll(); // must be BEFORE LoadLibrary
+                var core = new LibretroCore(corePath);
+                var emulator = new EmulatorWindow(_game, core);
+                emulator.ShowDialog();
 
                 // The user just played — any cached per-user achievement state
                 // is potentially stale. Mark it invalid so the next time the
@@ -1105,12 +1077,75 @@ namespace Emutastic.Views
                 menu.Items.Add(cheats);
             }
 
+            // HD mods: the active pack is chosen HERE, before launch — never
+            // mid-session (flipping packs at runtime crashes the stock Mesen
+            // core; the next game start simply boots with the chosen mod).
+            if (Services.HdPackService.IsMesenConsole(_game.Console ?? ""))
+            {
+                var (active, all) = Services.HdPackService.ListMods(_game);
+                if (all.Count > 0)
+                {
+                    var hdRoot = new MenuItem { Header = "HD Mod" };
+                    var none = new MenuItem
+                    {
+                        Header = "None",
+                        IsCheckable = true,
+                        IsChecked = active == null
+                    };
+                    none.Click += (_, _) => SetHdMod(null);
+                    hdRoot.Items.Add(none);
+                    foreach (var mod in all)
+                    {
+                        var item = new MenuItem
+                        {
+                            Header = mod,
+                            IsCheckable = true,
+                            IsChecked = string.Equals(mod, active, StringComparison.OrdinalIgnoreCase)
+                        };
+                        string captured = mod;
+                        item.Click += (_, _) => SetHdMod(captured);
+                        hdRoot.Items.Add(item);
+                    }
+                    menu.Items.Add(hdRoot);
+                }
+            }
+            else if (Services.HdPackService.IsTexturePackConsole(_game.Console ?? "") && _game.HasHdPack)
+            {
+                var texToggle = new MenuItem
+                {
+                    Header = "Texture Pack",
+                    IsCheckable = true,
+                    IsChecked = _game.HdPackEnabled
+                };
+                texToggle.Click += (_, _) =>
+                {
+                    _game.HdPackEnabled = !_game.HdPackEnabled;
+                    _db.UpdateHdPackEnabled(_game.Id, _game.HdPackEnabled);
+                };
+                menu.Items.Add(texToggle);
+            }
+
             menu.Items.Add(new Separator());
             menu.Items.Add(remove);
 
             menu.PlacementTarget = (UIElement)sender;
             menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
             menu.IsOpen = true;
+        }
+
+        // Applies the chosen HD mod on disk (folder rename). Off the UI thread —
+        // packs can be large. Fails cleanly if the game is running and holds
+        // pack files open (music streams); the user closes it and re-picks.
+        private async void SetHdMod(string? modName)
+        {
+            bool ok = await System.Threading.Tasks.Task.Run(
+                () => Services.HdPackService.ActivateMod(_game, modName));
+            if (!ok)
+            {
+                MessageBox.Show(this,
+                    "Couldn't switch the HD mod — if the game is running, close it and try again.",
+                    "HD Mod", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
         }
     }
 }

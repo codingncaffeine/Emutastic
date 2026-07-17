@@ -490,7 +490,7 @@ namespace Emutastic.Views
         }
 
         // ── Launch (reuses the desktop path; optional save-state to load) ─────────
-        private async void LaunchGame(Game game, string? statePath = null)
+        private void LaunchGame(Game game, string? statePath = null)
         {
             try
             {
@@ -575,36 +575,12 @@ namespace Emutastic.Views
                     return;
                 }
 
-                // HD-mod switches close the window with RestartRequested set —
-                // swap the mod folder while no core holds the pack files, then
-                // relaunch (fresh boot, no savestate resume on the re-entry).
-                bool relaunch;
-                try
-                {
-                    do
-                    {
-                        relaunch = false;
-                        EmulatorWindow.FreeStaleDll();
-                        var core = new LibretroCore(corePath);
-                        var emulator = new EmulatorWindow(game, core, statePath)
-                            { Owner = this, StartInFullscreen = true };
-                        emulator.ShowDialog();
+                EmulatorWindow.FreeStaleDll();
+                var core = new LibretroCore(corePath);
+                var emulator = new EmulatorWindow(game, core, statePath)
+                    { Owner = this, StartInFullscreen = true };
 
-                        if (emulator.RestartRequested)
-                        {
-                            bool swapped = false;
-                            for (int attempt = 0; attempt < 10 && !swapped; attempt++)
-                            {
-                                swapped = Services.HdPackService.ActivateMod(game, emulator.PendingHdMod);
-                                if (!swapped) await System.Threading.Tasks.Task.Delay(200);
-                            }
-                            var cm = new CoreManager(App.Configuration!);
-                            corePath = cm.GetCorePathForGame(game) ?? corePath;
-                            statePath = null;
-                            relaunch = true;
-                        }
-                    } while (relaunch);
-                }
+                try { emulator.ShowDialog(); }
                 finally
                 {
                     _aLatch = true;
