@@ -327,6 +327,7 @@ namespace Emutastic.ViewModels
                 if (!string.IsNullOrEmpty(updated.Notes))      target.Notes = updated.Notes;
                 if (!string.IsNullOrEmpty(updated.PatchPath))  target.PatchPath = updated.PatchPath;
                 if (!string.IsNullOrEmpty(updated.HdPackPath)) target.HdPackPath = updated.HdPackPath;
+                if (updated.TitleLocked)                       target.TitleLocked = true;
             }
 
             // O(1) lookup via index instead of linear scan

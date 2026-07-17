@@ -219,11 +219,12 @@ namespace Emutastic.Services
         private void ApplyMetadata(Game game, ArtworkResult? metadata)
         {
             if (metadata == null) return;
-            // ROM-hack entries carry a user-authored title ("F-Zero Deluxe");
-            // metadata lookups resolve the BASE game and would rename the entry
-            // back to it ("F-Zero") — keep the hack's name. Other metadata
-            // (developer/genre/description) from the base game is still useful.
-            if (!string.IsNullOrWhiteSpace(metadata.Title) && !game.HasPatch)
+            // ROM-hack entries carry a user-authored title ("F-Zero Deluxe"),
+            // and TitleLocked marks any entry the user manually renamed —
+            // metadata lookups resolve the CATALOG name and would rename such
+            // entries back. Keep user-authored names; other metadata
+            // (developer/genre/description) still applies.
+            if (!string.IsNullOrWhiteSpace(metadata.Title) && !game.HasPatch && !game.TitleLocked)
             {
                 game.Title = metadata.Title;
                 _db.UpdateTitle(game.Id, metadata.Title);

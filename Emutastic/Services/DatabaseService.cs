@@ -199,6 +199,9 @@ namespace Emutastic.Services
             // set post-hoc via Update* methods like the columns above.
             TryAddColumn(connection, "Games", "HdPackPath",    "TEXT DEFAULT ''");
             TryAddColumn(connection, "Games", "HdPackEnabled", "INTEGER DEFAULT 1");
+            // Latched when the USER renames a game — metadata refreshes must
+            // never rename such entries back to the catalog title.
+            TryAddColumn(connection, "Games", "TitleLocked",   "INTEGER DEFAULT 0");
 
             // One-shot migration: the first enhancement-pack build (dfa9824)
             // created cloned "(HD)" library entries; the shipped model marks the
@@ -1504,13 +1507,20 @@ namespace Emutastic.Services
             cmd.ExecuteNonQuery();
         }
 
-        public void UpdateTitle(int gameId, string title)
+        /// <summary>
+        /// Updates a game's title. Pass <paramref name="lockTitle"/> = true for
+        /// USER-initiated renames — it latches TitleLocked so metadata refreshes
+        /// never rename the entry back to the catalog name. Automated writers
+        /// (metadata refresh) leave the flag untouched.
+        /// </summary>
+        public void UpdateTitle(int gameId, string title, bool lockTitle = false)
         {
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             var cmd = connection.CreateCommand();
-            cmd.CommandText = "UPDATE Games SET Title = $title WHERE Id = $id;";
+            cmd.CommandText = "UPDATE Games SET Title = $title, TitleLocked = (TitleLocked | $lock) WHERE Id = $id;";
             cmd.Parameters.AddWithValue("$title", title);
+            cmd.Parameters.AddWithValue("$lock", lockTitle ? 1 : 0);
             cmd.Parameters.AddWithValue("$id", gameId);
             cmd.ExecuteNonQuery();
         }
@@ -2118,7 +2128,7 @@ namespace Emutastic.Services
                 RAGameId, RAProgressionJson, RAProgressionFetchedAt,
                 RAUserProgressJson, RAUserProgressFetchedAt,
                 RALiveProgressJson, RALiveProgressFetchedAt,
-                RALastLaunchOutcome, TotalPlayTimeSeconds, Notes, ManualPath, PatchPath, HdPackPath, HdPackEnabled;
+                RALastLaunchOutcome, TotalPlayTimeSeconds, Notes, ManualPath, PatchPath, HdPackPath, HdPackEnabled, TitleLocked;
 
             public OrdinalMap(SqliteDataReader reader)
             {
@@ -2162,6 +2172,7 @@ namespace Emutastic.Services
                 PatchPath               = TryOrd(reader, "PatchPath");
                 HdPackPath              = TryOrd(reader, "HdPackPath");
                 HdPackEnabled           = TryOrd(reader, "HdPackEnabled");
+                TitleLocked             = TryOrd(reader, "TitleLocked");
             }
 
             private static int TryOrd(SqliteDataReader r, string col)
@@ -2217,6 +2228,7 @@ namespace Emutastic.Services
                 // Default ON when the column is somehow absent (GetInt yields 0 →
                 // treat missing ordinal as enabled to match the column default).
                 HdPackEnabled           = o.HdPackEnabled < 0 || GetInt(reader, o.HdPackEnabled) != 0,
+                TitleLocked             = GetInt(reader, o.TitleLocked) != 0,
             };
         }
 

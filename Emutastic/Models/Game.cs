@@ -210,6 +210,10 @@ namespace Emutastic.Models
         // "HD Pack" toggle and persisted per game (default on after install).
         public bool HdPackEnabled { get; set; } = true;
 
+        // Latched when the user renames the game — metadata refreshes must
+        // never rename such entries back to the catalog title.
+        public bool TitleLocked { get; set; }
+
         public string BackgroundColor { get; set; } = "#1F1F21";
         public string AccentColor { get; set; } = "#E03535";
         public int PlayCount { get; set; }

@@ -2431,7 +2431,8 @@ namespace Emutastic
                 if (rename.ShowDialog() == true)
                 {
                     game.Title = rename.NewTitle;
-                    _db.UpdateTitle(game.Id, rename.NewTitle);
+                    game.TitleLocked = true;
+                    _db.UpdateTitle(game.Id, rename.NewTitle, lockTitle: true);
                     _vm.RefreshGame(game);
                 }
             }));
@@ -2468,7 +2469,8 @@ namespace Emutastic
                 if (dialog.ShowDialog() == true)
                 {
                     game.Title = dialog.NewTitle;
-                    _db.UpdateTitle(game.Id, game.Title);
+                    game.TitleLocked = true;
+                    _db.UpdateTitle(game.Id, game.Title, lockTitle: true);
                     _vm.RefreshGame(game);
                 }
             }));

@@ -1022,7 +1022,8 @@ namespace Emutastic.Views
                 if (dialog.ShowDialog() == true)
                 {
                     _game.Title = dialog.NewTitle;
-                    _db.UpdateTitle(_game.Id, _game.Title);
+                    _game.TitleLocked = true;
+                    _db.UpdateTitle(_game.Id, _game.Title, lockTitle: true);
                     GameTitle.Text = _game.Title;
                     ArtPlaceholderText.Text = _game.Title;
                 }
