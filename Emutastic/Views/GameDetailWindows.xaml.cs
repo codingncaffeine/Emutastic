@@ -1096,16 +1096,43 @@ namespace Emutastic.Views
                     hdRoot.Items.Add(none);
                     foreach (var mod in all)
                     {
+                        // Mesen 2 packs (format v107+) are silently ignored by the
+                        // classic core — show them, but say why they can't be used.
+                        int ver = Services.HdPackService.GetModVersion(_game, mod);
+                        bool unsupported = ver > Services.HdPackService.MaxSupportedPackVersion;
                         var item = new MenuItem
                         {
-                            Header = mod,
+                            Header = unsupported ? $"{mod}  (needs Mesen 2 — won't render)" : mod,
                             IsCheckable = true,
+                            IsEnabled = !unsupported,
                             IsChecked = string.Equals(mod, active, StringComparison.OrdinalIgnoreCase)
                         };
                         string captured = mod;
                         item.Click += (_, _) => SetHdMod(captured);
                         hdRoot.Items.Add(item);
                     }
+
+                    hdRoot.Items.Add(new Separator());
+                    var renameRoot = new MenuItem { Header = "Rename Mod" };
+                    foreach (var mod in all)
+                    {
+                        var r = new MenuItem { Header = mod };
+                        string captured = mod;
+                        r.Click += (_, _) =>
+                        {
+                            var dlg = new RenameWindow(captured) { Owner = this };
+                            if (dlg.ShowDialog() == true && !string.IsNullOrWhiteSpace(dlg.NewTitle)
+                                && !string.Equals(dlg.NewTitle, captured, StringComparison.Ordinal))
+                            {
+                                if (!Services.HdPackService.RenameMod(_game, captured, dlg.NewTitle))
+                                    MessageBox.Show(this,
+                                        "Couldn't rename the mod — the name may already exist, or its files are in use.",
+                                        "HD Mod", MessageBoxButton.OK, MessageBoxImage.Warning);
+                            }
+                        };
+                        renameRoot.Items.Add(r);
+                    }
+                    hdRoot.Items.Add(renameRoot);
                     menu.Items.Add(hdRoot);
                 }
             }

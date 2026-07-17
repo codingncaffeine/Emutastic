@@ -71,6 +71,74 @@ namespace Emutastic.Services
 
         private const string ActiveMarker = "pack.name";
 
+        /// <summary>
+        /// Highest HD-pack format version the stock libretro Mesen core
+        /// understands (HdNesPack::CurrentVersion in the classic 0.9.9 lineage
+        /// the buildbot ships). Packs built for Mesen 2 declare &lt;ver&gt;107+
+        /// and are SILENTLY rejected by the core at load — surface that at
+        /// install/selection time instead of letting them "not work".
+        /// </summary>
+        public const int MaxSupportedPackVersion = 106;
+
+        private static readonly Regex VerRegex = new(@"<ver>\s*(\d+)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static int ParsePackVersion(string hiresText)
+            => VerRegex.Match(hiresText) is { Success: true } m
+               && int.TryParse(m.Groups[1].Value, out int v) ? v : 0;
+
+        /// <summary>Pack format version of an installed mod (0 = no version tag).</summary>
+        public static int GetModVersion(Game game, string modName)
+        {
+            string? stem = RomStemFor(game);
+            if (stem == null) return 0;
+            string dir = string.Equals(ReadActiveName(stem), modName, StringComparison.OrdinalIgnoreCase)
+                ? ActiveModDir(stem)
+                : Path.Combine(ModsLibraryDir(stem), SanitizeName(modName));
+            try
+            {
+                string p = Path.Combine(dir, "hires.txt");
+                return File.Exists(p) ? ParsePackVersion(File.ReadAllText(p)) : 0;
+            }
+            catch { return 0; }
+        }
+
+        // Wrapper zips are commonly named "UnZipMeFirst<PackName>" — strip that
+        // noise from default mod names (the user can rename from the "…" menu).
+        private static string CleanModName(string raw)
+        {
+            string name = Regex.Replace(raw,
+                @"^un[\s_\-]*zip[\s_\-]*me[\s_\-]*first[\s_\-]*", "",
+                RegexOptions.IgnoreCase);
+            name = name.Trim(' ', '_', '-');
+            return name.Length == 0 ? raw : name;
+        }
+
+        /// <summary>Renames an installed mod (marker rewrite when active, folder
+        /// rename in the library otherwise). False on collision or IO failure.</summary>
+        public static bool RenameMod(Game game, string oldName, string newName)
+        {
+            string? stem = RomStemFor(game);
+            if (stem == null || string.IsNullOrWhiteSpace(newName)) return false;
+            string clean = SanitizeName(newName);
+            try
+            {
+                if (string.Equals(ReadActiveName(stem), oldName, StringComparison.OrdinalIgnoreCase))
+                {
+                    File.WriteAllText(Path.Combine(ActiveModDir(stem), ActiveMarker), clean);
+                    return true;
+                }
+                string src = Path.Combine(ModsLibraryDir(stem), SanitizeName(oldName));
+                string dst = Path.Combine(ModsLibraryDir(stem), clean);
+                if (!Directory.Exists(src) || Directory.Exists(dst)) return false;
+                Directory.Move(src, dst);
+                string marker = Path.Combine(dst, ActiveMarker);
+                if (File.Exists(marker)) File.WriteAllText(marker, clean);
+                return true;
+            }
+            catch { return false; }
+        }
+
         private static string ActiveModDir(string stem) =>
             Path.Combine(AppPaths.GetFolder("System"), "HdPacks", stem);
         private static string ModsLibraryDir(string stem) =>
@@ -326,6 +394,7 @@ namespace Emutastic.Services
                 if (!string.Equals(packArchive, archivePath, StringComparison.OrdinalIgnoreCase) &&
                     displayName.StartsWith("Emutastic-pack-", StringComparison.Ordinal))
                     displayName = displayName["Emutastic-pack-".Length..];
+                displayName = CleanModName(displayName);
                 return InstallMesenPackCore(packArchive, db, library, explicitTarget, displayName);
             }
             finally
@@ -360,6 +429,15 @@ namespace Emutastic.Services
                 using (var hs = hiresEntry.OpenEntryStream())
                 using (var reader = new StreamReader(hs))
                     hiresText = reader.ReadToEnd();
+
+                // Packs built for Mesen 2 (format v107+) are silently ignored by
+                // the classic core — refuse them with the real reason instead.
+                int packVer = ParsePackVersion(hiresText);
+                if (packVer > MaxSupportedPackVersion)
+                    return HdPackInstallResult.Fail(
+                        $"This pack was built for Mesen 2 (HD pack format v{packVer}). " +
+                        $"The Mesen core supports packs up to v{MaxSupportedPackVersion}, so this one can't render — " +
+                        "look for a version of the pack made for Mesen 0.9.x.");
 
                 // The pack declares the ROMs it supports as full-file SHA-1 hashes
                 // (Mesen convention: SHA1 of the complete file, iNES header included).
