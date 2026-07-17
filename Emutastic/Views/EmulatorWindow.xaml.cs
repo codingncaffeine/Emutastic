@@ -8474,66 +8474,121 @@ namespace Emutastic.Views
             }
         }
 
+        // True while a mod switch round-trip is in flight — clicks are ignored
+        // until the core has fully unloaded/reloaded, because folder renames
+        // racing the core's pack loader was a real crash (AV in the loader).
+        private bool _hdModSwitching;
+
+        // The emu thread consumed a pending option change when GET_VARIABLE
+        // clears the dirty flag (first read inside check_variables); the port's
+        // follow-up work (UpdateHdPackMode load/unload) completes inside the
+        // same retro_run call, so one extra frame of margin covers it. False =
+        // the core never got there (paused/stalled) — callers must not touch
+        // pack folders in that case.
+        private async System.Threading.Tasks.Task<bool> WaitForCoreOptionConsumeAsync(int timeoutMs = 700)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            while (_coreOptionsDirty && sw.ElapsedMilliseconds < timeoutMs)
+                await System.Threading.Tasks.Task.Delay(16);
+            if (_coreOptionsDirty) return false;
+            await System.Threading.Tasks.Task.Delay(40);
+            return true;
+        }
+
         private async void OverlayHdPack_Click(object sender, RoutedEventArgs e)
         {
-            if (Services.HdPackService.IsMesenConsole(_game.Console))
+            try
             {
-                var (active, all) = Services.HdPackService.ListMods(_game);
-                if (all.Count == 0) { ResetOverlayTimer(); return; }
-
-                // Cycle: None → all[0] → all[1] → … → None
-                string? next;
-                if (active == null) next = all[0];
-                else
+                if (Services.HdPackService.IsMesenConsole(_game.Console))
                 {
-                    int idx = all.FindIndex(m => string.Equals(m, active, StringComparison.OrdinalIgnoreCase));
-                    next = idx >= 0 && idx + 1 < all.Count ? all[idx + 1] : null;
+                    if (_hdModSwitching) { ResetOverlayTimer(); return; }
+                    _hdModSwitching = true;
+                    try
+                    {
+                        var (active, all) = Services.HdPackService.ListMods(_game);
+                        if (all.Count == 0) return;
+
+                        // Cycle: None → all[0] → all[1] → … → None
+                        string? next;
+                        if (active == null) next = all[0];
+                        else
+                        {
+                            int idx = all.FindIndex(m => string.Equals(m, active, StringComparison.OrdinalIgnoreCase));
+                            next = idx >= 0 && idx + 1 < all.Count ? all[idx + 1] : null;
+                        }
+
+                        OverlayHdPackBtn.Content = "HD Mod: switching…";
+
+                        // 1) Unload: flag off, then WAIT for the core to consume it —
+                        //    only then is nothing reading the pack files.
+                        _coreOptions["mesen_hdpacks"] = "disabled";
+                        _coreOptionsDirty = true;
+                        if (!await WaitForCoreOptionConsumeAsync())
+                        {
+                            // Paused or stalled — restore the flag, leave folders alone.
+                            _coreOptions["mesen_hdpacks"] = active != null ? "enabled" : "disabled";
+                            _coreOptionsDirty = true;
+                            _transientMsg    = "Couldn't switch mod (emulation paused?)";
+                            _transientExpiry = DateTime.Now.AddSeconds(3);
+                            return;
+                        }
+
+                        // 2) Swap the active mod folder while the core is hands-off.
+                        bool ok = Services.HdPackService.ActivateMod(_game, next);
+
+                        // 3) Reload: flag back on for the new mod, and wait again so
+                        //    the next click can't race this load.
+                        if (ok && next != null)
+                        {
+                            _coreOptions["mesen_hdpacks"] = "enabled";
+                            _coreOptionsDirty = true;
+                            await WaitForCoreOptionConsumeAsync();
+                        }
+                        if (!ok)
+                        {
+                            _transientMsg    = "Couldn't switch mod (files in use)";
+                            _transientExpiry = DateTime.Now.AddSeconds(3);
+                        }
+                    }
+                    finally
+                    {
+                        _hdModSwitching = false;
+                        UpdateHdPackLabel();
+                        ResetOverlayTimer();
+                    }
+                    return;
                 }
 
-                // Unload the current pack so no files are held open (bgm oggs),
-                // give the core a couple of frames to process it, then swap.
-                _coreOptions["mesen_hdpacks"] = "disabled";
+                // Texture-pack consoles: On/Off, persisted per game.
+                bool turnOn = !IsHdPackToggledOn();
+                foreach (var kv in Services.HdPackService.ForcedOptionsFor(_game.Console))
+                {
+                    // Off value mirrors each option's own vocabulary (True/False vs enabled/disabled).
+                    string off = kv.Value == "True" ? "False" : "disabled";
+                    _coreOptions[kv.Key] = turnOn ? kv.Value : off;
+                }
                 _coreOptionsDirty = true;
-                await System.Threading.Tasks.Task.Delay(120);
+                UpdateHdPackLabel();
 
-                bool ok = Services.HdPackService.ActivateMod(_game, next);
-                if (next != null)
+                _game.HdPackEnabled = turnOn;
+                try { _db?.UpdateHdPackEnabled(_game.Id, turnOn); }
+                catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"HD pack toggle persist failed: {ex.Message}"); }
+
+                // GameCube applies live; N64/PSP read the option at core boot.
+                if (_game.Console == "N64" || _game.Console == "PSP")
                 {
-                    _coreOptions["mesen_hdpacks"] = "enabled";
-                    _coreOptionsDirty = true;
-                }
-                if (!ok)
-                {
-                    _transientMsg    = "Couldn't switch mod (files in use)";
+                    _transientMsg    = "Applies on next launch";
                     _transientExpiry = DateTime.Now.AddSeconds(3);
                 }
-                UpdateHdPackLabel();
                 ResetOverlayTimer();
-                return;
             }
-
-            // Texture-pack consoles: On/Off, persisted per game.
-            bool turnOn = !IsHdPackToggledOn();
-            foreach (var kv in Services.HdPackService.ForcedOptionsFor(_game.Console))
+            catch (Exception ex)
             {
-                // Off value mirrors each option's own vocabulary (True/False vs enabled/disabled).
-                string off = kv.Value == "True" ? "False" : "disabled";
-                _coreOptions[kv.Key] = turnOn ? kv.Value : off;
+                // async void: an exception escaping this handler would take the
+                // whole process down — log and keep the session alive instead.
+                System.Diagnostics.Trace.WriteLine($"HD mod switch failed: {ex}");
+                _hdModSwitching = false;
             }
-            _coreOptionsDirty = true;
-            UpdateHdPackLabel();
-
-            _game.HdPackEnabled = turnOn;
-            try { _db?.UpdateHdPackEnabled(_game.Id, turnOn); }
-            catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"HD pack toggle persist failed: {ex.Message}"); }
-
-            // GameCube applies live; N64/PSP read the option at core boot.
-            if (_game.Console == "N64" || _game.Console == "PSP")
-            {
-                _transientMsg    = "Applies on next launch";
-                _transientExpiry = DateTime.Now.AddSeconds(3);
-            }
-            ResetOverlayTimer();
         }
 
         // ── N64 Controller Pak swap (Memory ↔ Rumble) ─────────────────────
