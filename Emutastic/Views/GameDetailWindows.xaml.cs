@@ -926,6 +926,39 @@ namespace Emutastic.Views
                     return;
                 }
 
+                // NES/FDS games whose ACTIVE HD mod is Mesen 2-format (v107+) run on
+                // the external MesenCE emulator — the classic libretro core can't
+                // render those packs. Hosted like PS3: own process, embedded window.
+                if (Services.HdPackService.IsMesenConsole(_game.Console))
+                {
+                    var (activeMod, _) = Services.HdPackService.ListMods(_game);
+                    if (activeMod != null &&
+                        Services.HdPackService.GetModVersion(_game, activeMod) > Services.HdPackService.MaxSupportedPackVersion)
+                    {
+                        if (Services.MesenCe.MesenCeRuntime.IsInstalled())
+                        {
+                            string mesenRom = _game.RomPath;
+                            string mext = System.IO.Path.GetExtension(mesenRom);
+                            if (Services.ZipRomExtractor.IsArchiveExtension(mext)
+                                && Services.ZipRomExtractor.ConsoleNeedsExtraction(_game.Console))
+                            {
+                                string? mex = Services.ZipRomExtractor.ExtractSync(mesenRom, _game.Console);
+                                if (!string.IsNullOrEmpty(mex) && System.IO.File.Exists(mex)) mesenRom = mex;
+                            }
+                            var mesenHost = new MesenCeHostWindow(_game, mesenRom);
+                            mesenHost.SessionEnded += secs => OnHostSessionEnded(secs);
+                            mesenHost.Show();
+                            return;
+                        }
+
+                        var installDlg = new ConfirmDialog("HD Mod",
+                            $"'{activeMod}' is a Mesen 2 pack — install Mesen 2 from Preferences → Cores " +
+                            "(Nintendo → NES — Mesen 2) to play with it.\n\nPlay without the mod for now?",
+                            "Play without mod", danger: false) { Owner = this };
+                        if (installDlg.ShowDialog() != true) return;
+                    }
+                }
+
                 EmulatorWindow.FreeStaleDll(); // must be BEFORE LoadLibrary
                 var core = new LibretroCore(corePath);
                 var emulator = new EmulatorWindow(_game, core);
@@ -1094,17 +1127,21 @@ namespace Emutastic.Views
                     };
                     none.Click += (_, _) => SetHdMod(null);
                     hdRoot.Items.Add(none);
+                    bool mesen2Ready = Services.MesenCe.MesenCeRuntime.IsInstalled();
                     foreach (var mod in all)
                     {
-                        // Mesen 2 packs (format v107+) are silently ignored by the
-                        // classic core — show them, but say why they can't be used.
+                        // Mesen 2 packs (format v107+) run through the external
+                        // MesenCE emulator — selectable when it's installed,
+                        // otherwise shown with the install hint and disabled.
                         int ver = Services.HdPackService.GetModVersion(_game, mod);
-                        bool unsupported = ver > Services.HdPackService.MaxSupportedPackVersion;
+                        bool needsMesen2 = ver > Services.HdPackService.MaxSupportedPackVersion;
                         var item = new MenuItem
                         {
-                            Header = unsupported ? $"{mod}  (needs Mesen 2 — won't render)" : mod,
+                            Header = !needsMesen2 ? mod
+                                : mesen2Ready ? $"{mod}  (via Mesen 2)"
+                                : $"{mod}  (install Mesen 2 to use)",
                             IsCheckable = true,
-                            IsEnabled = !unsupported,
+                            IsEnabled = !needsMesen2 || mesen2Ready,
                             IsChecked = string.Equals(mod, active, StringComparison.OrdinalIgnoreCase)
                         };
                         string captured = mod;

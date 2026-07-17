@@ -280,6 +280,8 @@ Emulation is handled by libretro cores maintained by their upstream authors. Emu
 | LRPS2 | PCSX2 team / libretro maintenance |
 | melonDS | Arisotura |
 | mGBA | Vicki Pfau (endrift) |
+| Mesen (Classic, NES HD packs) | Sour and contributors |
+| Mesen 2 / MesenCE (NES, Mesen 2-format HD mods — standalone emulator, GPL-3.0, fetched on demand from its own releases and run as a separate process) | Sour, the nesdev community and contributors |
 | Mupen64Plus-Next | libretro team |
 | Nestopia UE | Nestopia UE team |
 | Opera | libretro team (3DO) |

@@ -1847,7 +1847,9 @@ namespace Emutastic.Views
         // Console-to-category mapping for accordion grouping
         private static readonly (string Category, string[] Consoles)[] ConsoleCategories =
         {
-            ("Nintendo",  new[] { "NES", "FDS", "SNES", "N64", "GameCube", "GB", "GBC", "GBA", "NDS", "3DS", "VirtualBoy" }),
+            // "Mesen2" is a pseudo-console (like PS3): the external MesenCE
+            // emulator for Mesen 2-format HD mods, not a libretro core.
+            ("Nintendo",  new[] { "NES", "FDS", "Mesen2", "SNES", "N64", "GameCube", "GB", "GBC", "GBA", "NDS", "3DS", "VirtualBoy" }),
             ("Sega",      new[] { "Genesis", "SegaCD", "Sega32X", "Saturn", "SMS", "GameGear", "SG1000", "Dreamcast" }),
             ("Sony",      new[] { "PS1", "PS2", "PS3", "PSP" }),
             ("NEC",       new[] { "TG16", "TGCD" }),
@@ -1956,7 +1958,7 @@ namespace Emutastic.Views
             foreach (var (category, consoleList) in ConsoleCategories)
             {
                 var categoryConsoles = consoleList
-                    .Where(c => Services.CoreManager.ConsoleCoreMap.ContainsKey(c) || c == "PS3")
+                    .Where(c => Services.CoreManager.ConsoleCoreMap.ContainsKey(c) || c == "PS3" || c == "Mesen2")
                     .ToList();
                 if (categoryConsoles.Count == 0) continue;
 
@@ -1969,6 +1971,13 @@ namespace Emutastic.Views
                     {
                         catTotal += 1;
                         if (Services.Ps3.Rpcs3Runtime.IsInstalled()) catInstalled += 1;
+                        continue;
+                    }
+                    // Mesen 2 (MesenCE) is likewise an external emulator package.
+                    if (c == "Mesen2")
+                    {
+                        catTotal += 1;
+                        if (Services.MesenCe.MesenCeRuntime.IsInstalled()) catInstalled += 1;
                         continue;
                     }
                     var cores = Services.CoreManager.ConsoleCoreMap[c];
@@ -2066,6 +2075,9 @@ namespace Emutastic.Views
                     // PS3 isn't a libretro core — it's the external emulator, shown as its own
                     // accordion with the download row (sits in the Sony group next to PS2).
                     if (consoleName == "PS3") { BuildPs3CoreEntry(catBody); continue; }
+                    // Mesen 2 (MesenCE): external emulator for Mesen 2-format HD
+                    // mods — its own clearly-labeled accordion beside the NES cores.
+                    if (consoleName == "Mesen2") { BuildMesenCeCoreEntry(catBody); continue; }
 
                     string[] candidates = Services.CoreManager.ConsoleCoreMap[consoleName];
 
@@ -3638,6 +3650,213 @@ namespace Emutastic.Views
 
             compatCard.Child = compatStack;
             CoresListPanel.Children.Add(compatCard);
+        }
+
+        // Mesen 2 (MesenCE) accordion for the cores list (Nintendo group). It's the external
+        // emulator used for Mesen 2-format HD mods (pack v107+) that the classic libretro
+        // Mesen core can't render — labeled explicitly so the two are never confused.
+        private void BuildMesenCeCoreEntry(StackPanel catBody)
+        {
+            bool present = Services.MesenCe.MesenCeRuntime.IsInstalled();
+
+            var bodyPanel = new StackPanel { Visibility = Visibility.Collapsed };
+            var chevron = new TextBlock
+            {
+                Text = "▸", FontSize = 12, Foreground = _brushTextMuted,
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0),
+                RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = new RotateTransform(0)
+            };
+
+            var headerGrid = new Grid { Cursor = Cursors.Hand };
+            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetColumn(chevron, 0);
+
+            var consoleLbl = new TextBlock { Text = "NES — Mesen 2 (HD mods)", FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = _brushText, VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetColumn(consoleLbl, 1);
+            var activeLbl = new TextBlock { Text = present ? "MesenCE (standalone)" : "Not installed", FontSize = 11, Foreground = _brushTextMuted, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
+            Grid.SetColumn(activeLbl, 2);
+            var countBadge = new Border
+            {
+                Background = present ? new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58)) : new SolidColorBrush(Color.FromArgb(0x22, 0x88, 0x88, 0x88)),
+                CornerRadius = new CornerRadius(4), Padding = new Thickness(6, 2, 6, 2), VerticalAlignment = VerticalAlignment.Center
+            };
+            countBadge.Child = new TextBlock { Text = present ? "1" : "0/1", FontSize = 10, Foreground = present ? new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58)) : _brushTextMuted };
+            Grid.SetColumn(countBadge, 3);
+
+            headerGrid.Children.Add(chevron);
+            headerGrid.Children.Add(consoleLbl);
+            headerGrid.Children.Add(activeLbl);
+            headerGrid.Children.Add(countBadge);
+
+            var headerBorder = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(0x1A, 0x1A, 0x1C)),
+                CornerRadius = new CornerRadius(6), Padding = new Thickness(12, 8, 14, 8), Margin = new Thickness(12, 2, 0, 2),
+                Child = headerGrid
+            };
+            var capturedBody = bodyPanel;
+            var capturedChevron = chevron;
+            headerBorder.MouseLeftButtonUp += (_, _) =>
+            {
+                bool expanding = capturedBody.Visibility == Visibility.Collapsed;
+                capturedBody.Visibility = expanding ? Visibility.Visible : Visibility.Collapsed;
+                ((RotateTransform)capturedChevron.RenderTransform).Angle = expanding ? 90 : 0;
+            };
+            catBody.Children.Add(headerBorder);
+
+            var bodyCard = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(0x17, 0x17, 0x19)),
+                CornerRadius = new CornerRadius(0, 0, 6, 6), Padding = new Thickness(14, 8, 14, 10), Margin = new Thickness(24, 0, 0, 4)
+            };
+            var bodyStack = new StackPanel();
+            bodyStack.Children.Add(new TextBlock
+            {
+                Text = "Standalone MesenCE, launched automatically for NES games whose active HD mod " +
+                       "needs Mesen 2 (pack format v107+). Classic packs keep using the Mesen (Classic) " +
+                       "libretro core. GPL-3.0 — downloaded from the MesenCE project's own releases.",
+                FontSize = 11,
+                Foreground = _brushTextMuted,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 8)
+            });
+            bodyStack.Children.Add(BuildMesenCeRow());
+            bodyCard.Child = bodyStack;
+            bodyPanel.Children.Add(bodyCard);
+            catBody.Children.Add(bodyPanel);
+        }
+
+        // The MesenCE download row: pulls the latest Windows build from the project's
+        // GitHub releases and extracts it to the emulator folder (portable mode).
+        private Grid BuildMesenCeRow()
+        {
+            bool present = Services.MesenCe.MesenCeRuntime.IsInstalled();
+            var statusText = new TextBlock { FontSize = 10, Foreground = _brushTextMuted, Visibility = Visibility.Collapsed };
+            var progress   = new ProgressBar { Height = 4, Minimum = 0, Maximum = 100, Value = 0, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 4, 0, 0) };
+            var badge      = MakeBadge(present);
+            var btn        = new Button
+            {
+                Content = present ? "Re-download" : "Download",
+                Style   = (Style)FindResource("SmallOutlineButton"),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            btn.Click += async (_, _) =>
+            {
+                btn.IsEnabled         = false;
+                progress.Visibility   = Visibility.Visible;
+                statusText.Visibility = Visibility.Visible;
+                statusText.Text       = "Fetching latest release…";
+                progress.Value        = 0;
+                string? tmpZip = null;
+                try
+                {
+                    using var http = new System.Net.Http.HttpClient();
+                    http.DefaultRequestHeaders.Add("User-Agent", "Emutastic");
+
+                    string rel = await http.GetStringAsync("https://api.github.com/repos/nesdev-org/MesenCE/releases/latest");
+                    using var doc = System.Text.Json.JsonDocument.Parse(rel);
+                    string? tag = doc.RootElement.TryGetProperty("tag_name", out var tagEl) ? tagEl.GetString() : null;
+                    string? url = null;
+                    foreach (var a in doc.RootElement.GetProperty("assets").EnumerateArray())
+                    {
+                        string? n = a.GetProperty("name").GetString();
+                        if (n != null && n.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
+                            && n.IndexOf("windows", StringComparison.OrdinalIgnoreCase) >= 0
+                            && n.IndexOf("arm", StringComparison.OrdinalIgnoreCase) < 0)
+                        { url = a.GetProperty("browser_download_url").GetString(); break; }
+                    }
+                    if (url == null) throw new Exception("No Windows download found in the latest release.");
+
+                    statusText.Text = "Downloading…";
+                    progress.Value  = 10;
+
+                    tmpZip = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"mesence_{Guid.NewGuid():N}.zip");
+                    using (var resp = await http.GetAsync(url, System.Net.Http.HttpCompletionOption.ResponseHeadersRead))
+                    {
+                        resp.EnsureSuccessStatusCode();
+                        long totalBytes = resp.Content.Headers.ContentLength ?? -1;
+                        using var fs = System.IO.File.Create(tmpZip);
+                        using var stream = await resp.Content.ReadAsStreamAsync();
+                        byte[] buffer = new byte[81920];
+                        long downloaded = 0; int read;
+                        while ((read = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                        {
+                            await fs.WriteAsync(buffer, 0, read);
+                            downloaded += read;
+                            if (totalBytes > 0)
+                            {
+                                int pct = (int)(downloaded * 80 / totalBytes) + 10;
+                                progress.Value = Math.Min(pct, 90);
+                                statusText.Text = $"Downloading… {downloaded / (1024 * 1024)} / {totalBytes / (1024 * 1024)} MB";
+                            }
+                        }
+                    }
+
+                    statusText.Text = "Extracting…";
+                    progress.Value  = 92;
+
+                    string dir = Services.MesenCe.MesenCeRuntime.GetDir();
+                    if (System.IO.Directory.Exists(dir))
+                    {
+                        string bak = dir + ".bak";
+                        if (System.IO.Directory.Exists(bak)) System.IO.Directory.Delete(bak, true);
+                        System.IO.Directory.Move(dir, bak);
+                    }
+                    System.IO.Directory.CreateDirectory(dir);
+
+                    string zipPath = tmpZip;
+                    await System.Threading.Tasks.Task.Run(() =>
+                        System.IO.Compression.ZipFile.ExtractToDirectory(zipPath, dir, overwriteFiles: true));
+
+                    if (!Services.MesenCe.MesenCeRuntime.IsInstalled())
+                        throw new Exception("Downloaded files didn't contain the emulator.");
+
+                    // Portable marker + embedding-friendly defaults, before first run.
+                    Services.MesenCe.MesenCeRuntime.PrepareForEmbedding();
+                    if (!string.IsNullOrEmpty(tag)) Services.MesenCe.MesenCeRuntime.SetInstalledBuild(tag);
+
+                    progress.Value  = 100;
+                    statusText.Text = "Downloaded — NES games with a Mesen 2 HD mod now launch through it automatically.";
+                    badge.Background = new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58));
+                    ((TextBlock)badge.Child).Text       = "Present";
+                    ((TextBlock)badge.Child).Foreground = new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58));
+                    btn.Content = "Re-download";
+                }
+                catch (Exception ex)
+                {
+                    statusText.Text = $"Failed: {ex.Message}";
+                }
+                finally
+                {
+                    if (tmpZip != null) { try { System.IO.File.Delete(tmpZip); } catch { } }
+                    progress.Visibility = Visibility.Collapsed;
+                    btn.IsEnabled = true;
+                }
+            };
+
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var stack = new StackPanel();
+            stack.Children.Add(new TextBlock { Text = "MesenCE (Windows x64)", FontSize = 12, Foreground = _brushText });
+            stack.Children.Add(statusText);
+            stack.Children.Add(progress);
+            Grid.SetColumn(stack, 0);
+
+            badge.Margin = new Thickness(8, 0, 8, 0);
+            Grid.SetColumn(badge, 1);
+            Grid.SetColumn(btn, 2);
+
+            grid.Children.Add(stack);
+            grid.Children.Add(badge);
+            grid.Children.Add(btn);
+            return grid;
         }
 
         // PS3 accordion for the cores list (Sony group). PS3 has no libretro core, so its body
