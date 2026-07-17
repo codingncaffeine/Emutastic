@@ -1847,9 +1847,7 @@ namespace Emutastic.Views
         // Console-to-category mapping for accordion grouping
         private static readonly (string Category, string[] Consoles)[] ConsoleCategories =
         {
-            // "Mesen2" is a pseudo-console (like PS3): the external MesenCE
-            // emulator for Mesen 2-format HD mods, not a libretro core.
-            ("Nintendo",  new[] { "NES", "FDS", "Mesen2", "SNES", "N64", "GameCube", "GB", "GBC", "GBA", "NDS", "3DS", "VirtualBoy" }),
+            ("Nintendo",  new[] { "NES", "FDS", "SNES", "N64", "GameCube", "GB", "GBC", "GBA", "NDS", "3DS", "VirtualBoy" }),
             ("Sega",      new[] { "Genesis", "SegaCD", "Sega32X", "Saturn", "SMS", "GameGear", "SG1000", "Dreamcast" }),
             ("Sony",      new[] { "PS1", "PS2", "PS3", "PSP" }),
             ("NEC",       new[] { "TG16", "TGCD" }),
@@ -1958,7 +1956,7 @@ namespace Emutastic.Views
             foreach (var (category, consoleList) in ConsoleCategories)
             {
                 var categoryConsoles = consoleList
-                    .Where(c => Services.CoreManager.ConsoleCoreMap.ContainsKey(c) || c == "PS3" || c == "Mesen2")
+                    .Where(c => Services.CoreManager.ConsoleCoreMap.ContainsKey(c) || c == "PS3")
                     .ToList();
                 if (categoryConsoles.Count == 0) continue;
 
@@ -1973,16 +1971,16 @@ namespace Emutastic.Views
                         if (Services.Ps3.Rpcs3Runtime.IsInstalled()) catInstalled += 1;
                         continue;
                     }
-                    // Mesen 2 (MesenCE) is likewise an external emulator package.
-                    if (c == "Mesen2")
-                    {
-                        catTotal += 1;
-                        if (Services.MesenCe.MesenCeRuntime.IsInstalled()) catInstalled += 1;
-                        continue;
-                    }
                     var cores = Services.CoreManager.ConsoleCoreMap[c];
                     catTotal += cores.Length;
                     catInstalled += cores.Count(dll => IsInstalled(dll));
+                    // NES also carries the external Mesen 2 (MesenCE) package,
+                    // nested with its cores below.
+                    if (c == "NES")
+                    {
+                        catTotal += 1;
+                        if (Services.MesenCe.MesenCeRuntime.IsInstalled()) catInstalled += 1;
+                    }
                 }
 
                 // Category accordion header
@@ -2075,9 +2073,6 @@ namespace Emutastic.Views
                     // PS3 isn't a libretro core — it's the external emulator, shown as its own
                     // accordion with the download row (sits in the Sony group next to PS2).
                     if (consoleName == "PS3") { BuildPs3CoreEntry(catBody); continue; }
-                    // Mesen 2 (MesenCE): external emulator for Mesen 2-format HD
-                    // mods — its own clearly-labeled accordion beside the NES cores.
-                    if (consoleName == "Mesen2") { BuildMesenCeCoreEntry(catBody); continue; }
 
                     string[] candidates = Services.CoreManager.ConsoleCoreMap[consoleName];
 
@@ -2096,6 +2091,13 @@ namespace Emutastic.Views
 
                     int coreCount = allCores.Count;
                     int coreInstalled = allCores.Count(c => c.Installed);
+                    // NES also lists the external Mesen 2 (MesenCE) package below
+                    // its libretro cores — reflect it in the accordion badge.
+                    if (consoleName == "NES")
+                    {
+                        coreCount += 1;
+                        if (Services.MesenCe.MesenCeRuntime.IsInstalled()) coreInstalled += 1;
+                    }
 
                     // Determine preferred/active core name
                     string? savedPref = prefs.PreferredCores.TryGetValue(consoleName, out var p) ? p : null;
@@ -2484,6 +2486,28 @@ namespace Emutastic.Views
                             optRow.Children.Add(optStack);
                             bodyStack.Children.Add(optRow);
                         }
+                    }
+
+                    // Mesen 2 (MesenCE) lives WITH the NES cores so the whole NES
+                    // story is in one accordion — clearly labeled standalone vs
+                    // the libretro rows above it.
+                    if (consoleName == "NES")
+                    {
+                        bodyStack.Children.Add(new Border
+                        {
+                            Height = 1,
+                            Background = new SolidColorBrush(Color.FromRgb(0x2A, 0x2A, 0x2D)),
+                            Margin = new Thickness(0, 10, 0, 8)
+                        });
+                        bodyStack.Children.Add(new TextBlock
+                        {
+                            Text = "Mesen 2 (MesenCE) — standalone emulator, used automatically for games whose active HD mod is Mesen 2-format (v107+). Classic packs keep using the libretro cores above. GPL-3.0, downloaded from the project's own releases.",
+                            FontSize = 11,
+                            Foreground = _brushTextMuted,
+                            TextWrapping = TextWrapping.Wrap,
+                            Margin = new Thickness(0, 0, 0, 6)
+                        });
+                        bodyStack.Children.Add(BuildMesenCeRow());
                     }
 
                     bodyCard.Child = bodyStack;
@@ -3650,83 +3674,6 @@ namespace Emutastic.Views
 
             compatCard.Child = compatStack;
             CoresListPanel.Children.Add(compatCard);
-        }
-
-        // Mesen 2 (MesenCE) accordion for the cores list (Nintendo group). It's the external
-        // emulator used for Mesen 2-format HD mods (pack v107+) that the classic libretro
-        // Mesen core can't render — labeled explicitly so the two are never confused.
-        private void BuildMesenCeCoreEntry(StackPanel catBody)
-        {
-            bool present = Services.MesenCe.MesenCeRuntime.IsInstalled();
-
-            var bodyPanel = new StackPanel { Visibility = Visibility.Collapsed };
-            var chevron = new TextBlock
-            {
-                Text = "▸", FontSize = 12, Foreground = _brushTextMuted,
-                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0),
-                RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = new RotateTransform(0)
-            };
-
-            var headerGrid = new Grid { Cursor = Cursors.Hand };
-            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            Grid.SetColumn(chevron, 0);
-
-            var consoleLbl = new TextBlock { Text = "NES — Mesen 2 (HD mods)", FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = _brushText, VerticalAlignment = VerticalAlignment.Center };
-            Grid.SetColumn(consoleLbl, 1);
-            var activeLbl = new TextBlock { Text = present ? "MesenCE (standalone)" : "Not installed", FontSize = 11, Foreground = _brushTextMuted, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
-            Grid.SetColumn(activeLbl, 2);
-            var countBadge = new Border
-            {
-                Background = present ? new SolidColorBrush(Color.FromArgb(0x22, 0x30, 0xD1, 0x58)) : new SolidColorBrush(Color.FromArgb(0x22, 0x88, 0x88, 0x88)),
-                CornerRadius = new CornerRadius(4), Padding = new Thickness(6, 2, 6, 2), VerticalAlignment = VerticalAlignment.Center
-            };
-            countBadge.Child = new TextBlock { Text = present ? "1" : "0/1", FontSize = 10, Foreground = present ? new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58)) : _brushTextMuted };
-            Grid.SetColumn(countBadge, 3);
-
-            headerGrid.Children.Add(chevron);
-            headerGrid.Children.Add(consoleLbl);
-            headerGrid.Children.Add(activeLbl);
-            headerGrid.Children.Add(countBadge);
-
-            var headerBorder = new Border
-            {
-                Background = new SolidColorBrush(Color.FromRgb(0x1A, 0x1A, 0x1C)),
-                CornerRadius = new CornerRadius(6), Padding = new Thickness(12, 8, 14, 8), Margin = new Thickness(12, 2, 0, 2),
-                Child = headerGrid
-            };
-            var capturedBody = bodyPanel;
-            var capturedChevron = chevron;
-            headerBorder.MouseLeftButtonUp += (_, _) =>
-            {
-                bool expanding = capturedBody.Visibility == Visibility.Collapsed;
-                capturedBody.Visibility = expanding ? Visibility.Visible : Visibility.Collapsed;
-                ((RotateTransform)capturedChevron.RenderTransform).Angle = expanding ? 90 : 0;
-            };
-            catBody.Children.Add(headerBorder);
-
-            var bodyCard = new Border
-            {
-                Background = new SolidColorBrush(Color.FromRgb(0x17, 0x17, 0x19)),
-                CornerRadius = new CornerRadius(0, 0, 6, 6), Padding = new Thickness(14, 8, 14, 10), Margin = new Thickness(24, 0, 0, 4)
-            };
-            var bodyStack = new StackPanel();
-            bodyStack.Children.Add(new TextBlock
-            {
-                Text = "Standalone MesenCE, launched automatically for NES games whose active HD mod " +
-                       "needs Mesen 2 (pack format v107+). Classic packs keep using the Mesen (Classic) " +
-                       "libretro core. GPL-3.0 — downloaded from the MesenCE project's own releases.",
-                FontSize = 11,
-                Foreground = _brushTextMuted,
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 0, 0, 8)
-            });
-            bodyStack.Children.Add(BuildMesenCeRow());
-            bodyCard.Child = bodyStack;
-            bodyPanel.Children.Add(bodyCard);
-            catBody.Children.Add(bodyPanel);
         }
 
         // The MesenCE download row: pulls the latest Windows build from the project's
