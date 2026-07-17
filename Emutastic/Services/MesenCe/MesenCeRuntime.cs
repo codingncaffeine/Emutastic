@@ -40,28 +40,51 @@ namespace Emutastic.Services.MesenCe
 
         /// <summary>
         /// Idempotent pre-launch preparation: ensures portable mode (settings.json
-        /// beside the exe is MesenCE's portable marker) with embedding-friendly
-        /// defaults seeded on first run — menu auto-hidden so the embedded view
-        /// looks native, no update prompts, no background pause (we re-parent its
-        /// window, which can look "unfocused" to the emulator).
+        /// beside the exe is MesenCE's portable marker) and patches the keys the
+        /// EMBEDDED session depends on. Critical one: the re-parented emulator
+        /// window is a child and never the OS foreground window, so Mesen believes
+        /// it's "in the background" — with AllowBackgroundInput at its default
+        /// (false) every controller/keyboard press is ignored even when perfectly
+        /// mapped. Forced true (and background-pause off) on every launch; user
+        /// preferences beyond these are left untouched. Cosmetic defaults (hidden
+        /// menu, no update prompts) are seeded only when the file doesn't exist.
         /// </summary>
         public static void PrepareForEmbedding()
         {
             try
             {
                 string cfg = Path.Combine(GetDir(), "settings.json");
-                if (!File.Exists(cfg))
+                bool firstRun = !File.Exists(cfg);
+
+                System.Text.Json.Nodes.JsonObject? root = null;
+                if (!firstRun)
                 {
-                    File.WriteAllText(cfg,
-                        "{\n" +
-                        "  \"FirstRun\": false,\n" +
-                        "  \"Preferences\": {\n" +
-                        "    \"AutoHideMenu\": true,\n" +
-                        "    \"AutomaticallyCheckForUpdates\": false,\n" +
-                        "    \"PauseWhenInBackground\": false\n" +
-                        "  }\n" +
-                        "}\n");
+                    try
+                    {
+                        root = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(cfg))
+                            as System.Text.Json.Nodes.JsonObject;
+                    }
+                    catch { /* unreadable — rebuild below */ }
                 }
+                root ??= new System.Text.Json.Nodes.JsonObject { ["FirstRun"] = false };
+
+                if (root["Preferences"] is not System.Text.Json.Nodes.JsonObject prefs)
+                {
+                    prefs = new System.Text.Json.Nodes.JsonObject();
+                    root["Preferences"] = prefs;
+                }
+
+                prefs["AllowBackgroundInput"] = true;   // embedded window ≠ foreground
+                prefs["PauseWhenInBackground"] = false; // never pause on focus quirks
+
+                if (firstRun)
+                {
+                    prefs["AutoHideMenu"] = true;
+                    prefs["AutomaticallyCheckForUpdates"] = false;
+                }
+
+                File.WriteAllText(cfg, root.ToJsonString(
+                    new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
             }
             catch { /* best effort — MesenCE still runs with its own defaults */ }
         }
