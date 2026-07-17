@@ -16,14 +16,11 @@ namespace Emutastic.Services
     /// <summary>
     /// Enhancement-pack support: Mesen HD packs (NES/FDS) and per-core texture
     /// packs (GameCube/N64/PSP). Installing a pack places its files where the
-    /// capable core actually reads them and creates an "(HD)" library entry —
-    /// the base entry stays vanilla, mirroring how ROM-hack entries work.
-    ///
-    /// The "(HD)" entry shares the base game's RomHash on purpose: the ROM
-    /// bytes are identical (packs are render/audio-time overlays, not patches),
-    /// so battery saves, artwork and RetroAchievements identity carry over.
-    /// Per-entry behaviour comes from PreferredCore (pinned at install) plus
-    /// ForcedOptionsFor (applied at launch when Game.HasHdPack).
+    /// capable core actually reads them and marks the game itself
+    /// (HdPackPath + PreferredCore pin + HdPackEnabled) — no separate library
+    /// entry; the pack is a per-game toggle, flipped in-game via the overlay
+    /// cog and persisted. Unlike ROM hacks (different game ⇒ own entry), a
+    /// pack is the same game with a visual/audio overlay.
     /// </summary>
     public static class HdPackService
     {
@@ -65,16 +62,75 @@ namespace Emutastic.Services
 
         // ── Archive sniffing ─────────────────────────────────────────────────
 
-        /// <summary>True when the archive contains a Mesen HD pack (hires.txt at any depth).</summary>
+        private static readonly string[] ArchiveExts = { ".zip", ".7z", ".rar", ".hdn" };
+
+        /// <summary>
+        /// True when the archive contains a Mesen HD pack — hires.txt at any
+        /// depth, or (packs are commonly distributed as a release zip wrapping
+        /// the real pack zip plus a readme) inside one nested archive level.
+        /// </summary>
         public static bool IsMesenHdPackArchive(string archivePath)
+        {
+            string? resolved = ResolvePackArchive(archivePath);
+            if (resolved == null) return false;
+            CleanupIfTemp(resolved, archivePath);
+            return true;
+        }
+
+        /// <summary>
+        /// Returns a path to an archive that DIRECTLY contains hires.txt: the
+        /// input itself, or a temp-extracted inner archive (one nesting level).
+        /// Callers must CleanupIfTemp() the result. The nested probe only runs
+        /// for small outer archives (≤16 entries) that carry an archive entry —
+        /// keeps bulk ROM imports from paying extraction costs.
+        /// </summary>
+        private static string? ResolvePackArchive(string archivePath)
         {
             try
             {
-                using var archive = Archives.RomArchive.Open(archivePath);
-                return archive.Entries.Any(e => !e.IsDirectory && e.Key != null &&
-                    NormalizeKey(e.Key).EndsWith("hires.txt", StringComparison.OrdinalIgnoreCase));
+                List<(string Key, long Size)> inners;
+                using (var archive = Archives.RomArchive.Open(archivePath))
+                {
+                    var files = archive.Entries.Where(e => !e.IsDirectory && e.Key != null).ToList();
+                    if (files.Any(e => NormalizeKey(e.Key!).EndsWith("hires.txt", StringComparison.OrdinalIgnoreCase)))
+                        return archivePath;
+
+                    if (files.Count > 16) return null;
+                    inners = files
+                        .Select(f => (Key: NormalizeKey(f.Key!), f.Size))
+                        .Where(f => ArchiveExts.Any(x => f.Key.EndsWith(x, StringComparison.OrdinalIgnoreCase)))
+                        .Where(f => f.Size is > 0 and < 1024L * 1024 * 1024)
+                        .ToList();
+                    if (inners.Count == 0) return null;
+
+                    foreach (var inner in inners)
+                    {
+                        string temp = Path.Combine(Path.GetTempPath(),
+                            "Emutastic-pack-" + Path.GetFileName(inner.Key.Split('/')[^1]));
+                        try
+                        {
+                            var entry = archive.Entries.First(e => !e.IsDirectory && e.Key != null &&
+                                NormalizeKey(e.Key!) == inner.Key);
+                            using (var dst = File.Create(temp))
+                                entry.ExtractTo(dst);
+                            using var innerArc = Archives.RomArchive.Open(temp);
+                            if (innerArc.Entries.Any(e => !e.IsDirectory && e.Key != null &&
+                                NormalizeKey(e.Key!).EndsWith("hires.txt", StringComparison.OrdinalIgnoreCase)))
+                                return temp;
+                        }
+                        catch { }
+                        try { File.Delete(temp); } catch { }
+                    }
+                }
             }
-            catch { return false; }
+            catch { }
+            return null;
+        }
+
+        private static void CleanupIfTemp(string resolved, string original)
+        {
+            if (!string.Equals(resolved, original, StringComparison.OrdinalIgnoreCase))
+                try { File.Delete(resolved); } catch { }
         }
 
         // ── Mesen HD pack install (NES/FDS) ──────────────────────────────────
@@ -85,6 +141,25 @@ namespace Emutastic.Services
             => Task.Run(() => InstallMesenPack(archivePath, db, library, explicitTarget));
 
         private static HdPackInstallResult InstallMesenPack(
+            string archivePath, DatabaseService db, IReadOnlyList<Game> library,
+            Game? explicitTarget)
+        {
+            // Distribution zips often wrap the actual pack zip — resolve to the
+            // archive that directly contains hires.txt (may be a temp file).
+            string? packArchive = ResolvePackArchive(archivePath);
+            if (packArchive == null)
+                return HdPackInstallResult.Fail("No hires.txt found — this isn't a Mesen HD pack.");
+            try
+            {
+                return InstallMesenPackCore(packArchive, db, library, explicitTarget);
+            }
+            finally
+            {
+                CleanupIfTemp(packArchive, archivePath);
+            }
+        }
+
+        private static HdPackInstallResult InstallMesenPackCore(
             string archivePath, DatabaseService db, IReadOnlyList<Game> library,
             Game? explicitTarget)
         {
@@ -139,7 +214,9 @@ namespace Emutastic.Services
                 }
                 else
                 {
-                    foreach (var g in library.Where(g => IsMesenConsole(g.Console) && !g.HasHdPack))
+                    // Games that already have a pack stay in the candidate set so
+                    // re-importing a newer pack version updates them in place.
+                    foreach (var g in library.Where(g => IsMesenConsole(g.Console)))
                     {
                         string? candidate = ResolveLoadableRom(g);
                         if (candidate == null) continue;
@@ -275,44 +352,35 @@ namespace Emutastic.Services
             DatabaseService db, IReadOnlyList<Game> library, Game target, string packDir,
             string message)
         {
-            // Re-install onto an existing "(HD)" entry just refreshes the files.
-            var existing = library.FirstOrDefault(g =>
-                !string.IsNullOrEmpty(g.HdPackPath) &&
-                string.Equals(Path.GetFullPath(g.HdPackPath), Path.GetFullPath(packDir),
-                    StringComparison.OrdinalIgnoreCase));
-            if (existing != null)
-                return new HdPackInstallResult(true, $"{message} — updated existing entry '{existing.Title}'.", existing);
+            // In-place model: the pack belongs to the game itself. Pin the
+            // pack-capable core, remember the pack folder, and (re-)enable it —
+            // the in-game overlay "HD Pack" toggle flips HdPackEnabled from here on.
+            bool reinstall = !string.IsNullOrEmpty(target.HdPackPath) &&
+                string.Equals(Path.GetFullPath(target.HdPackPath), Path.GetFullPath(packDir),
+                    StringComparison.OrdinalIgnoreCase);
 
-            var entry = new Game
+            string preferred = PreferredCoreFor(target.Console);
+            if (preferred.Length > 0 &&
+                !string.Equals(target.PreferredCore, preferred, StringComparison.OrdinalIgnoreCase))
             {
-                Title           = $"{target.Title} (HD)",
-                Console         = target.Console,
-                Manufacturer    = target.Manufacturer,
-                Year            = target.Year,
-                RomPath         = target.RomPath,
-                // Same bytes, same game: sharing RomHash keeps battery saves,
-                // artwork and RetroAchievements identity in sync with the base.
-                RomHash         = target.RomHash,
-                Developer       = target.Developer,
-                Publisher       = target.Publisher,
-                Genre           = target.Genre,
-                Description     = target.Description,
-                BackgroundColor = target.BackgroundColor,
-                AccentColor     = target.AccentColor,
-                PreferredCore   = PreferredCoreFor(target.Console),
-            };
-            db.InsertGame(entry);
-            db.UpdateHdPackPath(entry.Id, packDir);
-            entry.HdPackPath = packDir;
+                db.UpdatePreferredCore(target.Id, preferred);
+                target.PreferredCore = preferred;
+            }
+            db.UpdateHdPackPath(target.Id, packDir);
+            db.UpdateHdPackEnabled(target.Id, true);
+            target.HdPackPath = packDir;
+            target.HdPackEnabled = true;
 
             string coreHint = "";
-            string preferred = PreferredCoreFor(target.Console);
             if (preferred.Length > 0 &&
                 !File.Exists(Path.Combine(AppPaths.GetCoresFolder(), preferred)))
             {
-                coreHint = $" Install the {(IsMesenConsole(target.Console) ? "Mesen" : "Mupen64Plus-Next")} core from Preferences → Cores to play it.";
+                coreHint = $" Install the {(IsMesenConsole(target.Console) ? "Mesen" : "Mupen64Plus-Next")} core from Preferences → Cores to use it.";
             }
-            return new HdPackInstallResult(true, $"{message} — new entry '{entry.Title}'.{coreHint}", entry);
+            string tail = reinstall
+                ? "pack files updated."
+                : "toggle it in-game from the cog menu (HD Pack: On/Off).";
+            return new HdPackInstallResult(true, $"{message} — {tail}{coreHint}", target);
         }
 
         private static string NormalizeKey(string key) => key.Replace('\\', '/').TrimStart('/');

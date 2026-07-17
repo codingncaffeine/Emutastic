@@ -1428,16 +1428,19 @@ namespace Emutastic.Views
             if (_game.Console == "N64")
                 _coreOptions["parallel-n64-gfxplugin"] = "parallel";
 
-            // "(HD)" entries: force the enhancement-pack options on, after user
-            // values — these entries exist precisely to render with the pack (a
-            // globally saved "disabled" must not win here; base entries stay
-            // untouched). Session-only; the overlay HD Pack toggle flips it live.
+            // Games with an installed enhancement pack: force the pack options to
+            // the game's persisted HdPackEnabled state, after user values — a
+            // globally saved core option must not override the per-game toggle
+            // (and Mesen's own default is enabled, so "off" needs forcing too).
+            // The overlay "HD Pack" toggle flips this live and persists it.
             if (_game.HasHdPack)
             {
                 foreach (var kv in Services.HdPackService.ForcedOptionsFor(_game.Console))
                 {
-                    _coreOptions[kv.Key] = kv.Value;
-                    System.Diagnostics.Trace.WriteLine($"HD pack entry: forced {kv.Key} = {kv.Value}");
+                    string off = kv.Value == "True" ? "False" : "disabled";
+                    _coreOptions[kv.Key] = _game.HdPackEnabled ? kv.Value : off;
+                    System.Diagnostics.Trace.WriteLine(
+                        $"HD pack: forced {kv.Key} = {_coreOptions[kv.Key]} (enabled={_game.HdPackEnabled})");
                 }
             }
         }
@@ -8473,6 +8476,11 @@ namespace Emutastic.Views
             }
             _coreOptionsDirty = true;
             UpdateHdPackLabel();
+
+            // Persist per game — the next launch seeds the options from this.
+            _game.HdPackEnabled = turnOn;
+            try { _db?.UpdateHdPackEnabled(_game.Id, turnOn); }
+            catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"HD pack toggle persist failed: {ex.Message}"); }
 
             // Mesen/Dolphin apply live; the others read the option at core boot.
             if (_game.Console == "N64" || _game.Console == "PSP")

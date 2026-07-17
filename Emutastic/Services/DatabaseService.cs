@@ -194,9 +194,11 @@ namespace Emutastic.Services
             TryAddColumn(connection, "Games", "Notes",      "TEXT DEFAULT ''");
             TryAddColumn(connection, "Games", "ManualPath", "TEXT DEFAULT ''");
             TryAddColumn(connection, "Games", "PatchPath",  "TEXT DEFAULT ''");
-            // Enhancement pack (Mesen HD pack / texture pack) folder for "(HD)"
-            // entries — set post-hoc via UpdateHdPackPath like the columns above.
-            TryAddColumn(connection, "Games", "HdPackPath", "TEXT DEFAULT ''");
+            // Enhancement pack (Mesen HD pack / texture pack): folder installed
+            // for this game + whether it renders (in-game overlay toggle). Both
+            // set post-hoc via Update* methods like the columns above.
+            TryAddColumn(connection, "Games", "HdPackPath",    "TEXT DEFAULT ''");
+            TryAddColumn(connection, "Games", "HdPackEnabled", "INTEGER DEFAULT 1");
 
             // RetroAchievements cache. RAGameId is captured at launch from
             // rcheevos's identify-game callback; the *Json columns hold the
@@ -1545,6 +1547,28 @@ namespace Emutastic.Services
             cmd.ExecuteNonQuery();
         }
 
+        public void UpdateHdPackEnabled(int gameId, bool enabled)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "UPDATE Games SET HdPackEnabled = $on WHERE Id = $id;";
+            cmd.Parameters.AddWithValue("$on", enabled ? 1 : 0);
+            cmd.Parameters.AddWithValue("$id", gameId);
+            cmd.ExecuteNonQuery();
+        }
+
+        public void UpdatePreferredCore(int gameId, string preferredCore)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "UPDATE Games SET PreferredCore = $core WHERE Id = $id;";
+            cmd.Parameters.AddWithValue("$core", preferredCore ?? "");
+            cmd.Parameters.AddWithValue("$id", gameId);
+            cmd.ExecuteNonQuery();
+        }
+
         /// <summary>
         /// Last-read position for a game's manual, or null if never opened.
         /// Page is 1-based; ScrollFraction is scrollTop/scrollHeight (0..1) so it
@@ -2054,7 +2078,7 @@ namespace Emutastic.Services
                 RAGameId, RAProgressionJson, RAProgressionFetchedAt,
                 RAUserProgressJson, RAUserProgressFetchedAt,
                 RALiveProgressJson, RALiveProgressFetchedAt,
-                RALastLaunchOutcome, TotalPlayTimeSeconds, Notes, ManualPath, PatchPath, HdPackPath;
+                RALastLaunchOutcome, TotalPlayTimeSeconds, Notes, ManualPath, PatchPath, HdPackPath, HdPackEnabled;
 
             public OrdinalMap(SqliteDataReader reader)
             {
@@ -2097,6 +2121,7 @@ namespace Emutastic.Services
                 ManualPath              = TryOrd(reader, "ManualPath");
                 PatchPath               = TryOrd(reader, "PatchPath");
                 HdPackPath              = TryOrd(reader, "HdPackPath");
+                HdPackEnabled           = TryOrd(reader, "HdPackEnabled");
             }
 
             private static int TryOrd(SqliteDataReader r, string col)
@@ -2149,6 +2174,9 @@ namespace Emutastic.Services
                 ManualPath              = AppPaths.FromStoragePath(GetStr(reader, o.ManualPath)),
                 PatchPath               = AppPaths.FromStoragePath(GetStr(reader, o.PatchPath)),
                 HdPackPath              = AppPaths.FromStoragePath(GetStr(reader, o.HdPackPath)),
+                // Default ON when the column is somehow absent (GetInt yields 0 →
+                // treat missing ordinal as enabled to match the column default).
+                HdPackEnabled           = o.HdPackEnabled < 0 || GetInt(reader, o.HdPackEnabled) != 0,
             };
         }
 

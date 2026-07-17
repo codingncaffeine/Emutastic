@@ -2308,7 +2308,8 @@ namespace Emutastic
             // A single item covers whatever this console supports; the handler
             // routes by what the user picked (.ips/.bps/.ups patch, a zip that
             // CONTAINS a patch, a Mesen HD pack archive, or a texture pack).
-            // Base entries only — hacked/(HD) entries don't stack further mods.
+            // Hidden on hacked entries and pack-installed games (packs update
+            // via re-import; hacks are their own entries and don't stack).
             {
                 bool canPatch = Services.RomPatcher.SupportedConsoles.Contains(game.Console);
                 bool canMesen = Services.HdPackService.IsMesenConsole(game.Console);
