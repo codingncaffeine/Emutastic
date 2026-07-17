@@ -1310,9 +1310,11 @@ namespace Emutastic.Views
 
                 SeedDefaultCoreOptions();
 
-                // "(HD)" entries get an in-game toggle for their enhancement pack.
-                // After SeedDefaultCoreOptions so the label reflects the forced-on state.
-                if (game.HasHdPack)
+                // In-game HD mod picker / pack toggle — shown whenever mods exist
+                // for this game (filesystem-based on Mesen consoles, so packs
+                // installed by any build or by hand still surface the control).
+                // After SeedDefaultCoreOptions so the label reflects seeded state.
+                if (Services.HdPackService.ModsExist(game))
                 {
                     OverlayHdPackBtn.Visibility = Visibility.Visible;
                     UpdateHdPackLabel();
@@ -1430,16 +1432,14 @@ namespace Emutastic.Views
 
             // Games with installed enhancement packs: force the pack options,
             // after user values — a globally saved core option must not override
-            // the per-game state. Mesen consoles keep the flag on and let the
-            // active mod folder decide (the overlay picker swaps mods live);
-            // texture consoles force on/off from the persisted per-game toggle.
-            if (_game.HasHdPack)
+            // the per-game state. Mesen consoles answer from the mod library on
+            // disk (self-healing across DB history) and keep the flag on so the
+            // overlay picker can swap mods live; texture consoles force on/off
+            // from the persisted per-game toggle. Empty dict = nothing installed.
+            foreach (var kv in Services.HdPackService.GetLaunchForcedOptions(_game))
             {
-                foreach (var kv in Services.HdPackService.GetLaunchForcedOptions(_game))
-                {
-                    _coreOptions[kv.Key] = kv.Value;
-                    System.Diagnostics.Trace.WriteLine($"HD pack: forced {kv.Key} = {kv.Value}");
-                }
+                _coreOptions[kv.Key] = kv.Value;
+                System.Diagnostics.Trace.WriteLine($"HD pack: forced {kv.Key} = {kv.Value}");
             }
         }
 

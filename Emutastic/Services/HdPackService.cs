@@ -180,30 +180,49 @@ namespace Emutastic.Services
         }
 
         /// <summary>
+        /// Any mods installed for this game? Mesen consoles answer from the
+        /// FILESYSTEM (mod library + active folder) — deliberately not from DB
+        /// columns, so packs installed by older builds, by hand, or against a
+        /// since-rearranged library still light everything up. Texture consoles
+        /// answer from the DB column (their files live in core-owned folders).
+        /// </summary>
+        public static bool ModsExist(Game game)
+        {
+            if (!IsMesenConsole(game.Console)) return game.HasHdPack;
+            var (active, all) = ListMods(game);
+            return active != null || all.Count > 0;
+        }
+
+        /// <summary>
         /// Whether this game should launch on its pack-capable core with the pack
         /// options on: Mesen consoles → a mod is active on disk; texture consoles
         /// → the persisted per-game toggle.
         /// </summary>
         public static bool WantsPackCore(Game game)
         {
-            if (!game.HasHdPack) return false;
-            if (!IsMesenConsole(game.Console)) return game.HdPackEnabled;
-            string? stem = RomStemFor(game);
-            return stem != null && ReadActiveName(stem) != null;
+            if (IsMesenConsole(game.Console))
+            {
+                string? stem = RomStemFor(game);
+                return stem != null && ReadActiveName(stem) != null;
+            }
+            return game.HasHdPack && game.HdPackEnabled;
         }
 
         /// <summary>
         /// Core options to force at launch for a pack-installed game. Mesen
-        /// consoles always force the pack flag ON — the active-folder's presence
-        /// decides whether anything renders, and keeping the flag on lets the
-        /// overlay picker swap mods live. Texture consoles force on/off from the
-        /// per-game toggle (their cores default some options on).
+        /// consoles always force the pack flag ON when mods exist on disk — the
+        /// active-folder's presence decides whether anything renders, and keeping
+        /// the flag on lets the overlay picker swap mods live. Texture consoles
+        /// force on/off from the per-game toggle (their cores default some
+        /// options on).
         /// </summary>
         public static Dictionary<string, string> GetLaunchForcedOptions(Game game)
         {
+            if (IsMesenConsole(game.Console))
+                return ModsExist(game) ? ForcedOptionsFor(game.Console) : new();
             if (!game.HasHdPack) return new();
             var forced = ForcedOptionsFor(game.Console);
-            if (IsMesenConsole(game.Console) || game.HdPackEnabled) return forced;
+            if (game.HdPackEnabled) return forced;
             return forced.ToDictionary(kv => kv.Key,
                 kv => kv.Value == "True" ? "False" : "disabled");
         }
@@ -228,47 +247,47 @@ namespace Emutastic.Services
         /// <summary>
         /// Returns a path to an archive that DIRECTLY contains hires.txt: the
         /// input itself, or a temp-extracted inner archive (one nesting level).
-        /// Callers must CleanupIfTemp() the result. The nested probe only runs
-        /// for small outer archives (≤16 entries) that carry an archive entry —
-        /// keeps bulk ROM imports from paying extraction costs.
+        /// Callers must CleanupIfTemp() the result. Real distributions wrap the
+        /// pack zip alongside dozens of loose extras ("UnZipMeFirst…" style), so
+        /// the nested probe is gated on the count/size of INNER ARCHIVES only
+        /// (≤4 probed, ≤512 MB each) — never on the outer file count. Archives
+        /// with no nested archive entries (the bulk-import common case) pay
+        /// nothing beyond the entry listing.
         /// </summary>
         private static string? ResolvePackArchive(string archivePath)
         {
             try
             {
-                List<(string Key, long Size)> inners;
-                using (var archive = Archives.RomArchive.Open(archivePath))
+                using var archive = Archives.RomArchive.Open(archivePath);
+                var files = archive.Entries.Where(e => !e.IsDirectory && e.Key != null).ToList();
+                if (files.Any(e => NormalizeKey(e.Key!).EndsWith("hires.txt", StringComparison.OrdinalIgnoreCase)))
+                    return archivePath;
+
+                var inners = files
+                    .Select(f => (Key: NormalizeKey(f.Key!), f.Size))
+                    .Where(f => ArchiveExts.Any(x => f.Key.EndsWith(x, StringComparison.OrdinalIgnoreCase)))
+                    .Where(f => f.Size is > 0 and < 512L * 1024 * 1024)
+                    .OrderByDescending(f => f.Size) // the pack zip dwarfs readme-sized extras
+                    .Take(4)
+                    .ToList();
+
+                foreach (var inner in inners)
                 {
-                    var files = archive.Entries.Where(e => !e.IsDirectory && e.Key != null).ToList();
-                    if (files.Any(e => NormalizeKey(e.Key!).EndsWith("hires.txt", StringComparison.OrdinalIgnoreCase)))
-                        return archivePath;
-
-                    if (files.Count > 16) return null;
-                    inners = files
-                        .Select(f => (Key: NormalizeKey(f.Key!), f.Size))
-                        .Where(f => ArchiveExts.Any(x => f.Key.EndsWith(x, StringComparison.OrdinalIgnoreCase)))
-                        .Where(f => f.Size is > 0 and < 1024L * 1024 * 1024)
-                        .ToList();
-                    if (inners.Count == 0) return null;
-
-                    foreach (var inner in inners)
+                    string temp = Path.Combine(Path.GetTempPath(),
+                        "Emutastic-pack-" + Path.GetFileName(inner.Key.Split('/')[^1]));
+                    try
                     {
-                        string temp = Path.Combine(Path.GetTempPath(),
-                            "Emutastic-pack-" + Path.GetFileName(inner.Key.Split('/')[^1]));
-                        try
-                        {
-                            var entry = archive.Entries.First(e => !e.IsDirectory && e.Key != null &&
-                                NormalizeKey(e.Key!) == inner.Key);
-                            using (var dst = File.Create(temp))
-                                entry.ExtractTo(dst);
-                            using var innerArc = Archives.RomArchive.Open(temp);
-                            if (innerArc.Entries.Any(e => !e.IsDirectory && e.Key != null &&
-                                NormalizeKey(e.Key!).EndsWith("hires.txt", StringComparison.OrdinalIgnoreCase)))
-                                return temp;
-                        }
-                        catch { }
-                        try { File.Delete(temp); } catch { }
+                        var entry = archive.Entries.First(e => !e.IsDirectory && e.Key != null &&
+                            NormalizeKey(e.Key!) == inner.Key);
+                        using (var dst = File.Create(temp))
+                            entry.ExtractTo(dst);
+                        using var innerArc = Archives.RomArchive.Open(temp);
+                        if (innerArc.Entries.Any(e => !e.IsDirectory && e.Key != null &&
+                            NormalizeKey(e.Key!).EndsWith("hires.txt", StringComparison.OrdinalIgnoreCase)))
+                            return temp;
                     }
+                    catch { }
+                    try { File.Delete(temp); } catch { }
                 }
             }
             catch { }
@@ -299,10 +318,15 @@ namespace Emutastic.Services
                 return HdPackInstallResult.Fail("No hires.txt found — this isn't a Mesen HD pack.");
             try
             {
-                // The mod's display name comes from the file the user actually
-                // grabbed (the outer distribution archive), not the temp inner zip.
-                return InstallMesenPackCore(packArchive, db, library, explicitTarget,
-                    Path.GetFileNameWithoutExtension(archivePath));
+                // Mod display name: the inner pack zip's own name when the user
+                // grabbed a wrapper ("UnZipMeFirst…" distributions), else the
+                // archive they picked. Temp inner files carry an "Emutastic-pack-"
+                // prefix — strip it back off for display.
+                string displayName = Path.GetFileNameWithoutExtension(packArchive);
+                if (!string.Equals(packArchive, archivePath, StringComparison.OrdinalIgnoreCase) &&
+                    displayName.StartsWith("Emutastic-pack-", StringComparison.Ordinal))
+                    displayName = displayName["Emutastic-pack-".Length..];
+                return InstallMesenPackCore(packArchive, db, library, explicitTarget, displayName);
             }
             finally
             {

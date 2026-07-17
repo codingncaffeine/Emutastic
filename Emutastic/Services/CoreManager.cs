@@ -340,6 +340,21 @@ namespace Emutastic.Services
                 }
             }
 
+            // 2.5. Enhancement mods: a game with an ACTIVE Mesen HD mod on disk
+            //      routes to the Mesen core — filesystem-based like the overlay
+            //      picker, so packs installed by older builds or by hand route
+            //      correctly even when no per-game PreferredCore was persisted.
+            if (HdPackService.IsMesenConsole(game.Console) && HdPackService.WantsPackCore(game))
+            {
+                string mesenPath = Path.Combine(_coresFolder, "mesen_libretro.dll");
+                if (File.Exists(mesenPath))
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[CoreManager] Active HD mod → Mesen for '{game.Title}'");
+                    return mesenPath;
+                }
+            }
+
             // 3. Standard preferred-or-priority resolution.
             return GetCorePath(game.Console);
         }
