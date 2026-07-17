@@ -450,16 +450,14 @@ namespace Emutastic.Services
                 using (var reader = new StreamReader(hs))
                     hiresText = reader.ReadToEnd();
 
-                // Packs built for Mesen 2 (format v107+) can't render on the classic
-                // libretro core — they run through the external MesenCE emulator
-                // instead (launch routing handles it). Install them either way and
-                // say which path they'll take.
+                // Packs built for Mesen 2 (format v107+) are silently ignored by
+                // the classic core — refuse them with the real reason instead.
                 int packVer = ParsePackVersion(hiresText);
-                string mesen2Note = "";
                 if (packVer > MaxSupportedPackVersion)
-                    mesen2Note = MesenCe.MesenCeRuntime.IsInstalled()
-                        ? " This is a Mesen 2 pack — the game launches through Mesen 2 while it's active."
-                        : " This is a Mesen 2 pack — install Mesen 2 (Preferences → Cores → NES — Mesen 2) to use it.";
+                    return HdPackInstallResult.Fail(
+                        $"This pack was built for Mesen 2 (HD pack format v{packVer}). " +
+                        $"The Mesen core supports packs up to v{MaxSupportedPackVersion}, so this one can't render — " +
+                        "look for a version of the pack made for Mesen 0.9.x.");
 
                 // The pack declares the ROMs it supports as full-file SHA-1 hashes
                 // (Mesen convention: SHA1 of the complete file, iNES header included).
@@ -530,7 +528,7 @@ namespace Emutastic.Services
                     return HdPackInstallResult.Fail("The pack was extracted but couldn't be activated (files in use?). Try again with the game closed.");
 
                 return FinishInstall(db, library, target, ActiveModDir(stem),
-                    $"HD mod '{packName}' installed for '{target.Title}'{mismatchNote}{mesen2Note}");
+                    $"HD mod '{packName}' installed for '{target.Title}'{mismatchNote}");
             }
             catch (Exception ex)
             {
