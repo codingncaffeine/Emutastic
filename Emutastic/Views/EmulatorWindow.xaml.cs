@@ -1428,19 +1428,17 @@ namespace Emutastic.Views
             if (_game.Console == "N64")
                 _coreOptions["parallel-n64-gfxplugin"] = "parallel";
 
-            // Games with an installed enhancement pack: force the pack options to
-            // the game's persisted HdPackEnabled state, after user values — a
-            // globally saved core option must not override the per-game toggle
-            // (and Mesen's own default is enabled, so "off" needs forcing too).
-            // The overlay "HD Pack" toggle flips this live and persists it.
+            // Games with installed enhancement packs: force the pack options,
+            // after user values — a globally saved core option must not override
+            // the per-game state. Mesen consoles keep the flag on and let the
+            // active mod folder decide (the overlay picker swaps mods live);
+            // texture consoles force on/off from the persisted per-game toggle.
             if (_game.HasHdPack)
             {
-                foreach (var kv in Services.HdPackService.ForcedOptionsFor(_game.Console))
+                foreach (var kv in Services.HdPackService.GetLaunchForcedOptions(_game))
                 {
-                    string off = kv.Value == "True" ? "False" : "disabled";
-                    _coreOptions[kv.Key] = _game.HdPackEnabled ? kv.Value : off;
-                    System.Diagnostics.Trace.WriteLine(
-                        $"HD pack: forced {kv.Key} = {_coreOptions[kv.Key]} (enabled={_game.HdPackEnabled})");
+                    _coreOptions[kv.Key] = kv.Value;
+                    System.Diagnostics.Trace.WriteLine($"HD pack: forced {kv.Key} = {kv.Value}");
                 }
             }
         }
@@ -8443,15 +8441,16 @@ namespace Emutastic.Views
             ResetOverlayTimer();
         }
 
-        // ── HD pack toggle (enhancement-pack "(HD)" entries) ──────────────
-        // Flips every pack option for this console between on and off; the core
-        // picks the change up via _coreOptionsDirty + check_variables(). Mesen
-        // reloads its HD pack live (UpdateHdPackMode) and Dolphin re-reads the
-        // custom-texture flag; mupen64plus-next and PPSSPP read theirs at boot,
-        // so those apply on the next launch. Deliberately NOT persisted via
-        // App.CoreOptions — the forced-on state is per-entry (re-applied by
-        // SeedDefaultCoreOptions), never a per-core global that could leak onto
-        // base games running the same core.
+        // ── HD mod picker / pack toggle (games with installed packs) ──────
+        // Mesen consoles: cycles None → each installed mod. Mesen reloads packs
+        // FROM DISK when the mesen_hdpacks flag flips (UpdateHdPackMode does a
+        // savestate → PPU swap → loadstate round-trip), so switching is live and
+        // position-preserving: unload the pack (flag off), swap the active mod
+        // folder, flag back on. State lives on disk — nothing else to persist.
+        // Texture consoles: plain On/Off, persisted per game via HdPackEnabled
+        // (live on GameCube; N64/PSP read the option at boot → next launch).
+        // Deliberately NOT persisted via App.CoreOptions — never a per-core
+        // global that could leak onto other games running the same core.
         private bool IsHdPackToggledOn()
         {
             var forced = Services.HdPackService.ForcedOptionsFor(_game.Console);
@@ -8462,11 +8461,58 @@ namespace Emutastic.Views
 
         private void UpdateHdPackLabel()
         {
-            OverlayHdPackBtn.Content = $"HD Pack: {(IsHdPackToggledOn() ? "On" : "Off")}";
+            if (Services.HdPackService.IsMesenConsole(_game.Console))
+            {
+                var (active, _) = Services.HdPackService.ListMods(_game);
+                string label = active ?? "None";
+                if (label.Length > 26) label = label[..25] + "…";
+                OverlayHdPackBtn.Content = $"HD Mod: {label}";
+            }
+            else
+            {
+                OverlayHdPackBtn.Content = $"HD Pack: {(IsHdPackToggledOn() ? "On" : "Off")}";
+            }
         }
 
-        private void OverlayHdPack_Click(object sender, RoutedEventArgs e)
+        private async void OverlayHdPack_Click(object sender, RoutedEventArgs e)
         {
+            if (Services.HdPackService.IsMesenConsole(_game.Console))
+            {
+                var (active, all) = Services.HdPackService.ListMods(_game);
+                if (all.Count == 0) { ResetOverlayTimer(); return; }
+
+                // Cycle: None → all[0] → all[1] → … → None
+                string? next;
+                if (active == null) next = all[0];
+                else
+                {
+                    int idx = all.FindIndex(m => string.Equals(m, active, StringComparison.OrdinalIgnoreCase));
+                    next = idx >= 0 && idx + 1 < all.Count ? all[idx + 1] : null;
+                }
+
+                // Unload the current pack so no files are held open (bgm oggs),
+                // give the core a couple of frames to process it, then swap.
+                _coreOptions["mesen_hdpacks"] = "disabled";
+                _coreOptionsDirty = true;
+                await System.Threading.Tasks.Task.Delay(120);
+
+                bool ok = Services.HdPackService.ActivateMod(_game, next);
+                if (next != null)
+                {
+                    _coreOptions["mesen_hdpacks"] = "enabled";
+                    _coreOptionsDirty = true;
+                }
+                if (!ok)
+                {
+                    _transientMsg    = "Couldn't switch mod (files in use)";
+                    _transientExpiry = DateTime.Now.AddSeconds(3);
+                }
+                UpdateHdPackLabel();
+                ResetOverlayTimer();
+                return;
+            }
+
+            // Texture-pack consoles: On/Off, persisted per game.
             bool turnOn = !IsHdPackToggledOn();
             foreach (var kv in Services.HdPackService.ForcedOptionsFor(_game.Console))
             {
@@ -8477,12 +8523,11 @@ namespace Emutastic.Views
             _coreOptionsDirty = true;
             UpdateHdPackLabel();
 
-            // Persist per game — the next launch seeds the options from this.
             _game.HdPackEnabled = turnOn;
             try { _db?.UpdateHdPackEnabled(_game.Id, turnOn); }
             catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"HD pack toggle persist failed: {ex.Message}"); }
 
-            // Mesen/Dolphin apply live; the others read the option at core boot.
+            // GameCube applies live; N64/PSP read the option at core boot.
             if (_game.Console == "N64" || _game.Console == "PSP")
             {
                 _transientMsg    = "Applies on next launch";

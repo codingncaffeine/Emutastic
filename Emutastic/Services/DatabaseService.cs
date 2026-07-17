@@ -200,6 +200,46 @@ namespace Emutastic.Services
             TryAddColumn(connection, "Games", "HdPackPath",    "TEXT DEFAULT ''");
             TryAddColumn(connection, "Games", "HdPackEnabled", "INTEGER DEFAULT 1");
 
+            // One-shot migration: the first enhancement-pack build (dfa9824)
+            // created cloned "(HD)" library entries; the shipped model marks the
+            // base game itself. Fold each clone's pack fields into its base
+            // entry (same ROM + console) and remove the clone. Idempotent —
+            // once folded, no matching clones remain.
+            try
+            {
+                var find = connection.CreateCommand();
+                find.CommandText = @"SELECT Id, Console, RomPath, HdPackPath, PreferredCore
+                                     FROM Games WHERE HdPackPath != '' AND Title LIKE '% (HD)';";
+                var clones = new List<(int Id, string Console, string Rom, string Pack, string Core)>();
+                using (var r = find.ExecuteReader())
+                    while (r.Read())
+                        clones.Add((r.GetInt32(0), r.GetString(1), r.GetString(2), r.GetString(3), r.GetString(4)));
+
+                foreach (var c in clones)
+                {
+                    var upd = connection.CreateCommand();
+                    upd.CommandText = @"
+                        UPDATE Games SET HdPackPath = $pack, PreferredCore = $core
+                        WHERE Id = (SELECT Id FROM Games
+                                    WHERE RomPath = $rom AND Console = $console
+                                      AND Id != $id AND HdPackPath = '' LIMIT 1);";
+                    upd.Parameters.AddWithValue("$pack", c.Pack);
+                    upd.Parameters.AddWithValue("$core", c.Core);
+                    upd.Parameters.AddWithValue("$rom", c.Rom);
+                    upd.Parameters.AddWithValue("$console", c.Console);
+                    upd.Parameters.AddWithValue("$id", c.Id);
+                    if (upd.ExecuteNonQuery() > 0)
+                    {
+                        var del = connection.CreateCommand();
+                        del.CommandText = "DELETE FROM Games WHERE Id = $id;";
+                        del.Parameters.AddWithValue("$id", c.Id);
+                        del.ExecuteNonQuery();
+                        System.Diagnostics.Trace.WriteLine($"[DB] Folded (HD) clone entry {c.Id} into its base game");
+                    }
+                }
+            }
+            catch { /* migration is best-effort; the app works without it */ }
+
             // RetroAchievements cache. RAGameId is captured at launch from
             // rcheevos's identify-game callback; the *Json columns hold the
             // last fetched API responses; *FetchedAt are unix seconds for TTL

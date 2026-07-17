@@ -52,13 +52,161 @@ namespace Emutastic.Services
             _              => new()
         };
 
-        /// <summary>Core DLL an "(HD)" entry gets pinned to (empty = keep console default).</summary>
+        /// <summary>Core DLL a pack-installed game gets pinned to (empty = keep console default).</summary>
         public static string PreferredCoreFor(string console) => console switch
         {
             "NES" or "FDS" => "mesen_libretro.dll",
             "N64"          => "mupen64plus_next_libretro.dll", // parallel (default) can't do packs
             _              => ""                               // GameCube/PSP: single core already
         };
+
+        // ── Per-game mod library (Mesen consoles) ────────────────────────────
+        // Multiple packs can be installed per game. The ACTIVE one lives where
+        // Mesen reads it — System\HdPacks\<rom stem>\ — with a "pack.name"
+        // marker; inactive ones are parked at System\HdPacks\_mods\<stem>\<name>\
+        // (never scanned by the core: it only checks the <rom stem> folder and
+        // loose .zip/.hdn files at the HdPacks root). Switching = folder rename,
+        // instant on the same volume; Mesen reloads packs from disk when the
+        // mesen_hdpacks flag flips, so the overlay picker can swap mods live.
+
+        private const string ActiveMarker = "pack.name";
+
+        private static string ActiveModDir(string stem) =>
+            Path.Combine(AppPaths.GetFolder("System"), "HdPacks", stem);
+        private static string ModsLibraryDir(string stem) =>
+            Path.Combine(AppPaths.GetFolder("System"), "HdPacks", "_mods", stem);
+
+        private static string SanitizeName(string name)
+        {
+            string clean = string.Join("_", name.Split(Path.GetInvalidFileNameChars()));
+            return string.IsNullOrWhiteSpace(clean) ? "Installed pack" : clean.Trim();
+        }
+
+        private static string? RomStemFor(Game game)
+        {
+            string? loadable = ResolveLoadableRom(game);
+            return loadable == null ? null : Path.GetFileNameWithoutExtension(loadable);
+        }
+
+        private static string? ReadActiveName(string stem)
+        {
+            string dir = ActiveModDir(stem);
+            try
+            {
+                if (!File.Exists(Path.Combine(dir, "hires.txt"))) return null;
+                string marker = Path.Combine(dir, ActiveMarker);
+                if (File.Exists(marker))
+                {
+                    string name = File.ReadAllText(marker).Trim();
+                    if (name.Length > 0) return name;
+                }
+                return "Installed pack"; // pre-marker installs / hand-placed packs
+            }
+            catch { return null; }
+        }
+
+        /// <summary>Active mod name (null = none) and every installed mod for this game.</summary>
+        public static (string? Active, List<string> All) ListMods(Game game)
+        {
+            var all = new List<string>();
+            string? stem = RomStemFor(game);
+            if (stem == null) return (null, all);
+
+            string? active = ReadActiveName(stem);
+            try
+            {
+                string lib = ModsLibraryDir(stem);
+                if (Directory.Exists(lib))
+                    all.AddRange(Directory.EnumerateDirectories(lib).Select(d => Path.GetFileName(d)!));
+            }
+            catch { }
+            if (active != null && !all.Contains(active, StringComparer.OrdinalIgnoreCase))
+                all.Add(active);
+            all.Sort(StringComparer.OrdinalIgnoreCase);
+            return (active, all);
+        }
+
+        /// <summary>
+        /// Makes <paramref name="name"/> the active mod (null = none). Pure
+        /// folder renames; call only while the core has the pack UNLOADED
+        /// (mesen_hdpacks disabled) or the game closed, so no files are held open.
+        /// </summary>
+        public static bool ActivateMod(Game game, string? name)
+        {
+            string? stem = RomStemFor(game);
+            return stem != null && ActivateByStem(stem, name);
+        }
+
+        private static bool ActivateByStem(string stem, string? name)
+        {
+            try
+            {
+                string active = ActiveModDir(stem);
+                string lib = ModsLibraryDir(stem);
+                string? current = ReadActiveName(stem);
+
+                if (current != null &&
+                    string.Equals(current, name, StringComparison.OrdinalIgnoreCase))
+                    return true; // already active
+
+                // Park the current pack back into the library.
+                if (current != null)
+                {
+                    Directory.CreateDirectory(lib);
+                    string dest = Path.Combine(lib, SanitizeName(current));
+                    if (Directory.Exists(dest)) Directory.Delete(dest, recursive: true);
+                    Directory.Move(active, dest);
+                }
+                else if (Directory.Exists(active))
+                {
+                    Directory.Delete(active, recursive: true); // leftover junk, no hires.txt
+                }
+
+                // Promote the chosen one.
+                if (name != null)
+                {
+                    string src = Path.Combine(lib, SanitizeName(name));
+                    if (!Directory.Exists(src)) return false;
+                    Directory.Move(src, active);
+                    File.WriteAllText(Path.Combine(active, ActiveMarker), name);
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[HdPack] ActivateMod failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Whether this game should launch on its pack-capable core with the pack
+        /// options on: Mesen consoles → a mod is active on disk; texture consoles
+        /// → the persisted per-game toggle.
+        /// </summary>
+        public static bool WantsPackCore(Game game)
+        {
+            if (!game.HasHdPack) return false;
+            if (!IsMesenConsole(game.Console)) return game.HdPackEnabled;
+            string? stem = RomStemFor(game);
+            return stem != null && ReadActiveName(stem) != null;
+        }
+
+        /// <summary>
+        /// Core options to force at launch for a pack-installed game. Mesen
+        /// consoles always force the pack flag ON — the active-folder's presence
+        /// decides whether anything renders, and keeping the flag on lets the
+        /// overlay picker swap mods live. Texture consoles force on/off from the
+        /// per-game toggle (their cores default some options on).
+        /// </summary>
+        public static Dictionary<string, string> GetLaunchForcedOptions(Game game)
+        {
+            if (!game.HasHdPack) return new();
+            var forced = ForcedOptionsFor(game.Console);
+            if (IsMesenConsole(game.Console) || game.HdPackEnabled) return forced;
+            return forced.ToDictionary(kv => kv.Key,
+                kv => kv.Value == "True" ? "False" : "disabled");
+        }
 
         // ── Archive sniffing ─────────────────────────────────────────────────
 
@@ -151,7 +299,10 @@ namespace Emutastic.Services
                 return HdPackInstallResult.Fail("No hires.txt found — this isn't a Mesen HD pack.");
             try
             {
-                return InstallMesenPackCore(packArchive, db, library, explicitTarget);
+                // The mod's display name comes from the file the user actually
+                // grabbed (the outer distribution archive), not the temp inner zip.
+                return InstallMesenPackCore(packArchive, db, library, explicitTarget,
+                    Path.GetFileNameWithoutExtension(archivePath));
             }
             finally
             {
@@ -161,7 +312,7 @@ namespace Emutastic.Services
 
         private static HdPackInstallResult InstallMesenPackCore(
             string archivePath, DatabaseService db, IReadOnlyList<Game> library,
-            Game? explicitTarget)
+            Game? explicitTarget, string displayName)
         {
             try
             {
@@ -234,14 +385,28 @@ namespace Emutastic.Services
                             : "This HD pack doesn't declare which ROM it supports. Right-click the game it belongs to and choose Install HD Pack.");
                 }
 
-                // Mesen matches folder-form packs by the loaded file's name:
-                // System\HdPacks\<rom filename stem>\hires.txt
+                // Install into this game's mod library, then make it the active
+                // mod (Mesen matches the active folder by the loaded file's name:
+                // System\HdPacks\<rom filename stem>\hires.txt).
                 string stem = Path.GetFileNameWithoutExtension(loadable);
-                string destDir = Path.Combine(AppPaths.GetFolder("System"), "HdPacks", stem);
-                ExtractUnderPrefix(files, prefix, destDir);
+                string packName = SanitizeName(displayName);
 
-                return FinishInstall(db, library, target, destDir,
-                    $"HD pack installed for '{target.Title}'");
+                // Re-installing the currently active pack: park it first so the
+                // fresh files land in the library and re-activation adopts them.
+                string? currentActive = ReadActiveName(stem);
+                if (currentActive != null &&
+                    string.Equals(SanitizeName(currentActive), packName, StringComparison.OrdinalIgnoreCase))
+                    ActivateByStem(stem, null);
+
+                string libDir = Path.Combine(ModsLibraryDir(stem), packName);
+                if (Directory.Exists(libDir)) Directory.Delete(libDir, recursive: true);
+                ExtractUnderPrefix(files, prefix, libDir);
+
+                if (!ActivateByStem(stem, packName))
+                    return HdPackInstallResult.Fail("The pack was extracted but couldn't be activated (files in use?). Try again with the game closed.");
+
+                return FinishInstall(db, library, target, ActiveModDir(stem),
+                    $"HD mod '{packName}' installed for '{target.Title}'{mismatchNote}");
             }
             catch (Exception ex)
             {
@@ -353,12 +518,8 @@ namespace Emutastic.Services
             string message)
         {
             // In-place model: the pack belongs to the game itself. Pin the
-            // pack-capable core, remember the pack folder, and (re-)enable it —
-            // the in-game overlay "HD Pack" toggle flips HdPackEnabled from here on.
-            bool reinstall = !string.IsNullOrEmpty(target.HdPackPath) &&
-                string.Equals(Path.GetFullPath(target.HdPackPath), Path.GetFullPath(packDir),
-                    StringComparison.OrdinalIgnoreCase);
-
+            // pack-capable core, remember the pack location, and enable it —
+            // the in-game overlay picker/toggle takes it from here.
             string preferred = PreferredCoreFor(target.Console);
             if (preferred.Length > 0 &&
                 !string.Equals(target.PreferredCore, preferred, StringComparison.OrdinalIgnoreCase))
@@ -377,8 +538,8 @@ namespace Emutastic.Services
             {
                 coreHint = $" Install the {(IsMesenConsole(target.Console) ? "Mesen" : "Mupen64Plus-Next")} core from Preferences → Cores to use it.";
             }
-            string tail = reinstall
-                ? "pack files updated."
+            string tail = IsMesenConsole(target.Console)
+                ? "switch mods in-game from the cog menu (HD Mod)."
                 : "toggle it in-game from the cog menu (HD Pack: On/Off).";
             return new HdPackInstallResult(true, $"{message} — {tail}{coreHint}", target);
         }

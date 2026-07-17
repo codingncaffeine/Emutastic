@@ -855,11 +855,12 @@ namespace Emutastic.Views
                 return;
             }
 
-            // Games with an enabled enhancement pack are pinned to a pack-capable
-            // core (e.g. Mesen). When that core isn't installed, GetCorePathForGame
-            // silently falls back to the console default and the pack wouldn't
-            // render — ask first. (Pack toggled off per-game → nothing to warn about.)
-            if (_game.HasHdPack && _game.HdPackEnabled)
+            // Games with an active enhancement pack/mod are pinned to a
+            // pack-capable core (e.g. Mesen). When that core isn't installed,
+            // GetCorePathForGame silently falls back to the console default and
+            // the pack wouldn't render — ask first. (Mod set to None / pack
+            // toggled off per-game → nothing to warn about.)
+            if (Services.HdPackService.WantsPackCore(_game))
             {
                 string preferredDll = Services.HdPackService.PreferredCoreFor(_game.Console);
                 if (preferredDll.Length > 0 &&
