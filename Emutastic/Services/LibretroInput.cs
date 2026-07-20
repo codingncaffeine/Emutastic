@@ -373,6 +373,23 @@ namespace Emutastic.Services
                     };
             }
 
+            // ── Tiger Game.com (Tigerbyte) ───────────────────────────────────
+            // The core reads Game.com A/B/C/D on RetroPad B/A/Y/X (positional
+            // pad layout), Menu on START, Pause on SELECT, Sound on L — see the
+            // core's input descriptors. Without this case the standard fallback
+            // swapped A/B and left C/D/Menu/Pause/Sound unmapped entirely.
+            if (console == "GameCom")
+                return n switch
+                {
+                    "a" => JOYPAD_B, "b" => JOYPAD_A,
+                    "c" => JOYPAD_Y, "d" => JOYPAD_X,
+                    "menu" => JOYPAD_START, "pause" => JOYPAD_SELECT,
+                    "sound" => JOYPAD_L,
+                    "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
+                    "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
+                    _ => uint.MaxValue
+                };
+
             // ── Nintendo DS (DeSmuME) ────────────────────────────────────────
             // "Touch" is the stylus press for the right-stick emulated pointer;
             // DeSmuME reads it on the JOYPAD_R2 wire ("Tap Stylus" in its input
