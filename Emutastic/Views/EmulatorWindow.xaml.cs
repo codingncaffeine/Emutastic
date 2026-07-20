@@ -8864,10 +8864,13 @@ namespace Emutastic.Views
 
             foreach (var (key, label) in options)
             {
-                if (!_coreOptions.ContainsKey(key)) continue;
-
                 var entry = schema.Find(e => e.Key == key);
-                if (entry == null || entry.ValidValues == null || entry.ValidValues.Length == 0) continue;
+                var numeric = _consoleHandler?.GetNumericOption(key);
+                if (numeric == null)
+                {
+                    if (!_coreOptions.ContainsKey(key)) continue;
+                    if (entry == null || entry.ValidValues == null || entry.ValidValues.Length == 0) continue;
+                }
 
                 var row = new System.Windows.Controls.StackPanel { Margin = new Thickness(0, 0, 0, 6) };
 
@@ -8880,7 +8883,15 @@ namespace Emutastic.Views
                     Margin = new Thickness(0, 0, 0, 2),
                 });
 
-                string current = _coreOptions.TryGetValue(key, out var cv) ? cv : entry.DefaultValue;
+                string current = _coreOptions.TryGetValue(key, out var cv) ? cv : (entry?.DefaultValue ?? "");
+
+                if (numeric is { } nr)
+                {
+                    BuildNumericOptionRow(row, key, current, nr, coreName);
+                    VisualOptionRows.Children.Add(row);
+                    continue;
+                }
+                if (entry?.ValidValues == null) continue;   /* guaranteed above; spells it out for flow analysis */
 
                 // Overlay-only gating (e.g. PS2 hides sub-3x internal resolutions).
                 // Does NOT touch the saved value or Preferences; never hide the
@@ -8914,6 +8925,100 @@ namespace Emutastic.Views
                 row.Children.Add(combo);
                 VisualOptionRows.Children.Add(row);
             }
+        }
+
+        /// <summary>
+        /// Slider + typeable number for a numeric-range core option (see
+        /// IConsoleHandler.GetNumericOption). Applies live on every tick — the core
+        /// re-reads via the dirty flag next frame — and persists when the
+        /// interaction ends (drag release / Enter / focus loss).
+        /// </summary>
+        private void BuildNumericOptionRow(System.Windows.Controls.StackPanel row, string key, string current,
+            (double Min, double Max, double Step, string Format, string Suffix) nr, string? coreName)
+        {
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            double val = (nr.Min + nr.Max) / 2;
+            var m = System.Text.RegularExpressions.Regex.Match(current ?? "", @"-?\d+(\.\d+)?");
+            if (m.Success && double.TryParse(m.Value, System.Globalization.NumberStyles.Float, inv, out var pv))
+                val = Math.Clamp(pv, nr.Min, nr.Max);
+
+            var box = new System.Windows.Controls.TextBox
+            {
+                Width = 52,
+                Margin = new Thickness(8, 0, 0, 0),
+                Text = val.ToString(nr.Format, inv),
+                Background = (System.Windows.Media.Brush)FindResource("BgQuaternaryBrush"),
+                Foreground = (System.Windows.Media.Brush)FindResource("TextPrimaryBrush"),
+                CaretBrush = (System.Windows.Media.Brush)FindResource("TextPrimaryBrush"),
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(4, 5, 4, 5),
+                FontSize = 11,
+                TextAlignment = TextAlignment.Center,
+                VerticalContentAlignment = VerticalAlignment.Center,
+            };
+            System.Windows.Controls.DockPanel.SetDock(box, System.Windows.Controls.Dock.Right);
+
+            var slider = new System.Windows.Controls.Slider
+            {
+                Style = (Style)FindResource("OverlaySlider"),
+                Minimum = nr.Min,
+                Maximum = nr.Max,
+                SmallChange = nr.Step,
+                LargeChange = nr.Step * 10,
+                TickFrequency = nr.Step,
+                IsSnapToTickEnabled = true,
+                Value = val,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+
+            void Apply(double v, bool persist)
+            {
+                v = Math.Clamp(v, nr.Min, nr.Max);
+                string sval = v.ToString(nr.Format, inv) + nr.Suffix;
+                _coreOptions[key] = sval;
+                _coreOptionsDirty = true;
+                if (persist && coreName != null)
+                    App.CoreOptions?.SaveValues(coreName, new Dictionary<string, string> { [key] = sval });
+            }
+
+            bool syncing = false;
+            slider.ValueChanged += (s, e2) =>
+            {
+                if (!syncing) box.Text = e2.NewValue.ToString(nr.Format, inv);
+                Apply(e2.NewValue, persist: false);
+                ResetOverlayTimer();
+            };
+            slider.PreviewMouseUp   += (s, e2) => Apply(slider.Value, persist: true);
+            slider.LostMouseCapture += (s, e2) => Apply(slider.Value, persist: true);
+
+            void CommitBox()
+            {
+                var mm = System.Text.RegularExpressions.Regex.Match(box.Text ?? "", @"-?\d+([.,]\d+)?");
+                if (mm.Success && double.TryParse(mm.Value.Replace(',', '.'),
+                        System.Globalization.NumberStyles.Float, inv, out var tv))
+                {
+                    syncing = true;
+                    slider.Value = Math.Clamp(tv, nr.Min, nr.Max);
+                    syncing = false;
+                }
+                box.Text = slider.Value.ToString(nr.Format, inv);
+                Apply(slider.Value, persist: true);
+            }
+            box.KeyDown += (s, e2) =>
+            {
+                if (e2.Key == System.Windows.Input.Key.Enter)
+                {
+                    CommitBox();
+                    System.Windows.Input.Keyboard.ClearFocus();
+                    e2.Handled = true;
+                }
+            };
+            box.LostFocus += (s, e2) => CommitBox();
+
+            var dock = new System.Windows.Controls.DockPanel();
+            dock.Children.Add(box);
+            dock.Children.Add(slider);
+            row.Children.Add(dock);
         }
 
         /// <summary>

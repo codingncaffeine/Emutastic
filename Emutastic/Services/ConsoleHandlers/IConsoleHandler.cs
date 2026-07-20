@@ -156,5 +156,14 @@ namespace Emutastic.Services.ConsoleHandlers
         /// SSAA for parallel-GS). Defaults to <see cref="GetVisualOptions()"/>.
         /// </summary>
         List<(string key, string label)> GetVisualOptions(IReadOnlyDictionary<string, string> coreOptions);
+
+        /// <summary>
+        /// Numeric-range metadata for a core option the overlay should render as a
+        /// live slider + typeable number instead of a dropdown (e.g. the GameCom
+        /// CPU clock). The stored option value becomes
+        /// <c>value.ToString(format, InvariantCulture) + suffix</c>, which the core
+        /// parses by leading float. Null = render the option as a normal dropdown.
+        /// </summary>
+        (double Min, double Max, double Step, string Format, string Suffix)? GetNumericOption(string key);
     }
 }

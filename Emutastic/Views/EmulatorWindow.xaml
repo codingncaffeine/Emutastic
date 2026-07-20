@@ -118,6 +118,49 @@
             </Setter>
         </Style>
 
+        <!-- Overlay numeric slider (live core-option ranges, e.g. GameCom CPU clock) -->
+        <Style x:Key="OverlaySlider" TargetType="Slider">
+            <Setter Property="Height" Value="22"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Slider">
+                        <Grid VerticalAlignment="Center" Background="Transparent">
+                            <Border Height="4" CornerRadius="2" Background="{DynamicResource BgQuaternaryBrush}"/>
+                            <Track x:Name="PART_Track">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="Slider.DecreaseLarge">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate TargetType="RepeatButton">
+                                                <Border Height="4" CornerRadius="2" Background="#E03535"/>
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.DecreaseRepeatButton>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="Slider.IncreaseLarge">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate TargetType="RepeatButton">
+                                                <Border Height="22" Background="Transparent"/>
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.IncreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb Width="14" Height="14">
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="Thumb">
+                                                <Ellipse Fill="#E03535" Stroke="{DynamicResource TextPrimaryBrush}" StrokeThickness="1"/>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- Overlay settings menu item -->
         <Style x:Key="OverlayMenuItemStyle" TargetType="Button">
             <Setter Property="Background"                 Value="Transparent"/>

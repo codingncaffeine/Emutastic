@@ -60,5 +60,8 @@ namespace Emutastic.Services.ConsoleHandlers
         // visible options depend on a selected option (PS2's renderer) override this.
         public virtual List<(string key, string label)> GetVisualOptions(IReadOnlyDictionary<string, string> coreOptions)
             => GetVisualOptions();
+
+        public virtual (double Min, double Max, double Step, string Format, string Suffix)? GetNumericOption(string key)
+            => null;
     }
 }

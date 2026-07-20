@@ -28,6 +28,7 @@ namespace Emutastic.Services.ConsoleHandlers
             "Saturn"         => new SaturnHandler(),
             "3DS"            => new ThreeDsHandler(),
             "NDS"            => new NdsHandler(),
+            "GameCom"        => new GameComHandler(),
             _                => new GenericHandler(console),
         };
     }
