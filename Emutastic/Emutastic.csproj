@@ -54,6 +54,10 @@
          extracted to a temp cache on first use, so webp themes work with nothing extra next to the
          exe. WPF has no native WebP support; decoded off the UI thread. -->
     <EmbeddedResource Include="Libraries\dwebp.exe" />
+    <!-- PS1 digital-pad compatibility table: SHA-1 hashes of normalized titles that
+         require the original digital controller. Embedded so the updater can never
+         orphan or clobber it. -->
+    <EmbeddedResource Include="Assets\data\ps1_digital_only.txt" LogicalName="Emutastic.Data.ps1_digital_only.txt" />
   </ItemGroup>
   <!-- DAT files are not bundled — users download them in-app via Preferences → Cores / Extras -->
   <ItemGroup>

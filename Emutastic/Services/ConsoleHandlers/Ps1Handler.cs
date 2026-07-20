@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using Emutastic.Models;
 
@@ -26,35 +29,66 @@ namespace Emutastic.Services.ConsoleHandlers
 
         public override void ConfigureControllerPorts(LibretroCore core)
         {
-            // Most PS1 games run best as a DualShock (d-pad + analog sticks). But a
-            // handful of early titles read NO controller input at all — not even Start —
-            // when the pad reports as an analog DualShock (SIO id 0x73); they only
-            // recognise the original digital PlayStation Controller (0x41). SOTN is the
-            // canonical example. For those, hand the core a digital pad so input works;
-            // everyone else keeps analog. (Emulators like DuckStation force digital the
-            // same way for these games.)
-            uint device = IsDigitalOnly(_game?.Title) ? RETRO_DEVICE_JOYPAD : RETRO_DEVICE_DUALSHOCK;
+            // Most PS1 games run best as a DualShock (d-pad + analog sticks). But
+            // pre-analog-era titles verify the pad type over serial I/O — some refuse
+            // to boot behind an "insert a standard controller" screen, others silently
+            // read no input at all — when the pad announces the analog id (0x73)
+            // instead of the original digital pad id (0x41). Those get a digital pad
+            // so they run; everyone else keeps the DualShock. Forcing digital on them
+            // costs nothing: by definition they have no analog features to lose.
+            bool digital = IsDigitalOnly(_game?.Title);
+            if (digital)
+                System.Diagnostics.Trace.WriteLine("[PS1] title requires the original digital pad — selecting it over the DualShock");
+            uint device = digital ? RETRO_DEVICE_JOYPAD : RETRO_DEVICE_DUALSHOCK;
             for (uint port = 0; port < 2; port++)
                 core.SetControllerPortDevice(port, device);
         }
 
-        // PS1 titles that must use the digital controller — the analog DualShock leaves
-        // them completely unresponsive. Conservative: only games confirmed to *break*
-        // under analog, not games that merely ignore the sticks. Stored as normalized
-        // titles (see NormalizeTitle) so region/dump tags in the library name don't matter.
-        // To extend: DuckStation's gamedb.yaml is the authoritative source — entries whose
-        // supported_controllers omit AnalogController are the digital-only set.
-        private static readonly HashSet<string> DigitalOnlyTitles = new(StringComparer.Ordinal)
+        // The digital-pad-required table: SHA-1 hashes (lowercase hex) of normalized
+        // titles, one per line, embedded at build time. Generated offline from a
+        // community-maintained controller-compatibility database covering the full
+        // PS1 library — every entry that does not list analog-pad support is included.
+        // Hashes rather than plaintext so the table stays an opaque compatibility
+        // artifact; the generator script lives in the local build notes.
+        private static readonly Lazy<HashSet<string>> DigitalOnlyTitleHashes = new(LoadDigitalOnlyTitleHashes);
+
+        private static HashSet<string> LoadDigitalOnlyTitleHashes()
         {
-            "castlevania symphony of the night",
-        };
+            var set = new HashSet<string>(StringComparer.Ordinal);
+            try
+            {
+                using var stream = Assembly.GetExecutingAssembly()
+                    .GetManifestResourceStream("Emutastic.Data.ps1_digital_only.txt");
+                if (stream != null)
+                {
+                    using var reader = new StreamReader(stream, Encoding.UTF8);
+                    string? line;
+                    while ((line = reader.ReadLine()) != null)
+                    {
+                        line = line.Trim();
+                        if (line.Length == 40) set.Add(line);
+                    }
+                }
+            }
+            catch { /* fall through: empty set below */ }
+            if (set.Count == 0)
+                System.Diagnostics.Trace.WriteLine("[PS1] digital-pad table missing or empty — every title keeps the DualShock");
+            return set;
+        }
 
         private static bool IsDigitalOnly(string? title)
-            => !string.IsNullOrEmpty(title) && DigitalOnlyTitles.Contains(NormalizeTitle(title));
+        {
+            if (string.IsNullOrEmpty(title)) return false;
+            string normalized = NormalizeTitle(title);
+            if (normalized.Length == 0) return false;
+            string hash = Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(normalized))).ToLowerInvariant();
+            return DigitalOnlyTitleHashes.Value.Contains(hash);
+        }
 
         // Lowercase, drop (parenthetical) / [bracketed] tags (region, dump flags, disc
         // numbers), reduce the rest to alphanumeric words, collapse whitespace. So
-        // "Castlevania - Symphony of the Night (USA)" -> "castlevania symphony of the night".
+        // "My Game - The Sequel (USA) (Disc 1)" -> "my game the sequel". Must stay in
+        // lockstep with the table generator's normalization.
         private static string NormalizeTitle(string title)
         {
             var sb = new StringBuilder(title.Length);
