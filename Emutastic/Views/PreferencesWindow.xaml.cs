@@ -1018,7 +1018,7 @@ namespace Emutastic.Views
         // BIOS category groupings matching the cores tab
         private static readonly (string Category, string[] ConsoleDisplays)[] BiosCategories =
         {
-            ("Nintendo",  new[] { "Famicom Disk System", "Game Boy Advance" }),
+            ("Nintendo",  new[] { "Famicom Disk System", "GameCube", "Game Boy Advance" }),
             ("Sega",      new[] { "Sega CD", "Saturn" }),
             ("Sony",      new[] { "PlayStation", "PlayStation 2", "PlayStation 3" }),
             ("NEC",       new[] { "TurboGrafx-CD" }),
@@ -1181,7 +1181,7 @@ namespace Emutastic.Views
             });
             bannerStack.Children.Add(new TextBlock
             {
-                Text = "Alternatively, place a BIOS file in the same folder as the ROMs for that system — it will be found automatically.",
+                Text = "Alternatively, place BIOS files anywhere in a system's ROM folder (subfolders are fine) — recognized files are imported into the System folder automatically.",
                 FontSize = 11,
                 Foreground = _brushTextMuted,
                 TextWrapping = TextWrapping.Wrap,
@@ -1229,7 +1229,10 @@ namespace Emutastic.Views
                         string path = System.IO.Path.Combine(sysDir, entry.Filename);
                         if (BiosExists(path))
                             catFound++;
-                        else
+                        // Sub-path entries (pcsx2/bios/…, kronos/…, GC/…) live in the
+                        // System folder only — a flat same-named file next to ROMs is
+                        // not read at launch, so don't count it as found here either.
+                        else if (!entry.Filename.Contains('/'))
                         {
                             // Check ROM dirs
                             var consoleTags = KnownBios.All
@@ -1350,13 +1353,13 @@ namespace Emutastic.Views
                         .Distinct(StringComparer.OrdinalIgnoreCase)
                         .ToArray();
 
-                    // Count found for this console
+                    // Count found for this console (sub-path entries: System folder only)
                     int consoleFound = 0;
                     foreach (var entry in entries)
                     {
                         string path = System.IO.Path.Combine(sysDir, entry.Filename);
-                        if (BiosExists(path) || romDirs2.Any(dir => dir != null &&
-                            BiosExists(System.IO.Path.Combine(dir, System.IO.Path.GetFileName(entry.Filename)))))
+                        if (BiosExists(path) || (!entry.Filename.Contains('/') && romDirs2.Any(dir => dir != null &&
+                            BiosExists(System.IO.Path.Combine(dir, System.IO.Path.GetFileName(entry.Filename))))))
                             consoleFound++;
                     }
 
@@ -1519,7 +1522,9 @@ namespace Emutastic.Views
 
             string fullPath = System.IO.Path.Combine(sysDir, entry.Filename);
             bool existsInSysDir = Exists(fullPath);
-            bool existsInRomDir = !existsInSysDir && (romDirs?.Any(dir =>
+            // Sub-path entries (pcsx2/bios/…, kronos/…, GC/…) are only read from the
+            // System folder at launch — don't report a flat ROM-dir copy as found.
+            bool existsInRomDir = !existsInSysDir && !entry.Filename.Contains('/') && (romDirs?.Any(dir =>
                 Exists(System.IO.Path.Combine(dir, System.IO.Path.GetFileName(entry.Filename)))) == true);
             bool exists = existsInSysDir || existsInRomDir;
 
@@ -1562,10 +1567,14 @@ namespace Emutastic.Views
             };
             Grid.SetColumn(icon, 0);
 
-            // Filename
+            // Filename — sub-path entries show their System-folder relative path
+            // (e.g. GC\USA\IPL.bin) so identically-named files stay distinguishable
+            // and the expected location is visible at a glance.
             var filename = new TextBlock
             {
-                Text = System.IO.Path.GetFileName(entry.Filename),
+                Text = entry.Filename.Contains('/')
+                    ? entry.Filename.Replace('/', '\\')
+                    : System.IO.Path.GetFileName(entry.Filename),
                 FontSize = 13,
                 Foreground = _brushText,
                 VerticalAlignment = VerticalAlignment.Center,
@@ -1719,26 +1728,6 @@ namespace Emutastic.Views
                 imported > 0 ? System.Windows.MessageBoxImage.Information : System.Windows.MessageBoxImage.Warning);
         }
 
-        // Returns the best KnownBios match for (filename, size, md5). md5 may be null
-        // when the caller hasn't computed it yet — tier 1 is skipped in that case.
-        private static BiosEntry? MatchKnownBios(string entryName, long size, string? md5)
-        {
-            if (md5 != null)
-            {
-                var hashMatch = KnownBios.All.FirstOrDefault(b =>
-                    b.Md5 != null && string.Equals(b.Md5, md5, StringComparison.OrdinalIgnoreCase));
-                if (hashMatch != null) return hashMatch;
-            }
-
-            var sizeMatch = KnownBios.All.FirstOrDefault(b =>
-                string.Equals(System.IO.Path.GetFileName(b.Filename), entryName, StringComparison.OrdinalIgnoreCase)
-                && (b.ExpectedSize == 0 || b.ExpectedSize == size));
-            if (sizeMatch != null) return sizeMatch;
-
-            return KnownBios.All.FirstOrDefault(b =>
-                string.Equals(System.IO.Path.GetFileName(b.Filename), entryName, StringComparison.OrdinalIgnoreCase));
-        }
-
         private static void CopyEntryToSystem(BiosEntry match, System.IO.Stream source, string sysDir)
         {
             string destPath = System.IO.Path.Combine(sysDir, match.Filename);
@@ -1790,14 +1779,19 @@ namespace Emutastic.Views
                             catch { }
                         }
 
-                        var match = MatchKnownBios(entryName, entry.Size, entryMd5);
+                        var match = KnownBios.MatchKnownBios(entryName, entry.Size, entryMd5,
+                            () => entry.OpenEntryStream());
                         if (match == null) continue;
 
                         try
                         {
-                            using var es = entry.OpenEntryStream();
-                            CopyEntryToSystem(match, es, sysDir);
-                            messages.Add($"✓ {srcName} → {System.IO.Path.GetFileName(match.Filename)} ({match.ConsoleDisplay})");
+                            var targets = KnownBios.GcIplTargets(match);
+                            foreach (var target in targets)
+                            {
+                                using var es = entry.OpenEntryStream();
+                                CopyEntryToSystem(target, es, sysDir);
+                            }
+                            messages.Add($"✓ {srcName} → {string.Join(" + ", targets.Select(t => t.Filename.Replace('/', '\\')))} ({match.ConsoleDisplay})");
                             imported++;
                             extractedHere++;
                         }
@@ -1818,23 +1812,23 @@ namespace Emutastic.Views
                 // (e.g. neogeo.zip, cdibios.zip).
             }
 
+            // Mesen HD packs land here when no BIOS entry matched — they belong
+            // to the library import flow (which matches them to their game and
+            // creates the "(HD)" entry), not the System folder. Point the user there.
+            if (isArchive && Emutastic.Services.HdPackService.IsMesenHdPackArchive(src))
+            {
+                messages.Add($"ℹ {srcName}: this is a Mesen HD pack, not a BIOS — drop it on the main library window (or right-click the game → Install HD Pack…) to install it.");
+                skipped++;
+                return;
+            }
+
             // Loose file (or archive that IS the BIOS)
             string? fileMd5 = null;
             if (KnownBios.All.Any(b => b.Md5 != null)) fileMd5 = ComputeMd5(src);
-            var fileMatch = MatchKnownBios(srcName, size, fileMd5);
-            string md5Str   = fileMd5 ?? "(none)";
-            string matchStr = fileMatch != null ? $"MATCH {fileMatch.Filename} ({fileMatch.ConsoleDisplay})" : "NO MATCH";
-            BiosLog($"  file='{srcName}' size={size} md5={md5Str} → {matchStr}");
+            var fileMatch = KnownBios.MatchKnownBios(srcName, size, fileMd5,
+                () => System.IO.File.OpenRead(src));
 
-            string destPath;
-            string label;
-            if (fileMatch != null)
-            {
-                destPath = System.IO.Path.Combine(sysDir, fileMatch.Filename);
-                System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(destPath)!);
-                label = $"{System.IO.Path.GetFileName(fileMatch.Filename)} → {fileMatch.ConsoleDisplay}";
-            }
-            else
+            if (fileMatch == null)
             {
                 messages.Add($"⚠ {srcName}: not recognized as a known BIOS ({size / 1024} KB)");
                 skipped++;
@@ -1843,9 +1837,14 @@ namespace Emutastic.Views
 
             try
             {
-                System.IO.File.Copy(src, destPath, overwrite: true);
-                BiosLog($"  copied → {destPath} (exists now: {System.IO.File.Exists(destPath)})");
-                messages.Add($"✓ {label}");
+                var targets = KnownBios.GcIplTargets(fileMatch);
+                foreach (var target in targets)
+                {
+                    string destPath = System.IO.Path.Combine(sysDir, target.Filename);
+                    System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(destPath)!);
+                    System.IO.File.Copy(src, destPath, overwrite: true);
+                }
+                messages.Add($"✓ {string.Join(" + ", targets.Select(t => t.Filename.Replace('/', '\\')))} → {fileMatch.ConsoleDisplay}");
                 imported++;
             }
             catch (Exception ex)
@@ -6353,7 +6352,8 @@ namespace Emutastic.Views
         string Filename,
         string Description,
         long ExpectedSize,
-        string? Md5);      // null = presence-only check
+        string? Md5,               // null = presence-only check
+        string[]? AltMd5s = null); // other known-good dumps — drag-drop recognition only
 
     internal static class KnownBios
     {
@@ -6414,6 +6414,112 @@ namespace Emutastic.Views
             // Game Boy Advance (optional — mgba has built-in HLE BIOS)
             new("GBA","Game Boy Advance","gba_bios.bin","BIOS (optional, improves compatibility)",16384,"a860e8c0b6d573d191e4ec7db1b1e4f6"),
 
+            // GameCube IPL (optional — Dolphin boots without it, but the dump
+            // restores the official IPL fonts; without it games that render
+            // text through the font ROM (e.g. Star Fox Assault) show missing
+            // or misplaced text. The NTSC dump is shared by USA and Japan;
+            // PAL covers Europe. Md5 is null (presence-only — dev/NR dumps
+            // exist beyond the known set); AltMd5s carries the known retail
+            // dumps (libretro-database System.dat) so drag-drop recognizes
+            // them under any filename (gc-ntsc-10.bin, *.ipl, zipped…).
+            new("GameCube","GameCube","GC/USA/IPL.bin","USA — optional; restores official IPL fonts (fixes e.g. Star Fox Assault text)",2097152,null,
+                new[]{ "fc924a7c879b661abc37cec4f018fdf3",    // NTSC 1.0
+                       "019e39822a9ca3029124f74dd4d55ac4",    // NTSC 1.1
+                       "b17148254a5799684c7d783206504926" }), // NTSC 1.2
+            new("GameCube","GameCube","GC/JAP/IPL.bin","Japan — optional; same NTSC dump as USA",2097152,null,
+                new[]{ "fc924a7c879b661abc37cec4f018fdf3",    // NTSC 1.0
+                       "019e39822a9ca3029124f74dd4d55ac4",    // NTSC 1.1
+                       "b17148254a5799684c7d783206504926" }), // NTSC 1.2
+            new("GameCube","GameCube","GC/EUR/IPL.bin","Europe — optional; PAL dump",2097152,null,
+                new[]{ "0cdda509e2da83c85bfe423dd87346cc",    // PAL 1.0
+                       "339848a0b7c2124cf155276c1e79cbd0",    // PAL 1.1
+                       "db92574caab77a7ec99d4605fd6f2450" }), // PAL 1.2
+
         };
+
+        // ── Recognition (shared by drag-drop and the ROM-folder auto-import) ──
+
+        // Returns the best KnownBios match for (filename, size, md5). md5 may be null
+        // when the caller hasn't computed it yet — tier 1 is skipped in that case.
+        // openStream (optional) lets content-based tiers peek at the file bytes
+        // (used for GameCube IPL dumps, which ship under arbitrary filenames).
+        internal static BiosEntry? MatchKnownBios(string entryName, long size, string? md5,
+            Func<System.IO.Stream>? openStream = null)
+        {
+            if (md5 != null)
+            {
+                var hashMatch = All.FirstOrDefault(b =>
+                    (b.Md5 != null && string.Equals(b.Md5, md5, StringComparison.OrdinalIgnoreCase))
+                    || (b.AltMd5s != null && b.AltMd5s.Contains(md5, StringComparer.OrdinalIgnoreCase)));
+                if (hashMatch != null) return hashMatch;
+            }
+
+            // GameCube IPL dumps: identify by content (exact 2 MB + plaintext
+            // copyright header) so revisions missing from the hash table still
+            // route to the right region folder regardless of filename.
+            if (size == GcIplSize && openStream != null)
+            {
+                string? gcRegion = SniffGcIplRegion(openStream);
+                if (gcRegion != null)
+                    return All.FirstOrDefault(b => b.Filename == $"GC/{gcRegion}/IPL.bin");
+            }
+
+            var sizeMatch = All.FirstOrDefault(b =>
+                string.Equals(System.IO.Path.GetFileName(b.Filename), entryName, StringComparison.OrdinalIgnoreCase)
+                && (b.ExpectedSize == 0 || b.ExpectedSize == size));
+            if (sizeMatch != null) return sizeMatch;
+
+            return All.FirstOrDefault(b =>
+                string.Equals(System.IO.Path.GetFileName(b.Filename), entryName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        internal const long GcIplSize = 2097152; // every retail GC IPL dump is exactly 2 MB
+
+        // Every retail GameCube IPL begins with this plaintext copyright header
+        // (verbatim from Dolphin's EXI_DeviceIPL.cpp; the rest of the ROM is
+        // scrambled). PAL revisions append a "PAL  Revision …" marker; NTSC
+        // revisions (shared by USA and Japan) do not.
+        private const string GcIplHeader =
+            "(C) 1999-2001 Nintendo.  All rights reserved."
+          + "(C) 1999 ArtX Inc.  All rights reserved.";
+
+        // Returns "EUR" or "USA" when the stream is a GameCube IPL dump, else null.
+        // (NTSC dumps land on USA; callers mirror them to JAP via GcIplTargets.)
+        private static string? SniffGcIplRegion(Func<System.IO.Stream> openStream)
+        {
+            try
+            {
+                using var s = openStream();
+                byte[] head = new byte[0x100];
+                int read = 0;
+                while (read < head.Length)
+                {
+                    int n = s.Read(head, read, head.Length - read);
+                    if (n <= 0) break;
+                    read += n;
+                }
+                if (read < head.Length) return null;
+                string text = System.Text.Encoding.ASCII.GetString(head);
+                if (!text.StartsWith(GcIplHeader, StringComparison.Ordinal)) return null;
+                return text.Contains("PAL", StringComparison.Ordinal) ? "EUR" : "USA";
+            }
+            catch { return null; }
+        }
+
+        // The NTSC GameCube IPL serves both the USA and JAP folders — a
+        // recognized NTSC dump is written to both so either region's games
+        // pick it up. Everything else maps to exactly its own entry.
+        internal static BiosEntry[] GcIplTargets(BiosEntry match)
+        {
+            if (match.Console != "GameCube") return new[] { match };
+            string sibling = match.Filename switch
+            {
+                "GC/USA/IPL.bin" => "GC/JAP/IPL.bin",
+                "GC/JAP/IPL.bin" => "GC/USA/IPL.bin",
+                _ => ""
+            };
+            var sib = All.FirstOrDefault(b => b.Filename == sibling);
+            return sib != null ? new[] { match, sib } : new[] { match };
+        }
     }
 }

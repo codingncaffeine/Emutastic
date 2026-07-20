@@ -29,8 +29,14 @@ namespace Emutastic.Services
             new() { FileName = "nestopia_libretro.dll",         DisplayName = "Nestopia",              Systems = ["NES", "FDS"],                        Recommended = true  },
             new() { FileName = "quicknes_libretro.dll",         DisplayName = "QuickNES",              Systems = ["NES"],                               Recommended = false },
             new() { FileName = "fceumm_libretro.dll",           DisplayName = "FCE Ultra MM",          Systems = ["NES"],                               Recommended = false },
+            // Mesen: the only NES libretro core with HD pack support (formats up
+            // to v106 — see HdPackService; Mesen 2-format packs are unsupported).
+            new() { FileName = "mesen_libretro.dll",            DisplayName = "Mesen",                 Systems = ["NES", "FDS"],                        Recommended = false },
             new() { FileName = "snes9x_libretro.dll",           DisplayName = "Snes9x",                Systems = ["SNES"],                              Recommended = true  },
             new() { FileName = "bsnes_libretro.dll",            DisplayName = "bsnes",                 Systems = ["SNES"],                              Recommended = false },
+            // bsnes-hd beta: HD Mode 7 (up to 10x), perspective correction and
+            // widescreen — software renderer, geometry changes handled generically.
+            new() { FileName = "bsnes_hd_beta_libretro.dll",    DisplayName = "bsnes-hd beta (HD Mode 7 / widescreen)", Systems = ["SNES"],             Recommended = false },
             new() { FileName = "parallel_n64_libretro.dll",     DisplayName = "Parallel N64",          Systems = ["N64"],                               Recommended = true  },
             new() { FileName = "mupen64plus_next_libretro.dll", DisplayName = "Mupen64Plus-Next",      Systems = ["N64"],                               Recommended = false },
             new() { FileName = "dolphin_libretro.dll",          DisplayName = "Dolphin",               Systems = ["GameCube"],                          Recommended = true  },

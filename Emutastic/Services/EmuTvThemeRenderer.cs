@@ -85,6 +85,8 @@ namespace Emutastic.Services
         public bool Kidgame { get; init; }
         public bool Broken { get; init; }
         public int Players { get; init; }
+        public DateTime? LastPlayed { get; init; }
+        public int PlayCount { get; init; }
     }
 
     /// <summary>
@@ -112,6 +114,9 @@ namespace Emutastic.Services
             _systemTheme = systemTheme;
             _items = items;
             _viewKind = view.Kind;
+            // ES-DE: game-bound elements in the SYSTEM view show the game picked by the view's
+            // <gameselector> (Last Played panels etc.); without one they stay unbound, as before.
+            _selectorGame = view.Kind == ThemeViewKind.System ? PickSelectorGame(view) : null;
 
             var rv = new RenderedView { Kind = view.Kind };
             rv.Root.Width = _w;
@@ -248,9 +253,28 @@ namespace Emutastic.Services
             };
             RenderOptions.SetBitmapScalingMode(img, ScalingOf(im.Interpolation));
 
-            // Colour tint (multiply). ES applies <color> as a per-pixel multiply.
+            // Colour tint. ES-DE applies <color> as a per-pixel MULTIPLY. A solid tint on a bitmap
+            // gets a true multiply (white = identity — a coloured texture must stay untouched, see
+            // techdweeb's ffffff-tinted backgrounds). The colourise-by-mask fallback remains for
+            // gradient tints and vector sources, whose (near-)monochrome art makes the two equivalent.
             if (hasColor)
             {
+                bool gradientTint = im.Color != null && im.ColorEnd != null
+                    && !string.Equals(im.Color, im.ColorEnd, StringComparison.OrdinalIgnoreCase);
+                if (!gradientTint)
+                {
+                    var tint = ColorFromHex(im.Color ?? im.ColorEnd);
+                    if (tint is { R: 255, G: 255, B: 255 })
+                    {
+                        img.Opacity = tint.A / 255.0;
+                        return Boxed(img, boxW, boxH, crop);
+                    }
+                    if (src is BitmapSource bmp)
+                    {
+                        img.Source = MultiplyTint(bmp, tint);
+                        return Boxed(img, boxW, boxH, crop);
+                    }
+                }
                 var rect = new System.Windows.Shapes.Rectangle
                 {
                     Width = boxW,
@@ -297,6 +321,22 @@ namespace Emutastic.Services
             else if (src is BitmapSource bs && bs.PixelWidth > 0) { cellW = bs.PixelWidth; cellH = bs.PixelHeight; }
             else                                                 { cellH = 0.1 * _h; cellW = cellH * aspect; }
 
+            // ES-DE multiplies the tile by <color>. Solid tints get the true multiply (white =
+            // identity, matching BuildImage); the mask trick remains for gradient tints, where the
+            // common "tiled white/neutral spacer + background colour" pattern makes it equivalent.
+            bool hasTint = im.Color != null || im.ColorEnd != null;
+            double tileOpacity = 1;
+            if (hasTint)
+            {
+                bool gradientTint = im.Color != null && im.ColorEnd != null
+                    && !string.Equals(im.Color, im.ColorEnd, StringComparison.OrdinalIgnoreCase);
+                if (!gradientTint)
+                {
+                    var tint = ColorFromHex(im.Color ?? im.ColorEnd);
+                    if (tint is { R: 255, G: 255, B: 255 }) { tileOpacity = tint.A / 255.0; hasTint = false; }
+                    else if (src is BitmapSource bmp) { src = MultiplyTint(bmp, tint); hasTint = false; }
+                }
+            }
             var tiled = new ImageBrush(src)
             {
                 TileMode = TileMode.Tile,
@@ -304,17 +344,14 @@ namespace Emutastic.Services
                 ViewportUnits = BrushMappingMode.Absolute,
                 Stretch = Stretch.Fill,
             };
-            // ES-DE multiplies the tile by <color>. The very common "tiled white/neutral spacer + a
-            // background colour" pattern (art-book-next) is effectively a solid colour fill; reproduce it
-            // by masking the colour brush with the tile so the colour shows wherever the spacer is opaque.
-            FrameworkElement rect = (im.Color != null || im.ColorEnd != null)
+            FrameworkElement rect = hasTint
                 ? new System.Windows.Shapes.Rectangle
                   {
                       Width = boxW, Height = boxH,
                       Fill = BuildBrush(im.Color, im.ColorEnd, im.Gradient),
                       OpacityMask = tiled,
                   }
-                : new System.Windows.Shapes.Rectangle { Width = boxW, Height = boxH, Fill = tiled };
+                : new System.Windows.Shapes.Rectangle { Width = boxW, Height = boxH, Fill = tiled, Opacity = tileOpacity };
             return Boxed(rect, boxW, boxH, crop);
         }
 
@@ -898,8 +935,28 @@ namespace Emutastic.Services
 
         private int ItemCount() => _viewKind == ThemeViewKind.System ? (_items?.Systems.Count ?? 0) : (_items?.Games.Count ?? 0);
         private int SelectedIndex() => _viewKind == ThemeViewKind.System ? (_items?.SelectedSystem ?? 0) : (_items?.SelectedGame ?? 0);
+        private ThemeGameEntry? _selectorGame;   // system-view game picked by <gameselector>
         private ThemeGameEntry? SelectedGame => _viewKind == ThemeViewKind.Gamelist && _items != null
-            && _items.SelectedGame >= 0 && _items.SelectedGame < _items.Games.Count ? _items.Games[_items.SelectedGame] : null;
+            && _items.SelectedGame >= 0 && _items.SelectedGame < _items.Games.Count ? _items.Games[_items.SelectedGame]
+            : _selectorGame;
+
+        private ThemeGameEntry? PickSelectorGame(ThemeView view)
+        {
+            var sel = view.Elements.OfType<GameSelectorElement>().FirstOrDefault();
+            var games = _items?.Games;
+            if (sel == null || games == null || games.Count == 0) return null;
+            switch (sel.Selection.Trim().ToLowerInvariant())
+            {
+                case "lastplayed":
+                    return games.Where(g => g.LastPlayed != null).OrderByDescending(g => g.LastPlayed).FirstOrDefault()
+                           ?? games[0];
+                case "mostplayed":
+                    return games.OrderByDescending(g => g.PlayCount).First();
+                default: // "random" — seeded per system so re-renders within a session don't reshuffle
+                    int seed = (_systemTheme ?? "").GetHashCode() ^ games.Count;
+                    return games[new Random(seed).Next(games.Count)];
+            }
+        }
 
         private string ItemLabel(int idx)
         {
@@ -1102,6 +1159,35 @@ namespace Emutastic.Services
             return new SolidColorBrush(c1);
         }
 
+        // True per-pixel multiply of a bitmap by a solid colour (ES-DE <color> semantics). Cached —
+        // sources are themselves cached per path, so (source, colour) pairs are few and stable.
+        private static readonly Dictionary<(ImageSource, Color), ImageSource> _tintCache = new();
+        private static ImageSource MultiplyTint(BitmapSource src, Color c)
+        {
+            if (_tintCache.TryGetValue((src, c), out var hit)) return hit;
+            ImageSource result = src;
+            try
+            {
+                var conv = new FormatConvertedBitmap(src, PixelFormats.Bgra32, null, 0);
+                int w = conv.PixelWidth, h = conv.PixelHeight, stride = w * 4;
+                var px = new byte[(long)h * stride];
+                conv.CopyPixels(px, stride, 0);
+                for (int i = 0; i < px.Length; i += 4)
+                {
+                    px[i]     = (byte)(px[i]     * c.B / 255);
+                    px[i + 1] = (byte)(px[i + 1] * c.G / 255);
+                    px[i + 2] = (byte)(px[i + 2] * c.R / 255);
+                    px[i + 3] = (byte)(px[i + 3] * c.A / 255);
+                }
+                var bmp = BitmapSource.Create(w, h, 96, 96, PixelFormats.Bgra32, null, px, stride);
+                bmp.Freeze();
+                result = bmp;
+            }
+            catch { /* keep the untinted source */ }
+            _tintCache[(src, c)] = result;
+            return result;
+        }
+
         // ES colours are RRGGBB or RRGGBBAA (NOT AARRGGBB). 6 digits ⇒ opaque.
         private static Color ColorFromHex(string? hex)
         {
@@ -1302,11 +1388,72 @@ namespace Emutastic.Services
                 using var reader = new FileSvgReader(settings);
                 var drawing = reader.Read(full);
                 if (drawing == null) return null;
+                // ES-DE clips SVGs to their viewport; SharpVectors returns raw geometry whose
+                // bounds include any stray off-canvas artwork (common in Inkscape exports), which
+                // both leaks that artwork into the render and rescales the visible part. Clip to
+                // the declared viewport and pin the extent to it so pos/size map like ES-DE.
+                if (SvgViewportRect(full) is Rect vp)
+                {
+                    var clipped = new DrawingGroup { ClipGeometry = new RectangleGeometry(vp) };
+                    clipped.Children.Add(new GeometryDrawing(Brushes.Transparent, null, new RectangleGeometry(vp)));
+                    clipped.Children.Add(drawing);
+                    clipped.Freeze();
+                    var dc = new DrawingImage(clipped);
+                    dc.Freeze();
+                    return dc;
+                }
                 var di = new DrawingImage(drawing);
                 di.Freeze();
                 return di;
             }
             catch { return null; }
+        }
+
+        // The SVG viewport: its declared width/height, else the viewBox size. SharpVectors bakes
+        // the root viewBox→viewport transform into the drawing, so the visible canvas is
+        // (0,0,w,h) in the returned drawing's coordinate space.
+        private static Rect? SvgViewportRect(string full)
+        {
+            try
+            {
+                var settings = new System.Xml.XmlReaderSettings
+                {
+                    DtdProcessing = System.Xml.DtdProcessing.Prohibit,
+                    XmlResolver = null,
+                };
+                using var stream = File.OpenRead(full);
+                using var xr = System.Xml.XmlReader.Create(stream, settings);
+                while (xr.Read())
+                {
+                    if (xr.NodeType != System.Xml.XmlNodeType.Element) continue;
+                    if (!string.Equals(xr.LocalName, "svg", StringComparison.OrdinalIgnoreCase)) return null;
+                    double? w = SvgLen(xr.GetAttribute("width")), h = SvgLen(xr.GetAttribute("height"));
+                    if (w is > 0 && h is > 0) return new Rect(0, 0, w.Value, h.Value);
+                    var vb = (xr.GetAttribute("viewBox") ?? "").Split(new[] { ' ', ',', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (vb.Length == 4 &&
+                        double.TryParse(vb[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double vw) &&
+                        double.TryParse(vb[3], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double vh) &&
+                        vw > 0 && vh > 0)
+                        return new Rect(0, 0, vw, vh);
+                    return null;
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        // SVG length ("500", "500px", "132.29mm", "40pt", …) → WPF device-independent px (96/in);
+        // null for percentages or unparsable values.
+        private static double? SvgLen(string? s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return null;
+            s = s.Trim();
+            if (s.EndsWith("%")) return null;
+            double unit = 1;
+            foreach (var (suffix, f) in new[] { ("px", 1.0), ("pt", 96.0 / 72), ("pc", 16.0), ("mm", 96.0 / 25.4), ("cm", 96.0 / 2.54), ("in", 96.0) })
+                if (s.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) { unit = f; s = s[..^2]; break; }
+            return double.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double v)
+                ? v * unit : null;
         }
     }
 }

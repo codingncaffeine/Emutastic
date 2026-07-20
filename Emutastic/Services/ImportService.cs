@@ -635,6 +635,25 @@ namespace Emutastic.Services
                 }
             }
 
+            // Mesen HD pack archives (PNG tiles + hires.txt) are enhancement
+            // packs, not ROMs — route them to the HD pack installer, which
+            // matches the pack to its game via the SHA-1 declared in hires.txt
+            // and creates the "(HD)" library entry. MUST run before the
+            // console-nav hint below, or a pack dropped while sitting on the
+            // NES nav would be imported as a game.
+            if ((ext.Equals(".zip", StringComparison.OrdinalIgnoreCase) ||
+                 ext.Equals(".7z",  StringComparison.OrdinalIgnoreCase) ||
+                 ext.Equals(".rar", StringComparison.OrdinalIgnoreCase) ||
+                 ext.Equals(".hdn", StringComparison.OrdinalIgnoreCase))
+                && HdPackService.IsMesenHdPackArchive(romPath))
+            {
+                var library = await Task.Run(() => _db.GetAllGames());
+                var packResult = await HdPackService.InstallMesenPackAsync(romPath, _db, library);
+                ImportLog($"[{fileName}] Mesen HD pack — {packResult.Message}");
+                StatusChanged?.Invoke(packResult.Message);
+                return;
+            }
+
             // Console-nav hint short-circuit: when the user dropped this file
             // while sitting on a specific console nav (e.g. DOS), trust that
             // signal over fragile filename-based detection. Especially valuable

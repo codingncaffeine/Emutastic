@@ -375,6 +375,13 @@ namespace Emutastic.Services
             return Marshal.GetDelegateForFunctionPointer<T>(ptr);
         }
 
+        // Staged in SetCallbacks, applied in Init() right after retro_init.
+        private retro_video_refresh_t?     _stagedVideoCb;
+        private retro_audio_sample_t?      _stagedAudioCb;
+        private retro_audio_sample_batch_t? _stagedAudioBatchCb;
+        private retro_input_poll_t?        _stagedInputPollCb;
+        private retro_input_state_t?       _stagedInputStateCb;
+
         public void SetCallbacks(
             retro_environment_t envCb,
             retro_video_refresh_t videoCb,
@@ -383,17 +390,33 @@ namespace Emutastic.Services
             retro_input_poll_t inputPollCb,
             retro_input_state_t inputStateCb)
         {
+            // Only the environment callback goes in before retro_init (cores
+            // register their options inside it). The video/audio/input setters
+            // are deferred to Init(): RetroArch's call order is set_environment →
+            // retro_init → remaining setters, and cores are written against it —
+            // Mesen's setters dereference singletons it only creates in
+            // retro_init, so the old set-everything-first order crashed it
+            // (null + field offset AV in retro_set_video_refresh).
             _retro_set_environment?.Invoke(envCb);
-            _retro_set_video_refresh?.Invoke(videoCb);
-            _retro_set_audio_sample?.Invoke(audioCb);
-            _retro_set_audio_sample_batch?.Invoke(audioBatchCb);
-            _retro_set_input_poll?.Invoke(inputPollCb);
-            _retro_set_input_state?.Invoke(inputStateCb);
+            _stagedVideoCb      = videoCb;
+            _stagedAudioCb      = audioCb;
+            _stagedAudioBatchCb = audioBatchCb;
+            _stagedInputPollCb  = inputPollCb;
+            _stagedInputStateCb = inputStateCb;
         }
 
         public void Init()
         {
             _retro_init?.Invoke();
+
+            // Apply the staged callbacks now that the core's internals exist.
+            // (ImportService's block_extract probe calls Init() without
+            // SetCallbacks — nothing staged, nothing applied.)
+            if (_stagedVideoCb != null)      _retro_set_video_refresh?.Invoke(_stagedVideoCb);
+            if (_stagedAudioCb != null)      _retro_set_audio_sample?.Invoke(_stagedAudioCb);
+            if (_stagedAudioBatchCb != null) _retro_set_audio_sample_batch?.Invoke(_stagedAudioBatchCb);
+            if (_stagedInputPollCb != null)  _retro_set_input_poll?.Invoke(_stagedInputPollCb);
+            if (_stagedInputStateCb != null) _retro_set_input_state?.Invoke(_stagedInputStateCb);
 
             int infoSize = Marshal.SizeOf<retro_system_info>();
             IntPtr infoPtr = Marshal.AllocHGlobal(infoSize);
@@ -420,6 +443,45 @@ namespace Emutastic.Services
             }
         }
 
+        // Applies the ROM-hack patch to the base ROM and writes the result under
+        // [DataRoot]\PatchedRoms, named by the patched content's hash so the stage
+        // is idempotent and two hacks of the same base can't collide. Returns the
+        // staged path, or null with LastError set for the launch-fail dialog.
+        private string? StagePatchedRom(string romPath, string patchPath)
+        {
+            try
+            {
+                if (!File.Exists(patchPath))
+                {
+                    LastError = "The ROM hack's patch file is missing.";
+                    return null;
+                }
+                var result = RomPatcher.Apply(File.ReadAllBytes(romPath), File.ReadAllBytes(patchPath));
+                if (!result.Ok || result.Patched == null)
+                {
+                    LastError = $"Couldn't apply the ROM hack patch: {result.Error}";
+                    return null;
+                }
+
+                string hash8 = Convert.ToHexString(
+                    System.Security.Cryptography.MD5.HashData(result.Patched))[..8].ToLowerInvariant();
+                string staged = Path.Combine(AppPaths.GetFolder("PatchedRoms"),
+                    $"{Path.GetFileNameWithoutExtension(romPath)} [{hash8}]{Path.GetExtension(romPath)}");
+
+                if (!File.Exists(staged) || new FileInfo(staged).Length != result.Patched.LongLength)
+                    File.WriteAllBytes(staged, result.Patched);
+
+                System.Diagnostics.Trace.WriteLine(
+                    $"LoadGame: fullpath core + patch — staged patched ROM at {staged}");
+                return staged;
+            }
+            catch (Exception ex)
+            {
+                LastError = $"Couldn't stage the patched ROM: {ex.Message}";
+                return null;
+            }
+        }
+
         /// <summary>Set when LoadGame fails for a surfaceable reason (e.g. a bad ROM-hack patch).</summary>
         public string? LastError { get; private set; }
 
@@ -436,14 +498,16 @@ namespace Emutastic.Services
 
             bool needFullPath = SystemInfo.need_fullpath;
 
-            // ROM-hack soft-patching is a memory-buffer operation; it can't apply to cores
-            // that load by file path (need_fullpath). Fail loudly rather than silently
-            // booting the unpatched base game.
+            // ROM-hack soft-patching is a memory-buffer operation. Cores that load
+            // by file path (need_fullpath — e.g. bsnes-hd) can't take patched bytes
+            // directly, so for those the patch is applied here and the result staged
+            // as a managed file the core loads instead — same staging idea as zip
+            // extraction. The original ROM is never modified.
             if (!string.IsNullOrEmpty(patchPath) && needFullPath)
             {
-                LastError = "This system's core loads ROMs by file path, so ROM hacks can't be soft-patched here.";
-                System.Diagnostics.Trace.WriteLine("LoadGame: patch requested but core need_fullpath=true — refusing");
-                return false;
+                string? staged = StagePatchedRom(romPath, patchPath!);
+                if (staged == null) return false; // LastError set by the stager
+                romPath = staged;
             }
 
             byte[]? romData = null;

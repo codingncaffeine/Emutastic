@@ -194,6 +194,54 @@ namespace Emutastic.Services
             TryAddColumn(connection, "Games", "Notes",      "TEXT DEFAULT ''");
             TryAddColumn(connection, "Games", "ManualPath", "TEXT DEFAULT ''");
             TryAddColumn(connection, "Games", "PatchPath",  "TEXT DEFAULT ''");
+            // Enhancement pack (Mesen HD pack / texture pack): folder installed
+            // for this game + whether it renders (in-game overlay toggle). Both
+            // set post-hoc via Update* methods like the columns above.
+            TryAddColumn(connection, "Games", "HdPackPath",    "TEXT DEFAULT ''");
+            TryAddColumn(connection, "Games", "HdPackEnabled", "INTEGER DEFAULT 1");
+            // Latched when the USER renames a game — metadata refreshes must
+            // never rename such entries back to the catalog title.
+            TryAddColumn(connection, "Games", "TitleLocked",   "INTEGER DEFAULT 0");
+
+            // One-shot migration: the first enhancement-pack build (dfa9824)
+            // created cloned "(HD)" library entries; the shipped model marks the
+            // base game itself. Fold each clone's pack fields into its base
+            // entry (same ROM + console) and remove the clone. Idempotent —
+            // once folded, no matching clones remain.
+            try
+            {
+                var find = connection.CreateCommand();
+                find.CommandText = @"SELECT Id, Console, RomPath, HdPackPath, PreferredCore
+                                     FROM Games WHERE HdPackPath != '' AND Title LIKE '% (HD)';";
+                var clones = new List<(int Id, string Console, string Rom, string Pack, string Core)>();
+                using (var r = find.ExecuteReader())
+                    while (r.Read())
+                        clones.Add((r.GetInt32(0), r.GetString(1), r.GetString(2), r.GetString(3), r.GetString(4)));
+
+                foreach (var c in clones)
+                {
+                    var upd = connection.CreateCommand();
+                    upd.CommandText = @"
+                        UPDATE Games SET HdPackPath = $pack, PreferredCore = $core
+                        WHERE Id = (SELECT Id FROM Games
+                                    WHERE RomPath = $rom AND Console = $console
+                                      AND Id != $id AND HdPackPath = '' LIMIT 1);";
+                    upd.Parameters.AddWithValue("$pack", c.Pack);
+                    upd.Parameters.AddWithValue("$core", c.Core);
+                    upd.Parameters.AddWithValue("$rom", c.Rom);
+                    upd.Parameters.AddWithValue("$console", c.Console);
+                    upd.Parameters.AddWithValue("$id", c.Id);
+                    if (upd.ExecuteNonQuery() > 0)
+                    {
+                        var del = connection.CreateCommand();
+                        del.CommandText = "DELETE FROM Games WHERE Id = $id;";
+                        del.Parameters.AddWithValue("$id", c.Id);
+                        del.ExecuteNonQuery();
+                        System.Diagnostics.Trace.WriteLine($"[DB] Folded (HD) clone entry {c.Id} into its base game");
+                    }
+                }
+            }
+            catch { /* migration is best-effort; the app works without it */ }
 
             // RetroAchievements cache. RAGameId is captured at launch from
             // rcheevos's identify-game callback; the *Json columns hold the
@@ -1459,13 +1507,20 @@ namespace Emutastic.Services
             cmd.ExecuteNonQuery();
         }
 
-        public void UpdateTitle(int gameId, string title)
+        /// <summary>
+        /// Updates a game's title. Pass <paramref name="lockTitle"/> = true for
+        /// USER-initiated renames — it latches TitleLocked so metadata refreshes
+        /// never rename the entry back to the catalog name. Automated writers
+        /// (metadata refresh) leave the flag untouched.
+        /// </summary>
+        public void UpdateTitle(int gameId, string title, bool lockTitle = false)
         {
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             var cmd = connection.CreateCommand();
-            cmd.CommandText = "UPDATE Games SET Title = $title WHERE Id = $id;";
+            cmd.CommandText = "UPDATE Games SET Title = $title, TitleLocked = (TitleLocked | $lock) WHERE Id = $id;";
             cmd.Parameters.AddWithValue("$title", title);
+            cmd.Parameters.AddWithValue("$lock", lockTitle ? 1 : 0);
             cmd.Parameters.AddWithValue("$id", gameId);
             cmd.ExecuteNonQuery();
         }
@@ -1527,6 +1582,39 @@ namespace Emutastic.Services
             var cmd = connection.CreateCommand();
             cmd.CommandText = "UPDATE Games SET PatchPath = $path WHERE Id = $id;";
             cmd.Parameters.AddWithValue("$path", AppPaths.ToStoragePath(patchPath ?? ""));
+            cmd.Parameters.AddWithValue("$id", gameId);
+            cmd.ExecuteNonQuery();
+        }
+
+        public void UpdateHdPackPath(int gameId, string hdPackPath)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "UPDATE Games SET HdPackPath = $path WHERE Id = $id;";
+            cmd.Parameters.AddWithValue("$path", AppPaths.ToStoragePath(hdPackPath ?? ""));
+            cmd.Parameters.AddWithValue("$id", gameId);
+            cmd.ExecuteNonQuery();
+        }
+
+        public void UpdateHdPackEnabled(int gameId, bool enabled)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "UPDATE Games SET HdPackEnabled = $on WHERE Id = $id;";
+            cmd.Parameters.AddWithValue("$on", enabled ? 1 : 0);
+            cmd.Parameters.AddWithValue("$id", gameId);
+            cmd.ExecuteNonQuery();
+        }
+
+        public void UpdatePreferredCore(int gameId, string preferredCore)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "UPDATE Games SET PreferredCore = $core WHERE Id = $id;";
+            cmd.Parameters.AddWithValue("$core", preferredCore ?? "");
             cmd.Parameters.AddWithValue("$id", gameId);
             cmd.ExecuteNonQuery();
         }
@@ -2040,7 +2128,7 @@ namespace Emutastic.Services
                 RAGameId, RAProgressionJson, RAProgressionFetchedAt,
                 RAUserProgressJson, RAUserProgressFetchedAt,
                 RALiveProgressJson, RALiveProgressFetchedAt,
-                RALastLaunchOutcome, TotalPlayTimeSeconds, Notes, ManualPath, PatchPath;
+                RALastLaunchOutcome, TotalPlayTimeSeconds, Notes, ManualPath, PatchPath, HdPackPath, HdPackEnabled, TitleLocked;
 
             public OrdinalMap(SqliteDataReader reader)
             {
@@ -2082,6 +2170,9 @@ namespace Emutastic.Services
                 Notes                   = TryOrd(reader, "Notes");
                 ManualPath              = TryOrd(reader, "ManualPath");
                 PatchPath               = TryOrd(reader, "PatchPath");
+                HdPackPath              = TryOrd(reader, "HdPackPath");
+                HdPackEnabled           = TryOrd(reader, "HdPackEnabled");
+                TitleLocked             = TryOrd(reader, "TitleLocked");
             }
 
             private static int TryOrd(SqliteDataReader r, string col)
@@ -2133,6 +2224,11 @@ namespace Emutastic.Services
                 Notes                   = GetStr(reader, o.Notes),
                 ManualPath              = AppPaths.FromStoragePath(GetStr(reader, o.ManualPath)),
                 PatchPath               = AppPaths.FromStoragePath(GetStr(reader, o.PatchPath)),
+                HdPackPath              = AppPaths.FromStoragePath(GetStr(reader, o.HdPackPath)),
+                // Default ON when the column is somehow absent (GetInt yields 0 →
+                // treat missing ordinal as enabled to match the column default).
+                HdPackEnabled           = o.HdPackEnabled < 0 || GetInt(reader, o.HdPackEnabled) != 0,
+                TitleLocked             = GetInt(reader, o.TitleLocked) != 0,
             };
         }
 

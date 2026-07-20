@@ -1261,7 +1261,7 @@ namespace Emutastic.Views
                 InitBezelOverlay(game);
 
                 _core = core;
-                _consoleHandler = ConsoleHandlerFactory.Create(game.Console);
+                _consoleHandler = ConsoleHandlerFactory.Create(game.Console, game);
                 Title = $"{game.Title} - {game.Console}";
 
                 string sysDir     = AppPaths.GetFolder("System");
@@ -1309,6 +1309,7 @@ namespace Emutastic.Views
                 _contentDirPtr = Marshal.StringToHGlobalAnsi(contentDir);
 
                 SeedDefaultCoreOptions();
+
 
                 // Clear any descriptors captured from a prior session — fresh start.
                 _pendingMemoryRegions = null;
@@ -1419,6 +1420,18 @@ namespace Emutastic.Views
             // This overrides any legacy config that may still have a different plugin saved.
             if (_game.Console == "N64")
                 _coreOptions["parallel-n64-gfxplugin"] = "parallel";
+
+            // Games with installed enhancement packs: force the pack options,
+            // after user values — a globally saved core option must not override
+            // the per-game state. Mesen consoles answer from the mod library on
+            // disk (self-healing across DB history) and keep the flag on so the
+            // overlay picker can swap mods live; texture consoles force on/off
+            // from the persisted per-game toggle. Empty dict = nothing installed.
+            foreach (var kv in Services.HdPackService.GetLaunchForcedOptions(_game))
+            {
+                _coreOptions[kv.Key] = kv.Value;
+                System.Diagnostics.Trace.WriteLine($"HD pack: forced {kv.Key} = {kv.Value}");
+            }
         }
 
         // =========================================================================
@@ -7097,6 +7110,24 @@ namespace Emutastic.Views
                     });
                 }
 
+                // RA hardcore-compliance carve-out for HD mods that embed ROM
+                // patches (<patch> in hires.txt): Mesen patches the ROM
+                // internally at load, so rcheevos hashed the clean file while
+                // the running game is modified code — crediting hardcore
+                // unlocks against the base game's set wouldn't be compliant.
+                // Softcore still tracks; switching the mod to None restores
+                // hardcore on the next launch.
+                if (effectiveHardcore && Services.HdPackService.ActiveModHasRomPatch(_game))
+                {
+                    effectiveHardcore = false;
+                    System.Diagnostics.Trace.WriteLine("[RA] Hardcore refused — active HD mod patches the ROM (pack <patch> tag); softcore for this session.");
+                    Dispatcher.BeginInvoke(() =>
+                    {
+                        _transientMsg = "Hardcore disabled — the active HD mod patches the ROM; achievements still track";
+                        _transientExpiry = DateTime.Now.AddSeconds(6);
+                    });
+                }
+
                 // Stamp the active libretro core into the rcheevos HTTP User-Agent
                 // so RA's logs can correlate unlock requests to a specific core +
                 // version. Per RA's UA format: "Emutastic/<v> (OS) coreName/coreVersion".
@@ -7206,8 +7237,40 @@ namespace Emutastic.Views
                 }
                 System.Diagnostics.Trace.WriteLine("[RA] Login OK");
 
+                // ROM-hack entries: hash the PATCHED bytes, not the base file on
+                // disk — the running game is the hack, so its RA identity must
+                // follow the patch (hacks with their own sets identify correctly;
+                // base-game sets are never credited from modified code).
+                byte[]? raRomData = null;
+                if (_game.HasPatch && System.IO.File.Exists(_game.PatchPath))
+                {
+                    try
+                    {
+                        string raw = _game.RomPath;
+                        string rext = System.IO.Path.GetExtension(raw);
+                        if (Services.ZipRomExtractor.IsArchiveExtension(rext)
+                            && Services.ZipRomExtractor.ConsoleNeedsExtraction(_game.Console))
+                        {
+                            string? extracted = Services.ZipRomExtractor.ExtractSync(raw, _game.Console);
+                            if (!string.IsNullOrEmpty(extracted) && System.IO.File.Exists(extracted)) raw = extracted;
+                        }
+                        var pr = Services.RomPatcher.Apply(
+                            System.IO.File.ReadAllBytes(raw),
+                            System.IO.File.ReadAllBytes(_game.PatchPath));
+                        if (pr.Ok && pr.Patched != null)
+                        {
+                            raRomData = pr.Patched;
+                            System.Diagnostics.Trace.WriteLine("[RA] Hashing patched ROM bytes (hack entry)");
+                        }
+                    }
+                    catch (Exception pex)
+                    {
+                        System.Diagnostics.Trace.WriteLine($"[RA] Patched-hash prep failed, falling back to file hash: {pex.Message}");
+                    }
+                }
+
                 System.Diagnostics.Trace.WriteLine($"[RA] Loading game: {_game.RomPath} (console {consoleId})");
-                var (loadOk, loadErr) = _raClient.LoadGame(_game.RomPath, consoleId);
+                var (loadOk, loadErr) = _raClient.LoadGame(_game.RomPath, consoleId, raRomData);
                 if (!loadOk)
                 {
                     System.Diagnostics.Trace.WriteLine($"[RA] Game load failed: {loadErr}");
@@ -8418,6 +8481,14 @@ namespace Emutastic.Views
 
             ResetOverlayTimer();
         }
+
+        // HD mods are chosen on the game card ("…" menu → HD Mod) BEFORE launch —
+        // there is deliberately NO in-game switch. Flipping mesen_hdpacks at
+        // runtime crashes the stock Mesen core (use-after-free in its
+        // UpdateHdPackMode audio-device handling; harness-verified), and even
+        // restart-based switching from inside the session proved fragile. The
+        // launch path seeds the pack options once (SeedDefaultCoreOptions) and
+        // they stay fixed for the session.
 
         // ── N64 Controller Pak swap (Memory ↔ Rumble) ─────────────────────
         // N64 hardware only allows one pak per controller at a time, so games that

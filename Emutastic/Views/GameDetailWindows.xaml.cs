@@ -855,6 +855,27 @@ namespace Emutastic.Views
                 return;
             }
 
+            // Games with an active enhancement pack/mod are pinned to a
+            // pack-capable core (e.g. Mesen). When that core isn't installed,
+            // GetCorePathForGame silently falls back to the console default and
+            // the pack wouldn't render — ask first. (Mod set to None / pack
+            // toggled off per-game → nothing to warn about.)
+            if (Services.HdPackService.WantsPackCore(_game))
+            {
+                string preferredDll = Services.HdPackService.PreferredCoreFor(_game.Console);
+                if (preferredDll.Length > 0 &&
+                    !System.IO.File.Exists(System.IO.Path.Combine(AppPaths.GetCoresFolder(), preferredDll)))
+                {
+                    string coreLabel = System.IO.Path.GetFileNameWithoutExtension(preferredDll)
+                        .Replace("_libretro", "");
+                    var hdDialog = new ConfirmDialog("HD Pack",
+                        $"This entry uses an HD pack that needs the '{coreLabel}' core, which isn't installed yet.\n\n" +
+                        "Install it from Preferences → Cores, or play without the HD pack for now.",
+                        "Play without HD pack", danger: false) { Owner = this };
+                    if (hdDialog.ShowDialog() != true) return;
+                }
+            }
+
             // PS3: driven by an external emulator in its own process (no in-process libretro
             // core). Host its render window inside the app shell; report play time on exit.
             if (string.Equals(_game.Console, "PS3", System.StringComparison.OrdinalIgnoreCase))
@@ -1001,7 +1022,8 @@ namespace Emutastic.Views
                 if (dialog.ShowDialog() == true)
                 {
                     _game.Title = dialog.NewTitle;
-                    _db.UpdateTitle(_game.Id, _game.Title);
+                    _game.TitleLocked = true;
+                    _db.UpdateTitle(_game.Id, _game.Title, lockTitle: true);
                     GameTitle.Text = _game.Title;
                     ArtPlaceholderText.Text = _game.Title;
                 }
@@ -1056,12 +1078,102 @@ namespace Emutastic.Views
                 menu.Items.Add(cheats);
             }
 
+            // HD mods: the active pack is chosen HERE, before launch — never
+            // mid-session (flipping packs at runtime crashes the stock Mesen
+            // core; the next game start simply boots with the chosen mod).
+            if (Services.HdPackService.IsMesenConsole(_game.Console ?? ""))
+            {
+                var (active, all) = Services.HdPackService.ListMods(_game);
+                if (all.Count > 0)
+                {
+                    var hdRoot = new MenuItem { Header = "HD Mod" };
+                    var none = new MenuItem
+                    {
+                        Header = "None",
+                        IsCheckable = true,
+                        IsChecked = active == null
+                    };
+                    none.Click += (_, _) => SetHdMod(null);
+                    hdRoot.Items.Add(none);
+                    foreach (var mod in all)
+                    {
+                        // Mesen 2 packs (format v107+) are silently ignored by the
+                        // classic core — show them, but say why they can't be used.
+                        int ver = Services.HdPackService.GetModVersion(_game, mod);
+                        bool unsupported = ver > Services.HdPackService.MaxSupportedPackVersion;
+                        var item = new MenuItem
+                        {
+                            Header = unsupported ? $"{mod}  (needs Mesen 2 — unsupported)" : mod,
+                            IsCheckable = true,
+                            IsEnabled = !unsupported,
+                            IsChecked = string.Equals(mod, active, StringComparison.OrdinalIgnoreCase)
+                        };
+                        string captured = mod;
+                        item.Click += (_, _) => SetHdMod(captured);
+                        hdRoot.Items.Add(item);
+                    }
+
+                    hdRoot.Items.Add(new Separator());
+                    var renameRoot = new MenuItem { Header = "Rename Mod" };
+                    foreach (var mod in all)
+                    {
+                        var r = new MenuItem { Header = mod };
+                        string captured = mod;
+                        r.Click += (_, _) =>
+                        {
+                            var dlg = new RenameWindow(captured) { Owner = this };
+                            if (dlg.ShowDialog() == true && !string.IsNullOrWhiteSpace(dlg.NewTitle)
+                                && !string.Equals(dlg.NewTitle, captured, StringComparison.Ordinal))
+                            {
+                                if (!Services.HdPackService.RenameMod(_game, captured, dlg.NewTitle))
+                                    MessageBox.Show(this,
+                                        "Couldn't rename the mod — the name may already exist, or its files are in use.",
+                                        "HD Mod", MessageBoxButton.OK, MessageBoxImage.Warning);
+                            }
+                        };
+                        renameRoot.Items.Add(r);
+                    }
+                    hdRoot.Items.Add(renameRoot);
+                    menu.Items.Add(hdRoot);
+                }
+            }
+            else if (Services.HdPackService.IsTexturePackConsole(_game.Console ?? "") && _game.HasHdPack)
+            {
+                var texToggle = new MenuItem
+                {
+                    Header = "Texture Pack",
+                    IsCheckable = true,
+                    IsChecked = _game.HdPackEnabled
+                };
+                texToggle.Click += (_, _) =>
+                {
+                    _game.HdPackEnabled = !_game.HdPackEnabled;
+                    _db.UpdateHdPackEnabled(_game.Id, _game.HdPackEnabled);
+                };
+                menu.Items.Add(texToggle);
+            }
+
             menu.Items.Add(new Separator());
             menu.Items.Add(remove);
 
             menu.PlacementTarget = (UIElement)sender;
             menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
             menu.IsOpen = true;
+        }
+
+        // Applies the chosen HD mod on disk (folder rename). Off the UI thread —
+        // packs can be large. Fails cleanly if the game is running and holds
+        // pack files open (music streams); the user closes it and re-picks.
+        private async void SetHdMod(string? modName)
+        {
+            bool ok = await System.Threading.Tasks.Task.Run(
+                () => Services.HdPackService.ActivateMod(_game, modName));
+            if (!ok)
+            {
+                MessageBox.Show(this,
+                    "Couldn't switch the HD mod — if the game is running, close it and try again.",
+                    "HD Mod", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
         }
     }
 }

@@ -16,10 +16,13 @@ namespace Emutastic.Services
         {
             { "NES",         new[] { "nestopia_libretro.dll",
                                      "quicknes_libretro.dll",
-                                     "fceumm_libretro.dll"            }},
-            { "FDS",         new[] { "nestopia_libretro.dll"            }},
+                                     "fceumm_libretro.dll",
+                                     "mesen_libretro.dll"             }},
+            { "FDS",         new[] { "nestopia_libretro.dll",
+                                     "mesen_libretro.dll"             }},
             { "SNES",        new[] { "snes9x_libretro.dll",
-                                     "bsnes_libretro.dll"               }},
+                                     "bsnes_libretro.dll",
+                                     "bsnes_hd_beta_libretro.dll"       }},
             { "N64",         new[] { "parallel_n64_libretro.dll",
                                      "mupen64plus_next_libretro.dll"        }},
             { "GameCube",    new[] { "dolphin_libretro.dll"             }},
@@ -338,6 +341,21 @@ namespace Emutastic.Services
                             $"[CoreManager] Legacy DAT-routed arcade: '{romName}' → {routedDll}");
                         return routedPath;
                     }
+                }
+            }
+
+            // 2.5. Enhancement mods: a game with an ACTIVE Mesen HD mod on disk
+            //      routes to the Mesen core — filesystem-based like the overlay
+            //      picker, so packs installed by older builds or by hand route
+            //      correctly even when no per-game PreferredCore was persisted.
+            if (HdPackService.IsMesenConsole(game.Console) && HdPackService.WantsPackCore(game))
+            {
+                string mesenPath = Path.Combine(_coresFolder, "mesen_libretro.dll");
+                if (File.Exists(mesenPath))
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[CoreManager] Active HD mod → Mesen for '{game.Title}'");
+                    return mesenPath;
                 }
             }
 

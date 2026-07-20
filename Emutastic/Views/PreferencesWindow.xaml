@@ -2143,12 +2143,17 @@
                             <TextBlock Text="ABOUT" Style="{StaticResource PrefLabel}"/>
                             <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,0,0,16"/>
 
-                            <!-- App name + tagline -->
+                            <!-- App logo + name + tagline -->
+                            <Image Source="/Assets/banners and icons/emutastic-logo.png"
+                                   Width="48" Height="48"
+                                   HorizontalAlignment="Left"
+                                   Margin="0,0,0,8"
+                                   RenderOptions.BitmapScalingMode="HighQuality"/>
                             <TextBlock Text="Emutastic"
                                        FontSize="24" FontWeight="Bold"
                                        Foreground="{DynamicResource TextPrimaryBrush}"
                                        Margin="0,0,0,4"/>
-                            <TextBlock Text="An OpenEmu-style retro game library for Windows."
+                            <TextBlock Text="A full-featured, multi-system emulator frontend for Windows."
                                        FontSize="12"
                                        Foreground="{DynamicResource TextSecondaryBrush}"
                                        Margin="0,0,0,24"/>

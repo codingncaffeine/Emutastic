@@ -187,6 +187,33 @@ namespace Emutastic.Models
         }
         public bool HasPatch => !string.IsNullOrEmpty(_patchPath);
 
+        // Path to an installed enhancement pack (Mesen HD pack folder, or a texture
+        // pack folder for N64/GameCube/PSP), set on the game itself at pack install.
+        // The launch path pins the capable core and forces the pack option on/off
+        // per HdPackEnabled. Relative storage in DB (ToStoragePath/FromStoragePath).
+        private string _hdPackPath = "";
+        public string HdPackPath
+        {
+            get => _hdPackPath;
+            set
+            {
+                value ??= "";
+                if (_hdPackPath == value) return;
+                _hdPackPath = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(HasHdPack));
+            }
+        }
+        public bool HasHdPack => !string.IsNullOrEmpty(_hdPackPath);
+
+        // Whether the installed pack renders. Flipped by the in-game overlay
+        // "HD Pack" toggle and persisted per game (default on after install).
+        public bool HdPackEnabled { get; set; } = true;
+
+        // Latched when the user renames the game — metadata refreshes must
+        // never rename such entries back to the catalog title.
+        public bool TitleLocked { get; set; }
+
         public string BackgroundColor { get; set; } = "#1F1F21";
         public string AccentColor { get; set; } = "#E03535";
         public int PlayCount { get; set; }
