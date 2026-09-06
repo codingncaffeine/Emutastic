@@ -416,6 +416,16 @@ namespace Emutastic.Services
         /// layout and is what a dinput8 implementation would have surfaced
         /// anyway. It only has to be deterministic: users rebind everything in
         /// Preferences → Input regardless.
+        ///
+        /// CAPACITY
+        /// --------
+        /// Everything downstream binds against the 16 XInput slots, so that is
+        /// the hard ceiling on what a raw pad can express — 14 mask bits plus
+        /// the two trigger slots. The ten reads above claim every slot except
+        /// the four d-pad bits and the two triggers, so a pad with more than
+        /// ten buttons would have the remainder silently dropped: unreadable,
+        /// and therefore not even rebindable. <see cref="AssignSpareButtons"/>
+        /// hands those leftover buttons the slots that are still free.
         /// </summary>
         private static Snapshot ReadRawJoystick(OpenDevice dev)
         {
@@ -435,10 +445,9 @@ namespace Emutastic.Services
             if (Btn(8)) b |= XI_LEFT_THUMB;
             if (Btn(9)) b |= XI_RIGHT_THUMB;
 
-            // D-pad: most HID pads report it as hat 0. Pads that instead wire
-            // the d-pad to buttons keep working through the face-button path
-            // plus user remapping.
-            if (dev.NumHats > 0)
+            // D-pad: most HID pads report it as hat 0.
+            bool hasHat = dev.NumHats > 0;
+            if (hasHat)
             {
                 byte hat = SDL_GetJoystickHat(j, 0);
                 if ((hat & SDL_HAT_UP)    != 0) b |= XI_DPAD_UP;
@@ -446,6 +455,8 @@ namespace Emutastic.Services
                 if ((hat & SDL_HAT_LEFT)  != 0) b |= XI_DPAD_LEFT;
                 if ((hat & SDL_HAT_RIGHT) != 0) b |= XI_DPAD_RIGHT;
             }
+
+            AssignSpareButtons(Btn, hasHat, ref b, out byte leftTrigger, out byte rightTrigger);
 
             short Axis(int i) => i < dev.NumAxes ? SDL_GetJoystickAxis(j, i) : (short)0;
 
@@ -460,11 +471,45 @@ namespace Emutastic.Services
                 LeftY     = ToXInputThumb(Axis(1)),
                 RightX    =  Axis(2),
                 RightY    = ToXInputThumb(Axis(3)),
-                // A raw HID pad has no analog triggers to read. Digital
-                // shoulder buttons already landed in the mask above.
-                LeftTrigger  = 0,
-                RightTrigger = 0,
+                LeftTrigger  = leftTrigger,
+                RightTrigger = rightTrigger,
             };
+        }
+
+        /// <summary>
+        /// Gives HID buttons from index 10 upwards the XInput slots that the
+        /// fixed layout above leaves free, in a deterministic order:
+        ///
+        ///   1. the four d-pad bits, but ONLY when the pad reports no hat. A
+        ///      pad that wires its d-pad to buttons instead of a hat is exactly
+        ///      the case the hat branch cannot serve, and without this its
+        ///      d-pad is unreachable however the user rebinds.
+        ///   2. the two trigger slots, as digital 0/255. Binding ids 12 and 13
+        ///      resolve downstream to `trigger > 64`, so with the triggers
+        ///      pinned at 0 no raw HID pad could ever satisfy them and L2/R2
+        ///      were unbindable on every such pad.
+        ///
+        /// Analog trigger AXES are deliberately not guessed at. A pad with no
+        /// SDL mapping has no documented axis order, and mistaking a stick axis
+        /// for a trigger leaves it reading half-pressed at rest — a permanently
+        /// held L2 is a far worse failure than an absent one. Users who want
+        /// analog triggers need a pad SDL has a gamepad mapping for, which
+        /// takes <see cref="ReadGamepad"/> instead.
+        /// </summary>
+        private static void AssignSpareButtons(
+            Func<int, bool> btn, bool hasHat, ref ushort b,
+            out byte leftTrigger, out byte rightTrigger)
+        {
+            int spare = 10;
+            if (!hasHat)
+            {
+                if (btn(spare++)) b |= XI_DPAD_UP;
+                if (btn(spare++)) b |= XI_DPAD_DOWN;
+                if (btn(spare++)) b |= XI_DPAD_LEFT;
+                if (btn(spare++)) b |= XI_DPAD_RIGHT;
+            }
+            leftTrigger  = btn(spare++) ? (byte)255 : (byte)0;
+            rightTrigger = btn(spare)   ? (byte)255 : (byte)0;
         }
 
         /// <summary>

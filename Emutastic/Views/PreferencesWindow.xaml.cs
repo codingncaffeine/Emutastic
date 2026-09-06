@@ -182,6 +182,18 @@ namespace Emutastic.Views
         // id is what gets persisted and what ControllerManager actually polls.
         private Dictionary<string, string> _deviceIdByDisplayName = new(StringComparer.Ordinal);
 
+        // A device the user picked while SDL3 had no id for it yet. Held with
+        // the ConfigKey it was chosen for, so switching console or player
+        // before the ids arrive can't misapply it to a different binding.
+        private string? _pendingDeviceBindingName;
+        private string? _pendingDeviceBindingKey;
+
+        private void ClearPendingDeviceBinding()
+        {
+            _pendingDeviceBindingName = null;
+            _pendingDeviceBindingKey  = null;
+        }
+
         private async Task PopulateInputDevicesAsync()
         {
             var devices = await PreferencesCache
@@ -191,12 +203,32 @@ namespace Emutastic.Views
 
             // Records carry the binding ids for the same devices the cache
             // lists by name. Empty while SDL3 is still warming up, in which
-            // case selecting a device can't bind it yet and the next refresh
-            // (or the ↻ button) will pick it up.
+            // case selecting a device can't bind it yet — the deferred pick
+            // below is what makes that selection stick once ids appear.
             var records = ControllerManager.GetConnectedControllerDevices();
             _deviceIdByDisplayName = records
                 .GroupBy(r => r.DisplayName, StringComparer.Ordinal)
                 .ToDictionary(g => g.Key, g => g.First().Id, StringComparer.Ordinal);
+
+            // Apply a pick that was made before SDL3 could resolve it. Without
+            // this the selection is simply lost: repopulating re-selects the
+            // name but runs under _suppressAutoSave, so the handler never fires
+            // again and the user would have to notice and re-pick by hand.
+            if (_pendingDeviceBindingName != null
+                && _pendingDeviceBindingKey == ConfigKey
+                && _deviceIdByDisplayName.TryGetValue(_pendingDeviceBindingName, out var pendingId))
+            {
+                var pendingConfig = _configService.GetInputConfiguration(ConfigKey);
+                if (pendingConfig.ControllerDeviceId != pendingId)
+                {
+                    pendingConfig.ControllerDeviceId = pendingId;
+                    _configService.SetInputConfiguration(ConfigKey, pendingConfig);
+                    _controllerManager?.ReloadInputConfiguration();
+                    ControllerManager.CtrlLog(
+                        $"Preferences: deferred binding for {ConfigKey} resolved to '{pendingId}'");
+                }
+                ClearPendingDeviceBinding();
+            }
 
             InputDeviceComboBox.ItemsSource = devices;
 
@@ -745,8 +777,34 @@ namespace Emutastic.Views
             if (!_suppressAutoSave)
             {
                 var config = _configService.GetInputConfiguration(ConfigKey);
-                config.ControllerDeviceId =
-                    !_isKeyboardMode && _deviceIdByDisplayName.TryGetValue(device, out var id) ? id : "";
+
+                if (_isKeyboardMode)
+                {
+                    // Picking Keyboard is a deliberate "stop using a pad".
+                    config.ControllerDeviceId = "";
+                    ClearPendingDeviceBinding();
+                }
+                else if (_deviceIdByDisplayName.TryGetValue(device, out var id))
+                {
+                    config.ControllerDeviceId = id;
+                    ClearPendingDeviceBinding();
+                }
+                else
+                {
+                    // No id for this name yet — SDL3 is still warming up (the
+                    // list is XInput fallback names, which never match an SDL
+                    // DisplayName), or SDL3.dll is absent entirely. Writing ""
+                    // here used to look harmless but silently unbound the pad
+                    // AND wiped any previously-working binding, while the UI
+                    // showed the pick as accepted. Keep what is on disk and
+                    // re-apply the moment the ids arrive.
+                    _pendingDeviceBindingName = device;
+                    _pendingDeviceBindingKey  = ConfigKey;
+                    ControllerManager.CtrlLog(
+                        $"Preferences: '{device}' selected for {ConfigKey} before SDL3 had a device id — " +
+                        $"binding deferred (existing binding '{config.ControllerDeviceId}' left intact)");
+                }
+
                 _configService.SetInputConfiguration(ConfigKey, config);
 
                 // Live-apply to the manager backing this window so the mapping

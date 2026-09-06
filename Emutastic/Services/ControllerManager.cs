@@ -289,17 +289,33 @@ namespace Emutastic.Services
                         ? _configService.GetInputConfiguration(_consoleName) // fallback for legacy P1 saves
                         : new InputConfiguration { ConsoleName = _consoleName };
 
-                // Apply user-assigned controller slot if configured (-1 = use default)
-                if (_inputConfig.ControllerSlot >= 0 && _inputConfig.ControllerSlot <= 3)
-                    _xInputIndex = _inputConfig.ControllerSlot;
+                // The slot and the device binding are authored per player, under
+                // the "_P{N}" key, and must be read from there regardless of
+                // which config won the mappings selection above.
+                //
+                // That selection keys off ControllerMappings.Count, which was a
+                // fair proxy for "this player has a config" back when mappings
+                // were the only per-player data. They no longer are: a player
+                // who picks a pad but keeps the DEFAULT button mappings has an
+                // empty mappings list, so playerConfig loses, and reading the
+                // binding off the legacy/blank config silently discards it —
+                // "I selected my controller and nothing happened", which is the
+                // whole report this binding exists to fix. Falling back to
+                // _inputConfig keeps legacy P1 saves working.
+                int slot = playerConfig.ControllerSlot >= 0
+                    ? playerConfig.ControllerSlot
+                    : _inputConfig.ControllerSlot;
+                if (slot >= 0 && slot <= 3)
+                    _xInputIndex = slot;
                 else
                     _xInputIndex = (int)_playerNumber;
 
                 // An explicit device binding takes precedence over the XInput
                 // slot — it is the only way to address a pad XInput cannot see.
-                _deviceId = string.IsNullOrWhiteSpace(_inputConfig.ControllerDeviceId)
-                    ? null
+                string boundDeviceId = !string.IsNullOrWhiteSpace(playerConfig.ControllerDeviceId)
+                    ? playerConfig.ControllerDeviceId
                     : _inputConfig.ControllerDeviceId;
+                _deviceId = string.IsNullOrWhiteSpace(boundDeviceId) ? null : boundDeviceId;
 
                 _logger?.LogInformation($"Loaded input config for {_consoleName}: {_inputConfig.ControllerMappings.Count} mappings");
                 CtrlLog($"P{_playerNumber + 1} {_consoleName}: source={(_deviceId != null ? $"device '{_deviceId}'" : $"XInput slot {_xInputIndex}")}, mappings={_inputConfig.ControllerMappings.Count}");

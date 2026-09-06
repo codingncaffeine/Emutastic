@@ -42,7 +42,7 @@ It renders **[ES-DE](https://es-de.org/) themes** out of the box — carousels, 
 - [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/8.0)
 - [Visual C++ Redistributable 2015–2022 (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe) — required by most libretro cores
 - libretro core `.dll` files (downloadable in-app — Preferences → Cores)
-- `SDL3.dll` (x64) for controller name detection (downloadable in-app — Preferences → Extras)
+- `SDL3.dll` (x64) for controller name detection, and to bind a player to a specific controller — the only way to use a DirectInput / generic-HID pad (Retrolink, ShanWan / Hyperkin adapters, arcade sticks). Without it only XInput pads work, addressed by slot. (Downloadable in-app — Preferences → Extras)
 - Optional: `ffmpeg.exe` for video recording, DAT files for ROM identification (also in Preferences → Extras)
 
 > **Windows SmartScreen:** Emutastic is not code-signed. Click **"More info"** then **"Run anyway"** on first launch.
