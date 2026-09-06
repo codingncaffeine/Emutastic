@@ -80,17 +80,32 @@ namespace Emutastic.Services
         private readonly ILogger<ControllerManager>? _logger;
         private readonly string _consoleName;
         private readonly uint _playerNumber; // 0-based player/port index
-        private volatile int _xInputIndex;   // which XInput slot to poll (can be overridden by config)
+        private volatile int _xInputIndex;   // which XInput slot to poll while SDL3 is unavailable (config can override)
 
         // Stable id of the controller this player is bound to (see
         // ControllerManager.ControllerDevice). Null/empty means "no explicit
-        // device chosen" — polling then uses the XInput slot above, which is
-        // the pre-existing behaviour and the fallback when SDL3.dll is absent.
+        // device chosen" — the port table then hands this player the next
+        // unclaimed pad in enumeration order, or, while SDL3 is unavailable,
+        // polling uses the XInput slot above as it always did.
         private volatile string? _deviceId;
 
         // Transient device binding that outranks _deviceId, used by Preferences
         // while the user is picking a pad. See OverrideBoundDevice.
         private volatile string? _deviceIdOverride;
+
+        // Which SDL device each player of this session reads — shared by the
+        // four managers of a game window so a pad is never read twice and a
+        // disconnect frees only the port that lost it. See ControllerPortTable.
+        private readonly ControllerPortTable _ports;
+
+        // The SDL device id the most recent poll read from, or null when it
+        // read an XInput slot (or nothing). Rumble targets this, so an unbound
+        // player's pad rumbles too, not only an explicitly bound one.
+        private volatile string? _activeDeviceId;
+
+        // Human-readable source recorded when a source connects, for the
+        // DISCONNECTED diagnostic. Poll thread only.
+        private string _connectedSource = "";
 
         // Raw XInput wButtons bitmask from the most recent poll. Bypasses the per-
         // console mapping table so callers (e.g. frontend chords like Disk Swap)
@@ -249,13 +264,17 @@ namespace Emutastic.Services
         // -------------------------------------------------------------------------
         // Constructors
         // -------------------------------------------------------------------------
-        public ControllerManager(IConfigurationService configService, ILogger<ControllerManager>? logger = null, string consoleName = "NES", uint playerNumber = 0)
+        /// <param name="ports">The port table this manager resolves its pad through. A
+        /// game window passes ONE table to all four of its managers; null creates a
+        /// private single-player table (the library window's manager).</param>
+        public ControllerManager(IConfigurationService configService, ILogger<ControllerManager>? logger = null, string consoleName = "NES", uint playerNumber = 0, ControllerPortTable? ports = null)
         {
             _configService = configService ?? throw new ArgumentNullException(nameof(configService));
             _logger        = logger;
             _consoleName   = consoleName;
             _playerNumber  = playerNumber;
-            _xInputIndex   = (int)playerNumber; // default: player N polls XInput slot N
+            _xInputIndex   = (int)playerNumber; // default: player N polls XInput slot N (the SDL3-less fallback)
+            _ports         = ports ?? new ControllerPortTable("solo");
 
             LoadInputConfiguration();
 
@@ -297,7 +316,11 @@ namespace Emutastic.Services
         /// </summary>
         public void OverrideBoundDevice(string? deviceId)
         {
-            _deviceIdOverride = string.IsNullOrWhiteSpace(deviceId) ? null : deviceId;
+            string? id = string.IsNullOrWhiteSpace(deviceId) ? null : deviceId;
+            // Preferences re-syncs this on every populate and player switch;
+            // only a change is worth a log line.
+            if (string.Equals(id, _deviceIdOverride, StringComparison.Ordinal)) return;
+            _deviceIdOverride = id;
             CtrlLog($"P{_playerNumber + 1} {_consoleName}: device override -> " +
                     $"{(_deviceIdOverride != null ? $"'{_deviceIdOverride}'" : "(cleared)")}");
         }
@@ -342,9 +365,10 @@ namespace Emutastic.Services
                     ? playerConfig.ControllerDeviceId
                     : _inputConfig.ControllerDeviceId;
                 _deviceId = string.IsNullOrWhiteSpace(boundDeviceId) ? null : boundDeviceId;
+                _ports.SetBinding((int)_playerNumber, _deviceId);
 
                 _logger?.LogInformation($"Loaded input config for {_consoleName}: {_inputConfig.ControllerMappings.Count} mappings");
-                CtrlLog($"P{_playerNumber + 1} {_consoleName}: source={(_deviceId != null ? $"device '{_deviceId}'" : $"XInput slot {_xInputIndex}")}, mappings={_inputConfig.ControllerMappings.Count}");
+                CtrlLog($"P{_playerNumber + 1} {_consoleName}: source={(_deviceId != null ? $"bound device '{_deviceId}'" : $"unbound (next unclaimed SDL pad; XInput slot {_xInputIndex} without SDL3)")}, mappings={_inputConfig.ControllerMappings.Count}");
             }
             catch (Exception ex)
             {
@@ -415,9 +439,7 @@ namespace Emutastic.Services
             // logger, so the line above reaches nothing. Connect/disconnect
             // transitions are the first thing worth knowing when a bug report
             // says the controller does nothing.
-            string? lostSource = _deviceIdOverride ?? _deviceId;
-            CtrlLog($"P{_playerNumber + 1} {_consoleName}: DISCONNECTED " +
-                    $"(source={(lostSource != null ? $"device '{lostSource}'" : $"XInput slot {_xInputIndex}")})");
+            CtrlLog($"P{_playerNumber + 1} {_consoleName}: DISCONNECTED (source={_connectedSource})");
             try { ConnectionChanged?.Invoke(false); } catch { }
         }
 
@@ -426,34 +448,58 @@ namespace Emutastic.Services
             try
             {
                 // ------------------------------------------------------------------
-                // Acquire this tick's state.
+                // Acquire this tick's state. Two sources, one shape: SdlJoystickHub
+                // publishes in XINPUT_GAMEPAD shape precisely so everything below
+                // this point — the mapping table, the analog helpers, the chord
+                // readers — stays source-agnostic.
                 //
-                // Two sources, one shape. When the player has picked a specific
-                // device in Preferences we read SDL's snapshot for it — that is
-                // the path that covers DirectInput / generic-HID pads XInput
-                // cannot see at all. Otherwise we poll an XInput slot as before.
-                //
-                // SdlJoystickHub publishes in XINPUT_GAMEPAD shape precisely so
-                // everything below this point — the mapping table, the analog
-                // helpers, the chord readers — stays source-agnostic.
+                // Which source, in priority order:
+                //   1. A Preferences capture override (OverrideBoundDevice): that
+                //      device, directly.
+                //   2. SDL3 up and publishing: whatever the port table resolves
+                //      for this player — its bound device, or the next unclaimed
+                //      pad — so no pad is ever read by two players, and a pad
+                //      XInput cannot see is playable without a binding.
+                //   3. Bound, but SDL3 absent or still warming up: nothing. A
+                //      bound player must never be quietly handed some other pad
+                //      through an XInput slot.
+                //   4. Otherwise (no SDL3.dll, or not yet initialised): the XInput
+                //      slot, exactly as this class always polled it.
                 // ------------------------------------------------------------------
                 XINPUT_GAMEPAD gamepad;
-                // An override (Preferences, mid-selection) outranks the
-                // configured binding; see OverrideBoundDevice.
-                string? deviceId = _deviceIdOverride ?? _deviceId;
-
-                if (!string.IsNullOrEmpty(deviceId))
+                string? prevActive = _activeDeviceId;
+                string? deviceId   = _deviceIdOverride;
+                SdlJoystickHub.SnapshotSet? set = null;
+                bool sdlPath = deviceId != null;
+                if (!sdlPath)
                 {
-                    var snap = SdlJoystickHub.GetSnapshot(deviceId);
+                    if (_sdl3Available && SdlJoystickHub.HasPublished)
+                    {
+                        set      = SdlJoystickHub.Current;
+                        deviceId = _ports.DeviceFor((int)_playerNumber, set);
+                        sdlPath  = true;
+                    }
+                    else if (_deviceId != null)
+                    {
+                        deviceId = _deviceId;   // resolves to "nothing" below until SDL3 is up
+                        sdlPath  = true;
+                    }
+                }
+
+                if (sdlPath)
+                {
+                    set ??= SdlJoystickHub.Current;
+                    var snap = set.Get(deviceId);
                     if (snap == null || !snap.Connected)
                     {
-                        // Bound device not currently present. Do NOT silently
-                        // fall back to an XInput slot: that would hand this
-                        // player some other pad, which is exactly the confusion
-                        // the device binding exists to remove.
+                        // Nothing to read: the bound pad is absent, no unclaimed
+                        // pad is left for an unbound player, or SDL3 is not up
+                        // yet. Never an XInput slot — see the rules above.
+                        _activeDeviceId = null;
                         HandleDisconnected();
                         return;
                     }
+                    _activeDeviceId = deviceId;
 
                     gamepad = new XINPUT_GAMEPAD
                     {
@@ -468,6 +514,7 @@ namespace Emutastic.Services
                 }
                 else
                 {
+                    _activeDeviceId = null;
                     if (!_xInputInitialized || _xInputGetState == null)
                     {
                         _isConnected = false;
@@ -491,12 +538,21 @@ namespace Emutastic.Services
                 bool wasConnected = _isConnected;
                 _isConnected      = true;
 
-                if (!wasConnected)
+                // Log a connect, and a source change while connected (SDL3
+                // coming up mid-session, or the port table re-homing an unbound
+                // player after a hot-plug) — the first things worth knowing when
+                // a report says "my controller does nothing".
+                if (!wasConnected || !string.Equals(prevActive, deviceId, StringComparison.Ordinal))
                 {
-                    _logger?.LogInformation("Controller connected");
-                    CtrlLog($"P{_playerNumber + 1} {_consoleName}: CONNECTED " +
-                            $"(source={(deviceId != null ? $"device '{deviceId}'" : $"XInput slot {_xInputIndex}")})");
-                    try { ConnectionChanged?.Invoke(true); } catch { }
+                    _connectedSource = deviceId != null
+                        ? $"device '{deviceId}'{(_deviceIdOverride != null ? " (Preferences override)" : _deviceId != null ? " (bound)" : " (default)")}"
+                        : $"XInput slot {_xInputIndex}";
+                    CtrlLog($"P{_playerNumber + 1} {_consoleName}: {(wasConnected ? "SOURCE CHANGED" : "CONNECTED")} (source={_connectedSource})");
+                    if (!wasConnected)
+                    {
+                        _logger?.LogInformation("Controller connected");
+                        try { ConnectionChanged?.Invoke(true); } catch { }
+                    }
                 }
 
                 _lastRawButtons      = gamepad.wButtons;
@@ -719,7 +775,9 @@ namespace Emutastic.Services
         {
             if (!_isConnected) return;
 
-            string? deviceId = _deviceIdOverride ?? _deviceId;
+            // Whatever the last poll actually read: a bound pad, an unbound
+            // player's default pad, or null on the XInput path.
+            string? deviceId = _activeDeviceId;
             if (!string.IsNullOrEmpty(deviceId))
             {
                 // SDL handles must be touched on the SDL thread. Fire-and-forget
@@ -809,26 +867,8 @@ namespace Emutastic.Services
         [DllImport(SDL3Dll, CallingConvention = CallingConvention.Cdecl)]
         private static extern uint SDL_WasInit(uint flags);
 
-        // Returns malloc'd array of SDL_JoystickID (uint32); caller must SDL_free
-        [DllImport(SDL3Dll, CallingConvention = CallingConvention.Cdecl)]
-        private static extern IntPtr SDL_GetJoysticks(out int count);
-
-        [DllImport(SDL3Dll, CallingConvention = CallingConvention.Cdecl)]
-        [return: MarshalAs(UnmanagedType.U1)]
-        private static extern bool SDL_IsGamepad(uint instance_id);
-
-        // Returns pointer to UTF-8 string owned by SDL — do NOT free it
-        [DllImport(SDL3Dll, CallingConvention = CallingConvention.Cdecl)]
-        private static extern IntPtr SDL_GetGamepadNameForID(uint instance_id);
-
-        [DllImport(SDL3Dll, CallingConvention = CallingConvention.Cdecl)]
-        private static extern IntPtr SDL_GetJoystickNameForID(uint instance_id);
-
-        [DllImport(SDL3Dll, CallingConvention = CallingConvention.Cdecl)]
-        private static extern void SDL_free(IntPtr mem);
-
-        [DllImport(SDL3Dll, CallingConvention = CallingConvention.Cdecl)]
-        private static extern void SDL_PumpEvents();
+        // Joystick enumeration itself lives in SdlJoystickHub.EnumerateOnSdlThread,
+        // shared with the --selftest-input harness.
 
         private static volatile bool _sdl3Available;
 
@@ -912,8 +952,8 @@ namespace Emutastic.Services
                             CtrlLog("SDL thread periodic device-cache refresh timer started (1 s)");
 
                             // Second, faster timer: reads live button/axis state
-                            // for devices bound by id (the DirectInput / generic-HID
-                            // pads XInput cannot see) and publishes a snapshot the
+                            // for every open device (once SDL3 is up, every player
+                            // reads through it) and publishes a snapshot set the
                             // per-player poll threads read lock-free.
                             //
                             // Runs at Normal priority, above the Background
@@ -981,17 +1021,13 @@ namespace Emutastic.Services
         }
 
         /// <summary>
-        /// Runs ON the SDL thread (inside the periodic DispatcherTimer). Pumps
-        /// WM_DEVICECHANGE events, enumerates joysticks, and updates the cache.
-        /// Slow pumps (10–20 s for Elite 2 + Steam Input) stay on this thread;
-        /// the UI thread never sees them.
+        /// Assigns each enumerated device its stable id and a display name that
+        /// disambiguates duplicate models by occurrence: the second "Retrolink
+        /// SNES controller" is "Retrolink SNES controller#1", shown as
+        /// "Retrolink SNES controller (2)". Pure; the self-test calls it too.
         /// </summary>
-        private static void RefreshDevicesCacheOnSdlThread()
+        internal static List<ControllerDevice> BuildDeviceRecords(IReadOnlyList<(uint InstanceId, string Name)> raw)
         {
-            var raw = EnumerateOnSdlThread();
-
-            // Assign each device its stable id and a display name that
-            // disambiguates duplicate models by occurrence.
             var records = new List<ControllerDevice>(raw.Count);
             var seen    = new Dictionary<string, int>(StringComparer.Ordinal);
             foreach (var (_, name) in raw)
@@ -1005,6 +1041,19 @@ namespace Emutastic.Services
                     DisplayName = n == 0 ? name : $"{name} ({n + 1})",
                 });
             }
+            return records;
+        }
+
+        /// <summary>
+        /// Runs ON the SDL thread (inside the periodic DispatcherTimer). Pumps
+        /// WM_DEVICECHANGE events, enumerates joysticks, and updates the cache.
+        /// Slow pumps (10–20 s for Elite 2 + Steam Input) stay on this thread;
+        /// the UI thread never sees them.
+        /// </summary>
+        private static void RefreshDevicesCacheOnSdlThread()
+        {
+            var raw     = EnumerateOnSdlThread();
+            var records = BuildDeviceRecords(raw);
 
             // Open/close SDL handles to match what is attached, then read this
             // tick's state. Both must happen on this thread — see SdlJoystickHub.
@@ -1049,17 +1098,6 @@ namespace Emutastic.Services
             catch { }
 
             try { _sdlDispatcher?.InvokeShutdown(); } catch { }
-        }
-
-        private static string? Utf8PtrToString(IntPtr ptr)
-        {
-            if (ptr == IntPtr.Zero) return null;
-            int len = 0;
-            while (Marshal.ReadByte(ptr, len) != 0) len++;
-            if (len == 0) return null;
-            byte[] bytes = new byte[len];
-            Marshal.Copy(ptr, bytes, 0, len);
-            return System.Text.Encoding.UTF8.GetString(bytes);
         }
 
         /// <summary>
@@ -1132,52 +1170,12 @@ namespace Emutastic.Services
             }
         }
 
-        // Returns (SDL instance id, product name) in SDL enumeration order. The
-        // instance id is what SdlJoystickHub needs to open the device; the name
-        // is what the caller turns into a stable id and a display label.
+        // Returns (SDL instance id, product name) in SDL enumeration order — see
+        // SdlJoystickHub.EnumerateOnSdlThread. Empty until SDL3 is up.
         private static List<(uint InstanceId, string Name)> EnumerateOnSdlThread()
-        {
-            var result = new List<(uint InstanceId, string Name)>();
-            try
-            {
-                if (_sdl3Available)
-                {
-                    var swPump = System.Diagnostics.Stopwatch.StartNew();
-                    SDL_PumpEvents();
-                    swPump.Stop();
-
-                    var swEnum = System.Diagnostics.Stopwatch.StartNew();
-                    IntPtr arr = SDL_GetJoysticks(out int count);
-                    try
-                    {
-                        for (int i = 0; i < count; i++)
-                        {
-                            uint id = (uint)Marshal.ReadInt32(arr, i * 4);
-                            IntPtr namePtr = SDL_IsGamepad(id)
-                                ? SDL_GetGamepadNameForID(id)
-                                : SDL_GetJoystickNameForID(id);
-
-                            string name = Utf8PtrToString(namePtr)
-                                ?? $"Controller {i + 1}";
-                            result.Add((id, name));
-                        }
-                    }
-                    finally
-                    {
-                        if (arr != IntPtr.Zero) SDL_free(arr);
-                    }
-                    swEnum.Stop();
-
-                    if (swPump.ElapsedMilliseconds + swEnum.ElapsedMilliseconds > 50)
-                        CtrlLog($"EnumerateOnSdlThread pump={swPump.ElapsedMilliseconds}ms enum={swEnum.ElapsedMilliseconds}ms count={result.Count} names=[{string.Join(", ", result.Select(r => $"{r.InstanceId}:{r.Name}"))}]");
-                }
-            }
-            catch (Exception ex)
-            {
-                CtrlLog($"EnumerateOnSdlThread THREW: {ex.GetType().Name}: {ex.Message}");
-            }
-            return result;
-        }
+            => _sdl3Available
+                ? SdlJoystickHub.EnumerateOnSdlThread()
+                : new List<(uint InstanceId, string Name)>();
 
         // XInput-only fallback. Used until the SDL thread finishes initializing
         // (or if SDL is unavailable). Returns generic names because XInput

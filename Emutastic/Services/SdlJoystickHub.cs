@@ -7,10 +7,12 @@ using System.Threading;
 namespace Emutastic.Services
 {
     /// <summary>
-    /// Reads live button/axis state from SDL3 for controllers that XInput cannot
-    /// see — DirectInput / generic-HID pads such as the Retrolink SNES adapters,
-    /// ShanWan / Hyperkin console adapters, arcade sticks, and pre-XInput USB
-    /// gamepads.
+    /// Reads live button/axis state from SDL3 for every attached controller —
+    /// the Xbox pads XInput also sees, and the DirectInput / generic-HID pads it
+    /// cannot: Retrolink SNES adapters, ShanWan / Hyperkin console adapters,
+    /// arcade sticks, pre-XInput USB gamepads. Once SDL3 is up every player
+    /// reads through here (see <see cref="ControllerPortTable"/>); XInput is
+    /// only the fallback while it is not.
     ///
     /// WHY SDL AND NOT dinput8.dll
     /// ---------------------------
@@ -31,9 +33,9 @@ namespace Emutastic.Services
     /// SDL_PumpEvents can block for 10-20 seconds while a complex controller
     /// hot-plugs. ControllerManager's 60 Hz poll timer must never wait on that,
     /// so this class never exposes a blocking call. Instead it publishes an
-    /// immutable snapshot dictionary that poll threads read lock-free via
-    /// <see cref="GetSnapshot"/>. A hot-plug stall freezes the last snapshot for
-    /// its duration; it cannot stall input polling.
+    /// immutable <see cref="SnapshotSet"/> that poll threads read lock-free via
+    /// <see cref="Current"/>. A hot-plug stall freezes the last set for its
+    /// duration; it cannot stall input polling.
     ///
     /// AXIS CONVENTIONS
     /// ----------------
@@ -123,6 +125,29 @@ namespace Emutastic.Services
         [return: MarshalAs(UnmanagedType.U1)]
         private static extern bool SDL_RumbleJoystick(IntPtr joystick, ushort low, ushort high, uint duration_ms);
 
+        // Enumeration — one implementation, shared by the SDL thread's 1 s
+        // refresh and by the --selftest-input harness.
+        [DllImport(SDL3Dll, CallingConvention = CallingConvention.Cdecl)]
+        private static extern void SDL_PumpEvents();
+
+        // Returns a malloc'd array of SDL_JoystickID (uint32); caller must SDL_free it.
+        [DllImport(SDL3Dll, CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr SDL_GetJoysticks(out int count);
+
+        [DllImport(SDL3Dll, CallingConvention = CallingConvention.Cdecl)]
+        private static extern void SDL_free(IntPtr mem);
+
+        [DllImport(SDL3Dll, CallingConvention = CallingConvention.Cdecl)]
+        [return: MarshalAs(UnmanagedType.U1)]
+        private static extern bool SDL_IsGamepad(uint instance_id);
+
+        // UTF-8 strings owned by SDL — do NOT free them.
+        [DllImport(SDL3Dll, CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr SDL_GetGamepadNameForID(uint instance_id);
+
+        [DllImport(SDL3Dll, CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr SDL_GetJoystickNameForID(uint instance_id);
+
         // SDL_GamepadButton — header order, SOUTH == 0.
         private const int SDL_GAMEPAD_BUTTON_SOUTH          = 0;
         private const int SDL_GAMEPAD_BUTTON_EAST           = 1;
@@ -185,6 +210,9 @@ namespace Emutastic.Services
             public bool   IsGamepad;
             public bool   Connected;
 
+            /// <summary>What the device reports — for diagnostics (the self-test listing).</summary>
+            public int    NumButtons, NumAxes, NumHats;
+
             /// <summary>XInput-shaped button mask (XI_* constants).</summary>
             public ushort Buttons;
 
@@ -195,20 +223,55 @@ namespace Emutastic.Services
             public byte   LeftTrigger, RightTrigger;
         }
 
+        /// <summary>
+        /// One published tick: every open device's <see cref="Snapshot"/>, plus
+        /// the device ids in SDL enumeration order. The order is what
+        /// <see cref="ControllerPortTable"/> hands unbound players their pads by,
+        /// so it is published together with the state it describes — a reader
+        /// takes one reference and sees one consistent view. Immutable.
+        /// </summary>
+        internal sealed class SnapshotSet
+        {
+            public static readonly SnapshotSet Empty =
+                new(Array.Empty<string>(), new Dictionary<string, Snapshot>(StringComparer.Ordinal));
+
+            /// <summary>Device ids in SDL enumeration order.</summary>
+            public readonly string[] Order;
+            public readonly Dictionary<string, Snapshot> ById;
+
+            public SnapshotSet(string[] order, Dictionary<string, Snapshot> byId)
+            {
+                Order = order;
+                ById  = byId;
+            }
+
+            public Snapshot? Get(string? deviceId) =>
+                !string.IsNullOrEmpty(deviceId) && ById.TryGetValue(deviceId, out var s) ? s : null;
+        }
+
         // Swapped wholesale by the SDL thread; readers take the reference once.
-        private static Dictionary<string, Snapshot> _snapshots = new();
+        private static SnapshotSet _current = SnapshotSet.Empty;
+
+        // True once a set has been published that reflects a real enumeration
+        // (a reconcile ran first). ControllerManager keeps unbound players on
+        // XInput until then, so the moment SDL3 comes up does not read as
+        // "every pad vanished" for the 16 ms before the first publish.
+        private static volatile bool _reconciled;
+        private static volatile bool _hasPublished;
+        internal static bool HasPublished => _hasPublished;
+
+        /// <summary>
+        /// The latest published set. Lock-free and non-blocking — safe to call
+        /// from a 60 Hz poll timer while the SDL thread is stalled in a hot-plug;
+        /// the stall just freezes the last set for its duration.
+        /// </summary>
+        internal static SnapshotSet Current => Volatile.Read(ref _current);
 
         /// <summary>
         /// Latest state for <paramref name="deviceId"/>, or null if that device
-        /// is not currently open. Lock-free and non-blocking — safe to call from
-        /// a 60 Hz poll timer while the SDL thread is stalled in a hot-plug.
+        /// is not currently open.
         /// </summary>
-        internal static Snapshot? GetSnapshot(string deviceId)
-        {
-            if (string.IsNullOrEmpty(deviceId)) return null;
-            var map = Volatile.Read(ref _snapshots);
-            return map.TryGetValue(deviceId, out var s) ? s : null;
-        }
+        internal static Snapshot? GetSnapshot(string deviceId) => Current.Get(deviceId);
 
         // ─────────────────────────────────────────────────────────────────────
         // Open devices — touched ONLY on the SDL thread
@@ -225,6 +288,58 @@ namespace Emutastic.Services
         }
 
         private static readonly Dictionary<string, OpenDevice> _open = new();
+
+        // Open device ids in SDL enumeration order — replaced wholesale by every
+        // reconcile (never mutated), and published with each snapshot set.
+        private static string[] _order = Array.Empty<string>();
+
+        /// <summary>
+        /// Every joystick SDL currently knows, as (instance id, product name) in
+        /// SDL enumeration order, after pumping pending device events. MUST be
+        /// called on the SDL thread. The instance id is what
+        /// <see cref="ReconcileOnSdlThread"/> opens; the name is what the caller
+        /// turns into a stable id and a display label (a gamepad-mapped device
+        /// reports its mapping's name, e.g. "Xbox Series X Controller"; anything
+        /// else its joystick name).
+        /// </summary>
+        internal static List<(uint InstanceId, string Name)> EnumerateOnSdlThread()
+        {
+            var result = new List<(uint InstanceId, string Name)>();
+            try
+            {
+                var swPump = System.Diagnostics.Stopwatch.StartNew();
+                SDL_PumpEvents();
+                swPump.Stop();
+
+                var swEnum = System.Diagnostics.Stopwatch.StartNew();
+                IntPtr arr = SDL_GetJoysticks(out int count);
+                try
+                {
+                    for (int i = 0; i < count; i++)
+                    {
+                        uint id = (uint)Marshal.ReadInt32(arr, i * 4);
+                        IntPtr namePtr = SDL_IsGamepad(id)
+                            ? SDL_GetGamepadNameForID(id)
+                            : SDL_GetJoystickNameForID(id);
+                        string? name = namePtr == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(namePtr);
+                        result.Add((id, string.IsNullOrEmpty(name) ? $"Controller {i + 1}" : name));
+                    }
+                }
+                finally
+                {
+                    if (arr != IntPtr.Zero) SDL_free(arr);
+                }
+                swEnum.Stop();
+
+                if (swPump.ElapsedMilliseconds + swEnum.ElapsedMilliseconds > 50)
+                    ControllerManager.CtrlLog($"EnumerateOnSdlThread pump={swPump.ElapsedMilliseconds}ms enum={swEnum.ElapsedMilliseconds}ms count={result.Count} names=[{string.Join(", ", result.Select(r => $"{r.InstanceId}:{r.Name}"))}]");
+            }
+            catch (Exception ex)
+            {
+                ControllerManager.CtrlLog($"EnumerateOnSdlThread THREW: {ex.GetType().Name}: {ex.Message}");
+            }
+            return result;
+        }
 
         /// <summary>
         /// Builds the stable per-device id used by configuration and snapshots.
@@ -249,14 +364,17 @@ namespace Emutastic.Services
         /// </summary>
         internal static void ReconcileOnSdlThread(IReadOnlyList<(uint InstanceId, string Name)> devices)
         {
-            var wanted = new Dictionary<string, (uint InstanceId, string Name)>();
-            var seen   = new Dictionary<string, int>(StringComparer.Ordinal);
+            var wanted     = new Dictionary<string, (uint InstanceId, string Name)>();
+            var seen       = new Dictionary<string, int>(StringComparer.Ordinal);
+            var orderedIds = new List<string>(devices.Count);
 
             foreach (var (instanceId, name) in devices)
             {
                 seen.TryGetValue(name, out int n);
                 seen[name] = n + 1;
-                wanted[MakeDeviceId(name, n)] = (instanceId, name);
+                string id = MakeDeviceId(name, n);
+                wanted[id] = (instanceId, name);
+                orderedIds.Add(id);
             }
 
             // Close devices that vanished, or whose instance id changed (a
@@ -312,6 +430,10 @@ namespace Emutastic.Services
                     try { if (joy != IntPtr.Zero) SDL_CloseJoystick(joy); } catch { }
                 }
             }
+
+            // Enumeration order, restricted to what actually opened.
+            _order      = orderedIds.Where(_open.ContainsKey).ToArray();
+            _reconciled = true;
         }
 
         private static void CloseDevice(OpenDevice dev)
@@ -331,8 +453,9 @@ namespace Emutastic.Services
             {
                 // Nothing open — publish an empty set once rather than every
                 // tick, so readers see "no devices" without churning garbage.
-                if (Volatile.Read(ref _snapshots).Count != 0)
-                    Volatile.Write(ref _snapshots, new Dictionary<string, Snapshot>());
+                if (!ReferenceEquals(Volatile.Read(ref _current), SnapshotSet.Empty))
+                    Volatile.Write(ref _current, SnapshotSet.Empty);
+                if (_reconciled) _hasPublished = true;
                 return;
             }
 
@@ -361,7 +484,8 @@ namespace Emutastic.Services
                     ControllerManager.CtrlLog($"SdlJoystickHub: read '{dev.DeviceId}' THREW {ex.GetType().Name}: {ex.Message}");
                 }
             }
-            Volatile.Write(ref _snapshots, fresh);
+            Volatile.Write(ref _current, new SnapshotSet(_order, fresh));
+            if (_reconciled) _hasPublished = true;
         }
 
         /// <summary>
@@ -395,6 +519,7 @@ namespace Emutastic.Services
                 Name      = dev.Name,
                 IsGamepad = true,
                 Connected = SDL_JoystickConnected(dev.Joystick),
+                NumButtons = dev.NumButtons, NumAxes = dev.NumAxes, NumHats = dev.NumHats,
                 Buttons   = b,
                 LeftX     =  SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFTX),
                 LeftY     = ToXInputThumb(SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFTY)),
@@ -502,6 +627,7 @@ namespace Emutastic.Services
                 Name      = dev.Name,
                 IsGamepad = false,
                 Connected = SDL_JoystickConnected(j),
+                NumButtons = dev.NumButtons, NumAxes = dev.NumAxes, NumHats = dev.NumHats,
                 Buttons   = b,
                 LeftX     =  Axis(0),
                 LeftY     = ToXInputThumb(Axis(1)),
@@ -551,7 +677,8 @@ namespace Emutastic.Services
         {
             foreach (var dev in _open.Values) CloseDevice(dev);
             _open.Clear();
-            Volatile.Write(ref _snapshots, new Dictionary<string, Snapshot>());
+            _order = Array.Empty<string>();
+            Volatile.Write(ref _current, SnapshotSet.Empty);
         }
     }
 }

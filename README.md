@@ -42,7 +42,7 @@ It renders **[ES-DE](https://es-de.org/) themes** out of the box — carousels, 
 - [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/8.0)
 - [Visual C++ Redistributable 2015–2022 (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe) — required by most libretro cores
 - libretro core `.dll` files (downloadable in-app — Preferences → Cores)
-- `SDL3.dll` (x64) for controller name detection, and to bind a player to a specific controller — the only way to use a DirectInput / generic-HID pad (Retrolink, ShanWan / Hyperkin adapters, arcade sticks). Without it only XInput pads work, addressed by slot. (Downloadable in-app — Preferences → Extras)
+- `SDL3.dll` (x64) for controller support beyond bare XInput: real device names, choosing which controller each player uses (Preferences → Controls → Input Device), and DirectInput / generic-HID pads (Retrolink, ShanWan / Hyperkin adapters, arcade sticks). With it every player reads through SDL3 and an unbound player takes the next free pad; without it only XInput pads work, addressed by slot. (Downloadable in-app — Preferences → Extras)
 - Optional: `ffmpeg.exe` for video recording, DAT files for ROM identification (also in Preferences → Extras)
 
 > **Windows SmartScreen:** Emutastic is not code-signed. Click **"More info"** then **"Run anyway"** on first launch.
@@ -147,7 +147,7 @@ Sign in to **ScreenScraper** in **Preferences → Snaps** to promote it to the p
 <details>
 <summary><strong>Controllers</strong></summary>
 
-XInput button polling during gameplay with SDL3 device name detection. Xbox, DualSense/DualShock, and hundreds of other controllers are identified by product name. Button mappings configurable per-controller in **Preferences → Input**. Falls back to generic names if `SDL3.dll` is absent.
+Controllers are read through SDL3 during gameplay (XInput is the fallback when `SDL3.dll` is absent). Xbox, DualSense/DualShock, and hundreds of other controllers are identified by product name; generic USB adapters and arcade sticks SDL has no profile for are read positionally and can be mapped like any other pad. **Choose which controller each player uses** in **Preferences → Controls → Input Device** — the choice is saved per system, follows the controller across unplug/replug, and two identical pads are listed as the name and the name "(2)". A player with no choice takes the next controller no one else has claimed, and a controller dropping out mid-game frees only that player's slot; the others keep theirs. Button mappings are configurable per system and player in the same panel. (`Emutastic.exe --selftest-input` runs a headless check of this routing over SDL3 virtual joysticks; the report lands in `Logs\input-selftest.log`.)
 
 **Left analog stick works as movement input** on every old console with a digital joystick or D-pad — push the stick on the NES, SNES, Genesis, Game Boy line, Saturn, Neo Geo, Atari, ColecoVision, TurboGrafx, arcade games, and more, and your character moves. Diagonals are honored (pushing NE registers as up + right simultaneously). The D-pad still works exactly as before — use whichever you prefer.
 

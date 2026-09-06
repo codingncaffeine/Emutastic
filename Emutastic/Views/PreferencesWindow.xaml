@@ -636,7 +636,10 @@
                                 <ComboBoxItem Content="Player 4"/>
                             </ComboBox>
 
-                            <TextBlock Text="CONTROLLER SLOT" Style="{StaticResource PrefLabel}"/>
+                            <!-- XInput slots are only polled while SDL3 is unavailable; with SDL3 up the
+                                 INPUT DEVICE dropdown at the bottom binds a pad to the player, and these
+                                 two are collapsed from code (PopulateInputDevicesAsync). -->
+                            <TextBlock x:Name="ControllerSlotLabel" Text="CONTROLLER SLOT" Style="{StaticResource PrefLabel}"/>
                             <ComboBox x:Name="ControllerSlotComboBox"
                                       Style="{StaticResource PrefComboBox}"
                                       SelectionChanged="ControllerSlotComboBox_SelectionChanged">

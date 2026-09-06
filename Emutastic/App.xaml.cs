@@ -46,6 +46,26 @@ namespace Emutastic
                 return;
             }
 
+            // Headless controller → player routing self-test over SDL3 virtual joysticks:
+            //   Emutastic.exe --selftest-input [report.log] [--portable]
+            // No window, never touches the user's configuration, exit code 0 = every check
+            // passed. Handled before the single-instance guard so a copy of the app that is
+            // already open cannot swallow it. Portable detection and the SDL3.dll resolver are
+            // the only startup steps it needs.
+            int selfTestIdx = Array.FindIndex(e.Args,
+                a => string.Equals(a, "--selftest-input", StringComparison.OrdinalIgnoreCase));
+            if (selfTestIdx >= 0)
+            {
+                AppPaths.DetectPortableMode(e.Args);
+                InstallSdl3Resolver();
+                string? report = selfTestIdx + 1 < e.Args.Length
+                                 && !e.Args[selfTestIdx + 1].StartsWith("--", StringComparison.Ordinal)
+                    ? e.Args[selfTestIdx + 1]
+                    : null;
+                Environment.Exit(InputSelfTest.Run(report));
+                return;
+            }
+
             // Single-instance guard: if Emutastic is already running, bring it to
             // the front and exit this process instead of launching a second copy.
             _singleInstanceMutex = new Mutex(true, "Emutastic_SingleInstance_v1", out bool isFirstInstance);

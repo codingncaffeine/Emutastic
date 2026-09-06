@@ -21,24 +21,30 @@ namespace Emutastic.Configuration
         public bool EnableRumble { get; set; } = true;
         public int ControllerSensitivity { get; set; } = 100;
         /// <summary>
-        /// Which XInput controller slot (0-3) this player uses.
+        /// Which XInput controller slot (0-3) this player uses while SDL3 is
+        /// unavailable (SDL3.dll absent, or still initialising).
         /// -1 means "use default" (Player 1 → slot 0, Player 2 → slot 1, etc.)
         ///
-        /// Only ever addresses XInput devices. Superseded by
-        /// <see cref="ControllerDeviceId"/> when that is set; kept so existing
-        /// saved configurations keep behaving exactly as before.
+        /// Only ever addresses XInput devices, and only on that fallback path:
+        /// once SDL3 is up every player reads through SDL — a bound device via
+        /// <see cref="ControllerDeviceId"/>, an unbound one via the next
+        /// unclaimed pad — and this is not consulted (Preferences hides the
+        /// picker then). Kept so SDL3-less installs keep behaving as before.
         /// </summary>
         public int ControllerSlot { get; set; } = -1;
 
         /// <summary>
         /// Stable id of the specific controller bound to this player, as listed
         /// by ControllerManager.GetConnectedControllerDevices() — the format is
-        /// "product name#occurrence", e.g. "Retrolink SNES controller#1".
+        /// "product name#occurrence", e.g. "Retrolink SNES controller#1". Same
+        /// field and format as the Linux build, so a config file moves between
+        /// the two apps.
         ///
-        /// Empty means no explicit device is bound, and polling falls back to
-        /// <see cref="ControllerSlot"/>. Set, it takes precedence and is the
-        /// only way to reach a DirectInput / generic-HID pad, since those have
-        /// no XInput slot at all.
+        /// Empty means no explicit device is bound: the player takes the next
+        /// pad no binding claims, in SDL enumeration order (or, without SDL3,
+        /// its <see cref="ControllerSlot"/>). Set, the player reads that device
+        /// and nothing else — nothing while it is unplugged — which is also the
+        /// only way to pin a DirectInput / generic-HID pad to a player.
         /// </summary>
         public string ControllerDeviceId { get; set; } = "";
     }

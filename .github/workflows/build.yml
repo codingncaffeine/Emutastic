@@ -59,6 +59,29 @@ jobs:
           exit $code
         shell: pwsh
 
+      # Controller → player routing self-test over SDL3 virtual joysticks: no
+      # hardware, no window, a couple of seconds. SDL3.dll is not in the repo
+      # (users fetch it in-app), so the pinned release is dropped next to the
+      # built exe, where the default loader finds it once [DataRoot]/Native has
+      # nothing. The report is printed whether or not the run passes; the exit
+      # code decides.
+      - name: Input self-test
+        run: |
+          $exe = Get-ChildItem -Path Emutastic/bin/Release -Recurse -Filter Emutastic.exe | Select-Object -First 1
+          if (-not $exe) { Write-Error "Emutastic.exe not found under Emutastic/bin/Release"; exit 1 }
+          $zip = Join-Path $env:RUNNER_TEMP 'SDL3.zip'
+          Invoke-WebRequest -Uri 'https://github.com/libsdl-org/SDL/releases/download/release-3.4.16/SDL3-3.4.16-win32-x64.zip' -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath (Join-Path $env:RUNNER_TEMP 'SDL3') -Force
+          $dll = Get-ChildItem -Path (Join-Path $env:RUNNER_TEMP 'SDL3') -Recurse -Filter SDL3.dll | Select-Object -First 1
+          if (-not $dll) { Write-Error "SDL3.dll not found in the SDL3 release zip"; exit 1 }
+          Copy-Item $dll.FullName -Destination $exe.DirectoryName -Force
+          $report = Join-Path $env:RUNNER_TEMP 'input-selftest.log'
+          $p = Start-Process -FilePath $exe.FullName -ArgumentList '--selftest-input', "`"$report`"", '--portable' -Wait -PassThru
+          if (Test-Path $report) { Get-Content $report } else { Write-Host "(no report written)" }
+          Write-Host "self-test exit code: $($p.ExitCode)"
+          exit $p.ExitCode
+        shell: pwsh
+
       # A green build with warnings is not green. Surface the count and the
       # distinct warning lines in the step summary so they can't quietly
       # accumulate between releases.

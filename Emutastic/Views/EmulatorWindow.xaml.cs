@@ -1332,8 +1332,12 @@ namespace Emutastic.Views
 
                 _db                = new DatabaseService();
                 _configService     = App.Configuration ?? throw new InvalidOperationException("Configuration not initialized");
+                // One port table for all four players: which pad each port reads is
+                // decided in one place, so a pad is never read by two players and a
+                // disconnect frees only the port that lost it. See ControllerPortTable.
+                var ports = new ControllerPortTable("game");
                 for (uint i = 0; i < 4; i++)
-                    _controllers[i] = new ControllerManager(_configService, null, game.Console, playerNumber: i);
+                    _controllers[i] = new ControllerManager(_configService, null, game.Console, playerNumber: i, ports: ports);
                 _controllerManager = _controllers[0];
                 _controllerManager!.ButtonChanged += OnControllerButtonChanged;
                 _rumbleStateDelegate = OnSetRumbleState; // must be assigned after _controllerManager exists; field keeps it GC-rooted

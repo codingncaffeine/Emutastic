@@ -198,13 +198,68 @@ namespace Emutastic.Views
         }
 
         /// <summary>
+        /// Points the capture manager at the device the dropdown shows, so
+        /// "Press a button…" listens to the pad the player is looking at.
+        ///
+        /// Deliberately NOT ReloadInputConfiguration: the manager this window
+        /// holds was built for ONE console — MainWindow constructs it with the
+        /// default "NES" — so reloading re-reads "NES_P1" whatever console is
+        /// on screen. The console is irrelevant while capturing anyway (RawMode
+        /// bypasses the mapping table); only WHICH DEVICE is read must be right.
+        /// See ControllerManager.OverrideBoundDevice. Keyboard, a placeholder
+        /// "Controller N", or a name with no id yet all clear the override.
+        /// </summary>
+        private void SyncCaptureDevice()
+        {
+            if (_controllerManager == null) return;
+            string? id = InputDeviceComboBox.SelectedItem is string shown
+                && shown != "Keyboard"
+                && _deviceIdByDisplayName.TryGetValue(shown, out var found)
+                ? found : null;
+            _controllerManager.OverrideBoundDevice(id);
+        }
+
+        /// <summary>
+        /// The dropdown entry that truthfully describes what this console+player
+        /// reads, among the entries currently listed. Never a guess: the bound
+        /// pad, or Keyboard. Two states the user put there by hand also stand —
+        /// a pick still waiting for its SDL id (it resolves on replug), and a
+        /// placeholder "Controller N" slot pick while SDL3 is unavailable, which
+        /// is the binding on that path.
+        /// </summary>
+        private string ShownDeviceFor(Configuration.InputConfiguration config)
+        {
+            if (_pendingDeviceBindingName != null
+                && _pendingDeviceBindingKey == ConfigKey
+                && InputDeviceComboBox.Items.Contains(_pendingDeviceBindingName))
+                return _pendingDeviceBindingName;
+
+            if (!string.IsNullOrEmpty(config.ControllerDeviceId))
+            {
+                string? boundName = _deviceIdByDisplayName
+                    .FirstOrDefault(kv => kv.Value == config.ControllerDeviceId).Key;
+                if (boundName != null && InputDeviceComboBox.Items.Contains(boundName))
+                    return boundName;
+            }
+
+            if (!ControllerManager.IsSdl3Ready && config.ControllerSlot >= 0)
+            {
+                string placeholder = $"Controller {config.ControllerSlot + 1}";
+                if (InputDeviceComboBox.Items.Contains(placeholder))
+                    return placeholder;
+            }
+
+            return "Keyboard";
+        }
+
+        /// <summary>
         /// Writes the device shown in the dropdown into <paramref name="config"/>
         /// as a binding, and returns the device id now bound — or null when the
         /// pick binds no device (Keyboard, or an XInput slot).
         ///
-        /// Shared by the selection handler and Save because the two must agree:
-        /// the handler only fires on an actual change, so Save is what covers a
-        /// device that was already selected when the window opened.
+        /// Shared by the selection handler and Save because the two must agree
+        /// on what a shown name means; the handler is the normal path, Save the
+        /// safety net (see SaveMappingsToConfig).
         ///
         /// <paramref name="explicitPick"/> is true only from the selection
         /// handler. Save passes false, and then this never GUESSES: a
@@ -315,27 +370,27 @@ namespace Emutastic.Views
             _suppressAutoSave = true;
             InputDeviceComboBox.ItemsSource = devices;
 
-            // Prefer whatever this console+player is actually bound to, so the
-            // dropdown always shows the device that will really be polled.
-            string boundId   = _configService.GetInputConfiguration(ConfigKey).ControllerDeviceId;
-            string? boundName = string.IsNullOrEmpty(boundId)
-                ? null
-                : records.FirstOrDefault(r => r.Id == boundId)?.DisplayName;
-
-            // Restoring a selection must not write it straight back to config —
-            // that would persist a fallback choice the user never made. Note the
-            // consequence: the auto-selected fallback below is DISPLAYED but not
-            // bound, so Save has to persist what is on screen (see
-            // SaveMappingsToConfig) or the two silently disagree.
-            if (boundName != null && devices.Contains(boundName))
-                InputDeviceComboBox.SelectedItem = boundName;
-            else if (_selectedDevice != "Keyboard" && devices.Contains(_selectedDevice))
-                InputDeviceComboBox.SelectedItem = _selectedDevice;
-            else if (devices.Count > 1)
-                InputDeviceComboBox.SelectedItem = devices[1];           // first controller
-            else
-                InputDeviceComboBox.SelectedItem = "Keyboard";
+            // The dropdown shows THIS console+player's binding, or Keyboard when
+            // it has none (or its pad is not attached). It must never guess:
+            // auto-selecting the first controller, or carrying the previous
+            // player's selection over, displayed a pad the player was not bound
+            // to — and since Save persists what is shown, switching to Player 2
+            // and saving bound both players to Player 1's controller. Binding
+            // is always an explicit pick, so a pad on screen is a pad that is
+            // really bound. (Restoring the selection under suppression must not
+            // write it back either: a suppressed re-selection is not a pick.)
+            InputDeviceComboBox.SelectedItem = ShownDeviceFor(_configService.GetInputConfiguration(ConfigKey));
             _suppressAutoSave = false;
+            SyncCaptureDevice();
+
+            // The Controller Slot picker addresses XInput slots, which are only
+            // polled while SDL3 is unavailable. With SDL3 up every player reads
+            // through the device binding (or the next unclaimed pad), so the
+            // picker would save a value nothing reads — hide it, as the Linux
+            // build does. It comes back if SDL3.dll is removed.
+            var slotVisibility = ControllerManager.IsSdl3Ready ? Visibility.Collapsed : Visibility.Visible;
+            ControllerSlotLabel.Visibility    = slotVisibility;
+            ControllerSlotComboBox.Visibility = slotVisibility;
         }
 
         // ── Console / layout ──────────────────────────────────────────────────
@@ -525,18 +580,17 @@ namespace Emutastic.Views
             int slot = config.ControllerSlot;
             ControllerSlotComboBox.SelectedIndex = (slot >= 0 && slot <= 3) ? slot + 1 : 0;
 
-            // Follow the per-console/player device binding too, so switching
-            // console or player doesn't leave the dropdown showing the previous
-            // selection's device. Assigning the value already selected raises no
-            // event, so this cannot loop back through the handler.
-            if (!string.IsNullOrEmpty(config.ControllerDeviceId))
-            {
-                var bound = ControllerManager.GetConnectedControllerDevices()
-                    .FirstOrDefault(r => r.Id == config.ControllerDeviceId);
-                if (bound != null && InputDeviceComboBox.Items.Contains(bound.DisplayName))
-                    InputDeviceComboBox.SelectedItem = bound.DisplayName;
-            }
+            // Follow this console+player's device binding — or drop to Keyboard
+            // when it has none, or its pad is not listed. Before, an unbound
+            // player simply kept the previous player's pad on screen, and Save
+            // then persisted it: two players on one controller. Assigning the
+            // value already selected raises no event, so this cannot loop back
+            // through the handler.
+            string target = ShownDeviceFor(config);
+            if (!Equals(InputDeviceComboBox.SelectedItem, target) && InputDeviceComboBox.Items.Contains(target))
+                InputDeviceComboBox.SelectedItem = target;
             _suppressAutoSave = false;
+            SyncCaptureDevice();
         }
 
         private void SaveMappingsToConfig()
@@ -578,13 +632,11 @@ namespace Emutastic.Views
 
             // Persist the device the dropdown is showing.
             //
-            // The selection handler only runs on an actual CHANGE, and
-            // PopulateInputDevicesAsync auto-selects the first controller under
-            // _suppressAutoSave. So the common path — open Preferences, see your
-            // pad already listed and selected, click Save — produced no binding
-            // at all while the UI showed one, and polling stayed on the XInput
-            // slot. That is precisely the "I select my controller and the inputs
-            // aren't detected" report.
+            // Populate no longer auto-selects a pad (it shows the binding or
+            // Keyboard), so this is normally a no-op: the pad on screen is the
+            // pad already bound. It stays as the safety net for the one gap
+            // left — a pick deferred because its id had not arrived yet — and
+            // because Save is an explicit act that should honour the screen.
             //
             // But NOT when the shown device is a stand-in for one that is bound
             // and merely absent. Save runs for the current ConfigKey from ANY
@@ -887,18 +939,18 @@ namespace Emutastic.Views
             if (!_suppressAutoSave)
             {
                 var config = _configService.GetInputConfiguration(ConfigKey);
-                string? boundId = ApplyDeviceSelection(config, device, explicitPick: true);
+                ApplyDeviceSelection(config, device, explicitPick: true);
                 _configService.SetInputConfiguration(ConfigKey, config);
-
-                // Point the capture manager at the pad just picked. Deliberately
-                // NOT ReloadInputConfiguration: the manager this window holds was
-                // built for ONE console — MainWindow constructs it with the
-                // default "NES" — so reloading re-reads "NES_P1" whatever console
-                // is on screen, and the mapping capture then listens to the wrong
-                // pad, or to none. See ControllerManager.OverrideBoundDevice.
-                _controllerManager?.OverrideBoundDevice(boundId);
             }
 
+            // The capture manager follows the pad now shown — for a user's pick
+            // AND for the suppressed re-selections populate and a player switch
+            // make. Before, only an explicit pick pointed it there, so opening
+            // Preferences on a player whose pad was already bound left the
+            // capture manager reading its own NES_P1 binding (or XInput slot 0),
+            // and "Press a button…" ignored the pad on screen until it was
+            // re-picked by hand. LoadMappingsFromConfig ends with
+            // SyncCaptureDevice, and this handler always reaches it.
             StopWaiting();
             LoadMappingsFromConfig();
             RefreshAllRows();
