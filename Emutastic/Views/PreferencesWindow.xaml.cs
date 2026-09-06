@@ -205,8 +205,15 @@ namespace Emutastic.Views
         /// Shared by the selection handler and Save because the two must agree:
         /// the handler only fires on an actual change, so Save is what covers a
         /// device that was already selected when the window opened.
+        ///
+        /// <paramref name="explicitPick"/> is true only from the selection
+        /// handler. Save passes false, and then this never GUESSES: a
+        /// placeholder "Controller N" name is left alone rather than turned
+        /// into a slot, and an unlisted name is not deferred. Save is meant to
+        /// persist a choice the user visibly made, not to invent one from a
+        /// fallback the control happened to select.
         /// </summary>
-        private string? ApplyDeviceSelection(Configuration.InputConfiguration config, string device)
+        private string? ApplyDeviceSelection(Configuration.InputConfiguration config, string device, bool explicitPick)
         {
             if (device == "Keyboard")
             {
@@ -223,6 +230,8 @@ namespace Emutastic.Views
                 return id;
             }
 
+            if (!explicitPick) return null;
+
             // No id listed for this name. Two situations, needing opposite
             // treatment — and neither may write "", which would silently drop
             // whatever binding already worked while the UI showed the pick as
@@ -233,9 +242,14 @@ namespace Emutastic.Views
                 // "Controller N" names. Those never acquire an id — by the time
                 // ids exist the names have been replaced by real product names —
                 // so holding the pick would discard it. Honour it as the XInput
-                // slot it literally names.
+                // slot it literally names, and keep the slot dropdown telling
+                // the truth about it.
                 config.ControllerSlot = slot;
                 ClearPendingDeviceBinding();
+                bool wasSuppressed = _suppressAutoSave;
+                _suppressAutoSave = true;
+                ControllerSlotComboBox.SelectedIndex = slot + 1;   // index 0 = Default
+                _suppressAutoSave = wasSuppressed;
                 ControllerManager.CtrlLog(
                     $"Preferences: '{device}' for {ConfigKey} has no SDL id (SDL3 not ready) — " +
                     $"bound XInput slot {slot} instead");
@@ -274,12 +288,12 @@ namespace Emutastic.Views
             // showed it, then replugged. Repopulating alone can't do this: it
             // re-selects the name under _suppressAutoSave, so the handler never
             // fires again and the user would have to notice and re-pick by hand.
-            // Skipped in keyboard mode: a suppressed re-selection of "Keyboard"
-            // sets _isKeyboardMode without clearing the pending pick, and
-            // binding a pad behind a UI showing Keyboard would be wrong.
+            // Deliberately not gated on _isKeyboardMode: while the pad was away,
+            // populate may have auto-selected Keyboard, and that must not veto
+            // the pick. Once the id is written, the boundName branch below
+            // re-selects the pad, so the dropdown and the binding agree.
             if (_pendingDeviceBindingName != null
                 && _pendingDeviceBindingKey == ConfigKey
-                && !_isKeyboardMode
                 && _deviceIdByDisplayName.TryGetValue(_pendingDeviceBindingName, out var pendingId))
             {
                 var pendingConfig = _configService.GetInputConfiguration(ConfigKey);
@@ -562,7 +576,7 @@ namespace Emutastic.Views
                 }
             }
 
-            // Persist whatever device the dropdown is currently showing.
+            // Persist the device the dropdown is showing.
             //
             // The selection handler only runs on an actual CHANGE, and
             // PopulateInputDevicesAsync auto-selects the first controller under
@@ -570,10 +584,22 @@ namespace Emutastic.Views
             // pad already listed and selected, click Save — produced no binding
             // at all while the UI showed one, and polling stayed on the XInput
             // slot. That is precisely the "I select my controller and the inputs
-            // aren't detected" report. Save is an explicit act by the user;
-            // honour what is on screen.
-            if (InputDeviceComboBox.SelectedItem is string shownDevice)
-                ApplyDeviceSelection(config, shownDevice);
+            // aren't detected" report.
+            //
+            // But NOT when the shown device is a stand-in for one that is bound
+            // and merely absent. Save runs for the current ConfigKey from ANY
+            // tab, and a bound pad that is unplugged today can't be re-selected
+            // by populate, so the dropdown falls back to some other pad or to
+            // Keyboard. Persisting that would rebind the player to a different
+            // controller — or clear them — for having opened Preferences to
+            // change a theme. A binding the user changed by hand doesn't reach
+            // this branch: the handler already wrote the new id, so it is either
+            // present or empty.
+            bool boundPadAbsent =
+                !string.IsNullOrEmpty(config.ControllerDeviceId)
+                && !_deviceIdByDisplayName.ContainsValue(config.ControllerDeviceId);
+            if (!boundPadAbsent && InputDeviceComboBox.SelectedItem is string shownDevice)
+                ApplyDeviceSelection(config, shownDevice, explicitPick: false);
 
             _configService.SetInputConfiguration(ConfigKey, config);
         }
@@ -861,7 +887,7 @@ namespace Emutastic.Views
             if (!_suppressAutoSave)
             {
                 var config = _configService.GetInputConfiguration(ConfigKey);
-                string? boundId = ApplyDeviceSelection(config, device);
+                string? boundId = ApplyDeviceSelection(config, device, explicitPick: true);
                 _configService.SetInputConfiguration(ConfigKey, config);
 
                 // Point the capture manager at the pad just picked. Deliberately
