@@ -23,8 +23,24 @@ namespace Emutastic.Configuration
         /// <summary>
         /// Which XInput controller slot (0-3) this player uses.
         /// -1 means "use default" (Player 1 → slot 0, Player 2 → slot 1, etc.)
+        ///
+        /// Only ever addresses XInput devices. Superseded by
+        /// <see cref="ControllerDeviceId"/> when that is set; kept so existing
+        /// saved configurations keep behaving exactly as before.
         /// </summary>
         public int ControllerSlot { get; set; } = -1;
+
+        /// <summary>
+        /// Stable id of the specific controller bound to this player, as listed
+        /// by ControllerManager.GetConnectedControllerDevices() — the format is
+        /// "product name#occurrence", e.g. "Retrolink SNES controller#1".
+        ///
+        /// Empty means no explicit device is bound, and polling falls back to
+        /// <see cref="ControllerSlot"/>. Set, it takes precedence and is the
+        /// only way to reach a DirectInput / generic-HID pad, since those have
+        /// no XInput slot at all.
+        /// </summary>
+        public string ControllerDeviceId { get; set; } = "";
     }
 
     // Display configuration

@@ -1,0 +1,88 @@
+name: Build
+
+# Compile check on every push / PR. Deliberately separate from release.yml,
+# which only fires on v*.*.* tags — this lane exists so ordinary commits get
+# verified without cutting a tag. Runs on windows-latest because the app is
+# WPF (net8.0-windows); it cannot be built on any other OS.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+
+      # Secrets.cs is gitignored (see Secrets.cs.template). A compile check
+      # doesn't need real credentials — empty strings satisfy the const
+      # declarations, so this lane also works on forks and PRs from accounts
+      # with no access to the repository secrets.
+      - name: Generate Secrets.cs
+        run: |
+          @"
+          namespace Emutastic
+          {
+              internal static class Secrets
+              {
+                  public const string GitHubOAuthClientId = "";
+                  public const string ScreenScraperDevId = "";
+                  public const string ScreenScraperDevPass = "";
+              }
+          }
+          "@ | Set-Content -Path Emutastic/Secrets.cs -Encoding UTF8
+        shell: pwsh
+
+      # openvgdb.sqlite is NOT downloaded here. Every csproj item that
+      # references it is guarded by Condition="Exists(...)", so the build
+      # succeeds without it — skipping the download keeps this lane fast.
+      - name: Create Cores folder
+        run: New-Item -ItemType Directory -Force -Path Emutastic/Cores | Out-Null
+        shell: pwsh
+
+      # Release, not Debug: Release is the configuration that actually ships,
+      # and it's the one whose warnings matter. Output is captured to a file
+      # FIRST and echoed afterwards — piping dotnet straight into a filter
+      # would let the filter's exit code stand in for the compiler's.
+      - name: Build (Release)
+        run: |
+          dotnet build Emutastic.sln -c Release --nologo > build.log 2>&1
+          $code = $LASTEXITCODE
+          Get-Content build.log
+          exit $code
+        shell: pwsh
+
+      # A green build with warnings is not green. Surface the count and the
+      # distinct warning lines in the step summary so they can't quietly
+      # accumulate between releases.
+      - name: Warning summary
+        if: always()
+        run: |
+          if (-not (Test-Path build.log)) { exit 0 }
+          $warnings = Select-String -Path build.log -Pattern ': warning ' |
+                      ForEach-Object { $_.Line.Trim() } |
+                      Sort-Object -Unique
+          "## Build warnings: $($warnings.Count)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          if ($warnings.Count -gt 0) {
+            '```' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            $warnings | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            '```' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          }
+          Write-Host "Build warnings: $($warnings.Count)"
+          $warnings | ForEach-Object { Write-Host $_ }
+        shell: pwsh
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: ignore

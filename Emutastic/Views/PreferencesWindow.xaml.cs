@@ -177,6 +177,11 @@ namespace Emutastic.Views
 
         private void PopulateInputDevices() => _ = PopulateInputDevicesAsync();
 
+        // Display name → stable device id, for the devices currently listed.
+        // The combo shows names because that is what a player recognises; the
+        // id is what gets persisted and what ControllerManager actually polls.
+        private Dictionary<string, string> _deviceIdByDisplayName = new(StringComparer.Ordinal);
+
         private async Task PopulateInputDevicesAsync()
         {
             var devices = await PreferencesCache
@@ -184,16 +189,36 @@ namespace Emutastic.Views
                 .ConfigureAwait(true);
             if (!IsLoaded) return;
 
+            // Records carry the binding ids for the same devices the cache
+            // lists by name. Empty while SDL3 is still warming up, in which
+            // case selecting a device can't bind it yet and the next refresh
+            // (or the ↻ button) will pick it up.
+            var records = ControllerManager.GetConnectedControllerDevices();
+            _deviceIdByDisplayName = records
+                .GroupBy(r => r.DisplayName, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => g.First().Id, StringComparer.Ordinal);
+
             InputDeviceComboBox.ItemsSource = devices;
 
-            // Restore an explicit controller choice if it's still connected.
-            // "Keyboard" is only a passive default — if a controller is present prefer it.
-            if (_selectedDevice != "Keyboard" && devices.Contains(_selectedDevice))
+            // Prefer whatever this console+player is actually bound to, so the
+            // dropdown always shows the device that will really be polled.
+            string boundId   = _configService.GetInputConfiguration(ConfigKey).ControllerDeviceId;
+            string? boundName = string.IsNullOrEmpty(boundId)
+                ? null
+                : records.FirstOrDefault(r => r.Id == boundId)?.DisplayName;
+
+            // Restoring a selection must not write it straight back to config —
+            // that would persist a fallback choice the user never made.
+            _suppressAutoSave = true;
+            if (boundName != null && devices.Contains(boundName))
+                InputDeviceComboBox.SelectedItem = boundName;
+            else if (_selectedDevice != "Keyboard" && devices.Contains(_selectedDevice))
                 InputDeviceComboBox.SelectedItem = _selectedDevice;
             else if (devices.Count > 1)
                 InputDeviceComboBox.SelectedItem = devices[1];           // first controller
             else
                 InputDeviceComboBox.SelectedItem = "Keyboard";
+            _suppressAutoSave = false;
         }
 
         // ── Console / layout ──────────────────────────────────────────────────
@@ -382,6 +407,18 @@ namespace Emutastic.Views
             _suppressAutoSave = true;
             int slot = config.ControllerSlot;
             ControllerSlotComboBox.SelectedIndex = (slot >= 0 && slot <= 3) ? slot + 1 : 0;
+
+            // Follow the per-console/player device binding too, so switching
+            // console or player doesn't leave the dropdown showing the previous
+            // selection's device. Assigning the value already selected raises no
+            // event, so this cannot loop back through the handler.
+            if (!string.IsNullOrEmpty(config.ControllerDeviceId))
+            {
+                var bound = ControllerManager.GetConnectedControllerDevices()
+                    .FirstOrDefault(r => r.Id == config.ControllerDeviceId);
+                if (bound != null && InputDeviceComboBox.Items.Contains(bound.DisplayName))
+                    InputDeviceComboBox.SelectedItem = bound.DisplayName;
+            }
             _suppressAutoSave = false;
         }
 
@@ -699,6 +736,25 @@ namespace Emutastic.Views
             if (InputDeviceComboBox.SelectedItem is not string device) return;
             _selectedDevice  = device;
             _isKeyboardMode  = device == "Keyboard";
+
+            // Persist the choice so polling actually follows it. Before this,
+            // picking a controller here only switched the mapping rows between
+            // keyboard and controller — the selection reached nothing that
+            // read input, so choosing any pad other than whichever one happened
+            // to hold XInput slot 0 appeared to do nothing at all.
+            if (!_suppressAutoSave)
+            {
+                var config = _configService.GetInputConfiguration(ConfigKey);
+                config.ControllerDeviceId =
+                    !_isKeyboardMode && _deviceIdByDisplayName.TryGetValue(device, out var id) ? id : "";
+                _configService.SetInputConfiguration(ConfigKey, config);
+
+                // Live-apply to the manager backing this window so the mapping
+                // capture below reads the pad the user just picked, not the
+                // previous one.
+                _controllerManager?.ReloadInputConfiguration();
+            }
+
             StopWaiting();
             LoadMappingsFromConfig();
             RefreshAllRows();
