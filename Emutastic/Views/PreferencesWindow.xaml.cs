@@ -117,6 +117,9 @@ namespace Emutastic.Views
                 if (_controllerManager != null)
                 {
                     _controllerManager.RawMode = false;
+                    // Drop the capture-time device override so this manager goes
+                    // back to polling whatever its own configuration binds.
+                    _controllerManager.OverrideBoundDevice(null);
                     _controllerManager.ButtonChanged -= OnControllerButtonChanged;
                 }
                 Services.ThemeService.Instance.ThemesChanged -= OnThemesChanged;
@@ -194,6 +197,62 @@ namespace Emutastic.Views
             _pendingDeviceBindingKey  = null;
         }
 
+        /// <summary>
+        /// Writes the device shown in the dropdown into <paramref name="config"/>
+        /// as a binding, and returns the device id now bound — or null when the
+        /// pick binds no device (Keyboard, or an XInput slot).
+        ///
+        /// Shared by the selection handler and Save because the two must agree:
+        /// the handler only fires on an actual change, so Save is what covers a
+        /// device that was already selected when the window opened.
+        /// </summary>
+        private string? ApplyDeviceSelection(Configuration.InputConfiguration config, string device)
+        {
+            if (device == "Keyboard")
+            {
+                // An explicit "stop using a pad".
+                config.ControllerDeviceId = "";
+                ClearPendingDeviceBinding();
+                return null;
+            }
+
+            if (_deviceIdByDisplayName.TryGetValue(device, out var id))
+            {
+                config.ControllerDeviceId = id;
+                ClearPendingDeviceBinding();
+                return id;
+            }
+
+            // No id listed for this name. Two situations, needing opposite
+            // treatment — and neither may write "", which would silently drop
+            // whatever binding already worked while the UI showed the pick as
+            // accepted.
+            if (ControllerManager.TryParseFallbackDeviceName(device, out int slot))
+            {
+                // SDL3 is not up (or is absent), so the list holds placeholder
+                // "Controller N" names. Those never acquire an id — by the time
+                // ids exist the names have been replaced by real product names —
+                // so holding the pick would discard it. Honour it as the XInput
+                // slot it literally names.
+                config.ControllerSlot = slot;
+                ClearPendingDeviceBinding();
+                ControllerManager.CtrlLog(
+                    $"Preferences: '{device}' for {ConfigKey} has no SDL id (SDL3 not ready) — " +
+                    $"bound XInput slot {slot} instead");
+                return null;
+            }
+
+            // A real product name the id cache no longer lists: the name list is
+            // up to 2s stale, so the pad was most likely just unplugged. Hold the
+            // pick so a replug resolves it, and leave the stored binding alone.
+            _pendingDeviceBindingName = device;
+            _pendingDeviceBindingKey  = ConfigKey;
+            ControllerManager.CtrlLog(
+                $"Preferences: '{device}' selected for {ConfigKey} but no id is listed — " +
+                $"binding deferred (existing binding '{config.ControllerDeviceId}' left intact)");
+            return null;
+        }
+
         private async Task PopulateInputDevicesAsync()
         {
             var devices = await PreferencesCache
@@ -210,12 +269,17 @@ namespace Emutastic.Views
                 .GroupBy(r => r.DisplayName, StringComparer.Ordinal)
                 .ToDictionary(g => g.Key, g => g.First().Id, StringComparer.Ordinal);
 
-            // Apply a pick that was made before SDL3 could resolve it. Without
-            // this the selection is simply lost: repopulating re-selects the
-            // name but runs under _suppressAutoSave, so the handler never fires
-            // again and the user would have to notice and re-pick by hand.
+            // Apply a pick that was held because no id was listed for it at the
+            // time — a pad unplugged while the (up to 2s stale) name list still
+            // showed it, then replugged. Repopulating alone can't do this: it
+            // re-selects the name under _suppressAutoSave, so the handler never
+            // fires again and the user would have to notice and re-pick by hand.
+            // Skipped in keyboard mode: a suppressed re-selection of "Keyboard"
+            // sets _isKeyboardMode without clearing the pending pick, and
+            // binding a pad behind a UI showing Keyboard would be wrong.
             if (_pendingDeviceBindingName != null
                 && _pendingDeviceBindingKey == ConfigKey
+                && !_isKeyboardMode
                 && _deviceIdByDisplayName.TryGetValue(_pendingDeviceBindingName, out var pendingId))
             {
                 var pendingConfig = _configService.GetInputConfiguration(ConfigKey);
@@ -223,13 +287,18 @@ namespace Emutastic.Views
                 {
                     pendingConfig.ControllerDeviceId = pendingId;
                     _configService.SetInputConfiguration(ConfigKey, pendingConfig);
-                    _controllerManager?.ReloadInputConfiguration();
+                    _controllerManager?.OverrideBoundDevice(pendingId);
                     ControllerManager.CtrlLog(
                         $"Preferences: deferred binding for {ConfigKey} resolved to '{pendingId}'");
                 }
                 ClearPendingDeviceBinding();
             }
 
+            // Suppression starts BEFORE the ItemsSource swap, not after it.
+            // Replacing the items resets SelectedItem, and every selection that
+            // reset produces is the control's doing rather than the user's —
+            // none of it should reach configuration.
+            _suppressAutoSave = true;
             InputDeviceComboBox.ItemsSource = devices;
 
             // Prefer whatever this console+player is actually bound to, so the
@@ -240,8 +309,10 @@ namespace Emutastic.Views
                 : records.FirstOrDefault(r => r.Id == boundId)?.DisplayName;
 
             // Restoring a selection must not write it straight back to config —
-            // that would persist a fallback choice the user never made.
-            _suppressAutoSave = true;
+            // that would persist a fallback choice the user never made. Note the
+            // consequence: the auto-selected fallback below is DISPLAYED but not
+            // bound, so Save has to persist what is on screen (see
+            // SaveMappingsToConfig) or the two silently disagree.
             if (boundName != null && devices.Contains(boundName))
                 InputDeviceComboBox.SelectedItem = boundName;
             else if (_selectedDevice != "Keyboard" && devices.Contains(_selectedDevice))
@@ -490,6 +561,19 @@ namespace Emutastic.Views
                     });
                 }
             }
+
+            // Persist whatever device the dropdown is currently showing.
+            //
+            // The selection handler only runs on an actual CHANGE, and
+            // PopulateInputDevicesAsync auto-selects the first controller under
+            // _suppressAutoSave. So the common path — open Preferences, see your
+            // pad already listed and selected, click Save — produced no binding
+            // at all while the UI showed one, and polling stayed on the XInput
+            // slot. That is precisely the "I select my controller and the inputs
+            // aren't detected" report. Save is an explicit act by the user;
+            // honour what is on screen.
+            if (InputDeviceComboBox.SelectedItem is string shownDevice)
+                ApplyDeviceSelection(config, shownDevice);
 
             _configService.SetInputConfiguration(ConfigKey, config);
         }
@@ -777,40 +861,16 @@ namespace Emutastic.Views
             if (!_suppressAutoSave)
             {
                 var config = _configService.GetInputConfiguration(ConfigKey);
-
-                if (_isKeyboardMode)
-                {
-                    // Picking Keyboard is a deliberate "stop using a pad".
-                    config.ControllerDeviceId = "";
-                    ClearPendingDeviceBinding();
-                }
-                else if (_deviceIdByDisplayName.TryGetValue(device, out var id))
-                {
-                    config.ControllerDeviceId = id;
-                    ClearPendingDeviceBinding();
-                }
-                else
-                {
-                    // No id for this name yet — SDL3 is still warming up (the
-                    // list is XInput fallback names, which never match an SDL
-                    // DisplayName), or SDL3.dll is absent entirely. Writing ""
-                    // here used to look harmless but silently unbound the pad
-                    // AND wiped any previously-working binding, while the UI
-                    // showed the pick as accepted. Keep what is on disk and
-                    // re-apply the moment the ids arrive.
-                    _pendingDeviceBindingName = device;
-                    _pendingDeviceBindingKey  = ConfigKey;
-                    ControllerManager.CtrlLog(
-                        $"Preferences: '{device}' selected for {ConfigKey} before SDL3 had a device id — " +
-                        $"binding deferred (existing binding '{config.ControllerDeviceId}' left intact)");
-                }
-
+                string? boundId = ApplyDeviceSelection(config, device);
                 _configService.SetInputConfiguration(ConfigKey, config);
 
-                // Live-apply to the manager backing this window so the mapping
-                // capture below reads the pad the user just picked, not the
-                // previous one.
-                _controllerManager?.ReloadInputConfiguration();
+                // Point the capture manager at the pad just picked. Deliberately
+                // NOT ReloadInputConfiguration: the manager this window holds was
+                // built for ONE console — MainWindow constructs it with the
+                // default "NES" — so reloading re-reads "NES_P1" whatever console
+                // is on screen, and the mapping capture then listens to the wrong
+                // pad, or to none. See ControllerManager.OverrideBoundDevice.
+                _controllerManager?.OverrideBoundDevice(boundId);
             }
 
             StopWaiting();

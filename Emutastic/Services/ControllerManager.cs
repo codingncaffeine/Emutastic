@@ -88,6 +88,10 @@ namespace Emutastic.Services
         // the pre-existing behaviour and the fallback when SDL3.dll is absent.
         private volatile string? _deviceId;
 
+        // Transient device binding that outranks _deviceId, used by Preferences
+        // while the user is picking a pad. See OverrideBoundDevice.
+        private volatile string? _deviceIdOverride;
+
         // Raw XInput wButtons bitmask from the most recent poll. Bypasses the per-
         // console mapping table so callers (e.g. frontend chords like Disk Swap)
         // can read physical button state without depending on whether the user has
@@ -276,6 +280,28 @@ namespace Emutastic.Services
         // -------------------------------------------------------------------------
         public void ReloadInputConfiguration() => LoadInputConfiguration();
 
+        /// <summary>
+        /// Poll <paramref name="deviceId"/> instead of whatever configuration
+        /// says, until called again with null.
+        ///
+        /// Preferences needs this because the manager it holds was built for
+        /// ONE console — MainWindow constructs it with the default "NES" — so
+        /// asking it to reload configuration re-reads "NES_P1" no matter which
+        /// console the user is actually editing, and the mapping capture then
+        /// listens to the wrong pad (or to none). The console is irrelevant
+        /// while capturing anyway: RawMode bypasses the mapping table, so the
+        /// only thing that has to be right is WHICH DEVICE is read.
+        ///
+        /// Cleared when the Preferences window closes, which drops polling back
+        /// to the configured binding.
+        /// </summary>
+        public void OverrideBoundDevice(string? deviceId)
+        {
+            _deviceIdOverride = string.IsNullOrWhiteSpace(deviceId) ? null : deviceId;
+            CtrlLog($"P{_playerNumber + 1} {_consoleName}: device override -> " +
+                    $"{(_deviceIdOverride != null ? $"'{_deviceIdOverride}'" : "(cleared)")}");
+        }
+
         private void LoadInputConfiguration()
         {
             try
@@ -323,6 +349,8 @@ namespace Emutastic.Services
             catch (Exception ex)
             {
                 _logger?.LogError(ex, $"Failed to load input config for {_consoleName}");
+                CtrlLog($"P{_playerNumber + 1} {_consoleName}: LoadInputConfiguration THREW " +
+                        $"{ex.GetType().Name}: {ex.Message} — falling back to an empty config");
                 _inputConfig = new InputConfiguration { ConsoleName = _consoleName };
             }
         }
@@ -383,6 +411,13 @@ namespace Emutastic.Services
             // pad drops out.
             _lastRawButtons = 0;
             _logger?.LogInformation("Controller disconnected");
+            // Also to controller-diag.log: every construction site passes a null
+            // logger, so the line above reaches nothing. Connect/disconnect
+            // transitions are the first thing worth knowing when a bug report
+            // says the controller does nothing.
+            string? lostSource = _deviceIdOverride ?? _deviceId;
+            CtrlLog($"P{_playerNumber + 1} {_consoleName}: DISCONNECTED " +
+                    $"(source={(lostSource != null ? $"device '{lostSource}'" : $"XInput slot {_xInputIndex}")})");
             try { ConnectionChanged?.Invoke(false); } catch { }
         }
 
@@ -403,7 +438,9 @@ namespace Emutastic.Services
                 // helpers, the chord readers — stays source-agnostic.
                 // ------------------------------------------------------------------
                 XINPUT_GAMEPAD gamepad;
-                string? deviceId = _deviceId;
+                // An override (Preferences, mid-selection) outranks the
+                // configured binding; see OverrideBoundDevice.
+                string? deviceId = _deviceIdOverride ?? _deviceId;
 
                 if (!string.IsNullOrEmpty(deviceId))
                 {
@@ -457,10 +494,21 @@ namespace Emutastic.Services
                 if (!wasConnected)
                 {
                     _logger?.LogInformation("Controller connected");
+                    CtrlLog($"P{_playerNumber + 1} {_consoleName}: CONNECTED " +
+                            $"(source={(deviceId != null ? $"device '{deviceId}'" : $"XInput slot {_xInputIndex}")})");
                     try { ConnectionChanged?.Invoke(true); } catch { }
                 }
 
                 _lastRawButtons      = gamepad.wButtons;
+                // Triggers must land BEFORE the mapping loop below. Binding ids
+                // 12 and 13 go through IsXboxButtonPressed, which tests these
+                // FIELDS rather than the gamepad struct, so assigning them
+                // afterwards made a mapped L2/R2 press register — and release —
+                // one poll (16 ms) late. That was unobservable while raw HID
+                // pads pinned both triggers to zero; it is reachable now that
+                // spare buttons drive them.
+                _leftTrigger         = gamepad.bLeftTrigger;
+                _rightTrigger        = gamepad.bRightTrigger;
                 _prevButtonStates    = (bool[])_buttonStates.Clone();
                 Array.Clear(_buttonStates, 0, _buttonStates.Length);
 
@@ -522,8 +570,8 @@ namespace Emutastic.Services
                 _rightStickX = ApplyDeadzone(gamepad.sThumbRX, (short)_analogDeadzone);
                 _rightStickY = ApplyDeadzone(gamepad.sThumbRY, (short)_analogDeadzone);
 
-                _leftTrigger  = gamepad.bLeftTrigger;
-                _rightTrigger = gamepad.bRightTrigger;
+                // (_leftTrigger / _rightTrigger were assigned above, before the
+                // mapping loop that reads them.)
 
                 // Analog direction booleans (for GetButtonState with ANALOG_* ids)
                 bool leftUp    = _leftStickY  >  _analogDeadzone;
@@ -671,7 +719,7 @@ namespace Emutastic.Services
         {
             if (!_isConnected) return;
 
-            string? deviceId = _deviceId;
+            string? deviceId = _deviceIdOverride ?? _deviceId;
             if (!string.IsNullOrEmpty(deviceId))
             {
                 // SDL handles must be touched on the SDL thread. Fire-and-forget
@@ -1134,6 +1182,36 @@ namespace Emutastic.Services
         // XInput-only fallback. Used until the SDL thread finishes initializing
         // (or if SDL is unavailable). Returns generic names because XInput
         // doesn't expose device-specific friendly names.
+        /// <summary>
+        /// Recognises a name minted by <see cref="EnumerateXInputFallback"/>
+        /// ("Controller 1".."Controller 4") and yields the XInput slot it stands
+        /// for.
+        ///
+        /// Those names reach the device dropdown only while SDL3 has not warmed
+        /// up, or is absent — and they can NEVER be resolved to a device id.
+        /// Names and ids come from the same _sdl3Available gate, so by the time
+        /// ids exist these placeholders have already been replaced by real
+        /// product names; holding the pick and retrying the lookup later just
+        /// repeats a lookup that cannot succeed. A selection made against one
+        /// has to be honoured as what it literally means — an XInput slot —
+        /// or it is silently thrown away.
+        ///
+        /// A real SDL device can share this shape (EnumerateOnSdlThread falls
+        /// back to "Controller {i+1}" when a name can't be read), but such a
+        /// device HAS an id, so the caller resolves it before ever asking here.
+        /// </summary>
+        public static bool TryParseFallbackDeviceName(string displayName, out int slot)
+        {
+            slot = -1;
+            const string prefix = "Controller ";
+            if (string.IsNullOrEmpty(displayName)) return false;
+            if (!displayName.StartsWith(prefix, StringComparison.Ordinal)) return false;
+            if (!int.TryParse(displayName.AsSpan(prefix.Length), out int n)) return false;
+            if (n < 1 || n > 4) return false;
+            slot = n - 1;
+            return true;
+        }
+
         private static List<string> EnumerateXInputFallback()
         {
             var result = new List<string>();
