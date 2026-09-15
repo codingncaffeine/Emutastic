@@ -19,7 +19,7 @@ Also available for [Linux](https://github.com/codingncaffeine/Emutastic-For-Linu
 - 🏆 **RetroAchievements** — full hardcore-mode compliance, in-game unlock toasts, and per-game stats
 - 📺 **EmuTV** — a controller-only, couch-friendly console mode for the living room (renders ES-DE themes)
 - 🎨 **Deep theming** — a visual editor with live preview and 44 color tokens
-- ☁️ **GitHub cloud sync** — battery saves and your library follow you across PCs, with optional encryption
+- ☁️ **GitHub cloud sync** — each PC backs up its battery saves, memory cards and library to its own private repository, with optional encryption
 - 🔧 **ROM hacks & HD mods** — IPS / BPS / UPS soft-patching on every core (originals untouched), NES HD packs via Mesen, and HD Mode 7 + widescreen SNES via bsnes-hd
 - 📖 **In-app game manuals** · 🎥 **gameplay recording** · 📝 **per-game notes**
 - 🎛️ **Full controller support** — analog-as-D-pad, gamepad save states, disk swapping, and per-system cheats
@@ -186,9 +186,9 @@ In-game, achievements appear as toast notifications when you unlock them.
 <details>
 <summary><strong>Cloud Sync</strong></summary>
 
-Sync battery saves and your library database across PCs using your GitHub account. The library database carries your game metadata, ratings, favorites, play time, and **per-game notes**, so all of that follows you to a second PC. Sign in with one click in **Preferences → Backups** — a private `emutastic-saves` repo is created automatically under your account. Battery saves upload on game close and download on game launch; only newer files transfer. Full bidirectional sync available via **Sync Now**.
+Back up each PC's battery saves, memory cards and library database to a private GitHub repository. The library database carries your game metadata, ratings, favorites, play time, and **per-game notes**, so a restore brings all of that back. Sign in with one click in **Preferences → Backups** — a private `emutastic-saves-<pc-name>` repo is created automatically under your account. Every PC keeps its own repository, so a new or reinstalled PC can never overwrite another PC's saves, and signing in again on a reinstalled PC with the same name restores its backup. Battery saves upload on game close; **Sync Now** backs up everything that changed and restores anything missing, with its progress in the status bar. HD texture packs, BIOS and console system files, shader caches and save states stay out of the backup.
 
-Optional **AES-256-GCM encryption** with a user-chosen passphrase — saves are encrypted before they leave your machine. Your saves repo is a normal private GitHub repo you can browse anytime. See the [Cloud Sync](https://github.com/codingncaffeine/Emutastic/wiki/Cloud-Sync) wiki page for details on encryption, storage limits, sharing saves, and troubleshooting.
+Optional **AES-256-GCM encryption** with a user-chosen passphrase — saves are encrypted before they leave your machine. Your saves repo is a normal private GitHub repo you can browse anytime. See the [Cloud Sync](https://github.com/codingncaffeine/Emutastic/wiki/Cloud-Sync) wiki page for details on encryption, storage limits, and troubleshooting.
 
 </details>
 

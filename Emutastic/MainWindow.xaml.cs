@@ -169,8 +169,29 @@ namespace Emutastic
             // and the sync never ran.
             try
             {
-                Services.GitHubSyncService.Instance.SyncStateChanged += syncing => Dispatcher.Invoke(() =>
-                    SetStatus(syncing ? "Syncing saves…" : "Saves synced", autoClear: !syncing));
+                var cloudSync = Services.GitHubSyncService.Instance;
+                cloudSync.SyncStateChanged += syncing => Dispatcher.InvokeAsync(() =>
+                {
+                    if (syncing)
+                    {
+                        _vm.CloudSyncText = "Syncing saves — checking what changed…";
+                        _vm.CloudSyncProgressPercent = 0;
+                        _vm.IsCloudSyncing = true;
+                        return;
+                    }
+                    _vm.IsCloudSyncing = false;
+                    var result = cloudSync.LastResult;
+                    if (result == null) _vm.SetStatus("Saves synced", autoClear: true);
+                    else _vm.SetStatus($"Saves synced — {Services.GitHubSyncService.DescribeResult(result)}",
+                                       result.Errors > 0 ? 15000 : 5000);
+                });
+                // Phase and counts beside the banner's progress bar while a full sync runs.
+                cloudSync.SyncProgressChanged += progress => Dispatcher.InvokeAsync(() =>
+                {
+                    if (!_vm.IsCloudSyncing) return;   // a report that landed after the sync ended
+                    _vm.CloudSyncText = "Syncing saves — " + Services.GitHubSyncService.DescribeProgress(progress);
+                    _vm.CloudSyncProgressPercent = progress.Total > 0 ? 100.0 * progress.Done / progress.Total : 0;
+                });
             }
             catch (Exception ex)
             {

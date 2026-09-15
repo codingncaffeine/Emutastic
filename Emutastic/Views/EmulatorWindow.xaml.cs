@@ -1717,7 +1717,7 @@ namespace Emutastic.Views
                                             && remoteMtime > File.GetLastWriteTimeUtc(_srmPath));
 
                                     byte[]? remote = shouldDownload
-                                        ? syncSvc.DownloadFileAsync(repoPath).GetAwaiter().GetResult()
+                                        ? syncSvc.DownloadFileAsync(repoPath, quietIfMissing: true).GetAwaiter().GetResult()
                                         : null;
                                     if (remote != null && remote.Length > 0)
                                     {

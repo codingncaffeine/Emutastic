@@ -51,8 +51,8 @@ GETTING STARTED
      ScreenScraper misses.
    - Preferences -> Achievements: Sign in to RetroAchievements
      (see RETROACHIEVEMENTS section below) to track unlocks.
-   - Preferences -> Backups: Sign in to GitHub for free cloud sync of
-     battery saves and your library database across PCs (see BACKUPS
+   - Preferences -> Backups: Sign in to GitHub for a free cloud backup
+     of this PC's battery saves and library database (see BACKUPS
      section below).
 
 
@@ -158,37 +158,40 @@ easy to re-download, ROMs are easy to re-import).
 
 Cloud Sync (GitHub)
 ~~~~~~~~~~~~~~~~~~~
-Sync your battery saves and library database across multiple PCs
-using your GitHub account. Sign in once, and a private repo called
-"emutastic-saves" is created automatically on your account.
+Back up this PC's battery saves and library database with your
+GitHub account. Sign in once, and a private repo called
+"emutastic-saves-<this PC's name>" is created on your account.
+Every PC gets its own repo and never reads another PC's saves, so a
+new or reinstalled PC can't overwrite progress made elsewhere.
 
   - Battery saves upload when you close a game
-  - The newer save is pulled when you launch a game on another PC
-  - "Sync Now" runs a full bidirectional sync of all saves and
-    the library database
+  - "Sync Now" backs up everything that changed and restores anything
+    missing from this PC (for example after a reinstall)
+  - The status bar shows each sync's progress
+  - HD texture packs, BIOS and console system files, and emulator
+    caches are not backed up
 
 The library database carries your metadata — ratings, favorites,
-collections, play time, and per-game notes — so all of that, your
-notes included, follows you between PCs as part of the database sync.
+collections, play time, and per-game notes — so a restore brings all
+of that back, your notes included.
 
 Optional AES-256-GCM encryption with a passphrase you choose — saves
 are encrypted before they leave your machine. The passphrase never
-leaves your PC; you'll enter it once per PC.
+leaves your PC; keep it safe, because restoring the backup needs it.
 
 Save states are NOT included in cloud sync — they get too large for
 some consoles (PSP/PS2/GameCube states can be 250 MB+). Use the local
 backup option above for save states.
 
-For details on encryption, GitHub storage limits, and sharing saves
-with friends, see:
+For details on encryption and GitHub storage limits, see:
    https://github.com/codingncaffeine/Emutastic/wiki/Cloud-Sync
 
 Local Backup vs Cloud Sync — which to use?
   - Local Backup is one-shot: it copies everything to a folder when
     you click the button. Good for periodic snapshots before a major
     config change.
-  - Cloud Sync is continuous: battery saves transfer automatically on
-    every game close/launch. Good for keeping multiple PCs in sync.
+  - Cloud Sync is continuous: battery saves upload automatically
+    every time you close a game. Good for an always-current backup.
 
 The two are independent — you can use either, neither, or both.
 

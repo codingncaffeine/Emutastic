@@ -132,16 +132,35 @@ namespace Emutastic.ViewModels
         [NotifyPropertyChangedFor(nameof(BannerProgressPercent))]
         private double _manualDownloadProgressPercent;
 
-        public bool IsBannerVisible => IsImporting || IsCoreUpdating || IsNotification || IsDownloadingManual || HasAppUpdate;
-        public bool IsProgressBarVisible => IsImporting || IsCoreUpdating || IsDownloadingManual;
+        // Surfaced from a running cloud full sync (launch, sign-in, Sync Now) so the
+        // banner says which phase it is in and how far along, instead of a bare
+        // "Syncing saves…".
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(IsBannerVisible))]
+        [NotifyPropertyChangedFor(nameof(IsProgressBarVisible))]
+        [NotifyPropertyChangedFor(nameof(BannerText))]
+        [NotifyPropertyChangedFor(nameof(BannerProgressPercent))]
+        private bool _isCloudSyncing;
 
-        // Priority: import > core-update > manual-download > transient notification >
-        // persistent update offer. Most-active task wins; the update offer is the
-        // baseline that re-surfaces once everything transient clears.
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(BannerText))]
+        private string _cloudSyncText = "";
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(BannerProgressPercent))]
+        private double _cloudSyncProgressPercent;
+
+        public bool IsBannerVisible => IsImporting || IsCoreUpdating || IsNotification || IsDownloadingManual || IsCloudSyncing || HasAppUpdate;
+        public bool IsProgressBarVisible => IsImporting || IsCoreUpdating || IsDownloadingManual || IsCloudSyncing;
+
+        // Priority: import > core-update > manual-download > cloud sync > transient
+        // notification > persistent update offer. Most-active task wins; the update
+        // offer is the baseline that re-surfaces once everything transient clears.
         public string BannerText =>
             IsImporting         ? ImportStatusText :
             IsCoreUpdating      ? CoreUpdateText :
             IsDownloadingManual ? ManualDownloadText :
+            IsCloudSyncing      ? CloudSyncText :
             IsNotification      ? NotificationText :
             HasAppUpdate        ? AppUpdateText :
                                   NotificationText;
@@ -150,6 +169,7 @@ namespace Emutastic.ViewModels
             IsImporting         ? ImportProgressPercent :
             IsCoreUpdating      ? CoreUpdateProgressPercent :
             IsDownloadingManual ? ManualDownloadProgressPercent :
+            IsCloudSyncing      ? CloudSyncProgressPercent :
                                   0;
 
         private ObservableCollection<ConsoleGroup> _groupedGames = new();

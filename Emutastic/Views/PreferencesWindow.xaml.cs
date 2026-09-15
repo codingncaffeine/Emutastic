@@ -4415,6 +4415,7 @@ namespace Emutastic.Views
 
         private void LoadBackupsSettings()
         {
+            WireCloudSyncProgress();
             _suppressAutoSave = true;
             try
             {
@@ -4432,6 +4433,12 @@ namespace Emutastic.Views
                     CloudSyncStatusText.Text = $"Signed in as {svc.Username}";
                     CloudSyncSignInBtn.Content = "Sign Out";
                     CloudSyncSettingsPanel.Visibility = Visibility.Visible;
+                    if (svc.IsSyncing)
+                    {
+                        SyncStatusText.Text = "Syncing — " + (svc.CurrentProgress is { } p
+                            ? Services.GitHubSyncService.DescribeProgress(p) : "checking what changed…");
+                        SyncNowBtn.IsEnabled = false;
+                    }
                 }
 
                 if (cfg != null)
@@ -4442,50 +4449,48 @@ namespace Emutastic.Views
                     SyncEncryptionEnabled.IsChecked = cfg.EncryptionEnabled;
                     PassphrasePanel.Visibility = cfg.EncryptionEnabled
                         ? Visibility.Visible : Visibility.Collapsed;
-                    SyncPerPcRepo.IsChecked = cfg.UsePerPcRepo;
-                    UpdatePerPcRepoCopy(cfg.UsePerPcRepo);
                 }
+                SyncRepoNameText.Text =
+                    $"{svc.Username ?? "your-account"}/{Services.GitHubSyncService.EffectiveRepoName}";
             }
             finally { _suppressAutoSave = false; }
         }
 
-        /// <summary>
-        /// Mode-specific explainer under the per-PC repo toggle. The wording
-        /// must make the tradeoff unmistakable: shared = follows you between
-        /// PCs, separate = backup unique to this machine that other PCs never
-        /// touch.
-        /// </summary>
-        private void UpdatePerPcRepoCopy(bool perPc)
+        private bool _cloudSyncProgressWired;
+
+        // Live progress of whichever full sync is running (sign-in, launch or Sync Now).
+        // The service outlives this window, so the handlers come off again when it closes.
+        private void WireCloudSyncProgress()
         {
-            SyncRepoExplainText.Text = perPc
-                ? "On: this PC backs up to its own repository. Saves and the game "
-                  + "library on this PC stay unique to it — they will not appear on "
-                  + "your other machines, and other machines can't overwrite them."
-                : "Off: this PC shares one cloud repository with your other PCs — "
-                  + "saves and your game library follow you between machines.";
-            SyncRepoNameText.Text =
-                $"Repository in use: {Services.GitHubSyncService.EffectiveRepoName}";
+            if (_cloudSyncProgressWired) return;
+            _cloudSyncProgressWired = true;
+            var sync = Services.GitHubSyncService.Instance;
+            sync.SyncProgressChanged += OnCloudSyncProgress;
+            sync.SyncStateChanged += OnCloudSyncStateChanged;
+            Closed += (_, _) =>
+            {
+                sync.SyncProgressChanged -= OnCloudSyncProgress;
+                sync.SyncStateChanged -= OnCloudSyncStateChanged;
+            };
         }
 
-        private void SyncPerPcRepo_Changed(object sender, RoutedEventArgs e)
-        {
-            if (_suppressAutoSave) return;
-            var cfg = App.Configuration?.GetCloudSyncConfiguration();
-            if (cfg == null) return;
-            cfg.UsePerPcRepo = SyncPerPcRepo.IsChecked == true;
-            App.Configuration?.SetCloudSyncConfiguration(cfg);
-            _ = App.Configuration?.SaveAsync();
+        private void OnCloudSyncProgress(Services.GitHubSyncService.SyncProgress p) =>
+            Dispatcher.InvokeAsync(() =>
+            {
+                if (!Services.GitHubSyncService.Instance.IsSyncing) return;   // landed after the sync ended
+                SyncStatusText.Text = "Syncing — " + Services.GitHubSyncService.DescribeProgress(p);
+                SyncNowBtn.IsEnabled = false;
+            });
 
-            // Everything cached from the previous repo is now wrong.
-            var svc = Services.GitHubSyncService.Instance;
-            svc.ResetRepoBinding();
-            UpdatePerPcRepoCopy(cfg.UsePerPcRepo);
-
-            // The shared repo was created at sign-in; a per-PC repo may not
-            // exist yet — create it now so the first sync doesn't 404.
-            if (svc.IsAuthenticated && cfg.UsePerPcRepo)
-                _ = svc.EnsureRepoExistsAsync();
-        }
+        private void OnCloudSyncStateChanged(bool syncing) =>
+            Dispatcher.InvokeAsync(() =>
+            {
+                SyncNowBtn.IsEnabled = !syncing;
+                if (syncing)
+                    SyncStatusText.Text = "Syncing — checking what changed…";
+                else if (Services.GitHubSyncService.Instance.LastResult is { } result)
+                    SyncStatusText.Text = $"Synced at {DateTime.Now:h:mm tt} — {Services.GitHubSyncService.DescribeResult(result)}";
+            });
 
         private async void CloudSyncSignIn_Click(object sender, RoutedEventArgs e)
         {
@@ -4525,9 +4530,11 @@ namespace Emutastic.Views
                     CloudSyncStatusText.Text = $"Signed in as {svc.Username}";
                     CloudSyncSignInBtn.Content = "Sign Out";
                     CloudSyncSettingsPanel.Visibility = Visibility.Visible;
+                    SyncRepoNameText.Text = $"{svc.Username}/{Services.GitHubSyncService.EffectiveRepoName}";
 
-                    // Pull everything down right after first login (fresh-PC restore),
-                    // off the UI thread — progress shows in the main window's banner.
+                    // Sync right after sign-in (after a reinstall this restores this PC's
+                    // own backup), off the UI thread — progress shows in the main window's
+                    // banner and beside Sync Now.
                     svc.StartBackgroundSync(new Services.DatabaseService());
                 }
                 else
@@ -4591,14 +4598,16 @@ namespace Emutastic.Views
             if (!svc.IsAuthenticated) return;
 
             SyncNowBtn.IsEnabled = false;
-            SyncStatusText.Text = "Syncing...";
+            SyncStatusText.Text = svc.IsSyncing ? "A sync is already running — waiting for it…" : "Syncing…";
 
             try
             {
+                // Joins a sync that is already running (the one started at sign-in or
+                // launch) and waits for its real result; the progress handlers keep the
+                // status line current meanwhile.
                 var db = new Services.DatabaseService();
                 var result = await Task.Run(() => svc.FullSyncAsync(db));
-                SyncStatusText.Text = $"Synced at {DateTime.Now:h:mm tt} — {result.Uploaded} up, {result.Downloaded} down"
-                    + (result.Errors > 0 ? $", {result.Errors} errors" : "");
+                SyncStatusText.Text = $"Synced at {DateTime.Now:h:mm tt} — {Services.GitHubSyncService.DescribeResult(result)}";
             }
             catch (Exception ex)
             {

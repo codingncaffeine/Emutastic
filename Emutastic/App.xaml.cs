@@ -13,7 +13,7 @@ namespace Emutastic
 {
     public partial class App : Application
     {
-        public static IConfigurationService? Configuration { get; private set; }
+        public static IConfigurationService? Configuration { get; internal set; }
         public static ILogger? Logger { get; private set; }
         public static CoreOptionsService CoreOptions { get; private set; } = null!;
 
@@ -63,6 +63,23 @@ namespace Emutastic
                     ? e.Args[selfTestIdx + 1]
                     : null;
                 Environment.Exit(InputSelfTest.Run(report));
+                return;
+            }
+
+            // Headless cloud sync self-test against an in-memory fake of the GitHub API:
+            //   Emutastic.exe --selftest-cloudsync-offline [report.log] --portable
+            // Needs PortableData that has never been used (run a fresh copy of the build
+            // output); never touches the network or a real repository. Exit code 0 = pass.
+            int cloudTestIdx = Array.FindIndex(e.Args,
+                a => string.Equals(a, "--selftest-cloudsync-offline", StringComparison.OrdinalIgnoreCase));
+            if (cloudTestIdx >= 0)
+            {
+                AppPaths.DetectPortableMode(e.Args);
+                string? report = cloudTestIdx + 1 < e.Args.Length
+                                 && !e.Args[cloudTestIdx + 1].StartsWith("--", StringComparison.Ordinal)
+                    ? e.Args[cloudTestIdx + 1]
+                    : null;
+                Environment.Exit(CloudSyncOfflineSelfTest.Run(report));
                 return;
             }
 

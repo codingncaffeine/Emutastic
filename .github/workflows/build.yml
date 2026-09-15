@@ -82,6 +82,24 @@ jobs:
           exit $p.ExitCode
         shell: pwsh
 
+      # A whole two-way cloud sync against an in-memory fake of the GitHub API: no
+      # account, no network, a few seconds. It needs PortableData that has never
+      # been used, so it runs from a copy of the build output without the one the
+      # input self-test left behind.
+      - name: Cloud sync offline self-test
+        run: |
+          $exe = Get-ChildItem -Path Emutastic/bin/Release -Recurse -Filter Emutastic.exe | Select-Object -First 1
+          if (-not $exe) { Write-Error "Emutastic.exe not found under Emutastic/bin/Release"; exit 1 }
+          $dir = Join-Path $env:RUNNER_TEMP 'cloudsync-selftest'
+          Copy-Item -Path $exe.DirectoryName -Destination $dir -Recurse -Force
+          Remove-Item -Path (Join-Path $dir 'PortableData') -Recurse -Force -ErrorAction SilentlyContinue
+          $report = Join-Path $env:RUNNER_TEMP 'cloudsync-selftest.log'
+          $p = Start-Process -FilePath (Join-Path $dir 'Emutastic.exe') -ArgumentList '--selftest-cloudsync-offline', "`"$report`"", '--portable' -Wait -PassThru
+          if (Test-Path $report) { Get-Content $report } else { Write-Host "(no report written)" }
+          Write-Host "self-test exit code: $($p.ExitCode)"
+          exit $p.ExitCode
+        shell: pwsh
+
       # A green build with warnings is not green. Surface the count and the
       # distinct warning lines in the step summary so they can't quietly
       # accumulate between releases.
