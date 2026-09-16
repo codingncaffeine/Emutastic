@@ -76,7 +76,14 @@ jobs:
       # the check shows a dialog, which would stall the run below — hence the time limit.
       - name: Smoke-test the published exe
         run: |
-          $exe = "Emutastic/bin/Publish/win-x64/Emutastic.exe"
+          # findstr needs a backslash path: with a forward-slash one it can't open the file and
+          # exits 1, the same as "no match". The first search is a control proving it read the exe.
+          $exe = (Resolve-Path "Emutastic/bin/Publish/win-x64/Emutastic.exe").Path
+          findstr /m /c:"Emutastic.Services" $exe | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Couldn't search the published exe."
+            exit 1
+          }
           findstr /m /c:"AccessWindowsAppSDK" $exe | Out-Null
           if ($LASTEXITCODE -eq 0) {
             Write-Error "The published exe contains the Windows App SDK bootstrap initializer, so it would refuse to start without the Windows App Runtime."
