@@ -68,6 +68,37 @@ jobs:
           dotnet publish Emutastic.Updater/Emutastic.Updater.csproj -c Release -r win-x64
         shell: pwsh
 
+      # The zip ships this single-file exe, not the build output the CI self-tests run
+      # against, so check and launch the published exe itself before anything is released.
+      # It has to start with nothing extra installed. The Windows App SDK that LibVLCSharp
+      # pulls in can compile a Windows App Runtime check into the exe's startup (kept off by
+      # WindowsAppSdkBootstrapInitialize in Emutastic.csproj); where that runtime is missing,
+      # the check shows a dialog, which would stall the run below — hence the time limit.
+      - name: Smoke-test the published exe
+        run: |
+          $exe = "Emutastic/bin/Publish/win-x64/Emutastic.exe"
+          findstr /m /c:"AccessWindowsAppSDK" $exe | Out-Null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Error "The published exe contains the Windows App SDK bootstrap initializer, so it would refuse to start without the Windows App Runtime."
+            exit 1
+          }
+          $dir = Join-Path $env:RUNNER_TEMP 'published-smoke'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          Copy-Item $exe $dir
+          $report = Join-Path $env:RUNNER_TEMP 'published-smoke.log'
+          $p = Start-Process -FilePath (Join-Path $dir 'Emutastic.exe') -ArgumentList '--selftest-windows-apps', "`"$report`"", '--portable' -PassThru
+          $null = $p.Handle
+          $finished = $p.WaitForExit(300000)
+          if (Test-Path $report) { Get-Content $report } else { Write-Host "(no report written)" }
+          if (-not $finished) {
+            $p.Kill()
+            Write-Error "The published exe didn't finish its self-test within 5 minutes; a startup dialog would stall it like this."
+            exit 1
+          }
+          Write-Host "self-test exit code: $($p.ExitCode)"
+          exit $p.ExitCode
+        shell: pwsh
+
       - name: Zip release
         run: |
           $version = "${{ github.ref_name }}"

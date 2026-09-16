@@ -414,25 +414,28 @@ namespace Emutastic
                 string coresFolder = AppPaths.GetCoresFolder();
                 var updates = await new Services.CoreDownloadService()
                     .CheckAllForUpdatesAsync(coresFolder);
-                if (updates.Count == 0) return;
-
-                if (Dispatcher.HasShutdownStarted) return;
-                Dispatcher.Invoke(() =>
+                // Not an early return: the app-update check below must run even when every
+                // core is current.
+                if (updates.Count > 0)
                 {
-                    _vm.NotificationText = updates.Count == 1
-                        ? "1 core update available — Preferences → Cores"
-                        : $"{updates.Count} core updates available — Preferences → Cores";
-                    _vm.IsNotification = true;
-                });
+                    if (Dispatcher.HasShutdownStarted) return;
+                    Dispatcher.Invoke(() =>
+                    {
+                        _vm.NotificationText = updates.Count == 1
+                            ? "1 core update available — Preferences → Cores"
+                            : $"{updates.Count} core updates available — Preferences → Cores";
+                        _vm.IsNotification = true;
+                    });
 
-                await Task.Delay(20_000);
+                    await Task.Delay(20_000);
 
-                if (Dispatcher.HasShutdownStarted) return;
-                Dispatcher.Invoke(() =>
-                {
-                    _vm.IsNotification = false;
-                    _vm.NotificationText = "";
-                });
+                    if (Dispatcher.HasShutdownStarted) return;
+                    Dispatcher.Invoke(() =>
+                    {
+                        _vm.IsNotification = false;
+                        _vm.NotificationText = "";
+                    });
+                }
             }
             catch (Exception ex)
             {

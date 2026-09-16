@@ -38,7 +38,11 @@ namespace Emutastic.Services
                 using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
 
                 using var resp = await Http.GetAsync(GitHubApiUrl, linked.Token).ConfigureAwait(false);
-                if (!resp.IsSuccessStatusCode) return null;
+                if (!resp.IsSuccessStatusCode)
+                {
+                    Trace.WriteLine($"[Update] check failed: HTTP {(int)resp.StatusCode}");
+                    return null;
+                }
 
                 string json = await resp.Content.ReadAsStringAsync(linked.Token).ConfigureAwait(false);
                 using var doc = JsonDocument.Parse(json);
@@ -47,7 +51,11 @@ namespace Emutastic.Services
                 string tag = root.TryGetProperty("tag_name", out var t) ? t.GetString() ?? "" : "";
                 if (string.IsNullOrWhiteSpace(tag)) return null;
 
-                if (!IsNewer(tag)) return null;
+                if (!IsNewer(tag))
+                {
+                    Trace.WriteLine($"[Update] up to date (latest release is {tag})");
+                    return null;
+                }
 
                 string downloadUrl = "";
                 string? digest = null;
@@ -68,14 +76,20 @@ namespace Emutastic.Services
                     }
                 }
 
-                if (string.IsNullOrEmpty(downloadUrl)) return null;
+                if (string.IsNullOrEmpty(downloadUrl))
+                {
+                    Trace.WriteLine($"[Update] {tag} has no win-x64 zip to install");
+                    return null;
+                }
 
                 string notes = root.TryGetProperty("body", out var b) ? b.GetString() ?? "" : "";
 
+                Trace.WriteLine($"[Update] {tag} is available");
                 return new AppUpdate(tag, downloadUrl, notes, digest);
             }
-            catch
+            catch (Exception ex)
             {
+                Trace.WriteLine($"[Update] check failed: {ex.Message}");
                 return null;
             }
         }
@@ -200,7 +214,10 @@ namespace Emutastic.Services
             }
 
             status?.Report("Restarting…");
-            System.Windows.Application.Current.Shutdown();
+            // This runs on a pool thread, and Application.Shutdown throws anywhere but the UI
+            // thread; the updater is already waiting for this process to exit.
+            var app = System.Windows.Application.Current;
+            app.Dispatcher.Invoke(() => app.Shutdown());
         }
 
         private static async Task<string> Sha256HexAsync(string path, CancellationToken ct)
@@ -211,16 +228,27 @@ namespace Emutastic.Services
             return Convert.ToHexString(hash).ToLowerInvariant();
         }
 
-        private static bool IsNewer(string remoteTag)
+        private static bool IsNewer(string remoteTag) =>
+            TryCompareToInstalled(remoteTag, out int comparison) && comparison > 0;
+
+        /// <summary>
+        /// Compares a release tag ("v1.8.9", "v1.8.7.2") with the running build: positive when
+        /// the release is newer, negative when the build is. All four parts count, because
+        /// hotfixes ship as four-part tags; a missing part reads as 0, so "v1.8.9" equals a
+        /// 1.8.9.0 build. False when the tag isn't a version.
+        /// </summary>
+        public static bool TryCompareToInstalled(string remoteTag, out int comparison)
         {
-            string trimmed = remoteTag.TrimStart('v', 'V').Trim();
-            if (!Version.TryParse(trimmed, out var remote)) return false;
+            comparison = 0;
+            if (!Version.TryParse(remoteTag.TrimStart('v', 'V').Trim(), out var remote)) return false;
             var local = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
             if (local == null) return false;
-            var localTrimmed = new Version(local.Major, local.Minor, local.Build);
-            var remoteTrimmed = new Version(remote.Major, remote.Minor, remote.Build);
-            return remoteTrimmed.CompareTo(localTrimmed) > 0;
+            comparison = Normalize(remote).CompareTo(Normalize(local));
+            return true;
         }
+
+        private static Version Normalize(Version v) =>
+            new(v.Major, v.Minor, Math.Max(v.Build, 0), Math.Max(v.Revision, 0));
 
         public static void CleanupOldFiles()
         {

@@ -5877,10 +5877,11 @@ namespace Emutastic.Views
         {
             // Installed version comes from the assembly (set in csproj via auto-versioning,
             // or defaults to 1.0.0.0 in dev builds). Strip the trailing ".0" if present
-            // so it reads as "1.3.10" instead of "1.3.10.0".
+            // so it reads as "1.3.10" instead of "1.3.10.0"; a hotfix keeps its fourth part.
             var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
             string installedDisplay = version != null
                 ? $"v{version.Major}.{version.Minor}.{version.Build}"
+                  + (version.Revision > 0 ? $".{version.Revision}" : "")
                 : "v?.?.?";
             AboutInstalledVersionText.Text = installedDisplay;
 
@@ -5969,18 +5970,7 @@ namespace Emutastic.Views
         /// Returns false when either side is unparseable.
         /// </summary>
         private static bool TryCompareVersions(string remoteTag, out int comparison)
-        {
-            comparison = 0;
-            string trimmed = remoteTag.TrimStart('v', 'V').Trim();
-            if (!Version.TryParse(trimmed, out var remote)) return false;
-            var local = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
-            if (local == null) return false;
-            // Only compare Major.Minor.Build — the user-visible release scheme is 3-part.
-            var localTrimmed  = new Version(local.Major,  local.Minor,  local.Build);
-            var remoteTrimmed = new Version(remote.Major, remote.Minor, remote.Build);
-            comparison = remoteTrimmed.CompareTo(localTrimmed);
-            return true;
-        }
+            => Services.UpdateService.TryCompareToInstalled(remoteTag, out comparison);
 
         private void AboutOpenLatestRelease_Click(object sender, RoutedEventArgs e)
         {

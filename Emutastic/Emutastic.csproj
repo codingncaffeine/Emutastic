@@ -105,6 +105,15 @@
   <PropertyGroup>
     <WebView2EnableCsWinRTProjection>false</WebView2EnableCsWinRTProjection>
   </PropertyGroup>
+  <!-- LibVLCSharp's windows10 build depends on the Windows App SDK (for its WinUI video view),
+       which Emutastic never uses. In the single-file publish, EnableMsixTooling defaults
+       WindowsPackageType to None, which switches on the SDK's bootstrap auto-initializer: the
+       released exe then refuses to start ("Required components of the Windows App Runtime are
+       missing") unless Windows App Runtime 1.8 is fully installed. Keep it off — the release
+       workflow fails if the published exe still contains it. -->
+  <PropertyGroup>
+    <WindowsAppSdkBootstrapInitialize>false</WindowsAppSdkBootstrapInitialize>
+  </PropertyGroup>
   <!-- The .targets-injected references don't reach the markup-compilation temp project,
        so reference the WebView2 assemblies explicitly (identical paths dedupe against the
        targets-added ones in the main build). -->
