@@ -96,6 +96,7 @@ namespace Emutastic.Services
             { "NeoCD",         70},
             { "CDi",          133},
             { "Odyssey2",     104},
+            { WindowsApps.ConsoleTag, 138},   // PC Windows
         };
 
         public ScreenScraperService()

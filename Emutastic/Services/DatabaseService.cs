@@ -1936,6 +1936,24 @@ namespace Emutastic.Services
             return Convert.ToInt32(cmd.ExecuteScalar());
         }
 
+        /// <summary>Game count per console tag, in one query (consoles with no games are absent).</summary>
+        public Dictionary<string, int> GetGameCountsByConsole()
+        {
+            var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT Console, COUNT(*) FROM Games GROUP BY Console;";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                if (reader.IsDBNull(0)) continue;
+                string console = reader.GetString(0);
+                counts[console] = counts.GetValueOrDefault(console) + reader.GetInt32(1);
+            }
+            return counts;
+        }
+
         public void DeleteAllGamesForConsole(string console)
         {
             using var connection = OpenConnection();

@@ -692,6 +692,9 @@ namespace Emutastic.Services
         /// </summary>
         public async Task<string?> FetchSnapAsync(string romHash, string? romPath, string console)
         {
+            if (WindowsApps.IsWindows(console))
+                return await FetchWindowsSnapAsync(romHash, romPath);
+
             var titleCandidates = new List<string>();
 
             if (!string.IsNullOrWhiteSpace(romPath))
@@ -776,9 +779,14 @@ namespace Emutastic.Services
             return null;
         }
 
+        /// <param name="titleHint">The library title, used by platforms that look up by name
+        /// rather than by file (Windows). Others ignore it.</param>
         public async Task<(string? artworkPath, string? screenScraperArtPath, ArtworkResult? metadata)> FetchArtworkAsync(
-            string md5Hash, string? romPath = null, string? console = null)
+            string md5Hash, string? romPath = null, string? console = null, string? titleHint = null)
         {
+            if (WindowsApps.IsWindows(console))
+                return await FetchWindowsArtworkAsync(md5Hash, romPath, titleHint);
+
             // Source priority for the metadata fields (Title, Year, Developer,
             // Publisher, Genre, Description):
             //   1. ScreenScraper jeuInfos — when the user has SS credentials
@@ -1058,6 +1066,116 @@ namespace Emutastic.Services
             }
 
             return (artworkPath, screenScraperArtPath, result);
+        }
+
+        /// <summary>
+        /// Windows apps aren't in the console databases (OpenVGDB, libretro thumbnails), and
+        /// their file-name matching would pin another game's details on them. Instead: Steam's
+        /// store for Steam shortcuts, then ScreenScraper's PC Windows catalogue and SteamGridDB
+        /// by title. The returned title is the library title unchanged — lookups only borrow
+        /// details and a cover, never rename the user's app.
+        /// </summary>
+        private async Task<(string? artworkPath, string? screenScraperArtPath, ArtworkResult? metadata)> FetchWindowsArtworkAsync(
+            string md5Hash, string? appPath, string? titleHint)
+        {
+            if (string.IsNullOrWhiteSpace(appPath)) return (null, null, null);
+            string console = WindowsApps.ConsoleTag;
+            string title = !string.IsNullOrWhiteSpace(titleHint) ? titleHint! : WindowsApps.TitleFor(appPath);
+            string lookupPath = WindowsApps.LookupPath(appPath, title);
+            var result = new ArtworkResult { Title = title };
+            string? artworkPath = null;
+
+            // 1 — a Steam game's shortcut: the store's details and Steam's own library cover.
+            if (WindowsApps.TryGetSteamAppId(appPath, out int appId))
+            {
+                var steam = await SteamStoreService.FetchDetailsAsync(appId);
+                if (steam != null) FillMissingDetails(result, steam);
+                foreach (string url in SteamStoreService.CoverUrls(appId))
+                {
+                    artworkPath = await DownloadArtworkAsync(url, md5Hash, console);
+                    if (artworkPath != null) break;
+                }
+            }
+
+            var snapConfig = App.Configuration?.GetSnapConfiguration();
+            bool ssReady = snapConfig is { ScreenScraperEnabled: true }
+                           && !string.IsNullOrWhiteSpace(snapConfig.ScreenScraperUser);
+
+            // 2 — ScreenScraper's PC Windows catalogue, for details still missing.
+            if (ssReady && !ScreenScraperService.QuotaExhausted && MissingDetails(result))
+            {
+                try
+                {
+                    var ssMeta = await new ScreenScraperService().FetchMetadataAsync(
+                        snapConfig!.ScreenScraperUser, snapConfig.ScreenScraperPassword, console, md5Hash, lookupPath);
+                    if (ssMeta != null)
+                        FillMissingDetails(result, new ArtworkResult
+                        {
+                            Developer   = ssMeta.Developer   ?? "",
+                            Publisher   = ssMeta.Publisher   ?? "",
+                            ReleaseDate = ssMeta.Year        ?? "",
+                            Genre       = ssMeta.Genre       ?? "",
+                            Description = ssMeta.Description ?? "",
+                        });
+                }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[Meta] SS Windows fetch failed: {ex.Message}"); }
+            }
+
+            // 3 — SteamGridDB cover by title, when the user set up a token.
+            if (artworkPath == null)
+            {
+                try
+                {
+                    var emuTv = App.Configuration?.GetEmuTvConfiguration();
+                    if (emuTv is { SteamGridDbEnabled: true } && !string.IsNullOrWhiteSpace(emuTv.SteamGridDbToken))
+                    {
+                        string? sgdbUrl = await new SteamGridDbService().FetchCoverUrlAsync(emuTv.SteamGridDbToken, title);
+                        if (!string.IsNullOrWhiteSpace(sgdbUrl))
+                            artworkPath = await DownloadArtworkAsync(sgdbUrl, md5Hash, console);
+                    }
+                }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"SteamGridDB cover failed: {ex.Message}"); }
+            }
+
+            // 4 — ScreenScraper 2D box art, stored separately as for every platform.
+            string? screenScraperArtPath = null;
+            if (ssReady)
+            {
+                try
+                {
+                    screenScraperArtPath = await new ScreenScraperService().FetchBoxArt2DAsync(
+                        snapConfig!.ScreenScraperUser, snapConfig.ScreenScraperPassword, console, md5Hash, lookupPath);
+                }
+                catch { /* non-fatal — SS unavailable shouldn't block artwork flow */ }
+            }
+
+            return (artworkPath, screenScraperArtPath, result);
+        }
+
+        private static bool MissingDetails(ArtworkResult r)
+            => string.IsNullOrWhiteSpace(r.Developer) || string.IsNullOrWhiteSpace(r.Genre)
+               || string.IsNullOrWhiteSpace(r.Description) || string.IsNullOrWhiteSpace(r.ReleaseDate);
+
+        private static void FillMissingDetails(ArtworkResult into, ArtworkResult from)
+        {
+            if (string.IsNullOrWhiteSpace(into.Developer))   into.Developer   = from.Developer;
+            if (string.IsNullOrWhiteSpace(into.Publisher))   into.Publisher   = from.Publisher;
+            if (string.IsNullOrWhiteSpace(into.Genre))       into.Genre       = from.Genre;
+            if (string.IsNullOrWhiteSpace(into.Description)) into.Description = from.Description;
+            if (string.IsNullOrWhiteSpace(into.ReleaseDate)) into.ReleaseDate = from.ReleaseDate;
+        }
+
+        /// <summary>
+        /// A wide header image for a Windows entry's detail card: a Steam game's library hero.
+        /// Null for anything else.
+        /// </summary>
+        private async Task<string?> FetchWindowsSnapAsync(string romHash, string? appPath)
+        {
+            if (string.IsNullOrWhiteSpace(appPath) || !WindowsApps.TryGetSteamAppId(appPath, out int appId))
+                return null;
+            string url = $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/library_hero.jpg";
+            string key = string.IsNullOrWhiteSpace(romHash) ? $"steam_{appId}_hero" : $"{romHash}_hero";
+            return await DownloadArtworkAsync(url, key, WindowsApps.ConsoleTag);
         }
     }
 }

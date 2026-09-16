@@ -70,6 +70,16 @@ namespace Emutastic.Views
         private bool _closed;
         private int  _videoGen; // bumped on every stop/selection change to cancel in-flight video work
 
+        // A Windows app started from EmuTV runs in its own window, and the controller belongs to
+        // it: while one is running EmuTV reads input only when it is itself the active window
+        // again (OnInputTick). Ends when a tracked app exits; a launcher link (steam://) or a
+        // launcher that hands off and quits can't be followed, so the gate then simply stays.
+        private bool _externalAppActive;
+        private DateTime _externalAppStartedUtc;
+        private int _externalAppSession;   // only the latest launch may end the gate
+        private static readonly TimeSpan ExternalAppGrace = TimeSpan.FromSeconds(3);
+        private static readonly TimeSpan ExternalAppHandOff = TimeSpan.FromSeconds(10);
+
         public EmuTvWindow(ControllerManager? controller = null, DatabaseService? db = null)
         {
             InitializeComponent();
@@ -92,6 +102,15 @@ namespace Emutastic.Views
 
             _videoDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
             _videoDebounce.Tick += OnVideoDebounceTick;
+
+            // While a Windows app started from here is out front, EmuTV's preview stays quiet.
+            Deactivated += (_, _) =>
+            {
+                if (!_externalAppActive) return;
+                StopVideo();
+                _videoDebounce.Stop();
+            };
+            Activated += (_, _) => { if (_externalAppActive) ResumeAfterExternalApp(); };
 
             _imgReadyDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(140) };
             _imgReadyDebounce.Tick += (_, _) => { _imgReadyDebounce!.Stop(); if (!_closed) RenderActiveView(); };
@@ -489,11 +508,58 @@ namespace Emutastic.Views
             TvStandByImage.Visibility = Visibility.Collapsed;
         }
 
+        /// <summary>
+        /// Back in EmuTV after a Windows app: a held button must be released before it acts, and
+        /// the selected game's preview and saves pick up again.
+        /// </summary>
+        private void ResumeAfterExternalApp()
+        {
+            _aLatch = true;
+            _bLatch = true;
+            _rightLatch = true;
+            _navDir = 0;
+            _navHoldTicks = 0;
+            if (GameList.SelectedItem is Game refreshGame)
+            {
+                _videoDebounce.Stop();
+                _videoDebounce.Start();
+                LoadSavesFor(refreshGame);
+            }
+        }
+
         // ── Launch (reuses the desktop path; optional save-state to load) ─────────
         private void LaunchGame(Game game, string? statePath = null)
         {
             try
             {
+                // Windows app: its own program in its own window. Video stops while it runs, and
+                // input is gated on EmuTV being the active window (OnInputTick).
+                if (WindowsApps.IsWindows(game.Console))
+                {
+                    StopVideo();
+                    _videoDebounce.Stop();
+                    var started = DateTime.UtcNow;
+                    int session = ++_externalAppSession;
+                    var launched = WindowsAppLauncher.Launch(game, this, _db, _ =>
+                    {
+                        if (session != _externalAppSession || _closed) return;   // a later launch owns the gate
+                        // A tracked app that ran a while has really closed; one that quit within
+                        // seconds most likely handed off to the real game, so keep the gate.
+                        if (DateTime.UtcNow - started >= ExternalAppHandOff) _externalAppActive = false;
+                        if (IsActive) ResumeAfterExternalApp();
+                    });
+                    if (launched != null)
+                    {
+                        _externalAppActive = true;
+                        _externalAppStartedUtc = started;
+                    }
+                    else
+                    {
+                        ResumeAfterExternalApp();
+                    }
+                    return;
+                }
+
                 var coreManager = new CoreManager(App.Configuration!);
 
                 // PS3: external emulator in its own process (no libretro core). Stop EmuTV
@@ -666,6 +732,18 @@ namespace Emutastic.Views
         private void OnInputTick(object? sender, EventArgs e)
         {
             if (_controller == null) return;
+            if (_externalAppActive
+                && (!IsActive || DateTime.UtcNow - _externalAppStartedUtc < ExternalAppGrace))
+            {
+                // The app is out front (or still coming up): the pad is its, not EmuTV's. Latch
+                // so a button still held when EmuTV comes back doesn't act.
+                _aLatch = true;
+                _bLatch = true;
+                _rightLatch = true;
+                _navDir = 0;
+                _navHoldTicks = 0;
+                return;
+            }
             if (!_hotkeysLoaded) { LoadEmuTvHotkeys(); _hotkeysLoaded = true; }
 
             bool b = _controller.IsRawXInputButtonDown(ControllerManager.RAW_B);

@@ -37,7 +37,8 @@ GETTING STARTED
 4. Drag and drop ROM, disc image, or zip files onto the library window
    to import your games, or use the Import ROMs button in the navigation
    bar below Preferences. Zips are auto-extracted into the data folder;
-   the original archive is left untouched.
+   the original archive is left untouched. Windows games and apps can be
+   dropped the same way (see WINDOWS GAMES AND APPS below).
 
 5. (Optional) Set up artwork and accounts:
    - Preferences -> Snaps: No account is needed to get started --
@@ -54,6 +55,50 @@ GETTING STARTED
    - Preferences -> Backups: Sign in to GitHub for a free cloud backup
      of this PC's battery saves and library database (see BACKUPS
      section below).
+
+
+WINDOWS GAMES AND APPS
+----------------------
+The Windows category (top of the sidebar, under Arcade) holds your own
+PC games and programs. Add them by dropping any of these onto the
+library, from any view:
+
+  - a program (.exe)
+  - a shortcut (.lnk), e.g. from your desktop or Start menu
+  - a Steam or Epic link (.url), e.g. Steam's "Create desktop shortcut"
+  - a batch file (.bat / .cmd)
+
+With Windows selected in the sidebar you can also drop a folder:
+  - a game's install folder adds that game
+  - a folder of game folders (for example steamapps\common) adds one
+    entry per game
+  - a folder of shortcuts adds those shortcuts
+Installers, uninstallers, crash reporters and updaters are left out.
+A ROM dropped there is still imported as usual; archives (.zip, .7z,
+.rar) are skipped — extract or install the app first.
+
+Apps are never copied: each entry starts the program where it is
+installed, in its own folder, and shortcuts keep their arguments. Play
+count and play time are recorded like any other game (for Steam and
+Epic links, which hand off to their launcher, only the launch is).
+
+Every app gets its own icon as a cover straight away. Steam links also
+get Steam's cover and details automatically; ScreenScraper and
+SteamGridDB (when set up) can fill in the rest — right-click the
+Windows category -> Download Missing Artwork looks again.
+
+
+SIDEBAR LAYOUT
+--------------
+Preferences -> Library -> Sidebar Layout chooses which consoles the
+sidebar lists and in what order:
+  - untick a console, or a whole manufacturer, to hide it
+  - Up / Down move a console within its group; on a manufacturer
+    heading they move the whole group with its consoles
+  - "Hide consoles with no games" lists only what you own
+Changes apply immediately. Hiding never removes anything — the games
+stay in your library and under All Games. "Restore Default Layout"
+puts everything back.
 
 
 CONTROLLERS
@@ -164,7 +209,10 @@ GitHub account. Sign in once, and a private repo called
 Every PC gets its own repo and never reads another PC's saves, so a
 new or reinstalled PC can't overwrite progress made elsewhere.
 
-  - Battery saves upload when you close a game
+  - Battery saves and memory cards upload when you close a game
+  - Sync Timing: "Every 15 minutes during play" also uploads them while
+    a game runs; "Manual only" leaves every transfer (including the
+    sync at startup) to "Sync Now"
   - "Sync Now" backs up everything that changed and restores anything
     missing from this PC (for example after a reinstall)
   - The status bar shows each sync's progress

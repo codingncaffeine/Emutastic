@@ -52,8 +52,10 @@ namespace Emutastic.Services
         // New imports are appended; a single background worker drains them in order.
         // Each queue item carries the user-selected console nav at the moment of
         // drop. When non-null, that hint coerces the import to that console —
-        // sidesteps detection failures (especially for DOS, where filename-only
-        // detection is unreliable).
+        // sidesteps detection failures (ambiguous disc images, bare folders).
+        // Windows programs and shortcuts are the exception: they always go to
+        // the Windows platform (ImportSingleRomAsync), and the Windows nav only
+        // ever adds apps (ImportWindowsBatchAsync).
         private readonly Channel<(List<string> Paths, string? HintedConsole)> _importQueue =
             Channel.CreateUnbounded<(List<string>, string?)>(new UnboundedChannelOptions { SingleReader = true });
 
@@ -89,10 +91,12 @@ namespace Emutastic.Services
 
         /// <summary>
         /// Variant that takes a user-selected console as a strong hint. When set,
-        /// detection is bypassed for the batch — every dropped file/folder is
-        /// imported as that console. Use case: user is on the DOS nav and drops
-        /// a folder; we trust the nav over fragile filename-based detection.
-        /// Pass null when called from "All Games" or any non-console nav.
+        /// detection is bypassed for the batch — every dropped ROM file/folder is
+        /// imported as that console. Use case: user is on the PS1 nav and drops a
+        /// folder of disc images; we trust the nav over fragile filename-based
+        /// detection. Windows programs and shortcuts go to the Windows platform
+        /// whatever the hint. Pass null when called from "All Games" or any
+        /// non-console nav.
         /// </summary>
         public void ImportFilesAsync(IEnumerable<string> filePaths, string? hintedConsole)
         {
@@ -163,6 +167,11 @@ namespace Emutastic.Services
 
                 StatusChanged?.Invoke("Scanning files…");
 
+                // Dropped on the Windows nav: folders stand for the apps inside them, and anything
+                // that isn't an app goes back through normal detection (see ImportWindowsBatchAsync).
+                bool windowsBatch = WindowsApps.IsWindows(_activeHintedConsole);
+                var windowsFolderApps = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+
                 // Count new files and add to running total.
                 int batchCount = 0;
                 await Task.Run(() =>
@@ -171,10 +180,21 @@ namespace Emutastic.Services
                     {
                         if (Directory.Exists(path))
                         {
-                            batchCount += Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories)
-                                .Count(f => RomService.IsRomFile(f) && !IsMameSamplesFile(f) && !IsMameCompanionChd(f));
+                            if (windowsBatch)
+                            {
+                                var apps = WindowsApps.FindAppsInFolder(path, ImportLog);
+                                windowsFolderApps[path] = apps;
+                                batchCount += apps.Count;
+                            }
+                            else
+                            {
+                                batchCount += Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories)
+                                    .Count(f => RomService.IsRomFile(f) && !IsMameSamplesFile(f) && !IsMameCompanionChd(f));
+                            }
                         }
-                        else if (File.Exists(path) && RomService.IsRomFile(path)
+                        else if (File.Exists(path) && WindowsApps.IsAppFile(path))
+                            batchCount++;
+                        else if (!windowsBatch && File.Exists(path) && RomService.IsRomFile(path)
                                  && !IsMameSamplesFile(path) && !IsMameCompanionChd(path))
                             batchCount++;
                     }
@@ -182,6 +202,12 @@ namespace Emutastic.Services
 
                 Interlocked.Add(ref _progressTotal, batchCount);
                 ProgressChanged?.Invoke(_progressCurrent, _progressTotal);
+
+                if (windowsBatch)
+                {
+                    await ImportWindowsBatchAsync(paths, windowsFolderApps);
+                    continue;
+                }
 
                 // Multi-disc pre-pass: detect (Disc N) / CDN groups across every file
                 // in this batch — folders and individual files alike — write .m3u
@@ -354,6 +380,154 @@ namespace Emutastic.Services
             });
 
             return game;
+        }
+
+        /// <summary>
+        /// A batch dropped on the Windows nav. Files that are apps and the apps a folder stands
+        /// for are added; everything else is queued again as an ordinary batch, so a ROM dropped
+        /// on the Windows nav is detected as usual instead of being filed as a program.
+        /// </summary>
+        private async Task ImportWindowsBatchAsync(List<string> paths, Dictionary<string, List<string>> folderApps)
+        {
+            var others = new List<string>();
+            foreach (string path in paths)
+            {
+                if (Directory.Exists(path))
+                {
+                    var apps = folderApps.TryGetValue(path, out var found) ? found : WindowsApps.FindAppsInFolder(path, ImportLog);
+                    if (apps.Count == 0)
+                    {
+                        ImportLog($"[Windows] {path}: no programs or shortcuts found");
+                        StatusChanged?.Invoke($"No Windows programs found in {Path.GetFileName(path)}");
+                    }
+                    foreach (string app in apps)
+                    {
+                        await ImportWindowsAppAsync(app);
+                        Interlocked.Increment(ref _progressCurrent);
+                        ProgressChanged?.Invoke(_progressCurrent, _progressTotal);
+                    }
+                }
+                else if (File.Exists(path))
+                {
+                    string ext = Path.GetExtension(path);
+                    if (WindowsApps.IsAppFile(path))
+                    {
+                        await ImportWindowsAppAsync(path);
+                        Interlocked.Increment(ref _progressCurrent);
+                        ProgressChanged?.Invoke(_progressCurrent, _progressTotal);
+                    }
+                    else if (ZipRomExtractor.IsArchiveExtension(ext) || ext.Equals(".rar", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Most likely a downloaded PC game. Normal detection would file an archive
+                        // with no ROM inside as an Arcade game, so leave it for the user to unpack.
+                        ImportLog($"[{Path.GetFileName(path)}] SKIPPED — archive dropped on the Windows nav");
+                        StatusChanged?.Invoke($"Skipped {Path.GetFileName(path)} — extract or install the app first, then add it");
+                    }
+                    else
+                    {
+                        others.Add(path);
+                    }
+                }
+            }
+
+            if (others.Count > 0)
+            {
+                ImportLog($"[Windows] {others.Count} non-program file(s) re-queued for normal detection");
+                _importQueue.Writer.TryWrite((others, null));
+            }
+        }
+
+        /// <summary>
+        /// Adds a Windows program, shortcut or batch file to the library. Apps are never copied
+        /// into the library folder — a program needs the files it was installed with — so the entry
+        /// points at the file where it is. The app's icon becomes its cover straight away; a cover
+        /// and details found online replace it in the background.
+        /// </summary>
+        private async Task ImportWindowsAppAsync(string path)
+        {
+            string fileName = Path.GetFileName(path);
+            string fullPath;
+            try { fullPath = Path.GetFullPath(path); }
+            catch { return; }
+
+            if (IsUnderSystemTemp(fullPath))
+            {
+                // Dragged straight out of an archive viewer: the file vanishes when the viewer
+                // cleans up, and a program can't be copied away from the files it needs.
+                ImportLog($"[{fileName}] SKIPPED — Windows program inside a temporary folder");
+                StatusChanged?.Invoke($"Skipped {fileName} — extract or install it first, then add it from there");
+                return;
+            }
+            if (_knownPaths.Contains(fullPath)) { ImportLog($"[{fileName}] SKIPPED — path already in DB"); return; }
+
+            StatusChanged?.Invoke($"Importing {fileName}…");
+            string title = await Task.Run(() => WindowsApps.TitleFor(fullPath));
+            var colors = RomService.GetConsoleColors(WindowsApps.ConsoleTag);
+            var game = new Game
+            {
+                Title = title,
+                Console = WindowsApps.ConsoleTag,
+                Manufacturer = WindowsApps.Manufacturer,
+                RomPath = fullPath,
+                OriginalSourcePath = fullPath,
+                RomHash = WindowsApps.LibraryHash(fullPath),
+                BackgroundColor = colors.bg,
+                AccentColor = colors.accent,
+            };
+
+            _db.InsertGame(game);
+            if (game.Id <= 0) { ImportLog($"[{fileName}] SKIPPED — already in the library"); return; }
+            _knownPaths.Add(fullPath);
+            ImportLog($"[{fileName}] INSERTED as {WindowsApps.ConsoleTag} \"{title}\" (id={game.Id})");
+            GameImported?.Invoke(game);
+
+            Interlocked.Increment(ref _artworkTotal);
+            int taskGen = _drainGeneration;
+            _ = Task.Run(async () =>
+            {
+                await _hashSemaphore.WaitAsync();
+                try
+                {
+                    string iconCover = WindowsApps.IconCoverPath(game.Id);
+                    if (WindowsAppArt.TryWriteIconCover(fullPath, iconCover, out string? noCover))
+                    {
+                        _db.UpdateCoverArt(game.Id, iconCover);
+                        game.CoverArtPath = iconCover;
+                        GameImported?.Invoke(game);
+                    }
+                    else
+                    {
+                        ImportLog($"[{fileName}] no icon cover: {noCover}");
+                    }
+
+                    var (cover, ssArt, metadata) = await _artwork.FetchArtworkAsync(
+                        game.RomHash, fullPath, WindowsApps.ConsoleTag, title);
+                    if (ssArt != null)
+                    {
+                        _db.UpdateScreenScraperArt(game.Id, ssArt);
+                        game.ScreenScraperArtPath = ssArt;
+                    }
+                    if (cover != null)
+                    {
+                        _db.UpdateCoverArt(game.Id, cover);
+                        game.CoverArtPath = cover;
+                    }
+                    PersistMetadataFields(game, metadata);
+                    if (cover == null && ssArt == null) _db.IncrementArtworkAttempts(game.Id);
+                    GameImported?.Invoke(game);
+                    ImportLog($"[{fileName}] art: cover={(cover != null ? "found" : game.CoverArtPath.Length > 0 ? "icon" : "none")} ss={(ssArt != null ? "found" : "none")} developer=\"{game.Developer}\"");
+
+                    if (taskGen == _drainGeneration)
+                    {
+                        int done  = Interlocked.Increment(ref _artworkDone);
+                        int total = _artworkTotal;
+                        int pct   = (int)((done / (double)total) * 100);
+                        StatusChanged?.Invoke($"Artwork — {pct}%  ({done} of {total})  {game.Title}");
+                    }
+                }
+                catch (Exception ex) { ImportLog($"[{fileName}] Windows art failed: {ex.Message}"); }
+                finally { _hashSemaphore.Release(); }
+            });
         }
 
         /// <summary>
@@ -613,6 +787,15 @@ namespace Emutastic.Services
                 return;
             }
 
+            // A Windows program or shortcut belongs to the Windows platform whichever console is
+            // selected. MUST run before the console-nav hint below, which used to file a dropped
+            // .exe under the selected console (a leftover of the removed DOS platform).
+            if (WindowsApps.IsAppFile(romPath))
+            {
+                await ImportWindowsAppAsync(romPath);
+                return;
+            }
+
             // .bin paired with a .cue in the same folder — skip it; the .cue is the entry point.
             // Checks for ANY .cue in the folder, not just one with the same base name, so that
             // multi-track dumps (Track 01.bin, Track 02.bin, ...) are correctly skipped when
@@ -652,10 +835,9 @@ namespace Emutastic.Services
             }
 
             // Console-nav hint short-circuit: when the user dropped this file
-            // while sitting on a specific console nav (e.g. DOS), trust that
-            // signal over fragile filename-based detection. Especially valuable
-            // for DOS where a bare .exe or generically-named folder otherwise
-            // gets misclassified or skipped entirely.
+            // while sitting on a specific console nav (e.g. PS1), trust that
+            // signal over fragile filename-based detection — ambiguous disc
+            // images, and formats with no extension of their own (a PS-X EXE).
             if (!string.IsNullOrEmpty(_activeHintedConsole) && _activeHintedConsole != "All Games")
             {
                 string resolved = await ResolveImportPathAsync(romPath, _activeHintedConsole);
@@ -867,6 +1049,15 @@ namespace Emutastic.Services
         private async Task ImportRomFileAsync(string romPath, string console, string fileName,
             string? overrideTitle = null, string? originalSourcePath = null)
         {
+            // Only programs and shortcuts are Windows apps — never file a ROM (or anything else)
+            // under the Windows platform, and never copy an app out of its folder.
+            if (WindowsApps.IsWindows(console))
+            {
+                if (WindowsApps.IsAppFile(romPath)) await ImportWindowsAppAsync(romPath);
+                else ImportLog($"[{fileName}] SKIPPED — not a Windows program or shortcut");
+                return;
+            }
+
             // Capture the user's original selection BEFORE any defensive
             // extraction reassigns romPath. This is what the per-console
             // Refresh Library action keys off — the actual on-disk location

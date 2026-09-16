@@ -419,54 +419,15 @@ namespace Emutastic.Converters
     // ── List view (OpenEmu-style) cell formatters ────────────────────────────
 
     /// <summary>
-    /// Game.Console string ("PS1", "SNES", …) → pack URI of the small system
-    /// icon shown in the System column. Mirrors PreferencesWindow's mapping so
-    /// nav sidebar, controls picker, and list view stay visually consistent.
+    /// Game.Console string ("PS1", "SNES", …) → the small system icon shown in the
+    /// System column. The table is ConsoleCatalog.IconUri, shared with the nav sidebar,
+    /// the controls picker and EmuTV so every surface shows the same icon.
     /// </summary>
     public class ConsoleTagToIconConverter : IValueConverter
     {
         public object? Convert(object value, Type targetType, object parameter, CultureInfo culture)
         {
-            if (value is not string tag || string.IsNullOrEmpty(tag)) return null;
-            string? uri = tag switch
-            {
-                "Atari2600"    => "pack://application:,,,/Assets/system_icons/atari2600.jpg",
-                "Atari7800"    => "pack://application:,,,/Assets/system_icons/atari7800.jpg",
-                "Jaguar"       => "pack://application:,,,/Assets/system_icons/systemicons1_13.jpg",
-                "NES"          => "pack://application:,,,/Assets/system_icons/nes_icon.jpg",
-                "FDS"          => "pack://application:,,,/Assets/system_icons/famicon disk system.jpg",
-                "SNES"         => "pack://application:,,,/Assets/system_icons/snes.jpg",
-                "N64"          => "pack://application:,,,/Assets/system_icons/n64.jpg",
-                "GameCube"     => "pack://application:,,,/Assets/system_icons/gamecube.jpg",
-                "GB"           => "pack://application:,,,/Assets/system_icons/gameboy.jpg",
-                "GBC"          => "pack://application:,,,/Assets/system_icons/gbc.jpeg",
-                "GBA"          => "pack://application:,,,/Assets/system_icons/gba.jpg",
-                "3DS"          => "pack://application:,,,/Assets/system_icons/3ds_icon.jpg",
-                "NDS"          => "pack://application:,,,/Assets/system_icons/nds.jpg",
-                "VirtualBoy"   => "pack://application:,,,/Assets/system_icons/virtualboy.jpg",
-                "SMS"          => "pack://application:,,,/Assets/system_icons/sms.jpg",
-                "Genesis"      => "pack://application:,,,/Assets/system_icons/genesis.jpg",
-                "SegaCD"       => "pack://application:,,,/Assets/system_icons/genesis.jpg",
-                "Sega32X"      => "pack://application:,,,/Assets/system_icons/32x.jpg",
-                "Saturn"       => "pack://application:,,,/Assets/system_icons/saturn.jpg",
-                "GameGear"     => "pack://application:,,,/Assets/system_icons/sms.jpg",
-                "SG1000"       => "pack://application:,,,/Assets/system_icons/sg-1000.png",
-                "Dreamcast"    => "pack://application:,,,/Assets/system_icons/dreamcast.jpg",
-                "PS1"          => "pack://application:,,,/Assets/system_icons/ps1.jpg",
-                "PSP"          => "pack://application:,,,/Assets/system_icons/psp.jpg",
-                "TG16"         => "pack://application:,,,/Assets/system_icons/tg16.png",
-                "TGCD"         => "pack://application:,,,/Assets/system_icons/tg16.png",
-                "NeoGeo"       => "pack://application:,,,/Assets/system_icons/neogeo.jpg",
-                "NeoCD"        => "pack://application:,,,/Assets/system_icons/neogeo_cd.png",
-                "NGP"          => "pack://application:,,,/Assets/system_icons/neo geo pocket.jpg",
-                "NGPC"         => "pack://application:,,,/Assets/system_icons/neo geo pocket.jpg",
-                "3DO"          => "pack://application:,,,/Assets/system_icons/3d0.jpg",
-                "CDi"          => "pack://application:,,,/Assets/system_icons/cdi_icon.jpg",
-                "ColecoVision" => "pack://application:,,,/Assets/system_icons/coleco.jpg",
-                "Vectrex"      => "pack://application:,,,/Assets/system_icons/vectrex.jpg",
-                "Arcade"       => "pack://application:,,,/Assets/system_icons/arcade.png",
-                _              => null,
-            };
+            string? uri = Services.ConsoleCatalog.IconUri(value as string);
             if (uri == null) return null;
             try { return new BitmapImage(new Uri(uri, UriKind.Absolute)); } catch { return null; }
         }

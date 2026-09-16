@@ -4,7 +4,7 @@
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-A full-featured multi-system emulator frontend for Windows — built with WPF and .NET 8 — that turns your game collection into a clean, console-organized library spanning **37 systems** from the 8-bit era through **PlayStation 3**. Emulation is handled by [libretro](https://www.libretro.com/) cores loaded at runtime; no cores or BIOS files are bundled.
+A full-featured multi-system emulator frontend for Windows — built with WPF and .NET 8 — that turns your game collection into a clean, console-organized library spanning **37 systems** from the 8-bit era through **PlayStation 3**, with your **Windows games and apps** on the same shelf. Emulation is handled by [libretro](https://www.libretro.com/) cores loaded at runtime; no cores or BIOS files are bundled.
 
 **Two ways to play:** a full-power desktop library at your monitor, or **EmuTV** — a controller-only, big-screen mode for the couch.
 
@@ -15,7 +15,8 @@ Also available for [Linux](https://github.com/codingncaffeine/Emutastic-For-Linu
 ## Highlights
 
 - 🎮 **37 systems** — 8-bit classics through **PlayStation 3** (PS2 via LRPS2, PS3 via RPCS3)
-- 🗂️ **Clean, console-organized library** with box art and rich metadata (OpenVGDB + ScreenScraper)
+- 🪟 **Windows games and apps** — add programs, shortcuts and Steam links to their own **Windows** category and launch them from the library or EmuTV
+- 🗂️ **Clean, console-organized library** with box art and rich metadata (OpenVGDB + ScreenScraper), and a sidebar you can reorder and trim to the consoles you use
 - 🏆 **RetroAchievements** — full hardcore-mode compliance, in-game unlock toasts, and per-game stats
 - 📺 **EmuTV** — a controller-only, couch-friendly console mode for the living room (renders ES-DE themes)
 - 🎨 **Deep theming** — a visual editor with live preview and 44 color tokens
@@ -94,6 +95,8 @@ It renders **[ES-DE](https://es-de.org/) themes** out of the box — carousels, 
 | 3DO | 3DO | opera | Any of `panafz10.bin` (Panasonic) / `panafz1j.bin` (JP) / `goldstar.bin` (GoldStar) |
 | Philips CD-i | CDi | same_cdi | No |
 
+Alongside them, **Windows** (tag `Windows`) holds your own PC games and apps. They run as the programs they are — no core, no BIOS.
+
 </details>
 
 For per-system BIOS filenames and placement, known-broken arcade hardware, the Saturn BIOS naming nuance, and Neo Geo / Neo Geo CD specifics, see the **[Wiki](https://github.com/codingncaffeine/Emutastic/wiki)**.
@@ -107,6 +110,8 @@ Drag and drop ROMs onto the library or use **Import ROMs**. The app detects the 
 **Multi-disc games** (Final Fantasy VII, Metal Gear Solid, etc.) are auto-bundled into a single library entry — drop a folder containing the disc files (`.cue`/`.bin` or `.chd`) and Emutastic writes an `.m3u` playlist alongside them so the game shows up once, not three times. Hand-authored `.m3u` files in the folder are honored as-is.
 
 **Important:** Download DAT files in **Preferences → Cores / Extras** before importing. Without them, disc images and some cartridge ROMs may be assigned to the wrong system during import.
+
+**Windows games and apps** — drop a program (`.exe`), a shortcut (`.lnk`), a Steam or Epic link (`.url`) or a batch file onto the library, from any view, and it's added under **Windows**. With Windows selected you can also drop a folder: a game's install folder adds that game, a folder of game folders (such as `steamapps\common`) adds one entry per game, and a folder of shortcuts adds its shortcuts — installers, uninstallers, crash reporters and updaters are left out. Apps are never copied; each entry opens the program where it's installed, so shortcuts keep their arguments. Every app gets its own icon as a cover straight away, Steam links get Steam's cover and details, and ScreenScraper or SteamGridDB (when set up) can fill in the rest. Launches and play time are recorded like any other game.
 
 ---
 
@@ -182,11 +187,12 @@ In-game, achievements appear as toast notifications when you unlock them.
 
 - **Core Options** — Per-core settings (internal resolution, graphics plugins, etc.) in **Preferences → Core Options**
 - **Play Time Tracking** — The game detail card shows your total accumulated play time per game, recorded each session
+- **Sidebar Layout** — Choose which consoles the sidebar lists and in what order in **Preferences → Library**: hide a console or a whole manufacturer, move consoles within their group or move a group with its consoles, and optionally hide consoles with no games. Changes apply immediately, hidden consoles' games stay under All Games, and **Restore Default Layout** puts everything back
 
 <details>
 <summary><strong>Cloud Sync</strong></summary>
 
-Back up each PC's battery saves, memory cards and library database to a private GitHub repository. The library database carries your game metadata, ratings, favorites, play time, and **per-game notes**, so a restore brings all of that back. Sign in with one click in **Preferences → Backups** — a private `emutastic-saves-<pc-name>` repo is created automatically under your account. Every PC keeps its own repository, so a new or reinstalled PC can never overwrite another PC's saves, and signing in again on a reinstalled PC with the same name restores its backup. Battery saves upload on game close; **Sync Now** backs up everything that changed and restores anything missing, with its progress in the status bar. HD texture packs, BIOS and console system files, shader caches and save states stay out of the backup.
+Back up each PC's battery saves, memory cards and library database to a private GitHub repository. The library database carries your game metadata, ratings, favorites, play time, and **per-game notes**, so a restore brings all of that back. Sign in with one click in **Preferences → Backups** — a private `emutastic-saves-<pc-name>` repo is created automatically under your account. Every PC keeps its own repository, so a new or reinstalled PC can never overwrite another PC's saves, and signing in again on a reinstalled PC with the same name restores its backup. Battery saves and memory cards upload on game close — or also every 15 minutes during play, if you choose — and **Manual only** leaves every transfer to **Sync Now**, which backs up everything that changed and restores anything missing, with its progress in the status bar. HD texture packs, BIOS and console system files, shader caches and save states stay out of the backup.
 
 Optional **AES-256-GCM encryption** with a user-chosen passphrase — saves are encrypted before they leave your machine. Your saves repo is a normal private GitHub repo you can browse anytime. See the [Cloud Sync](https://github.com/codingncaffeine/Emutastic/wiki/Cloud-Sync) wiki page for details on encryption, storage limits, and troubleshooting.
 

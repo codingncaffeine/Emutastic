@@ -231,6 +231,32 @@ namespace Emutastic.Configuration
         public string LibraryPath { get; set; } = "";
         public bool CopyToLibrary { get; set; } = false;
         public bool OrganizeByConsole { get; set; } = true;
+
+        // ── Sidebar layout ────────────────────────────────────────────────────────
+        // Every field below is EMPTY/false by default, and empty means "use the
+        // built-in layout" (ConsoleCatalog.Default) — so an untouched install renders
+        // exactly the sidebar the app ships. Restore Default Layout CLEARS these rather
+        // than writing a copy of the defaults into them, which also means a user who
+        // never customises the sidebar keeps receiving layout changes from updates.
+        // Same names as the Linux build, so a config file moves between the two apps.
+
+        /// <summary>Console tags in the user's chosen order. Tags absent from this list
+        /// keep their catalog order, after the ones listed.</summary>
+        public List<string> ConsoleOrder { get; set; } = new();
+
+        /// <summary>Manufacturer headings in the user's chosen order.</summary>
+        public List<string> GroupOrder { get; set; } = new();
+
+        /// <summary>Console tags the user hid. Hiding never touches the games themselves —
+        /// they still exist and still show under All Games.</summary>
+        public List<string> HiddenConsoles { get; set; } = new();
+
+        /// <summary>Headings the user hid, which hides every console beneath them.</summary>
+        public List<string> HiddenGroups { get; set; } = new();
+
+        /// <summary>Hide consoles with no games in the library. Off by default, because
+        /// the sidebar has always listed every console regardless of what you own.</summary>
+        public bool HideEmptyConsoles { get; set; } = false;
     }
 
     // Core preferences - preferred core per console
@@ -431,6 +457,23 @@ namespace Emutastic.Configuration
         public string PassphraseProtected { get; set; } = "";
         public string SyncTiming { get; set; } = "on_close";
         public int PeriodicIntervalMinutes { get; set; } = 15;
+
+        /// <summary>
+        /// "Manual only": nothing syncs by itself — no startup sync, no sync after sign-in,
+        /// no pre-launch pull, no upload on game close. Only Sync Now acts.
+        /// </summary>
+        [JsonIgnore]
+        public bool IsManualTiming
+            => string.Equals(SyncTiming, "manual", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// "Every 15 minutes during play": uploads the battery save and memory cards on a
+        /// timer while a game is running, in addition to the upload on game close.
+        /// </summary>
+        [JsonIgnore]
+        public bool IsPeriodicTiming
+            => string.Equals(SyncTiming, "periodic", StringComparison.OrdinalIgnoreCase);
+
         public bool SyncSaveStates { get; set; } = true;
         public List<string> PendingUploads { get; set; } = new();
         /// <summary>

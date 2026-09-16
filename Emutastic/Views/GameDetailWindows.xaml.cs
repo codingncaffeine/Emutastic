@@ -182,7 +182,7 @@ namespace Emutastic.Views
                     if (cached == null)
                         cached = await ss.FetchSnapAsync(
                             snapConfig.ScreenScraperUser, snapConfig.ScreenScraperPassword,
-                            _game.Console, _game.RomHash, _game.RomPath);
+                            _game.Console, _game.RomHash, WindowsApps.LookupPathFor(_game));
 
                     if (cached != null)
                     {
@@ -230,8 +230,9 @@ namespace Emutastic.Views
         {
             // Hide the section entirely for users who haven't opted into RA.
             // We don't want to pester them with empty achievement UI.
+            // RetroAchievements has no sets for Windows apps.
             var raConfig = App.Configuration?.GetRetroAchievementsConfiguration();
-            if (raConfig == null || !raConfig.IsConfigured)
+            if (raConfig == null || !raConfig.IsConfigured || WindowsApps.IsWindows(_game.Console))
             {
                 RASection.Visibility = Visibility.Collapsed;
                 return;
@@ -838,6 +839,15 @@ namespace Emutastic.Views
 
         private void PlayButton_Click(object sender, RoutedEventArgs e)
         {
+            // Windows apps run as their own program — no core, BIOS or ROM checks apply.
+            if (WindowsApps.IsWindows(_game.Console))
+            {
+                if (WindowsAppLauncher.Launch(_game, this, _db, _ => { if (IsVisible) RefreshStats(); }) != null
+                    && IsVisible)
+                    RefreshStats();
+                return;
+            }
+
             var coreManager = new CoreManager(App.Configuration!);
 
             // Check for missing BIOS before attempting to launch.

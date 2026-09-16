@@ -4230,6 +4230,7 @@ namespace Emutastic.Views
             LibraryOrganizeByConsole.IsEnabled = lib.CopyToLibrary;
             LibraryCopyFiles.Checked += (_, _) => LibraryOrganizeByConsole.IsEnabled = true;
             LibraryKeepInPlace.Checked += (_, _) => LibraryOrganizeByConsole.IsEnabled = false;
+            LoadSidebarLayout();
         }
 
         private void BrowseLibraryBtn_Click(object sender, RoutedEventArgs e)
@@ -6538,50 +6539,9 @@ namespace Emutastic.Views
     {
         public override string ToString() => Name;
 
-        // Pack-URI mapping for the small console icon shown alongside the name in
-        // the Preferences → Controls system picker. Mirrors the table baked into
-        // MainWindow's nav sidebar so both surfaces stay visually consistent.
-        public static string? ResolveIconUri(string tag) => tag switch
-        {
-            "Atari2600"    => "pack://application:,,,/Assets/system_icons/atari2600.jpg",
-            "Atari7800"    => "pack://application:,,,/Assets/system_icons/atari7800.jpg",
-            "Jaguar"       => "pack://application:,,,/Assets/system_icons/systemicons1_13.jpg",
-            "NES"          => "pack://application:,,,/Assets/system_icons/nes_icon.jpg",
-            "FDS"          => "pack://application:,,,/Assets/system_icons/famicon disk system.jpg",
-            "SNES"         => "pack://application:,,,/Assets/system_icons/snes.jpg",
-            "N64"          => "pack://application:,,,/Assets/system_icons/n64.jpg",
-            "GameCube"     => "pack://application:,,,/Assets/system_icons/gamecube.jpg",
-            "GB"           => "pack://application:,,,/Assets/system_icons/gameboy.jpg",
-            "GBC"          => "pack://application:,,,/Assets/system_icons/gbc.jpeg",
-            "GBA"          => "pack://application:,,,/Assets/system_icons/gba.jpg",
-            "3DS"          => "pack://application:,,,/Assets/system_icons/3ds_icon.jpg",
-            "NDS"          => "pack://application:,,,/Assets/system_icons/nds.jpg",
-            "VirtualBoy"   => "pack://application:,,,/Assets/system_icons/virtualboy.jpg",
-            "SMS"          => "pack://application:,,,/Assets/system_icons/sms.jpg",
-            "Genesis"      => "pack://application:,,,/Assets/system_icons/genesis.jpg",
-            "SegaCD"       => "pack://application:,,,/Assets/system_icons/genesis.jpg",
-            "Sega32X"      => "pack://application:,,,/Assets/system_icons/32x.jpg",
-            "Saturn"       => "pack://application:,,,/Assets/system_icons/saturn.jpg",
-            "GameGear"     => "pack://application:,,,/Assets/system_icons/sms.jpg",
-            "SG1000"       => "pack://application:,,,/Assets/system_icons/sg-1000.png",
-            "Dreamcast"    => "pack://application:,,,/Assets/system_icons/dreamcast.jpg",
-            "PS1"          => "pack://application:,,,/Assets/system_icons/ps1.jpg",
-            "PS2"          => "pack://application:,,,/Assets/system_icons/ps2.png",
-            "PS3"          => "pack://application:,,,/Assets/system_icons/ps3.png",
-            "PSP"          => "pack://application:,,,/Assets/system_icons/psp.jpg",
-            "TG16"         => "pack://application:,,,/Assets/system_icons/tg16.png",
-            "TGCD"         => "pack://application:,,,/Assets/system_icons/tg16.png",
-            "NeoGeo"       => "pack://application:,,,/Assets/system_icons/neogeo.jpg",
-            "NeoCD"        => "pack://application:,,,/Assets/system_icons/neogeo_cd.png",
-            "NGP"          => "pack://application:,,,/Assets/system_icons/neo geo pocket.jpg",
-            "NGPC"         => "pack://application:,,,/Assets/system_icons/neo geo pocket.jpg",
-            "3DO"          => "pack://application:,,,/Assets/system_icons/3d0.jpg",
-            "CDi"          => "pack://application:,,,/Assets/system_icons/cdi_icon.jpg",
-            "ColecoVision" => "pack://application:,,,/Assets/system_icons/coleco.jpg",
-            "Vectrex"      => "pack://application:,,,/Assets/system_icons/vectrex.jpg",
-            "Arcade"       => "pack://application:,,,/Assets/system_icons/arcade.png",
-            _              => null,
-        };
+        // Pack-URI of the small console icon shown alongside the name in the Preferences →
+        // Controls system picker (and EmuTV). ConsoleCatalog holds the one table.
+        public static string? ResolveIconUri(string tag) => Services.ConsoleCatalog.IconUri(tag);
     }
 
     // ── BIOS data ─────────────────────────────────────────────────────────────

@@ -825,6 +825,32 @@
                                 HorizontalAlignment="Left" Margin="0,24,0,0"
                                 Click="LibrarySaveBtn_Click"/>
 
+                        <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,24,0,16"/>
+
+                        <!-- Sidebar layout. Rows are built in code (PreferencesWindow.SidebarLayout.cs)
+                             because the list is the console catalog, not fixed markup. Applies live —
+                             no Save button here on purpose, so it can't be confused with the one above,
+                             which governs the import settings. -->
+                        <TextBlock Text="SIDEBAR LAYOUT" Style="{StaticResource PrefLabel}" Margin="0,0,0,4"/>
+                        <TextBlock Text="Choose which consoles the sidebar lists and the order they appear in. Hiding a console never deletes anything — its games stay in your library and under All Games. Changes apply immediately."
+                                   Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12"
+                                   TextWrapping="Wrap" Margin="0,0,0,12"/>
+
+                        <CheckBox x:Name="HideEmptyConsolesCheck"
+                                  Content="Hide consoles with no games"
+                                  Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12"
+                                  Margin="0,0,0,14"
+                                  Checked="HideEmptyConsoles_Changed" Unchecked="HideEmptyConsoles_Changed"/>
+
+                        <StackPanel x:Name="SidebarLayoutPanel"/>
+
+                        <Button x:Name="RestoreSidebarDefaultsBtn"
+                                Content="Restore Default Layout" Style="{StaticResource SecondaryBtn}"
+                                HorizontalAlignment="Left" Margin="0,16,0,0"
+                                Click="RestoreSidebarDefaults_Click"/>
+                        <TextBlock x:Name="SidebarLayoutStatusText" FontSize="11"
+                                   Foreground="{DynamicResource TextMutedBrush}" Margin="0,10,0,0"/>
+
                     </StackPanel>
                     </ScrollViewer>
                 </Grid>

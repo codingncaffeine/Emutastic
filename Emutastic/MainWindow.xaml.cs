@@ -69,6 +69,12 @@ namespace Emutastic
             GameListView.AddHandler(GridViewColumnHeader.ClickEvent,
                 new RoutedEventHandler(GameListColumnHeader_Click));
 
+            // Console list, built here so it is there on the first frame. "Hide consoles with
+            // no games" needs the database, so that layout is built in OnLoaded instead — an
+            // empty list for a frame reads better than one that visibly shrinks.
+            if (App.Configuration?.GetLibraryConfiguration().HideEmptyConsoles != true)
+                BuildConsoleSidebar();
+
             // Everything else deferred to Loaded so the window appears immediately.
             Loaded += OnLoaded;
         }
@@ -89,6 +95,7 @@ namespace Emutastic
             var swDb = Services.StartupTrace.Start();
             _db          = new DatabaseService();   // schema init (CREATE TABLE / indexes)
             Services.StartupTrace.Stop("DatabaseService.ctor", swDb);
+            RefreshSidebarForLibraryChange();       // the hide-empty layout the constructor skipped
 
             // Mark the user's Achievements-tab cache rows stale so the first
             // tab open of this session refetches profile / points / awards /
@@ -241,6 +248,7 @@ namespace Emutastic
                     _vm.IsImporting = false;
                     _vm.ImportStatusText = "";
                     _vm.ImportProgressPercent = 0;
+                    RefreshSidebarForLibraryChange();
                 });
             _importer.AmbiguousConsoleResolver = (fileName, candidates) =>
             {
@@ -337,6 +345,18 @@ namespace Emutastic
             // log goes to Trace only. Manual Import button is the user-visible
             // surface; this is just "stay current" plumbing.
             _ = SyncFollowsIfEnabledAsync();
+
+            // Test hook, as on Linux: open Preferences on a section at startup so a panel that
+            // only builds when you click to it can be exercised without a human clicking.
+            //   set EMUTASTIC_PREFS_NAV=Library
+            if (Environment.GetEnvironmentVariable("EMUTASTIC_PREFS_NAV") is { Length: > 0 } prefsNav)
+                _ = Dispatcher.BeginInvoke(() =>
+                {
+                    InitializeControllerManager();
+                    var prefs = new Views.PreferencesWindow(_db, _controllerManager!, App.Configuration!) { Owner = this };
+                    prefs.OpenSection(prefsNav);
+                    prefs.ShowDialog();
+                }, DispatcherPriority.ApplicationIdle);
 
             Services.StartupTrace.Mark("MainWindow.OnLoaded.end");
         }
@@ -1093,23 +1113,6 @@ namespace Emutastic
             base.OnDrop(e);
         }
 
-        // ── Section collapse/expand ──
-        private void ToggleSection_Click(object sender, RoutedEventArgs e)
-        {
-            if (sender is not Button btn) return;
-            string sectionName = btn.Tag?.ToString() ?? "";
-            var section = FindName(sectionName) as StackPanel;
-            if (section == null) return;
-
-            string arrowName = sectionName.Replace("Section", "Arrow");
-            var arrow = FindName(arrowName) as TextBlock;
-
-            bool isCollapsed = section.Visibility == Visibility.Collapsed;
-            section.Visibility = isCollapsed ? Visibility.Visible : Visibility.Collapsed;
-            if (arrow != null)
-                arrow.Text = isCollapsed ? "▾" : "▸";
-        }
-
         // ── Navigation ──
         private void SelectNavButton(Button btn)
         {
@@ -1229,17 +1232,15 @@ namespace Emutastic
 
             UpdateBoxArtToggleVisibility();
             UpdateSpacingControl(tag, isConsoleView);
+            EmptyStateHint.Text = WindowsApps.IsWindows(tag)
+                ? "Drop programs or shortcuts here to add them"
+                : "Drop ROM files anywhere to import them";
 
             // Show per-console game count badge
             if (navBtn != null && isConsoleView)
             {
                 ShowNavCount(navBtn, _vm.Games.Count);
-
-                // Derive display name from the button content for toolbar
-                string name = navBtn.Content is StackPanel sp
-                    ? sp.Children.OfType<TextBlock>().FirstOrDefault()?.Text ?? tag
-                    : tag;
-                _vm.ToolbarTitle = name;
+                _vm.ToolbarTitle = ConsoleCatalog.DisplayNameFor(tag);
             }
             }
             finally { Services.StartupTrace.Stop($"nav.OnNavigated[{tag}]", swNav); }
@@ -1324,6 +1325,17 @@ namespace Emutastic
             // Console buttons use CommandParameter (not Tag) after MVVM migration
             string? GetButtonTag(Button b) => (b.CommandParameter as string) ?? (b.Tag as string);
 
+            // Console rows: the standalone ones and those inside each heading's section.
+            foreach (var child in ConsoleNavPanel.Children.OfType<FrameworkElement>())
+            {
+                if (child is Button row && row.CommandParameter as string == tag)
+                    return row;
+                if (child is StackPanel section)
+                    foreach (var nested in section.Children.OfType<Button>())
+                        if (nested.CommandParameter as string == tag)
+                            return nested;
+            }
+
             foreach (var child in SidebarPanel.Children.OfType<FrameworkElement>())
             {
                 if (child is Button btn && GetButtonTag(btn) == tag)
@@ -1407,17 +1419,10 @@ namespace Emutastic
                     && !string.IsNullOrEmpty(console))
                 {
                     e.Handled = true;
-                    string displayName = console;
-                    // Try to get a friendly name from the button content
-                    if (consoleBtn.Content is StackPanel sp)
-                    {
-                        var tb = sp.Children.OfType<TextBlock>().LastOrDefault();
-                        if (tb != null) displayName = tb.Text;
-                    }
-                    else if (consoleBtn.Content is string s)
-                    {
-                        displayName = s;
-                    }
+                    // The catalog name, not the button's text: a selected row's content also
+                    // holds the game-count badge.
+                    string displayName = ConsoleCatalog.DisplayNameFor(console);
+                    bool isWindows = WindowsApps.IsWindows(console);
 
                     int count = _db.GetGameCountForConsole(console);
 
@@ -1425,22 +1430,29 @@ namespace Emutastic
 
                     // Refresh Library — always available, even for empty consoles.
                     // Rescans the configured library folder so ROMs dropped in
-                    // outside Emutastic show up without a full re-import.
-                    var refreshItem = new MenuItem { Header = "🔄  Refresh Library" };
-                    refreshItem.Click += (_, _) => RefreshLibraryFolder(console);
-                    menu.Items.Add(refreshItem);
+                    // outside Emutastic show up without a full re-import. Not for
+                    // Windows: an app's folder holds helper programs (crash
+                    // reporters, uninstallers) that a rescan would import as apps.
+                    if (!isWindows)
+                    {
+                        var refreshItem = new MenuItem { Header = "🔄  Refresh Library" };
+                        refreshItem.Click += (_, _) => RefreshLibraryFolder(console);
+                        menu.Items.Add(refreshItem);
+                    }
 
                     if (count == 0)
                     {
                         // Empty console: just the refresh action — no "remove all" or
                         // artwork-fetch options to show.
+                        if (menu.Items.Count == 0) return;
                         menu.PlacementTarget = consoleBtn;
                         menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
                         menu.IsOpen = true;
                         return;
                     }
 
-                    menu.Items.Add(new Separator());
+                    if (menu.Items.Count > 0)
+                        menu.Items.Add(new Separator());
 
                     var item = new MenuItem
                     {
@@ -1459,6 +1471,7 @@ namespace Emutastic
                         if (dlg.ShowDialog() != true) return;
                         _db.DeleteAllGamesForConsole(console);
                         _ = ReloadAndFilterAsync();
+                        RefreshSidebarForLibraryChange();
                     };
                     menu.Items.Add(item);
 
@@ -1478,16 +1491,20 @@ namespace Emutastic
                         ss2DItem.Click += async (_, _) => await FetchScreenScraperArtForConsoleAsync(console, displayName);
                         menu.Items.Add(ss2DItem);
                     }
-                    var editControlsItem = new MenuItem { Header = "🎮  Edit Controls…" };
-                    editControlsItem.Click += (_, _) =>
+                    // Windows apps read the controller themselves — there is no mapping to edit.
+                    if (!isWindows)
                     {
-                        var win = new Views.PreferencesWindow(_db, _controllerManager!, App.Configuration!,
-                            initialConsole: console)
-                        { Owner = this };
-                        win.ShowDialog();
-                    };
-                    menu.Items.Insert(0, editControlsItem);
-                    menu.Items.Insert(1, new Separator());
+                        var editControlsItem = new MenuItem { Header = "🎮  Edit Controls…" };
+                        editControlsItem.Click += (_, _) =>
+                        {
+                            var win = new Views.PreferencesWindow(_db, _controllerManager!, App.Configuration!,
+                                initialConsole: console)
+                            { Owner = this };
+                            win.ShowDialog();
+                        };
+                        menu.Items.Insert(0, editControlsItem);
+                        menu.Items.Insert(1, new Separator());
+                    }
 
                     menu.PlacementTarget = consoleBtn;
                     menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
@@ -1671,15 +1688,22 @@ namespace Emutastic
 
         private void NavImport_Click(object sender, RoutedEventArgs e)
         {
+            string? hint = ResolveImportConsoleHint();
+            bool windows = WindowsApps.IsWindows(hint);
             var dialog = new OpenFileDialog
             {
                 Multiselect = true,
-                Title = "Import ROMs",
-                Filter = "ROM Files|*.nes;*.sfc;*.smc;*.z64;*.n64;*.gb;*.gbc;*.gba;*.nds;*.md;*.gen;*.sms;*.gg;*.pce;*.iso;*.pbp;*.cso;*.a26;*.a52;*.a78;*.lnx;*.zip;*.7z|All Files|*.*"
+                Title = windows ? "Add Windows Apps" : "Import ROMs",
+                Filter = "ROM Files|*.nes;*.sfc;*.smc;*.z64;*.n64;*.gb;*.gbc;*.gba;*.nds;*.md;*.gen;*.sms;*.gg;*.pce;*.iso;*.pbp;*.cso;*.a26;*.a52;*.a78;*.lnx;*.zip;*.7z"
+                       + $"|Windows Apps|{WindowsApps.DialogFilter}|All Files|*.*",
+                FilterIndex = windows ? 2 : 1,
+                // Keep shortcuts as shortcuts when adding apps: resolving one to its target
+                // would drop its arguments and start-in folder.
+                DereferenceLinks = !windows,
             };
             if (dialog.ShowDialog() == true)
             {
-                _importer.ImportFilesAsync(dialog.FileNames, ResolveImportConsoleHint());
+                _importer.ImportFilesAsync(dialog.FileNames, hint);
             }
         }
 
@@ -2182,6 +2206,7 @@ namespace Emutastic
                 {
                     _vm.RemoveGame(game);
                     await _vm.FilterGamesAsync();
+                    RefreshSidebarForLibraryChange();
                 }
             };
             _openDetailWindow.Show();
@@ -2248,6 +2273,7 @@ namespace Emutastic
                 GameGridView.SelectedItems.Clear();
                 _selectionAnchor = null;
                 await _vm.FilterGamesAsync();
+                RefreshSidebarForLibraryChange();
             }));
             return menu;
         }
@@ -2263,25 +2289,28 @@ namespace Emutastic
                 detail.ShowDialog();
             }));
 
-            // ── Play Save State submenu ──
-            var saveStates = _db.GetSaveStatesByGame(game.Id);
-            var saveStateItem = new MenuItem { Header = "⏱  Play Save State" };
+            // ── Play Save State submenu (Windows apps keep their own saves) ──
+            if (!WindowsApps.IsWindows(game.Console))
+            {
+                var saveStates = _db.GetSaveStatesByGame(game.Id);
+                var saveStateItem = new MenuItem { Header = "⏱  Play Save State" };
 
-            if (saveStates.Count == 0)
-            {
-                saveStateItem.Items.Add(new MenuItem { Header = "No save states", IsEnabled = false });
-            }
-            else
-            {
-                foreach (var s in saveStates.Take(10))
+                if (saveStates.Count == 0)
                 {
-                    var state = s;
-                    var si = new MenuItem { Header = state.Name };
-                    si.Click += (_, _) => LaunchWithSaveState(state);
-                    saveStateItem.Items.Add(si);
+                    saveStateItem.Items.Add(new MenuItem { Header = "No save states", IsEnabled = false });
                 }
+                else
+                {
+                    foreach (var s in saveStates.Take(10))
+                    {
+                        var state = s;
+                        var si = new MenuItem { Header = state.Name };
+                        si.Click += (_, _) => LaunchWithSaveState(state);
+                        saveStateItem.Items.Add(si);
+                    }
+                }
+                menu.Items.Add(saveStateItem);
             }
-            menu.Items.Add(saveStateItem);
 
             // ── Favorite toggle ──
             string favHeader = game.IsFavorite ? "♥  Remove from Favorites" : "♡  Add to Favorites";
@@ -2508,6 +2537,7 @@ namespace Emutastic
                     _db.DeleteGame(game.Id);
                     _vm.RemoveGame(game);
                     await _vm.FilterGamesAsync();
+                    RefreshSidebarForLibraryChange();
                 }
             });
 
@@ -2872,6 +2902,7 @@ namespace Emutastic
 
             // Rebuild the view so grouped headers and counts refresh immediately.
             await _vm.FilterGamesAsync();
+            RefreshSidebarForLibraryChange();
         }
 
         // ── Tab switching ──
@@ -5970,6 +6001,13 @@ namespace Emutastic
             {
                 MessageBox.Show("Game not found in library.", "Error",
                     MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            // Windows apps keep their own saves; there is no state to load, so just start the app.
+            if (WindowsApps.IsWindows(game.Console))
+            {
+                WindowsAppLauncher.Launch(game, this, _db);
                 return;
             }
 

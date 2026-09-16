@@ -83,6 +83,25 @@ namespace Emutastic
                 return;
             }
 
+            // Headless Windows-platform + sidebar self-test on a throwaway library:
+            //   Emutastic.exe --selftest-windows-apps [report.log] --portable
+            // Needs PortableData that has never been used (run a fresh copy of the build
+            // output). No window is shown; exit code 0 = pass.
+            int appsTestIdx = Array.FindIndex(e.Args,
+                a => string.Equals(a, "--selftest-windows-apps", StringComparison.OrdinalIgnoreCase));
+            if (appsTestIdx >= 0)
+            {
+                AppPaths.DetectPortableMode(e.Args);
+                CoreOptions = new CoreOptionsService();
+                Current.Resources["LibraryCardWidth"] = 148.0;
+                string? report = appsTestIdx + 1 < e.Args.Length
+                                 && !e.Args[appsTestIdx + 1].StartsWith("--", StringComparison.Ordinal)
+                    ? e.Args[appsTestIdx + 1]
+                    : null;
+                Environment.Exit(WindowsAppsSelfTest.Run(report));
+                return;
+            }
+
             // Single-instance guard: if Emutastic is already running, bring it to
             // the front and exit this process instead of launching a second copy.
             _singleInstanceMutex = new Mutex(true, "Emutastic_SingleInstance_v1", out bool isFirstInstance);

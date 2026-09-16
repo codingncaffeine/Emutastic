@@ -735,7 +735,7 @@ namespace Emutastic.Services
             foreach (var g in games)
             {
                 if (string.IsNullOrEmpty(g.RomHash) || string.IsNullOrEmpty(g.Console)
-                    || string.IsNullOrEmpty(g.RomPath))
+                    || string.IsNullOrEmpty(g.RomPath) || IsUnsupportedConsole(g.Console))
                     continue;
 
                 string batteryDir = AppPaths.GetFolder("BatterySaves", g.Console);
@@ -762,8 +762,9 @@ namespace Emutastic.Services
         // gzip-compressed (mostly-empty cards shrink hugely), with caches, shader
         // caches, save-states and retired consoles excluded.
 
+        // Retired consoles, and Windows apps, which keep their own saves.
         private static readonly HashSet<string> UnsupportedSaveConsoles =
-            new(StringComparer.OrdinalIgnoreCase) { "DOS" };
+            new(StringComparer.OrdinalIgnoreCase) { "DOS", WindowsApps.ConsoleTag };
 
         private static bool IsUnsupportedConsole(string console)
             => UnsupportedSaveConsoles.Contains(console);
@@ -926,9 +927,11 @@ namespace Emutastic.Services
         /// </summary>
         public async Task<int> UploadConsoleExtraSavesAsync(string console, CancellationToken ct = default)
         {
-            if (!IsAuthenticated || string.IsNullOrEmpty(console)) return 0;
-
             var cfg = App.Configuration?.GetCloudSyncConfiguration();
+            if (!IsAuthenticated || cfg is not { Enabled: true } || string.IsNullOrEmpty(console)) return 0;
+            // "Manual only": nothing uploads by itself — only Sync Now acts.
+            if (cfg.IsManualTiming) return 0;
+
             bool encrypted = cfg is { EncryptionEnabled: true }
                 && !string.IsNullOrEmpty(cfg.PassphraseProtected);
             byte[]? key = encrypted
@@ -1206,7 +1209,8 @@ namespace Emutastic.Services
                 var repoToLocalPath = new Dictionary<string, (string LocalPath, bool Compressed)>();
                 foreach (var g in allGames)
                 {
-                    if (string.IsNullOrEmpty(g.RomHash) || string.IsNullOrEmpty(g.Console)) continue;
+                    if (string.IsNullOrEmpty(g.RomHash) || string.IsNullOrEmpty(g.Console)
+                        || IsUnsupportedConsole(g.Console)) continue;
                     string batteryDir = AppPaths.GetFolder("BatterySaves", g.Console);
                     string romStem = System.IO.Path.GetFileNameWithoutExtension(g.RomPath);
                     string localPath = System.IO.Path.Combine(batteryDir,
@@ -1486,6 +1490,13 @@ namespace Emutastic.Services
                 return;
             }
             if (IsSyncing) { CloudSyncLog.Write("Background sync skipped: a sync is already running"); return; }
+            // "Manual only" means exactly that: the startup pass and the post-sign-in pass both
+            // come through here, so one gate covers both. Sync Now calls FullSyncAsync directly.
+            if (App.Configuration?.GetCloudSyncConfiguration()?.IsManualTiming == true)
+            {
+                CloudSyncLog.Write("Background sync skipped: Sync Timing is \"Manual only\"");
+                return;
+            }
 
             CloudSyncLog.Write("Background sync starting");
             _ = FullSyncAsync(db);   // reports its own progress, result and failures
@@ -1502,13 +1513,166 @@ namespace Emutastic.Services
         {
             if (!IsAuthenticated || string.IsNullOrEmpty(console)) return;
 
+            // Wait for a sync that is already writing saves — under "Manual only" too, where
+            // that sync is the user's own Sync Now: the core must not boot mid-download.
             var bg = _fullSync;
             if (bg is { IsCompleted: false })
             {
                 try { await bg.WaitAsync(TimeSpan.FromSeconds(15), ct).ConfigureAwait(false); }
                 catch { /* timeout or fault — fall through to a targeted pull */ }
             }
+
+            // "Manual only": nothing is pulled before a launch.
+            if (App.Configuration?.GetCloudSyncConfiguration()?.IsManualTiming == true) return;
             await DownloadConsoleExtraSavesAsync(console, ct).ConfigureAwait(false);
+        }
+
+        // ── Battery save upload (game close and during play) ─────────────────
+
+        /// <summary>
+        /// Uploads a game's battery save (.srm) unless the cloud copy is the same age or newer —
+        /// newest wins, and a save is never replaced by an older one (a game opened and closed
+        /// without saving keeps the remote mtime stamped on pull, so this no-ops). Used on game
+        /// close and by the "every N minutes during play" uploader. False when nothing was sent.
+        /// </summary>
+        public async Task<bool> UploadBatterySaveAsync(Models.Game game, string srmPath, CancellationToken ct = default)
+        {
+            var cfg = App.Configuration?.GetCloudSyncConfiguration();
+            if (!IsAuthenticated || cfg is not { Enabled: true } || cfg.IsManualTiming) return false;
+            if (string.IsNullOrEmpty(game.RomHash) || string.IsNullOrEmpty(game.Console)
+                || string.IsNullOrEmpty(srmPath) || !System.IO.File.Exists(srmPath)) return false;
+
+            bool encrypted = cfg.EncryptionEnabled && !string.IsNullOrEmpty(cfg.PassphraseProtected);
+            string repoPath = $"BatterySaves/{game.Console}/{game.RomHash}.srm" + (encrypted ? ".enc" : "");
+
+            var gameLock = GetGameLock(game.RomHash);
+            if (!await gameLock.WaitAsync(TimeSpan.FromSeconds(30), ct).ConfigureAwait(false))
+            {
+                CloudSyncLog.Write($"Save upload skipped (another transfer of this save is still running): {repoPath}");
+                return false;
+            }
+            try
+            {
+                DateTime localMtime = System.IO.File.GetLastWriteTimeUtc(srmPath);
+                if (_manifestCache.Files.TryGetValue(repoPath, out var existing)
+                    && DateTime.TryParse(existing.LastModifiedUtc, null,
+                        System.Globalization.DateTimeStyles.RoundtripKind, out var remoteMtime)
+                    && remoteMtime >= localMtime)
+                {
+                    CloudSyncLog.Write($"Skipped save upload (remote is newer/same): {repoPath}");
+                    return false;
+                }
+
+                byte[] bytes = System.IO.File.ReadAllBytes(srmPath);
+                long size = bytes.Length;
+                if (encrypted)
+                {
+                    byte[] key = DeriveKey(UnprotectString(cfg.PassphraseProtected), _username ?? "");
+                    bytes = Encrypt(bytes, key);
+                }
+                CloudSyncLog.Write($"Uploading save: {repoPath}");
+                if (!await UploadFileAsync(repoPath, bytes, ct).ConfigureAwait(false)) return false;
+
+                _manifestCache.Files[repoPath] = new SyncFileEntry
+                {
+                    LastModifiedUtc = localMtime.ToString("o"),
+                    SizeBytes = size
+                };
+                return true;
+            }
+            catch (Exception ex)
+            {
+                CloudSyncLog.Write($"Save upload failed {repoPath}: {ex.Message}");
+                return false;
+            }
+            finally { gameLock.Release(); }
+        }
+
+        // ── "Every N minutes during play" uploader ───────────────────────────
+        // Lives for one game session. The emulator window flushes the core's battery save to
+        // disk between frames when asked (flushBatterySave), so the timer never touches the
+        // core itself; memory cards and save trees are files the core already keeps current.
+
+        /// <summary>
+        /// Whether the "Every N minutes during play" uploader should arm, and at what interval.
+        /// Kept separate from the timer so the offline self-test can check the decision without
+        /// starting a session.
+        /// </summary>
+        public bool ShouldArmPeriodicUpload(out int minutes)
+        {
+            minutes = 0;
+            var cfg = App.Configuration?.GetCloudSyncConfiguration();
+            if (!IsAuthenticated || cfg is not { Enabled: true } || !cfg.IsPeriodicTiming) return false;
+            minutes = Math.Max(1, cfg.PeriodicIntervalMinutes);
+            return true;
+        }
+
+        /// <summary>
+        /// Arms the periodic upload for a game session that just started. Returns null (nothing
+        /// armed) unless sync is on AND the user picked "Every N minutes during play". Dispose the
+        /// handle when the session ends; the upload on game close covers the final state.
+        /// </summary>
+        /// <param name="flushBatterySave">Writes the running game's battery save to disk and
+        /// returns its path, or null when the game has none.</param>
+        public IDisposable? StartPeriodicSync(Models.Game game, Func<Task<string?>>? flushBatterySave)
+            => StartPeriodicSync(game, flushBatterySave, periodOverride: null);
+
+        /// <param name="periodOverride">Test-only: a period other than the configured minutes, so
+        /// the offline self-test can watch the timer fire.</param>
+        internal IDisposable? StartPeriodicSync(Models.Game game, Func<Task<string?>>? flushBatterySave, TimeSpan? periodOverride)
+        {
+            if (!ShouldArmPeriodicUpload(out int minutes)) return null;
+            var period = periodOverride ?? TimeSpan.FromMinutes(minutes);
+            var session = new PeriodicUpload(this, game, flushBatterySave, period);
+            CloudSyncLog.Write($"Periodic save upload armed: every {period.TotalMinutes:0.##} min ({game.Title})");
+            return session;
+        }
+
+        private sealed class PeriodicUpload : IDisposable
+        {
+            private readonly GitHubSyncService _owner;
+            private readonly Models.Game _game;
+            private readonly Func<Task<string?>>? _flush;
+            private readonly CancellationTokenSource _cts = new();
+            private readonly System.Threading.Timer _timer;
+            private int _busy;
+
+            public PeriodicUpload(GitHubSyncService owner, Models.Game game, Func<Task<string?>>? flush, TimeSpan period)
+            {
+                _owner = owner;
+                _game = game;
+                _flush = flush;
+                _timer = new System.Threading.Timer(_ => _ = TickAsync(), null, period, period);
+            }
+
+            private async Task TickAsync()
+            {
+                // A slow upload must not overlap the next one.
+                if (Interlocked.Exchange(ref _busy, 1) == 1) return;
+                try
+                {
+                    var ct = _cts.Token;
+                    if (ct.IsCancellationRequested) return;
+                    string? srm = _flush == null ? null : await _flush().ConfigureAwait(false);
+                    if (ct.IsCancellationRequested) return;
+                    int sent = 0;
+                    if (srm != null && await _owner.UploadBatterySaveAsync(_game, srm, ct).ConfigureAwait(false)) sent++;
+                    if (!string.IsNullOrEmpty(_game.Console))
+                        sent += await _owner.UploadConsoleExtraSavesAsync(_game.Console, ct).ConfigureAwait(false);
+                    CloudSyncLog.Write($"Periodic save upload: {sent} file(s) sent ({_game.Title})");
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception ex) { CloudSyncLog.Write($"Periodic upload failed: {ex.Message}"); }
+                finally { Interlocked.Exchange(ref _busy, 0); }
+            }
+
+            public void Dispose()
+            {
+                if (_cts.IsCancellationRequested) return;
+                _cts.Cancel();
+                _timer.Dispose();
+                CloudSyncLog.Write($"Periodic save upload disarmed ({_game.Title})");
+            }
         }
     }
 }

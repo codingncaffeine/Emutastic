@@ -207,8 +207,98 @@ namespace Emutastic.Services
             r.Check(again.Downloaded == 0 && again.Errors == 0 && putsAfter == putsBefore,
                     $"nothing changed, so no save moves either way (got {again.Downloaded} down, {putsAfter - putsBefore} save upload(s), {again.Errors} errors)");
 
+            // ── Sync Timing ──────────────────────────────────────────────────────────────
+            // Nothing read the setting: "Manual only" still synced at startup, before a launch
+            // and on game close, and "Every 15 minutes during play" never ran. Each check is
+            // paired with its opposite, so a gate that blocks everything (or nothing) fails just
+            // as loudly as the original bug did.
+            r.Line("--- sync timing");
+            string timingCard = Path.Combine(saves, "PSP", "PSP", "SAVEDATA", "ULUS00009", "TIMING.BIN");
+            Directory.CreateDirectory(Path.GetDirectoryName(timingCard)!);
+            File.WriteAllBytes(timingCard, RandomNumberGenerator.GetBytes(2048));
+            const string TimingCardRepoPath = "BatterySaves/PSP/PSP/SAVEDATA/ULUS00009/TIMING.BIN";
+
+            var timingGame = new Models.Game { Id = 1, Title = "Timing Test", Console = "SNES", RomHash = "0123456789abcdef0123456789abcdef" };
+            string timingSrm = Path.Combine(AppPaths.GetFolder("BatterySaves", "SNES"), "Timing Test.srm");
+            File.WriteAllBytes(timingSrm, RandomNumberGenerator.GetBytes(512));
+            string timingSrmRepoPath = $"BatterySaves/SNES/{timingGame.RomHash}.srm";
+
+            cloud.SyncTiming = "manual";
+            config.SetCloudSyncConfiguration(cloud);
+            r.Check(cloud.IsManualTiming && !cloud.IsPeriodicTiming, "\"manual\" reads as manual timing");
+            svc.StartBackgroundSync(new DatabaseService());
+            r.Check(!svc.IsSyncing && File.ReadAllText(logPath).Contains("Background sync skipped: Sync Timing is \"Manual only\""),
+                    "Manual only: the startup / sign-in background sync does not start");
+            int manualCards = await svc.UploadConsoleExtraSavesAsync("PSP");
+            bool manualSrm = await svc.UploadBatterySaveAsync(timingGame, timingSrm);
+            r.Check(manualCards == 0 && !manualSrm && !fake.Has(TimingCardRepoPath) && !fake.Has(timingSrmRepoPath),
+                    "Manual only: the game-close uploads send nothing");
+            r.Check(!svc.ShouldArmPeriodicUpload(out _) && svc.StartPeriodicSync(timingGame, null) == null,
+                    "Manual only: the during-play uploader does not arm");
+
+            // Sync Now still works, and a game launched while it runs waits for it rather than
+            // booting while its memory cards are being written.
+            var syncNow = svc.FullSyncAsync(new DatabaseService());
+            bool runningAtLaunch = !syncNow.IsCompleted;
+            await svc.EnsureConsoleSavesReadyAsync("PSP");
+            r.Check(runningAtLaunch && syncNow.IsCompleted && syncNow.Result.Errors == 0,
+                    $"Manual only: Sync Now runs, and a launch during it waits for it to finish (running at launch: {runningAtLaunch})");
+            // That sync uploaded the card above; change it again so the next check has news to send.
+            File.SetLastWriteTimeUtc(timingCard, DateTime.UtcNow.AddMinutes(5));
+
+            cloud.SyncTiming = "on_close";
+            config.SetCloudSyncConfiguration(cloud);
+            int closeCards = await svc.UploadConsoleExtraSavesAsync("PSP");
+            bool closeSrm = await svc.UploadBatterySaveAsync(timingGame, timingSrm);
+            r.Check(closeCards > 0 && fake.Has(TimingCardRepoPath) && closeSrm && fake.Has(timingSrmRepoPath),
+                    $"…and those very calls DO upload on \"On game close\" ({closeCards} card file(s), battery save {(closeSrm ? "sent" : "NOT sent")}) — the gate is the setting, not the data");
+            r.Check(!await svc.UploadBatterySaveAsync(timingGame, timingSrm),
+                    "an unchanged battery save isn't sent again (the cloud copy is as new)");
+            File.SetLastWriteTimeUtc(timingSrm, DateTime.UtcNow.AddMinutes(1));
+            r.Check(await svc.UploadBatterySaveAsync(timingGame, timingSrm), "…and a newer one is");
+            r.Check(!svc.ShouldArmPeriodicUpload(out _) && svc.StartPeriodicSync(timingGame, null) == null,
+                    "On game close: the during-play uploader does not arm either");
+
+            cloud.SyncTiming = "periodic";
+            config.SetCloudSyncConfiguration(cloud);
+            r.Check(cloud.IsPeriodicTiming, "\"periodic\" reads as periodic timing");
+            r.Check(svc.ShouldArmPeriodicUpload(out int everyMin) && everyMin == cloud.PeriodicIntervalMinutes,
+                    $"Every N minutes during play: the uploader arms, every {everyMin} min");
+
+            // Run the timer for real on a short period: every tick asks the game to flush its
+            // battery save, then uploads it; disposing the session stops the ticks.
+            int flushes = 0;
+            async Task<string?> Flush()
+            {
+                Interlocked.Increment(ref flushes);
+                await Task.Yield();
+                File.WriteAllBytes(timingSrm, RandomNumberGenerator.GetBytes(512));   // the game saved again
+                File.SetLastWriteTimeUtc(timingSrm, DateTime.UtcNow.AddMinutes(2 + flushes));
+                return timingSrm;
+            }
+            int srmPutsBefore = fake.PutPaths.Count(p => p == timingSrmRepoPath);
+            var periodic = svc.StartPeriodicSync(timingGame, Flush, TimeSpan.FromMilliseconds(400));
+            r.Check(periodic != null, "the during-play uploader returns a session handle");
+            await WaitUntil(() => fake.PutPaths.Count(p => p == timingSrmRepoPath) >= srmPutsBefore + 2, TimeSpan.FromSeconds(15));
+            int srmPutsDuring = fake.PutPaths.Count(p => p == timingSrmRepoPath);
+            r.Check(flushes >= 2 && srmPutsDuring >= srmPutsBefore + 2,
+                    $"while it runs, each tick flushes the battery save and uploads it ({flushes} flush(es), {srmPutsDuring - srmPutsBefore} upload(s))");
+            periodic?.Dispose();
+            await Task.Delay(700);   // let a tick that was already running finish
+            int flushesAtStop = flushes;
+            await Task.Delay(1500);
+            r.Check(flushes == flushesAtStop, $"after the session ends the timer stays quiet ({flushes - flushesAtStop} flush(es) after stopping)");
+            r.Check(File.ReadAllText(logPath).Contains("Periodic save upload disarmed"), "the log records arming and disarming");
+
             r.Line(r.Failures == 0 ? "=== PASS ===" : $"=== FAIL ({r.Failures} check(s)) ===");
             return r.Failures == 0 ? 0 : 1;
+        }
+
+        private static async Task WaitUntil(Func<bool> condition, TimeSpan timeout)
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            while (!condition() && clock.Elapsed < timeout)
+                await Task.Delay(100);
         }
 
         private static byte[] Gzip(byte[] data)

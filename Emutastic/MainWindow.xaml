@@ -652,147 +652,11 @@
                                        Style="{StaticResource LabelMuted}"
                                        Margin="16,4,0,4"/>
 
-                            <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="Arcade">
-                                <StackPanel Orientation="Horizontal">
-                                    <Image Source="Assets/system_icons/arcade.png" Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/>
-                                    <TextBlock Text="Arcade" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-
-                            <!-- Atari -->
-                            <Button Style="{StaticResource SidebarItemStyle}"
-                                    Click="ToggleSection_Click"
-                                    Tag="AtariSection"
-                                    Margin="6,4,6,0">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock x:Name="AtariArrow" Text="▾" FontSize="10" Margin="0,0,6,0"
-                                               Foreground="{DynamicResource TextMutedBrush}" VerticalAlignment="Center"/>
-                                    <TextBlock Text="ATARI" Style="{StaticResource LabelMuted}" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-                            <StackPanel x:Name="AtariSection">
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="Atari2600"><StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/atari2600.jpg"        Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Atari 2600"   VerticalAlignment="Center"/></StackPanel></Button>
-
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="Atari7800"><StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/atari7800.jpg"        Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Atari 7800"   VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="Jaguar">  <StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/systemicons1_13.jpg" Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Atari Jaguar" VerticalAlignment="Center"/></StackPanel></Button>
-                            </StackPanel>
-
-                            <!-- Nintendo -->
-                            <Button Style="{StaticResource SidebarItemStyle}"
-                                    Click="ToggleSection_Click"
-                                    Tag="NintendoSection"
-                                    Margin="6,4,6,0">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock x:Name="NintendoArrow" Text="▾" FontSize="10" Margin="0,0,6,0"
-                                               Foreground="{DynamicResource TextMutedBrush}" VerticalAlignment="Center"/>
-                                    <TextBlock Text="NINTENDO" Style="{StaticResource LabelMuted}" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-                            <StackPanel x:Name="NintendoSection">
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="NES">      <StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/nes_icon.jpg"              Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Nintendo (NES)"      VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="FDS">      <StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/famicon disk system.jpg"    Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Famicom Disk System" VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="SNES">     <StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/snes.jpg"                   Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Super Nintendo"      VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="N64">      <StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/n64.jpg"                    Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Nintendo 64"         VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="GameCube"> <StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/gamecube.jpg"               Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="GameCube"            VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="GB">       <StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/gameboy.jpg"               Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Game Boy"            VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="GBC">      <StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/gbc.jpeg"               Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Game Boy Color"      VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="GBA">      <StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/gba.jpg"                   Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Game Boy Advance"    VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="3DS">      <StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/3ds_icon.jpg"                   Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Nintendo 3DS"        VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="NDS">      <StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/nds.jpg"                   Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Nintendo DS"         VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="VirtualBoy"><StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/virtualboy.jpg"           Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Virtual Boy"         VerticalAlignment="Center"/></StackPanel></Button>
-                            </StackPanel>
-
-                            <!-- Sega -->
-                            <Button Style="{StaticResource SidebarItemStyle}"
-                                    Click="ToggleSection_Click"
-                                    Tag="SegaSection"
-                                    Margin="6,4,6,0">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock x:Name="SegaArrow" Text="▾" FontSize="10" Margin="0,0,6,0"
-                                               Foreground="{DynamicResource TextMutedBrush}" VerticalAlignment="Center"/>
-                                    <TextBlock Text="SEGA" Style="{StaticResource LabelMuted}" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-                            <StackPanel x:Name="SegaSection">
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="SMS">      <StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/sms.jpg"       Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Sega Master System" VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="Genesis">  <StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/genesis.jpg"   Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Sega Genesis"       VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="SegaCD">   <StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/genesis.jpg"   Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Sega CD"            VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="Sega32X">  <StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/32x.jpg"       Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Sega 32X"           VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="Saturn">   <StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/saturn.jpg"    Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Sega Saturn"        VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="GameGear"> <StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/sms.jpg"       Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Sega Game Gear"     VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="SG1000">   <StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/sg-1000.png"       Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="SG-1000"            VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="Dreamcast"><StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/dreamcast.jpg" Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Dreamcast"          VerticalAlignment="Center"/></StackPanel></Button>
-                            </StackPanel>
-
-                            <!-- Sony -->
-                            <Button Style="{StaticResource SidebarItemStyle}"
-                                    Click="ToggleSection_Click"
-                                    Tag="SonySection"
-                                    Margin="6,4,6,0">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock x:Name="SonyArrow" Text="▾" FontSize="10" Margin="0,0,6,0"
-                                               Foreground="{DynamicResource TextMutedBrush}" VerticalAlignment="Center"/>
-                                    <TextBlock Text="SONY" Style="{StaticResource LabelMuted}" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-                            <StackPanel x:Name="SonySection">
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="PS1"><StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/ps1.jpg" Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="PlayStation" VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="PS2"><StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/ps2.png" Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="PlayStation 2" VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="PS3"><StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/ps3.png" Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="PlayStation 3" VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="PSP"><StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/psp.jpg" Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="PSP"         VerticalAlignment="Center"/></StackPanel></Button>
-                            </StackPanel>
-
-                            <!-- NEC -->
-                            <Button Style="{StaticResource SidebarItemStyle}"
-                                    Click="ToggleSection_Click"
-                                    Tag="NECSection"
-                                    Margin="6,4,6,0">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock x:Name="NECArrow" Text="▾" FontSize="10" Margin="0,0,6,0"
-                                               Foreground="{DynamicResource TextMutedBrush}" VerticalAlignment="Center"/>
-                                    <TextBlock Text="NEC" Style="{StaticResource LabelMuted}" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-                            <StackPanel x:Name="NECSection">
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="TG16"><StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/tg16.png" Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="TurboGrafx-16" VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="TGCD"><StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/tg16.png" Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="TurboGrafx-CD" VerticalAlignment="Center"/></StackPanel></Button>
-                            </StackPanel>
-
-                            <!-- SNK -->
-                            <Button Style="{StaticResource SidebarItemStyle}"
-                                    Click="ToggleSection_Click"
-                                    Tag="SNKSection"
-                                    Margin="6,4,6,0">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock x:Name="SNKArrow" Text="▾" FontSize="10" Margin="0,0,6,0"
-                                               Foreground="{DynamicResource TextMutedBrush}" VerticalAlignment="Center"/>
-                                    <TextBlock Text="SNK" Style="{StaticResource LabelMuted}" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-                            <StackPanel x:Name="SNKSection">
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="NeoGeo"><StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/neogeo.jpg" Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Neo Geo" VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="NeoCD"><StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/neogeo_cd.png" Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Neo Geo CD" VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="NGP"><StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/neo geo pocket.jpg" Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="NeoGeo Pocket" VerticalAlignment="Center"/></StackPanel></Button>
-                            </StackPanel>
-
-                            <!-- Other -->
-                            <Button Style="{StaticResource SidebarItemStyle}"
-                                    Click="ToggleSection_Click"
-                                    Tag="OtherSection"
-                                    Margin="6,4,6,0">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock x:Name="OtherArrow" Text="▾" FontSize="10" Margin="0,0,6,0"
-                                               Foreground="{DynamicResource TextMutedBrush}" VerticalAlignment="Center"/>
-                                    <TextBlock Text="OTHER" Style="{StaticResource LabelMuted}" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-                            <StackPanel x:Name="OtherSection">
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="3DO">         <StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/3d0.jpg"          Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="3DO"           VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="CDi">         <StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/cdi_icon.jpg"          Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Philips CD-i"  VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="ColecoVision"><StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/coleco.jpg"        Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="ColecoVision"  VerticalAlignment="Center"/></StackPanel></Button>
-
-                                <Button Style="{StaticResource SidebarItemStyle}" Command="{Binding NavigateToConsoleCommand}" CommandParameter="Vectrex">     <StackPanel Orientation="Horizontal"><Image Source="Assets/system_icons/vectrex.jpg"       Width="20" Height="20" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/><TextBlock Text="Vectrex"       VerticalAlignment="Center"/></StackPanel></Button>
-                            </StackPanel>
+                            <!-- Console list is built at runtime from ConsoleCatalog; order,
+                                 hiding and grouping come from Preferences → Library. See
+                                 MainWindow.Sidebar.cs. The default renders the list this
+                                 markup used to spell out, plus Windows. -->
+                            <StackPanel x:Name="ConsoleNavPanel"/>
 
                             <Rectangle Height="1"
                                        Fill="{DynamicResource BorderSubtleBrush}"
@@ -1826,7 +1690,8 @@
                                    Foreground="{DynamicResource TextSecondaryBrush}"
                                    HorizontalAlignment="Center"
                                    Margin="0,12,0,0"/>
-                        <TextBlock Text="Drop ROM files anywhere to import them"
+                        <TextBlock x:Name="EmptyStateHint"
+                                   Text="Drop ROM files anywhere to import them"
                                    FontFamily="{StaticResource PrimaryFont}"
                                    FontSize="13"
                                    Foreground="{DynamicResource TextMutedBrush}"

@@ -31,6 +31,10 @@ namespace Emutastic.Views
         private volatile bool _loadFailed;
         private DispatcherTimer? _timer;
         private string _srmPath = "";   // per-game battery save file (.srm)
+        // Cloud sync "every N minutes during play": the armed uploader (null unless that timing
+        // is chosen), and its pending request for the emu thread to write the battery save.
+        private IDisposable? _periodicCloudUpload;
+        private TaskCompletionSource<bool>? _sramFlushRequest;
         private WriteableBitmap? _bitmap;
         private uint _videoWidth;
         private uint _videoHeight;
@@ -1670,6 +1674,11 @@ namespace Emutastic.Views
                 _game.LastPlayed = DateTime.Now;
                 _sessionStartUtc = DateTime.UtcNow;
 
+                // Cloud sync: arm the "Every N minutes during play" uploader for this session.
+                // No-op unless the user picked that timing.
+                try { _periodicCloudUpload = Services.GitHubSyncService.Instance.StartPeriodicSync(_game, FlushBatterySaveForSyncAsync); }
+                catch (Exception ex) { Services.CloudSyncLog.Write($"Periodic upload arm failed: {ex.Message}"); }
+
                 // Call retro_set_controller_port_device for all active ports.
                 // Handler decides how many ports to configure (GameCube needs all 4).
                 _consoleHandler.ConfigureControllerPorts(_core);
@@ -1687,7 +1696,8 @@ namespace Emutastic.Views
                     {
                         var syncSvc = Services.GitHubSyncService.Instance;
                         var syncCfg = App.Configuration?.GetCloudSyncConfiguration();
-                        if (syncSvc.IsAuthenticated && syncCfg is { Enabled: true })
+                        // "Manual only": nothing is pulled before a launch — only Sync Now acts.
+                        if (syncSvc.IsAuthenticated && syncCfg is { Enabled: true, IsManualTiming: false })
                         {
                             var gameLock = syncSvc.GetGameLock(_game.RomHash);
                             if (gameLock.Wait(5000))
@@ -2254,17 +2264,10 @@ namespace Emutastic.Views
             if (_isClosing)
             {
                 // Save SRAM while the game is still loaded, before UnloadGame.
-                try
-                {
-                    byte[]? sram = _core?.GetSaveRam();
-                    if (sram != null && sram.Length > 0 && !string.IsNullOrEmpty(_srmPath))
-                    {
-                        Directory.CreateDirectory(Path.GetDirectoryName(_srmPath)!);
-                        File.WriteAllBytes(_srmPath, sram);
-                        System.Diagnostics.Trace.WriteLine($"SRAM saved: {Path.GetFileName(_srmPath)} ({sram.Length} bytes)");
-                    }
-                }
+                try { WriteBatterySave(); }
                 catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"SRAM save: {ex.Message}"); }
+                // A periodic upload waiting on a flush gets its answer from the save above.
+                System.Threading.Interlocked.Exchange(ref _sramFlushRequest, null)?.TrySetResult(false);
 
                 // ── Vulkan teardown ──────────────────────────────────────────
                 // Correct order: context_destroy → unload_game → deinit
@@ -2529,6 +2532,7 @@ namespace Emutastic.Views
                     if (_isPaused)
                     {
                         _raClient?.Idle();
+                        if (System.Threading.Volatile.Read(ref _sramFlushRequest) != null) ExecuteSramFlushOnEmuThread();
                         System.Threading.Thread.Sleep(16);
                         frameTimer.Restart();
                         continue;
@@ -2590,6 +2594,7 @@ namespace Emutastic.Views
                         if (_saveStatePending) ExecuteSaveOnEmuThread();
                         if (_loadStatePending) ExecuteLoadOnEmuThread();
                         if (_cheatsApplyPending) ExecuteCheatsApplyOnEmuThread();
+                        if (System.Threading.Volatile.Read(ref _sramFlushRequest) != null) ExecuteSramFlushOnEmuThread();
                     }
                     catch (AccessViolationException ex)
                     {
@@ -6275,6 +6280,56 @@ namespace Emutastic.Views
             _saveStatePending = true;
         }
 
+        /// <summary>
+        /// Writes the core's battery save to <c>_srmPath</c>, leaving the file (and its modified
+        /// time) alone when nothing changed, so cloud sync doesn't re-upload an unchanged save.
+        /// False when the core has no battery save. Emu thread only (between retro_run calls).
+        /// </summary>
+        private bool WriteBatterySave()
+        {
+            byte[]? sram = _core?.GetSaveRam();
+            if (sram == null || sram.Length == 0 || string.IsNullOrEmpty(_srmPath)) return false;
+            if (File.Exists(_srmPath) && new FileInfo(_srmPath).Length == sram.Length
+                && File.ReadAllBytes(_srmPath).AsSpan().SequenceEqual(sram))
+                return true;
+            Directory.CreateDirectory(Path.GetDirectoryName(_srmPath)!);
+            File.WriteAllBytes(_srmPath, sram);
+            System.Diagnostics.Trace.WriteLine($"SRAM saved: {Path.GetFileName(_srmPath)} ({sram.Length} bytes)");
+            return true;
+        }
+
+        /// <summary>Called on the emu thread between retro_run calls: answers a pending
+        /// battery-save flush from the periodic cloud upload.</summary>
+        private void ExecuteSramFlushOnEmuThread()
+        {
+            var request = System.Threading.Interlocked.Exchange(ref _sramFlushRequest, null);
+            if (request == null) return;
+            bool ok = false;
+            try { ok = WriteBatterySave(); }
+            catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"SRAM flush: {ex.Message}"); }
+            request.TrySetResult(ok);
+        }
+
+        /// <summary>
+        /// For the periodic cloud upload (a timer thread): has the emu thread write the battery
+        /// save between frames, then returns its path — or null when the game has none or the
+        /// session is ending. The core is only ever touched on the emu thread.
+        /// </summary>
+        private async Task<string?> FlushBatterySaveForSyncAsync()
+        {
+            if (_isClosing || string.IsNullOrEmpty(_srmPath)) return null;
+            var request = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            System.Threading.Interlocked.Exchange(ref _sramFlushRequest, request)?.TrySetResult(false);
+            var finished = await Task.WhenAny(request.Task, Task.Delay(TimeSpan.FromSeconds(10))).ConfigureAwait(false);
+            if (finished != request.Task)
+            {
+                // The emu thread didn't get to it (a long stall); upload what is on disk.
+                System.Threading.Interlocked.CompareExchange(ref _sramFlushRequest, null, request);
+                return !_isClosing && File.Exists(_srmPath) ? _srmPath : null;
+            }
+            return request.Task.Result && !_isClosing ? _srmPath : null;
+        }
+
         /// <summary>Called on the emu thread between retro_run calls.</summary>
         private void ExecuteSaveOnEmuThread()
         {
@@ -9217,6 +9272,11 @@ namespace Emutastic.Views
             // will be invalidated once retro_deinit runs, and a late key event would AV.
             _coreKeyboardEvent = null;
 
+            // Disarm the "every N minutes during play" upload; the upload on close below covers
+            // this session's final state.
+            try { _periodicCloudUpload?.Dispose(); } catch { }
+            _periodicCloudUpload = null;
+
             // Accumulate play time for this session.
             try
             {
@@ -9273,58 +9333,13 @@ namespace Emutastic.Views
                 try { Dispatcher.Invoke(() => DestroyVulkanOverlay()); } catch { /* window may be gone */ }
 
                 // Cloud sync: upload battery save after emu thread has flushed SRAM to disk.
+                // Newest wins and nothing is sent under "Manual only" (UploadBatterySaveAsync).
+                // Fire-and-forget — never blocks the close path.
                 if (!_loadFailed && !string.IsNullOrEmpty(_game.RomHash)
                     && !string.IsNullOrEmpty(_srmPath) && System.IO.File.Exists(_srmPath))
                 {
-                    var syncSvc = Services.GitHubSyncService.Instance;
-                    if (syncSvc.IsAuthenticated)
-                    {
-                        var cfg = App.Configuration?.GetCloudSyncConfiguration();
-                        if (cfg is { Enabled: true })
-                        {
-                            bool encrypted = cfg.EncryptionEnabled
-                                && !string.IsNullOrEmpty(cfg.PassphraseProtected);
-                            string repoPath = $"BatterySaves/{_game.Console}/{_game.RomHash}.srm"
-                                + (encrypted ? ".enc" : "");
-                            try
-                            {
-                                // Newest-wins, no clobber: don't replace a newer (or equal)
-                                // remote save with our older local one — e.g. the game was
-                                // opened and closed without writing a save while the other OS
-                                // had already uploaded newer progress. After actually playing,
-                                // the local .srm mtime is "now" and wins; a launch-without-save
-                                // keeps the remote mtime stamped on pull, so this correctly no-ops.
-                                if (syncSvc.ManifestCache.Files.TryGetValue(repoPath, out var existing)
-                                    && DateTime.TryParse(existing.LastModifiedUtc, null,
-                                        System.Globalization.DateTimeStyles.RoundtripKind, out var remoteMtime)
-                                    && remoteMtime >= System.IO.File.GetLastWriteTimeUtc(_srmPath))
-                                {
-                                    Services.CloudSyncLog.Write($"Skipped save upload (remote is newer/same): {repoPath}");
-                                }
-                                else
-                                {
-                                    byte[] srmBytes = System.IO.File.ReadAllBytes(_srmPath);
-                                    if (encrypted)
-                                    {
-                                        byte[] key = Services.GitHubSyncService.DeriveKey(
-                                            Services.GitHubSyncService.UnprotectString(cfg.PassphraseProtected), syncSvc.Username ?? "");
-                                        srmBytes = Services.GitHubSyncService.Encrypt(srmBytes, key);
-                                    }
-                                    _ = syncSvc.UploadFileAsync(repoPath, srmBytes);
-                                    syncSvc.ManifestCache.Files[repoPath] = new Services.GitHubSyncService.SyncFileEntry
-                                    {
-                                        LastModifiedUtc = System.IO.File.GetLastWriteTimeUtc(_srmPath).ToString("o"),
-                                        SizeBytes = new System.IO.FileInfo(_srmPath).Length
-                                    };
-                                    Services.CloudSyncLog.Write($"Queued upload: {repoPath}");
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                Services.CloudSyncLog.Write($"Upload prep failed: {ex.Message}");
-                            }
-                        }
-                    }
+                    try { _ = Services.GitHubSyncService.Instance.UploadBatterySaveAsync(_game, _srmPath); }
+                    catch (Exception ex) { Services.CloudSyncLog.Write($"Upload prep failed: {ex.Message}"); }
                 }
 
                 // Cloud sync: upload this console's memory cards / save trees (PS2,

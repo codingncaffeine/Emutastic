@@ -111,6 +111,7 @@ namespace Emutastic.Services
             { "3DO",          "3DO"        },
             { "CDi",          "Philips"    },
             { "Arcade",       "Arcade"     },
+            { WindowsApps.ConsoleTag, WindowsApps.Manufacturer },
         };
 
         // Console to background/accent color mapping
@@ -143,6 +144,7 @@ namespace Emutastic.Services
             { "NeoGeo",      ("#1A0A1A", "#FFD700") },
             { "NeoCD",       ("#1A0A1A", "#FFB347") },
             { "Arcade",      ("#0A0A0A", "#E03535") },
+            { WindowsApps.ConsoleTag, ("#0A1422", "#0078D4") },
         };
 
         public static bool IsRomFile(string filePath)
@@ -173,6 +175,10 @@ namespace Emutastic.Services
         /// </summary>
         public static IEnumerable<string> GetExtensionsForConsole(string console)
         {
+            // Windows apps aren't found by extension: an app's folder is full of helper
+            // programs that a rescan would add as apps.
+            if (WindowsApps.IsWindows(console)) yield break;
+
             foreach (var kvp in ExtensionMap)
                 if (string.Equals(kvp.Value, console, StringComparison.OrdinalIgnoreCase))
                     yield return kvp.Key;
@@ -435,6 +441,7 @@ namespace Emutastic.Services
             { "NeoGeo",       0.81 },
             { "NeoCD",        1.00 },
             { "Arcade",       0.84 },
+            { WindowsApps.ConsoleTag, 0.67 },   // Steam / SteamGridDB covers and the generated icon cover are 2:3
         };
 
         public static double GetBoxRatio(string console)

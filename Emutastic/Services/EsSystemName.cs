@@ -47,6 +47,7 @@ namespace Emutastic.Services
             ("amiga", "amiga"),
             ("msx", "msx"),
             ("arcade", "arcade"), ("mame", "arcade"), ("fbneo", "arcade"), ("final burn", "arcade"),
+            ("windows", "windows"),
         };
 
         public static string For(string? consoleName)

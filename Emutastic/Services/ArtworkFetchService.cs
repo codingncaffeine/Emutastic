@@ -174,7 +174,7 @@ namespace Emutastic.Services
                         try
                         {
                             var (_, _, metadata) = await _artwork.FetchArtworkAsync(
-                                game.RomHash ?? "", game.RomPath, game.Console);
+                                game.RomHash ?? "", game.RomPath, game.Console, game.Title);
                             bool got = metadata != null && (
                                 !string.IsNullOrWhiteSpace(metadata.Developer)
                                 || !string.IsNullOrWhiteSpace(metadata.Genre)
@@ -341,7 +341,7 @@ namespace Emutastic.Services
                 {
                     string? path = await ss.FetchBoxArt2DAsync(
                         snapCfg.ScreenScraperUser, snapCfg.ScreenScraperPassword,
-                        game.Console, game.RomHash, game.RomPath);
+                        game.Console, game.RomHash, WindowsApps.LookupPathFor(game));
 
                     if (path != null)
                     {
@@ -369,7 +369,15 @@ namespace Emutastic.Services
         /// </summary>
         public async Task FetchMissingArtworkForConsoleAsync(string console, string displayName)
         {
-            var missing = await Task.Run(() => _db.GetGamesWithoutArtworkForConsole(console));
+            var missing = await Task.Run(() =>
+            {
+                var games = _db.GetGamesWithoutArtworkForConsole(console);
+                // A Windows app's generated icon cover is a stand-in: look for a real cover too.
+                if (WindowsApps.IsWindows(console))
+                    games.AddRange(_db.GetAllGames().Where(g => WindowsApps.IsWindows(g.Console)
+                                                               && WindowsApps.IsIconCover(g.CoverArtPath)));
+                return games;
+            });
             if (missing.Count == 0)
             {
                 OnUI(() =>
@@ -436,7 +444,7 @@ namespace Emutastic.Services
 
                     var result = await worker.FetchBoxArt3DAsync(
                         snapConfig.ScreenScraperUser, snapConfig.ScreenScraperPassword,
-                        game.Console, game.RomHash, game.RomPath);
+                        game.Console, game.RomHash, WindowsApps.LookupPathFor(game));
 
                     if (result.OverQuota)
                     {
@@ -507,7 +515,7 @@ namespace Emutastic.Services
                 try
                 {
                     var (artworkPath, ssArtPath, metadata) = await _artwork.FetchArtworkAsync(
-                        game.RomHash, game.RomPath, game.Console);
+                        game.RomHash, game.RomPath, game.Console, game.Title);
 
                     if (ssArtPath != null)
                     {
@@ -575,7 +583,7 @@ namespace Emutastic.Services
                 try
                 {
                     var (artworkPath, ssArtPath, metadata) = await _artwork.FetchArtworkAsync(
-                        game.RomHash, game.RomPath, game.Console);
+                        game.RomHash, game.RomPath, game.Console, game.Title);
 
                     if (ssArtPath != null)
                     {
@@ -619,7 +627,7 @@ namespace Emutastic.Services
             _vm.SetStatus($"Fetching artwork for {game.Title}…");
 
             var (artworkPath, ssArtPath, metadata) = await _artwork.FetchArtworkAsync(
-                game.RomHash, game.RomPath, game.Console);
+                game.RomHash, game.RomPath, game.Console, game.Title);
 
             if (ssArtPath != null)
             {
@@ -673,7 +681,7 @@ namespace Emutastic.Services
                 var ss = new ScreenScraperService();
                 var result = await Task.Run(() => ss.FetchManualAsync(
                     snapCfg.ScreenScraperUser, snapCfg.ScreenScraperPassword,
-                    game.Console, game.Title, game.RomHash, game.RomPath,
+                    game.Console, game.Title, game.RomHash, WindowsApps.LookupPathFor(game),
                     progress: p => OnUI(() =>
                     {
                         _vm.ManualDownloadProgressPercent = p;
@@ -712,7 +720,10 @@ namespace Emutastic.Services
         /// </summary>
         public async Task BackfillMetadataAsync()
         {
-            var missing = await Task.Run(() => _db.GetGamesWithoutMetadata());
+            // Windows apps aren't in OpenVGDB, and matching one by file name ("game.exe") would
+            // pin some console game's details on it; their details come from FetchArtworkAsync.
+            var missing = await Task.Run(() => _db.GetGamesWithoutMetadata()
+                .Where(g => !WindowsApps.IsWindows(g.Console)).ToList());
             if (missing.Count == 0) return;
 
             string vgdbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "openvgdb.sqlite");
