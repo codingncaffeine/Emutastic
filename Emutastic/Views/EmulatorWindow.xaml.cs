@@ -3982,6 +3982,11 @@ namespace Emutastic.Views
                         if (data != IntPtr.Zero) Marshal.WriteInt32(data, 0); // NORMAL
                         return true;
 
+                    // retro_vfs_interface_info* — a core that gets a VFS routes every file
+                    // operation through it; Stella refuses to load a ROM without one.
+                    case RETRO_ENVIRONMENT_GET_VFS_INTERFACE:
+                        return Emutastic.Emulator.LibretroVfs.TryProvide(data);
+
                     default:
                         return false;
                 }

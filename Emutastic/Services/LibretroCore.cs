@@ -805,6 +805,9 @@ namespace Emutastic.Services
 
         public void Dispose()
         {
+            if (Emutastic.Emulator.LibretroVfs.Ops > 0)
+                System.Diagnostics.Trace.WriteLine(
+                    $"[VFS] served {Emutastic.Emulator.LibretroVfs.Ops} call(s), {Emutastic.Emulator.LibretroVfs.Errors} failed");
             if (_handle != IntPtr.Zero)
             {
                 var handle = _handle;

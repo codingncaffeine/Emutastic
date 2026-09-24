@@ -100,6 +100,19 @@ jobs:
           exit $p.ExitCode
         shell: pwsh
 
+      # The libretro VFS the emulator hands to cores, driven through its unmanaged
+      # function table exactly as a core calls it. No window, no PortableData.
+      - name: Libretro VFS self-test
+        run: |
+          $exe = Get-ChildItem -Path Emutastic/bin/Release -Recurse -Filter Emutastic.exe | Select-Object -First 1
+          if (-not $exe) { Write-Error "Emutastic.exe not found under Emutastic/bin/Release"; exit 1 }
+          $report = Join-Path $env:RUNNER_TEMP 'vfs-selftest.log'
+          $p = Start-Process -FilePath $exe.FullName -ArgumentList '--selftest-vfs', "`"$report`"" -Wait -PassThru
+          if (Test-Path $report) { Get-Content $report } else { Write-Host "(no report written)" }
+          Write-Host "self-test exit code: $($p.ExitCode)"
+          exit $p.ExitCode
+        shell: pwsh
+
       # The Windows platform and the data-driven sidebar on a throwaway library: which
       # files are apps, which program a folder stands for, the import routing (an .exe
       # dropped on another console's nav is filed under Windows), launching with

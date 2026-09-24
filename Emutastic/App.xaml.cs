@@ -102,6 +102,21 @@ namespace Emutastic
                 return;
             }
 
+            // Headless libretro VFS self-test, driven through the unmanaged function table the
+            // emulator hands to cores:  Emutastic.exe --selftest-vfs [report.log]
+            // No window and no PortableData needed; exit code 0 = every check passed.
+            int vfsTestIdx = Array.FindIndex(e.Args,
+                a => string.Equals(a, "--selftest-vfs", StringComparison.OrdinalIgnoreCase));
+            if (vfsTestIdx >= 0)
+            {
+                string? report = vfsTestIdx + 1 < e.Args.Length
+                                 && !e.Args[vfsTestIdx + 1].StartsWith("--", StringComparison.Ordinal)
+                    ? e.Args[vfsTestIdx + 1]
+                    : null;
+                Environment.Exit(Emutastic.Emulator.VfsSelfTest.Run(report));
+                return;
+            }
+
             // Single-instance guard: if Emutastic is already running, bring it to
             // the front and exit this process instead of launching a second copy.
             _singleInstanceMutex = new Mutex(true, "Emutastic_SingleInstance_v1", out bool isFirstInstance);
