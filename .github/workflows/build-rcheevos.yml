@@ -1,0 +1,74 @@
+name: Build rcheevos DLL
+
+# Rebuilds Emutastic/Libraries/rcheevos.dll from a tagged upstream release.
+# Manual only: pick the rcheevos tag, download the artifact, commit the DLL.
+# The build mirrors the Linux port's native/rcheevos/build.sh: every source
+# except the RAIntegration bridge and the RetroArch glue, RC_SHARED so the
+# rc_client_* / rc_hash_* entry points are exported, static CRT so the DLL
+# has no vcruntime dependency, and the export table is checked against the
+# names RcheevosInterop.cs and RcheevosChdCdReader.cs import.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'rcheevos tag to build (e.g. v12.5.0)'
+        required: true
+        default: 'v12.5.0'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Emutastic
+        uses: actions/checkout@v5
+
+      - name: Checkout rcheevos
+        uses: actions/checkout@v5
+        with:
+          repository: RetroAchievements/rcheevos
+          ref: ${{ inputs.tag }}
+          path: rcheevos
+
+      - name: MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Compile
+        shell: pwsh
+        run: |
+          $src = Get-ChildItem -Recurse -Path rcheevos/src -Filter *.c |
+                 Where-Object { $_.Name -notmatch 'raintegration|rc_libretro' } |
+                 ForEach-Object { $_.FullName }
+          Write-Host "Compiling $($src.Count) sources from rcheevos ${{ inputs.tag }}"
+          cl /nologo /O2 /MT /LD /DRC_SHARED /DRC_CLIENT_SUPPORTS_HASH /DRC_DISABLE_LUA `
+             /D_CRT_SECURE_NO_WARNINGS /Ircheevos/include /Ircheevos/src `
+             /Fe:rcheevos.dll $src
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Check exports
+        shell: pwsh
+        run: |
+          $exports = (dumpbin /exports rcheevos.dll) -join "`n"
+          $imports = Select-String -Path Emutastic/Services/RcheevosInterop.cs, Emutastic/Services/RcheevosChdCdReader.cs `
+                       -Pattern 'static extern \S+ (\w+)\(' | ForEach-Object { $_.Matches[0].Groups[1].Value } | Sort-Object -Unique
+          $missing = @()
+          foreach ($name in $imports) {
+            if ($exports -notmatch "\b$name\b") { $missing += $name }
+          }
+          Write-Host "Checked $($imports.Count) imported names"
+          if ($missing.Count -gt 0) {
+            Write-Host "MISSING EXPORTS:"
+            $missing | ForEach-Object { Write-Host "  $_" }
+            exit 1
+          }
+          $ver = Select-String -Path rcheevos/src/rc_version.h -Pattern 'RCHEEVOS_VERSION_STRING\s+"([^"]+)"' |
+                 ForEach-Object { $_.Matches[0].Groups[1].Value }
+          Write-Host "rcheevos version string: $ver"
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: rcheevos-dll-${{ inputs.tag }}
+          path: rcheevos.dll
+          if-no-files-found: error
