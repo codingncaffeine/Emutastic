@@ -1873,7 +1873,7 @@
                                                        Foreground="{DynamicResource TextSecondaryBrush}"
                                                        HorizontalAlignment="Right"
                                                        Text="—"/>
-                                            <TextBlock Text="SOFTCORE"
+                                            <TextBlock Text="CASUAL"
                                                        FontFamily="{StaticResource PrimaryFont}"
                                                        FontSize="9"
                                                        FontWeight="SemiBold"

@@ -4637,7 +4637,7 @@ namespace Emutastic
             if (entry.IsInvalid) secondary = "Account unavailable";
             else if (entry.IsPrivate) secondary = "Profile is private";
             else if (snap == null) secondary = "Loading…";
-            else secondary = $"{snap.PointsHardcore:N0} pts · {snap.PointsSoftcore:N0} softcore";
+            else secondary = $"{snap.PointsHardcore:N0} pts · {snap.PointsSoftcore:N0} casual";
             stack.Children.Add(new TextBlock
             {
                 Text = secondary,

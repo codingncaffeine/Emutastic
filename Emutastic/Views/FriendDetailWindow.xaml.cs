@@ -422,7 +422,7 @@ namespace Emutastic.Views
         {
             StatsGrid.Children.Clear();
             StatsGrid.Children.Add(BuildStatCell("HARDCORE PTS", snap.PointsHardcore.ToString("N0")));
-            StatsGrid.Children.Add(BuildStatCell("SOFTCORE PTS", snap.PointsSoftcore.ToString("N0")));
+            StatsGrid.Children.Add(BuildStatCell("CASUAL PTS", snap.PointsSoftcore.ToString("N0")));
             StatsGrid.Children.Add(BuildStatCell("TRUE PTS",     snap.TruePoints.ToString("N0")));
             string lastPlayed = string.IsNullOrEmpty(snap.LastGameTitle) ? "—" : snap.LastGameTitle;
             StatsGrid.Children.Add(BuildStatCell("LAST PLAYED",  lastPlayed));

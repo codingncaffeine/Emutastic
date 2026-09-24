@@ -1618,7 +1618,7 @@
                                                Foreground="{DynamicResource TextMutedBrush}"
                                                TextWrapping="Wrap" Margin="0,4,0,0">
                                         <Run Text="Note:"/>
-                                        <Run Text=" RetroAchievements requires an emulator to be public for 6 months before approving it for hardcore. Earliest we can apply is October 2026 — until then unlocks earned here count as softcore on RA's servers."
+                                        <Run Text=" RetroAchievements requires an emulator to be public for 6 months before approving it for hardcore. Earliest we can apply is October 2026 — until then unlocks earned here count as casual (RA's name for non-hardcore play) on RA's servers."
                                              FontStyle="Italic"/>
                                     </TextBlock>
                                 </StackPanel>

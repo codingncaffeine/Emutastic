@@ -5571,9 +5571,21 @@ namespace Emutastic.Views
 
         private void OverlayReset_Click(object sender, RoutedEventArgs e)
         {
-            _core?.Reset();
+            ResetGame();
             _transientMsg = "Game reset";
             _transientExpiry = DateTime.Now.AddSeconds(2);
+        }
+
+        /// <summary>
+        /// Resets the core and the achievement runtime together. rcheevos
+        /// requires rc_client_reset on every game reset so hit counts and
+        /// active leaderboards don't survive it (RA feature correctness).
+        /// </summary>
+        private void ResetGame()
+        {
+            _core?.Reset();
+            try { _raClient?.Reset(); }
+            catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[RA] Reset error: {ex.Message}"); }
         }
 
         private void OverlayRecord_Click(object sender, RoutedEventArgs e) => ToggleRecording();
@@ -6229,6 +6241,18 @@ namespace Emutastic.Views
             if (!_diskControlAvailable || _diskSetEjectState == null || _diskSetImageIndex == null)
             {
                 System.Diagnostics.Trace.WriteLine("SwapDisc: disc control not available");
+                return false;
+            }
+            // RA hardcore: rcheevos has to verify every inserted disc belongs to the
+            // loaded game (rc_client_begin_identify_and_change_media). This helper
+            // only knows the index, not the file, so until a caller supplies the
+            // disc path and routes it through the RA client, a hardcore session
+            // keeps its current disc. Nothing in the UI calls this yet.
+            if (IsHardcoreActive())
+            {
+                System.Diagnostics.Trace.WriteLine($"SwapDisc({discIndex}) refused: hardcore session, disc not verifiable");
+                _transientMsg    = "Disc switch is unavailable in hardcore mode";
+                _transientExpiry = DateTime.Now.AddSeconds(4);
                 return false;
             }
             try
@@ -7196,6 +7220,17 @@ namespace Emutastic.Views
                 _raClient = new RetroAchievementsClient();
                 _raHardcoreActive = effectiveHardcore;
                 _raClient.Initialize(_core, effectiveHardcore, _game.Console);
+
+                // rcheevos can demand a reset itself (RC_CLIENT_EVENT_RESET, e.g. when
+                // the runtime re-arms after a mode change). Honour it with a full game
+                // reset, as RA's rules require for anything that enters hardcore.
+                _raClient.ResetRequested += () => Dispatcher.BeginInvoke(() =>
+                {
+                    System.Diagnostics.Trace.WriteLine("[RA] Reset requested by rcheevos — resetting game + runtime.");
+                    ResetGame();
+                    _transientMsg = "Game reset";
+                    _transientExpiry = DateTime.Now.AddSeconds(2);
+                });
 
                 // Replay any memory descriptors the core published during LoadGame
                 // (before _raClient existed). Without this, the descriptor-aware

@@ -52,7 +52,7 @@ namespace Emutastic.Services
         // ── Profile + status ──────────────────────────────────────────
 
         public static string PointsAndSoftcore(int hardcore, int softcore) =>
-            $"{hardcore:N0} pts · {softcore:N0} softcore";
+            $"{hardcore:N0} pts · {softcore:N0} casual";
 
         public static string MemberSinceDisplay(string isoDate)
         {

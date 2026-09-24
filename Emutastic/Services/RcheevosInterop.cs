@@ -129,6 +129,7 @@ namespace Emutastic.Services
             public uint score_softcore;
             public uint num_unread_messages;
             public IntPtr avatar_url;      // const char*
+            public long avatar_last_updated; // time_t — appended in rcheevos 12.4
         }
 
         [StructLayout(LayoutKind.Sequential)]

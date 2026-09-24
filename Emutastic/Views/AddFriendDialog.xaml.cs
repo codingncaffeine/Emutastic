@@ -67,7 +67,7 @@ namespace Emutastic.Views
                 _pendingPreview = result;
                 PreviewName.Text = result.Username;
                 PreviewPoints.Text =
-                    $"{result.PointsHardcore:N0} pts · {result.PointsSoftcore:N0} softcore";
+                    $"{result.PointsHardcore:N0} pts · {result.PointsSoftcore:N0} casual";
                 PreviewMotto.Text = string.IsNullOrWhiteSpace(result.Motto)
                     ? "(no motto set)" : result.Motto;
                 if (!string.IsNullOrEmpty(result.AvatarUrl))
