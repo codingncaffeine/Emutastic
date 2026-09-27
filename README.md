@@ -10,8 +10,6 @@ A full-featured multi-system emulator frontend for Windows — built with WPF an
 
 Also available for [Linux](https://github.com/codingncaffeine/Emutastic-For-Linux) and [Apple Silicon Mac](https://github.com/codingncaffeine/Emutastic-for-Mac).
 
-**[Visit emutastic.com →](https://www.emutastic.com/emutasticapp.html)** for a visual tour of the app, or grab the [latest release](https://github.com/codingncaffeine/Emutastic/releases) directly.
-
 ## Highlights
 
 - 🎮 **37 systems** — 8-bit classics through **PlayStation 3** (PS2 via LRPS2, PS3 via RPCS3)
