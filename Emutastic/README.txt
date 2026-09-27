@@ -366,6 +366,5 @@ is hidden for GameCube, but the game itself will render correctly.
 MORE INFORMATION
 ----------------
 GitHub:  https://github.com/codingncaffeine/Emutastic
-Website: https://emutastic.com
 
 ================================================================================
