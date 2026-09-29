@@ -147,6 +147,11 @@ jobs:
           $p = Start-Process -FilePath (Join-Path $dir 'Emutastic.exe') -ArgumentList '--selftest-keyboard', "`"$report`"", '--portable' -Wait -PassThru
           if (Test-Path $report) { Get-Content $report } else { Write-Host "(no report written)" }
           Write-Host "self-test exit code: $($p.ExitCode)"
+          # Exit code 0 alone is not a pass: a WPF app that shuts down early exits 0 too.
+          # The report has to reach its last line.
+          if ($p.ExitCode -eq 0 -and -not (Select-String -Path $report -Pattern '^=== PASS ===' -Quiet)) {
+            Write-Error "exit code 0 but the report never reached === PASS ==="; exit 1
+          }
           exit $p.ExitCode
         shell: pwsh
 

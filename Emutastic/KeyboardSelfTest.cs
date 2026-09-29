@@ -51,6 +51,11 @@ namespace Emutastic
             using var r = new Report(path);
             try
             {
+                // The windows this test opens must not end the app: the first Window created
+                // becomes Application.MainWindow, and closing it would shut down with exit
+                // code 0 mid-test. Only the Environment.Exit in App.OnStartup ends this run.
+                Application.Current.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
                 // Runs on the UI thread with the dispatcher pumping, so the window loads and
                 // the awaits below come back to this thread.
                 var frame = new DispatcherFrame();
@@ -372,7 +377,7 @@ namespace Emutastic
             r.Line(captured
                 ? "  [INFO] without the handled PreviewKeyDown the same press reaches KeyDown — the handled preview is the cause"
                 : "  [INFO] this session gives the probe no keyboard focus, so KeyDown can't be delivered at all; the control above is then not specific");
-            probe.Close();
+            probe.Hide();
         }
 
         // ── WPF plumbing ──────────────────────────────────────────────────────
