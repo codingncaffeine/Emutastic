@@ -258,6 +258,12 @@ namespace Emutastic.Services
                         "l trigger" => JOYPAD_L2, "r trigger" => JOYPAD_R2,
                         "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
                         "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
+                        // The panel's stick rows. Without them a bind on any of the
+                        // four returned uint.MaxValue and was dropped.
+                        "left analog up"    => ANALOG_LEFT_UP,
+                        "left analog down"  => ANALOG_LEFT_DOWN,
+                        "left analog left"  => ANALOG_LEFT_LEFT,
+                        "left analog right" => ANALOG_LEFT_RIGHT,
                         _ => uint.MaxValue
                     };
 
@@ -282,6 +288,15 @@ namespace Emutastic.Services
                     {
                         "1" => JOYPAD_A, "2" => JOYPAD_B,
                         "3" => JOYPAD_X, "4" => JOYPAD_Y,
+                        // The joystick is the digital d-pad to vecx (JOYPAD directions). The panel
+                        // labels the stick "Analog Up/Down/Left/Right"; without these cases those
+                        // bindings returned uint.MaxValue and were dropped, so a bound joystick
+                        // moved nothing. Accept the "analog X" labels and plain "X" so existing saves
+                        // and future maps both resolve. The Linux build does the same.
+                        "analog up"    or "up"    => JOYPAD_UP,
+                        "analog down"  or "down"  => JOYPAD_DOWN,
+                        "analog left"  or "left"  => JOYPAD_LEFT,
+                        "analog right" or "right" => JOYPAD_RIGHT,
                         _ => uint.MaxValue
                     };
 
