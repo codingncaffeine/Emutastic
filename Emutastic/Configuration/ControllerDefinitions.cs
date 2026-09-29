@@ -143,7 +143,7 @@ namespace Emutastic.Configuration
             ["GBC"] = new ControllerDefinition
             {
                 Name = "Game Boy Color",
-                ControllerImage = "/Assets/images/Game Boy/controller_gb@2x.png",
+                ControllerImage = "/Assets/images/Game Boy Color/controller_gbc@2x.png",
                 Buttons = new List<ButtonDefinition>
                 {
                     new("Up",     "Up",     140,  70, ButtonType.DPad,   70, 70, GDPad),
