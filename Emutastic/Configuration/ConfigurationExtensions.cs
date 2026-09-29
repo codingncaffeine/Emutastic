@@ -43,98 +43,6 @@ namespace Emutastic.Configuration
             };
         }
 
-        // Get default keyboard mappings for a console
-        public static List<ButtonMapping> GetDefaultKeyboardMappings(string consoleName)
-        {
-            return consoleName switch
-            {
-                "NES" => new List<ButtonMapping>
-                {
-                    new() { ButtonName = "Up", InputIdentifier = "Up", InputType = InputType.Keyboard, DisplayName = "↑" },
-                    new() { ButtonName = "Down", InputIdentifier = "Down", InputType = InputType.Keyboard, DisplayName = "↓" },
-                    new() { ButtonName = "Left", InputIdentifier = "Left", InputType = InputType.Keyboard, DisplayName = "←" },
-                    new() { ButtonName = "Right", InputIdentifier = "Right", InputType = InputType.Keyboard, DisplayName = "→" },
-                    new() { ButtonName = "Select", InputIdentifier = "RightShift", InputType = InputType.Keyboard, DisplayName = "Right Shift" },
-                    new() { ButtonName = "Start", InputIdentifier = "Return", InputType = InputType.Keyboard, DisplayName = "Enter" },
-                    new() { ButtonName = "B", InputIdentifier = "Z", InputType = InputType.Keyboard, DisplayName = "Z" },
-                    new() { ButtonName = "A", InputIdentifier = "X", InputType = InputType.Keyboard, DisplayName = "X" },
-                },
-                "SNES" => new List<ButtonMapping>
-                {
-                    new() { ButtonName = "Up", InputIdentifier = "Up", InputType = InputType.Keyboard, DisplayName = "↑" },
-                    new() { ButtonName = "Down", InputIdentifier = "Down", InputType = InputType.Keyboard, DisplayName = "↓" },
-                    new() { ButtonName = "Left", InputIdentifier = "Left", InputType = InputType.Keyboard, DisplayName = "←" },
-                    new() { ButtonName = "Right", InputIdentifier = "Right", InputType = InputType.Keyboard, DisplayName = "→" },
-                    new() { ButtonName = "Select", InputIdentifier = "RightShift", InputType = InputType.Keyboard, DisplayName = "Right Shift" },
-                    new() { ButtonName = "Start", InputIdentifier = "Return", InputType = InputType.Keyboard, DisplayName = "Enter" },
-                    new() { ButtonName = "Y", InputIdentifier = "A", InputType = InputType.Keyboard, DisplayName = "A" },
-                    new() { ButtonName = "X", InputIdentifier = "S", InputType = InputType.Keyboard, DisplayName = "S" },
-                    new() { ButtonName = "B", InputIdentifier = "Z", InputType = InputType.Keyboard, DisplayName = "Z" },
-                    new() { ButtonName = "A", InputIdentifier = "X", InputType = InputType.Keyboard, DisplayName = "X" },
-                    new() { ButtonName = "L", InputIdentifier = "Q", InputType = InputType.Keyboard, DisplayName = "Q" },
-                    new() { ButtonName = "R", InputIdentifier = "W", InputType = InputType.Keyboard, DisplayName = "W" },
-                },
-                "2600" => new List<ButtonMapping>
-                {
-                    new() { ButtonName = "Up", InputIdentifier = "Up", InputType = InputType.Keyboard, DisplayName = "↑" },
-                    new() { ButtonName = "Down", InputIdentifier = "Down", InputType = InputType.Keyboard, DisplayName = "↓" },
-                    new() { ButtonName = "Left", InputIdentifier = "Left", InputType = InputType.Keyboard, DisplayName = "←" },
-                    new() { ButtonName = "Right", InputIdentifier = "Right", InputType = InputType.Keyboard, DisplayName = "→" },
-                    new() { ButtonName = "Fire", InputIdentifier = "Z", InputType = InputType.Keyboard, DisplayName = "Z" },
-                    new() { ButtonName = "Select", InputIdentifier = "RightShift", InputType = InputType.Keyboard, DisplayName = "Right Shift" },
-                    new() { ButtonName = "Reset", InputIdentifier = "Return", InputType = InputType.Keyboard, DisplayName = "Enter" },
-                },
-                "Genesis" => new List<ButtonMapping>
-                {
-                    new() { ButtonName = "Up", InputIdentifier = "Up", InputType = InputType.Keyboard, DisplayName = "↑" },
-                    new() { ButtonName = "Down", InputIdentifier = "Down", InputType = InputType.Keyboard, DisplayName = "↓" },
-                    new() { ButtonName = "Left", InputIdentifier = "Left", InputType = InputType.Keyboard, DisplayName = "←" },
-                    new() { ButtonName = "Right", InputIdentifier = "Right", InputType = InputType.Keyboard, DisplayName = "→" },
-                    new() { ButtonName = "Select", InputIdentifier = "RightShift", InputType = InputType.Keyboard, DisplayName = "Right Shift" },
-                    new() { ButtonName = "Start", InputIdentifier = "Return", InputType = InputType.Keyboard, DisplayName = "Enter" },
-                    new() { ButtonName = "A", InputIdentifier = "Z", InputType = InputType.Keyboard, DisplayName = "Z" },
-                    new() { ButtonName = "B", InputIdentifier = "X", InputType = InputType.Keyboard, DisplayName = "X" },
-                    new() { ButtonName = "C", InputIdentifier = "C", InputType = InputType.Keyboard, DisplayName = "C" },
-                },
-                "N64" => new List<ButtonMapping>
-                {
-                    new() { ButtonName = "Up", InputIdentifier = "Up", InputType = InputType.Keyboard, DisplayName = "↑" },
-                    new() { ButtonName = "Down", InputIdentifier = "Down", InputType = InputType.Keyboard, DisplayName = "↓" },
-                    new() { ButtonName = "Left", InputIdentifier = "Left", InputType = InputType.Keyboard, DisplayName = "←" },
-                    new() { ButtonName = "Right", InputIdentifier = "Right", InputType = InputType.Keyboard, DisplayName = "→" },
-                    new() { ButtonName = "Select", InputIdentifier = "RightShift", InputType = InputType.Keyboard, DisplayName = "Right Shift" },
-                    new() { ButtonName = "Start", InputIdentifier = "Return", InputType = InputType.Keyboard, DisplayName = "Enter" },
-                    new() { ButtonName = "A", InputIdentifier = "Z", InputType = InputType.Keyboard, DisplayName = "Z" },
-                    new() { ButtonName = "B", InputIdentifier = "X", InputType = InputType.Keyboard, DisplayName = "X" },
-                    new() { ButtonName = "Z", InputIdentifier = "C", InputType = InputType.Keyboard, DisplayName = "C" },
-                    new() { ButtonName = "L", InputIdentifier = "Q", InputType = InputType.Keyboard, DisplayName = "Q" },
-                    new() { ButtonName = "R", InputIdentifier = "W", InputType = InputType.Keyboard, DisplayName = "W" },
-                    new() { ButtonName = "C Up", InputIdentifier = "I", InputType = InputType.Keyboard, DisplayName = "I" },
-                    new() { ButtonName = "C Down", InputIdentifier = "K", InputType = InputType.Keyboard, DisplayName = "K" },
-                    new() { ButtonName = "C Left", InputIdentifier = "J", InputType = InputType.Keyboard, DisplayName = "J" },
-                    new() { ButtonName = "C Right", InputIdentifier = "L", InputType = InputType.Keyboard, DisplayName = "L" },
-                },
-                "Saturn" or "SegaCD" or "Sega32X" => new List<ButtonMapping>
-                {
-                    new() { ButtonName = "Up",     InputIdentifier = "Up",         InputType = InputType.Keyboard, DisplayName = "↑" },
-                    new() { ButtonName = "Down",   InputIdentifier = "Down",       InputType = InputType.Keyboard, DisplayName = "↓" },
-                    new() { ButtonName = "Left",   InputIdentifier = "Left",       InputType = InputType.Keyboard, DisplayName = "←" },
-                    new() { ButtonName = "Right",  InputIdentifier = "Right",      InputType = InputType.Keyboard, DisplayName = "→" },
-                    new() { ButtonName = "Start",  InputIdentifier = "Return",     InputType = InputType.Keyboard, DisplayName = "Enter" },
-                    new() { ButtonName = "A",      InputIdentifier = "Z",          InputType = InputType.Keyboard, DisplayName = "Z" },
-                    new() { ButtonName = "B",      InputIdentifier = "X",          InputType = InputType.Keyboard, DisplayName = "X" },
-                    new() { ButtonName = "C",      InputIdentifier = "C",          InputType = InputType.Keyboard, DisplayName = "C" },
-                    new() { ButtonName = "X",      InputIdentifier = "A",          InputType = InputType.Keyboard, DisplayName = "A" },
-                    new() { ButtonName = "Y",      InputIdentifier = "S",          InputType = InputType.Keyboard, DisplayName = "S" },
-                    new() { ButtonName = "Z",      InputIdentifier = "D",          InputType = InputType.Keyboard, DisplayName = "D" },
-                    new() { ButtonName = "L",      InputIdentifier = "Q",          InputType = InputType.Keyboard, DisplayName = "Q" },
-                    new() { ButtonName = "R",      InputIdentifier = "W",          InputType = InputType.Keyboard, DisplayName = "W" },
-                },
-                // Add more console defaults as needed
-                _ => GetDefaultKeyboardMappings("NES") // Default to NES layout
-            };
-        }
-
         // Get default controller mappings for a console
         public static List<ButtonMapping> GetDefaultControllerMappings(string consoleName)
         {
@@ -237,19 +145,11 @@ namespace Emutastic.Configuration
             config.KeyboardMappings.RemoveAll(m => !controllerDef.Buttons.Any(b => b.Name == m.ButtonName));
             config.ControllerMappings.RemoveAll(m => !controllerDef.Buttons.Any(b => b.Name == m.ButtonName));
 
-            // Add missing mappings with defaults
+            // Add missing controller mappings with defaults. A button with no
+            // keyboard bind needs none: the game window's built-in keys play it
+            // (Services.KeyboardBindings), and a stored copy would retire them.
             foreach (var button in controllerDef.Buttons)
             {
-                if (!config.KeyboardMappings.Any(m => m.ButtonName == button.Name))
-                {
-                    var defaultMappings = GetDefaultKeyboardMappings(config.ConsoleName);
-                    var defaultMapping = defaultMappings.FirstOrDefault(m => m.ButtonName == button.Name);
-                    if (defaultMapping != null)
-                    {
-                        config.KeyboardMappings.Add(defaultMapping);
-                    }
-                }
-
                 if (!config.ControllerMappings.Any(m => m.ButtonName == button.Name))
                 {
                     var defaultMappings = GetDefaultControllerMappings(config.ConsoleName);

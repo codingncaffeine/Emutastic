@@ -99,7 +99,6 @@ namespace Emutastic.Views
             if (initialConsole != null) _currentConsole = initialConsole;
 
             Loaded += OnLoaded;
-            KeyDown += OnWindowKeyDown;
             PreviewKeyDown += OnPreviewKeyDown;
 
             if (_controllerManager != null)
@@ -482,22 +481,28 @@ namespace Emutastic.Views
             // Frontend-only save/load hotkeys — on every console. In-game: hold the
             // Hotkey button ~1s, then the Save State / Load State button fires.
             // Unbound rows use the defaults L3 (Hotkey) / R2 (Save) / L2 (Load).
-            ButtonsPanel.Children.Add(new TextBlock
+            // Controllers only: the game reads these rows from controller binds,
+            // and the keyboard saves and loads with F5 / F7, so a key bound here
+            // would do nothing.
+            if (!_isKeyboardMode)
             {
-                Text  = "SAVE / LOAD HOTKEYS",
-                Style = (Style)FindResource("GroupHeader"),
-            });
-            ButtonsPanel.Children.Add(new Rectangle
-            {
-                Height = 1,
-                Fill   = (SolidColorBrush)FindResource("BorderNormalBrush"),
-                Margin = new Thickness(0, 0, 0, 6),
-            });
-            foreach (var hk in new[] { "Hotkey", "Save State", "Load State" })
-            {
-                var hkRow = BuildMappingRow(hk);
-                ButtonsPanel.Children.Add(hkRow.grid);
-                _rows.Add(new MappingRow(hk, hkRow.box, hkRow.label));
+                ButtonsPanel.Children.Add(new TextBlock
+                {
+                    Text  = "SAVE / LOAD HOTKEYS",
+                    Style = (Style)FindResource("GroupHeader"),
+                });
+                ButtonsPanel.Children.Add(new Rectangle
+                {
+                    Height = 1,
+                    Fill   = (SolidColorBrush)FindResource("BorderNormalBrush"),
+                    Margin = new Thickness(0, 0, 0, 6),
+                });
+                foreach (var hk in new[] { "Hotkey", "Save State", "Load State" })
+                {
+                    var hkRow = BuildMappingRow(hk);
+                    ButtonsPanel.Children.Add(hkRow.grid);
+                    _rows.Add(new MappingRow(hk, hkRow.box, hkRow.label));
+                }
             }
 
             // Refresh display text on all rows
@@ -682,12 +687,39 @@ namespace Emutastic.Views
                 row.BoxLabel.Text       = m.DisplayText;
                 row.BoxLabel.Foreground = _brushText;
             }
+            else if (_isKeyboardMode && BuiltInKeyFor(row.ButtonName) is Key builtIn)
+            {
+                row.Box.Background      = _brushMapped;
+                row.BoxLabel.Text       = KeyToDisplayString(builtIn);
+                row.BoxLabel.Foreground = _brushText;
+            }
             else
             {
                 row.Box.Background      = _brushUnmapped;
                 row.BoxLabel.Text       = "—";
                 row.BoxLabel.Foreground = _brushTextMuted;
             }
+        }
+
+        /// <summary>
+        /// The built-in key that plays <paramref name="buttonName"/> while no bind
+        /// is saved for it, given the binds on screen — or null when it has none,
+        /// or a bind took that key for another button. Resolved exactly as the game
+        /// window resolves it (KeyboardBindings), so a row never lists a key the
+        /// game ignores, nor hides one it uses.
+        /// </summary>
+        private Key? BuiltInKeyFor(string buttonName)
+        {
+            uint target = LibretroInput.GetButtonId(buttonName, _currentConsole);
+            if (!KeyboardBindings.IsTarget(target)) return null;
+            var binds = _mappings.Values
+                .Where(m => m.InputType == Services.InputType.Keyboard && m.Key != Key.None
+                            && string.IsNullOrEmpty(m.ChordIdentifier))
+                .Select(m => (m.ButtonName, m.Key));
+            foreach (var (key, t) in KeyboardBindings.Resolve(_currentConsole,
+                         KeyboardBindings.UsesAnalogStick(_currentConsole), binds))
+                if (t == target) return key;
+            return null;
         }
 
         // ── Input capture flow ────────────────────────────────────────────────
@@ -752,17 +784,24 @@ namespace Emutastic.Views
         }
 
         // ── Event: key pressed ────────────────────────────────────────────────
+        // Capture runs in the TUNNELLING PreviewKeyDown at the window, which sees
+        // the key before any control inside can act on it (arrows scroll the
+        // list, Space and Enter press the focused button). It is also where the
+        // key must be read: once PreviewKeyDown is handled, WPF never raises the
+        // bubbling KeyDown for that press, so capture waiting in KeyDown never ran
+        // and no key could be bound.
         private void OnPreviewKeyDown(object sender, KeyEventArgs e)
         {
-            if (_isKeyboardMode && _waitingRowIndex >= 0)
-                e.Handled = true; // prevent system handling
+            if (!_isKeyboardMode || _waitingRowIndex < 0) return;
+            e.Handled = true; // prevent system handling
+            // Auto-repeat is the same press held down: the row it bound has
+            // already advanced, and a repeat must not bind the next row too.
+            if (e.IsRepeat) return;
+            CaptureKey(KeyboardBindings.RealKey(e));
         }
 
-        private void OnWindowKeyDown(object sender, KeyEventArgs e)
+        private void CaptureKey(Key key)
         {
-            if (!_isKeyboardMode || _waitingRowIndex < 0) return;
-
-            Key key = e.Key == Key.System ? e.SystemKey : e.Key;
             if (key == Key.Escape) { _chordFirstKey = null; _chordFirstDisplay = null; StopWaiting(); return; }
 
             string display = KeyToDisplayString(key);
@@ -928,6 +967,7 @@ namespace Emutastic.Views
         private void InputDeviceComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (InputDeviceComboBox.SelectedItem is not string device) return;
+            bool wasKeyboard = _isKeyboardMode;
             _selectedDevice  = device;
             _isKeyboardMode  = device == "Keyboard";
 
@@ -953,7 +993,15 @@ namespace Emutastic.Views
             // SyncCaptureDevice, and this handler always reaches it.
             StopWaiting();
             LoadMappingsFromConfig();
-            RefreshAllRows();
+
+            // The keyboard has no hotkey rows (RebuildButtonsPanel), so moving
+            // between the keyboard and a pad rebuilds the rows; the rebuild ends
+            // by refreshing them.
+            if (wasKeyboard != _isKeyboardMode
+                && ControllerDefinitions.GetControllerDefinition(_currentConsole) is { } def)
+                RebuildButtonsPanel(def);
+            else
+                RefreshAllRows();
         }
 
         private void RefreshDevicesButton_Click(object sender, RoutedEventArgs e)
@@ -1028,21 +1076,23 @@ namespace Emutastic.Views
         {
             _mappings.Clear();
 
-            var defaults = _isKeyboardMode
-                ? ConfigurationExtensions.GetDefaultKeyboardMappings(_currentConsole)
-                : ConfigurationExtensions.GetDefaultControllerMappings(_currentConsole);
-
-            foreach (var d in defaults)
+            // The keyboard's defaults are the game window's built-in keys, which
+            // every row with no bind already shows (BuiltInKeyFor) — clearing the
+            // binds is the reset, and Save then stores none.
+            if (!_isKeyboardMode)
             {
-                _mappings[d.ButtonName] = new InputMapping
+                foreach (var d in ConfigurationExtensions.GetDefaultControllerMappings(_currentConsole))
                 {
-                    ConsoleName        = _currentConsole,
-                    ButtonName         = d.ButtonName,
-                    InputType          = _isKeyboardMode ? Services.InputType.Keyboard : Services.InputType.Controller,
-                    Key                = _isKeyboardMode && Enum.TryParse<Key>(d.InputIdentifier, out var k) ? k : Key.None,
-                    ControllerButtonId = !_isKeyboardMode && uint.TryParse(d.InputIdentifier, out var bid) ? bid : 0,
-                    DisplayText        = d.DisplayName,
-                };
+                    _mappings[d.ButtonName] = new InputMapping
+                    {
+                        ConsoleName        = _currentConsole,
+                        ButtonName         = d.ButtonName,
+                        InputType          = Services.InputType.Controller,
+                        Key                = Key.None,
+                        ControllerButtonId = uint.TryParse(d.InputIdentifier, out var bid) ? bid : 0,
+                        DisplayText        = d.DisplayName,
+                    };
+                }
             }
 
             StopWaiting();

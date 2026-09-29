@@ -94,8 +94,11 @@ namespace Emutastic.Views
         private const uint RETRO_DEVICE_ID_ANALOG_X         = 0;
         private const uint RETRO_DEVICE_ID_ANALOG_Y         = 1;
 
-        // Joypad button IDs
-        private readonly bool[] _inputState = new bool[16];
+        // Player 1's keyboard (KeyboardBindings): held keys, the joypad button
+        // IDs they press, and the stick positions they make — used when no
+        // controller is connected. The pad owns _inputState.
+        private readonly KeyboardPad _kbPad = new(new bool[16]);
+        private bool[] _inputState => _kbPad.Buttons;
         // Raw-keyboard state for cores that poll RETRO_DEVICE_KEYBOARD (DOSBox Pure, etc).
         private readonly Services.RetroKeyboardState _retroKb = new();
 
@@ -256,15 +259,6 @@ namespace Emutastic.Views
             return (_retroRunCallCount % TurboPeriodFrames) < TurboDutyFrames;
         }
 
-        // Keyboard analog axis state — used when no controller is connected.
-        // Values follow libretro convention: up/left = negative, down/right = positive.
-        // Y is already negated at assignment time so no further inversion is needed
-        // when the controller path reads _keyLeftStickY.
-        private short _keyLeftStickX;
-        private short _keyLeftStickY;
-        private short _keyRightStickX;
-        private short _keyRightStickY;
-
         // Directory pointers (unmanaged lifetime)
         private IntPtr _systemDirPtr  = IntPtr.Zero;
         private IntPtr _saveDirPtr    = IntPtr.Zero;
@@ -330,7 +324,6 @@ namespace Emutastic.Views
         private IRecordingService?  _recordingService;
         private readonly IConfigurationService _configService;
         private InputConfiguration? _inputConfig;
-        private readonly Dictionary<Key, uint> _keyboardMappings = new();
         private DatabaseService? _db;
         private DateTime _sessionStartUtc;
 
@@ -5220,8 +5213,8 @@ namespace Emutastic.Views
         ///
         /// Y-axis inversion: libretro up = negative, XInput up = positive.
         /// GetAnalogAxisValue() returns raw XInput values, so we negate Y here.
-        /// Keyboard axis values (_keyLeftStickY etc.) are already negated at
-        /// assignment time in SetKey(), so no second negation is needed there.
+        /// Keyboard stick values (_kbPad) are already in libretro convention,
+        /// so no second negation is needed there.
         /// </summary>
         private short OnInputState(uint port, uint device, uint index, uint id)
         {
@@ -5381,10 +5374,10 @@ namespace Emutastic.Views
                         // Keyboard fallback — already in libretro convention, port 0 only
                         return (index, id) switch
                         {
-                            (0, 0) => _keyLeftStickX,
-                            (0, 1) => _keyLeftStickY,
-                            (1, 0) => _keyRightStickX,
-                            (1, 1) => _keyRightStickY,
+                            (0, 0) => _kbPad.LeftX,
+                            (0, 1) => _kbPad.LeftY,
+                            (1, 0) => _kbPad.RightX,
+                            (1, 1) => _kbPad.RightY,
                             _      => 0
                         };
                     }
@@ -5423,7 +5416,7 @@ namespace Emutastic.Views
             // keystrokes instead of routing them to game input / consuming them.
             if (Keyboard.FocusedElement is System.Windows.Controls.TextBox) return;
             RecLog($"KeyDown: {e.Key}");
-            SetKey(e.Key, true);
+            SetKey(KeyboardBindings.RealKey(e), true);
 
             bool hotkeyModifier = true;
 
@@ -5883,7 +5876,7 @@ namespace Emutastic.Views
         protected override void OnKeyUp(KeyEventArgs e)
         {
             if (Keyboard.FocusedElement is System.Windows.Controls.TextBox) { base.OnKeyUp(e); return; }
-            SetKey(e.Key, false);
+            SetKey(KeyboardBindings.RealKey(e), false);
             base.OnKeyUp(e);
         }
 
@@ -5921,12 +5914,13 @@ namespace Emutastic.Views
                         }
                         continue;
                     }
-                    if (Enum.TryParse<Key>(mapping.InputIdentifier, out var key))
-                    {
-                        uint id = Services.LibretroInput.GetButtonId(mapping.ButtonName, _game.Console);
-                        if (id < 16) _keyboardMappings[key] = id;
-                    }
                 }
+                // The keys that play, as Preferences shows them: the saved binds
+                // over the built-in keys. Installing the map also lets go of every
+                // key held, so a rebind can't leave its old key pressed.
+                var keys = KeyboardBindings.Resolve(_game.Console, _consoleHandler.UsesAnalogStick,
+                    KeyboardBindings.SavedBinds(_inputConfig.KeyboardMappings));
+                _kbPad.SetMap(KeyboardBindings.ToKeyMap(keys));
                 foreach (var cm in _inputConfig.ControllerMappings)
                 {
                     if (string.Equals(cm.ButtonName, "Disk Swap", StringComparison.OrdinalIgnoreCase))
@@ -5957,7 +5951,7 @@ namespace Emutastic.Views
                 }
 
                 System.Diagnostics.Trace.WriteLine(
-                    $"Loaded {_keyboardMappings.Count} keyboard mappings " +
+                    $"Loaded {keys.Count} keyboard mappings " +
                     $"(disk swap key chord: {_diskSwapKeyA}+{_diskSwapKeyB}, " +
                     $"ctrl chord: {_diskSwapCtrlA}+{_diskSwapCtrlB})");
             }
@@ -5970,20 +5964,9 @@ namespace Emutastic.Views
 
         private void LoadDefaultKeyboardMappings()
         {
-            _keyboardMappings.Clear();
-            _keyboardMappings[Key.Up]         = JOYPAD_UP;
-            _keyboardMappings[Key.Down]       = JOYPAD_DOWN;
-            _keyboardMappings[Key.Left]       = JOYPAD_LEFT;
-            _keyboardMappings[Key.Right]      = JOYPAD_RIGHT;
-            _keyboardMappings[Key.Z]          = JOYPAD_B;
-            _keyboardMappings[Key.X]          = JOYPAD_A;
-            _keyboardMappings[Key.C]          = JOYPAD_Y;
-            _keyboardMappings[Key.V]          = JOYPAD_X;
-            _keyboardMappings[Key.Q]          = JOYPAD_L;
-            _keyboardMappings[Key.E]          = JOYPAD_R;
-            _keyboardMappings[Key.Enter]      = JOYPAD_START;
-            _keyboardMappings[Key.LeftShift]  = JOYPAD_SELECT;
-            _keyboardMappings[Key.RightShift] = JOYPAD_SELECT;
+            _kbPad.SetMap(KeyboardBindings.ToKeyMap(KeyboardBindings.Resolve(
+                _game?.Console ?? "", _consoleHandler?.UsesAnalogStick ?? false,
+                Array.Empty<(string, Key)>())));
         }
 
         // GetLibretroButtonId moved to Services/LibretroInput.GetButtonId.
@@ -6144,8 +6127,6 @@ namespace Emutastic.Views
                 UpdatePointerPosition(e);
         }
 
-        private const short KEY_FULL = 32767;
-
         private void SetKey(Key key, bool pressed)
         {
             // Mirror every press to the raw-keyboard state so cores that poll
@@ -6173,64 +6154,17 @@ namespace Emutastic.Views
                 }
             }
 
-            // Custom mappings first
-            // (kb queue drain happens on EmuThread via DrainKeyboardQueue — never here)
-            if (_keyboardMappings.TryGetValue(key, out var id) && id < 16)
-            {
-                _inputState[id] = pressed;
-                return;
-            }
-
             // Disk Swap chord — track each half independently. EmuThread polls both
-            // flags and fires when both halves are simultaneously held.
+            // flags and fires when both halves are simultaneously held. Tracked
+            // before the pad so a half that is also a button key (Enter for
+            // Start, say) still counts.
             if (_diskSwapKeyA >= 0 && (int)key == _diskSwapKeyA) _diskSwapKeyAHeld = pressed;
             if (_diskSwapKeyB >= 0 && (int)key == _diskSwapKeyB) _diskSwapKeyBHeld = pressed;
 
-            bool isAnalog = _consoleHandler.UsesAnalogStick;
-
-            switch (key)
-            {
-                case Key.Up:    _inputState[JOYPAD_UP]    = pressed; break;
-                case Key.Down:  _inputState[JOYPAD_DOWN]  = pressed; break;
-                case Key.Left:  _inputState[JOYPAD_LEFT]  = pressed; break;
-                case Key.Right: _inputState[JOYPAD_RIGHT] = pressed; break;
-
-                // WASD — analog left stick for analog consoles, D-pad otherwise
-                // NOTE: Y is negated here (up = negative) to match libretro convention.
-                case Key.W:
-                    if (isAnalog) _keyLeftStickY = pressed ? (short)-KEY_FULL : (short)0;
-                    else _inputState[JOYPAD_UP] = pressed;
-                    break;
-                case Key.S:
-                    if (isAnalog) _keyLeftStickY = pressed ? KEY_FULL : (short)0;
-                    else _inputState[JOYPAD_DOWN] = pressed;
-                    break;
-                case Key.A:
-                    if (isAnalog) _keyLeftStickX = pressed ? (short)-KEY_FULL : (short)0;
-                    else _inputState[JOYPAD_LEFT] = pressed;
-                    break;
-                case Key.D:
-                    if (isAnalog) _keyLeftStickX = pressed ? KEY_FULL : (short)0;
-                    else _inputState[JOYPAD_RIGHT] = pressed;
-                    break;
-
-                case Key.Z:     _inputState[JOYPAD_B]      = pressed; break;
-                case Key.X:     _inputState[JOYPAD_A]      = pressed; break;
-                case Key.C:     _inputState[JOYPAD_Y]      = pressed; break;
-                case Key.V:     _inputState[JOYPAD_X]      = pressed; break;
-                case Key.Q:     _inputState[JOYPAD_L]      = pressed; break;
-                case Key.E:     _inputState[JOYPAD_R]      = pressed; break;
-                case Key.Enter: _inputState[JOYPAD_START]  = pressed; break;
-                case Key.LeftShift:
-                case Key.RightShift: _inputState[JOYPAD_SELECT] = pressed; break;
-
-                // IJKL — right analog stick (N64 C-buttons / PS1 right stick)
-                // Y negated to match libretro convention.
-                case Key.I: _keyRightStickY = pressed ? (short)-KEY_FULL : (short)0; break;
-                case Key.K: _keyRightStickY = pressed ? KEY_FULL         : (short)0; break;
-                case Key.J: _keyRightStickX = pressed ? (short)-KEY_FULL : (short)0; break;
-                case Key.L: _keyRightStickX = pressed ? KEY_FULL         : (short)0; break;
-            }
+            // Joypad buttons and sticks: the built-in keys with the Preferences
+            // binds over them (KeyboardBindings.Resolve, loaded in LoadKeyboardMappings).
+            // (kb queue drain happens on EmuThread via DrainKeyboardQueue — never here)
+            _kbPad.Set(key, pressed);
         }
 
         // =========================================================================

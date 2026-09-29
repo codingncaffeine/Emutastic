@@ -132,6 +132,24 @@ jobs:
           exit $p.ExitCode
         shell: pwsh
 
+      # Player 1's keyboard: the built-in keys and the Preferences binds laid over
+      # them, the game window's key pad, and a real Preferences window (off screen)
+      # driven through WPF's input manager — pressing a key while a row waits binds
+      # it. Its own copy, so the theme it loads comes from clean PortableData.
+      - name: Keyboard self-test
+        run: |
+          $exe = Get-ChildItem -Path Emutastic/bin/Release -Recurse -Filter Emutastic.exe | Select-Object -First 1
+          if (-not $exe) { Write-Error "Emutastic.exe not found under Emutastic/bin/Release"; exit 1 }
+          $dir = Join-Path $env:RUNNER_TEMP 'keyboard-selftest'
+          Copy-Item -Path $exe.DirectoryName -Destination $dir -Recurse -Force
+          Remove-Item -Path (Join-Path $dir 'PortableData') -Recurse -Force -ErrorAction SilentlyContinue
+          $report = Join-Path $env:RUNNER_TEMP 'keyboard-selftest.log'
+          $p = Start-Process -FilePath (Join-Path $dir 'Emutastic.exe') -ArgumentList '--selftest-keyboard', "`"$report`"", '--portable' -Wait -PassThru
+          if (Test-Path $report) { Get-Content $report } else { Write-Host "(no report written)" }
+          Write-Host "self-test exit code: $($p.ExitCode)"
+          exit $p.ExitCode
+        shell: pwsh
+
       # A green build with warnings is not green. Surface the count and the
       # distinct warning lines in the step summary so they can't quietly
       # accumulate between releases.

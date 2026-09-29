@@ -102,6 +102,23 @@ namespace Emutastic
                 return;
             }
 
+            // Player 1's keyboard, from the Preferences rows to what the game presses:
+            //   Emutastic.exe --selftest-keyboard [report.log] --portable
+            // Drives a real Preferences window (off screen) through WPF's input manager; its
+            // configuration is never loaded, so nothing can be saved. Exit code 0 = pass.
+            int kbTestIdx = Array.FindIndex(e.Args,
+                a => string.Equals(a, "--selftest-keyboard", StringComparison.OrdinalIgnoreCase));
+            if (kbTestIdx >= 0)
+            {
+                AppPaths.DetectPortableMode(e.Args);
+                string? report = kbTestIdx + 1 < e.Args.Length
+                                 && !e.Args[kbTestIdx + 1].StartsWith("--", StringComparison.Ordinal)
+                    ? e.Args[kbTestIdx + 1]
+                    : null;
+                Environment.Exit(KeyboardSelfTest.Run(report));
+                return;
+            }
+
             // Headless libretro VFS self-test, driven through the unmanaged function table the
             // emulator hands to cores:  Emutastic.exe --selftest-vfs [report.log]
             // No window and no PortableData needed; exit code 0 = every check passed.
