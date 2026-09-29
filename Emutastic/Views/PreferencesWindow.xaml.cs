@@ -759,7 +759,9 @@ namespace Emutastic.Views
 
             int cur = _waitingRowIndex;
             _waitingRowIndex = -1;  // clear BEFORE RefreshRow so row shows new mapping, not "Press a button…"
-            RefreshRow(cur);
+            // A key bound here can be another row's built-in key, which that row must stop
+            // showing — so on the keyboard every row is redrawn, not just this one.
+            if (_isKeyboardMode) RefreshAllRows(); else RefreshRow(cur);
 
             if (!skipAutoAdvance)
                 AdvanceFromRow(cur);
