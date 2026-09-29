@@ -280,6 +280,12 @@ namespace Emutastic
                 return;
             }
 
+            // Every key-down that reaches the window, handled or not, for the report.
+            var seen = new List<string>();
+            win.AddHandler(Keyboard.PreviewKeyDownEvent, new KeyEventHandler((_, e) =>
+                seen.Add($"{KeyboardBindings.RealKey(e)}{(e.IsRepeat ? " (repeat)" : "")}")), handledEventsToo: true);
+            string Seen() => $"keys seen: {(seen.Count == 0 ? "none" : string.Join(", ", seen))}";
+
             var rows = Rows(win);
             string Text(string row) => Rows(win).TryGetValue(row, out var x) ? x.Label.Text : "(no row)";
 
@@ -296,48 +302,50 @@ namespace Emutastic
             await Pump();
             r.Check(Text("Up") == "Press a button…", "clicking Up waits for a key");
 
-            Press(win, Key.W);
+            // W goes down, auto-repeats while held, and comes up — a real held key.
+            KeyEvent(win, Key.W, down: true);
             await Pump();
             r.Check(Text("Up") == "W" && Text("Down") == "Press a button…",
-                $"pressing W binds Up and moves to Down (Up={Text("Up")}, Down={Text("Down")})");
-
-            if (Press(win, Key.W, repeat: true))
+                $"pressing W binds Up and moves to Down (Up={Text("Up")}, Down={Text("Down")}; {Seen()})");
+            if (KeyEvent(win, Key.W, down: true, repeat: true))
             {
                 await Pump();
                 r.Check(Text("Down") == "Press a button…",
-                    $"auto-repeat of W doesn't bind Down too (Down={Text("Down")})");
+                    $"auto-repeat of the held W doesn't bind Down too (Down={Text("Down")}; {Seen()})");
             }
             else { r.Line("  [SKIP] KeyEventArgs.SetRepeat not found — repeat not tested"); r.Incomplete++; }
+            KeyEvent(win, Key.W, down: false);
 
-            if (Press(win, Key.LeftAlt, system: true))
+            if (Tap(win, Key.LeftAlt, system: true))
             {
                 await Pump();
                 r.Check(Text("Down") == "L Alt" && Text("Left") == "Press a button…",
-                    $"Alt (which WPF reports as Key.System) binds as L Alt (Down={Text("Down")})");
+                    $"Alt (which WPF reports as Key.System) binds as L Alt (Down={Text("Down")}; {Seen()})");
             }
             else { r.Line("  [SKIP] KeyEventArgs.MarkSystem not found — Alt not tested"); r.Incomplete++; }
 
             if (win.FindName("SystemComboBox") is ComboBox systems)
             {
                 int before = systems.SelectedIndex;
-                Press(win, Key.Down, target: systems);
+                Tap(win, Key.Down, target: systems);
                 await Pump();
                 r.Check(Text("Left") == "↓" && systems.SelectedIndex == before,
                     $"a key aimed at the focused console list binds Left and doesn't change the console (Left={Text("Left")}, index {before}→{systems.SelectedIndex})");
             }
             else { r.Line("  [SKIP] SystemComboBox not found"); r.Incomplete++; }
 
-            Press(win, Key.Escape);
+            Tap(win, Key.Escape);
             await Pump();
-            r.Check(Text("Right") == "→", $"Escape stops waiting; Right keeps its built-in key (Right={Text("Right")})");
+            r.Check(Text("Right") == "→" && !Rows(win).Values.Any(x => x.Label.Text == "Press a button…"),
+                $"Escape stops waiting; Right keeps its built-in key (Right={Text("Right")})");
 
             Click(Rows(win)["Start"].Box);
-            Press(win, Key.Z);
+            Tap(win, Key.Z);
             await Pump();
             r.Check(Text("Start") == "Z" && Text("B") == "—",
                 $"binding Start to Z leaves B with no key (Start={Text("Start")}, B={Text("B")})");
 
-            if (Rows(win).Values.Any(x => x.Label.Text == "Press a button…")) Press(win, Key.Escape);
+            if (Rows(win).Values.Any(x => x.Label.Text == "Press a button…")) Tap(win, Key.Escape);
             if (Find<Button>(win, b => Equals(b.Content, "Reset Defaults")) is Button reset)
             {
                 reset.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
@@ -350,30 +358,32 @@ namespace Emutastic
 
         /// <summary>
         /// The reported fault, reproduced: a bare window wired as Preferences was (PreviewKeyDown
-        /// marks the key handled while a row waits, KeyDown reads it). The presses the real window
-        /// gets below must not reach this capture. Then the same window without the handled
-        /// PreviewKeyDown — the key does reach KeyDown when this session can deliver it, which
-        /// shows it is the handled PreviewKeyDown, not the harness, that starves the capture.
+        /// marks the key handled while a row waits, KeyDown reads it). Its PreviewKeyDown must see
+        /// the press — else the control proves nothing — and its capture must not. Then the same
+        /// window without the handled PreviewKeyDown: the press does reach KeyDown when this session
+        /// can deliver it, which shows it is the handled PreviewKeyDown, not the harness, that
+        /// starves the capture.
         /// </summary>
         private static void OldWiringControl(Report r)
         {
-            bool markHandled = true, captured = false;
+            bool markHandled = true, previewSeen = false, captured = false;
             var probe = new Window
             {
                 Width = 200, Height = 100, ShowInTaskbar = false,
                 WindowStartupLocation = WindowStartupLocation.Manual, Left = -20000, Top = -20000,
             };
-            probe.PreviewKeyDown += (_, e) => { if (markHandled) e.Handled = true; };
+            probe.PreviewKeyDown += (_, e) => { previewSeen = true; if (markHandled) e.Handled = true; };
             probe.KeyDown += (_, e) => captured = true;
             probe.Show();
             probe.Activate();
             Keyboard.Focus(probe);
 
-            Press(probe, Key.W);
-            r.Check(!captured, "control: wired the old way, a pressed key never reaches the capture");
+            Tap(probe, Key.F2);
+            r.Check(previewSeen && !captured,
+                $"control: wired the old way, a pressed key reaches PreviewKeyDown (seen={previewSeen}) but never the capture (captured={captured})");
 
-            markHandled = false; captured = false;
-            Press(probe, Key.W);
+            markHandled = false; previewSeen = false; captured = false;
+            Tap(probe, Key.F2);
             r.Line(captured
                 ? "  [INFO] without the handled PreviewKeyDown the same press reaches KeyDown — the handled preview is the cause"
                 : "  [INFO] this session gives the probe no keyboard focus, so KeyDown can't be delivered at all; the control above is then not specific");
@@ -387,17 +397,17 @@ namespace Emutastic
         private static readonly MethodInfo? MarkSystem =
             typeof(KeyEventArgs).GetMethod("MarkSystem", BindingFlags.NonPublic | BindingFlags.Instance);
 
-        /// <summary>A key-down through the input manager, as the keyboard delivers one: the
-        /// tunnelling PreviewKeyDown, promoted to KeyDown if nothing handled it. Returns false
-        /// when a requested flag can't be set on this WPF build.</summary>
-        private static bool Press(Window win, Key key, IInputElement? target = null,
+        /// <summary>A key going down or up through the input manager, as the keyboard delivers
+        /// one: the tunnelling PreviewKeyDown/Up, promoted to KeyDown/Up if nothing handled it.
+        /// Returns false when a requested flag can't be set on this WPF build.</summary>
+        private static bool KeyEvent(Window win, Key key, bool down, IInputElement? target = null,
             bool repeat = false, bool system = false)
         {
             if ((repeat && SetRepeat == null) || (system && MarkSystem == null)) return false;
             var args = new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(win),
                 Environment.TickCount, key)
             {
-                RoutedEvent = Keyboard.PreviewKeyDownEvent,
+                RoutedEvent = down ? Keyboard.PreviewKeyDownEvent : Keyboard.PreviewKeyUpEvent,
                 Source = target ?? win,
             };
             if (repeat) SetRepeat!.Invoke(args, new object[] { true });
@@ -405,6 +415,11 @@ namespace Emutastic
             InputManager.Current.ProcessInput(args);
             return true;
         }
+
+        /// <summary>A whole key press: down, then up.</summary>
+        private static bool Tap(Window win, Key key, IInputElement? target = null, bool system = false) =>
+            KeyEvent(win, key, down: true, target, system: system)
+            && KeyEvent(win, key, down: false, target, system: system);
 
         private static void Click(Border box) =>
             box.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
