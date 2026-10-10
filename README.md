@@ -172,7 +172,7 @@ The detail card for any game you've launched with achievements enabled shows:
 
 In-game, achievements appear as toast notifications when you unlock them.
 
-**Hardcore mode** — Emutastic enforces every RetroAchievements hardcore-mode rule (save-state loading blocked, cheats blocked, no rewind/slow-motion/frame-advance features, unique User-Agent, persistent on-screen indicator). Server-side hardcore credit requires RA's formal approval, which can be applied for once a frontend has been publicly available for six months — Emutastic's window opens October 14, 2026. See the [Hardcore Compliance](https://github.com/codingncaffeine/Emutastic/wiki/Hardcore-Compliance) wiki page for a line-by-line audit of every requirement on RA's checklist, with code cross-references.
+**Hardcore mode** — Emutastic enforces every RetroAchievements hardcore-mode rule (save-state loading blocked, cheats blocked including the cores' own cheat options, disc swaps verified by rcheevos, no rewind/slow-motion/frame-advance features, unique User-Agent, persistent on-screen indicator). Server-side hardcore credit requires RA's formal approval, which a frontend can apply for after six months of public availability; Emutastic's application was submitted in October 2026 and is awaiting review. See the [Hardcore Compliance](https://github.com/codingncaffeine/Emutastic/wiki/Hardcore-Compliance) wiki page for a line-by-line audit of every requirement on RA's checklist, with code cross-references.
 
 </details>
 

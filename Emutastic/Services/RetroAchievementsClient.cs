@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Net.Http;
 using System.Runtime.InteropServices;
@@ -23,6 +24,9 @@ namespace Emutastic.Services
         private ServerCallFunc? _serverCallDelegate;
         private EventHandlerFunc? _eventHandlerDelegate;
         private MessageCallbackFunc? _logDelegate;
+        // Media-change callbacks, each kept alive until rcheevos answers it. A list, not a
+        // field: a second swap can start before the first answer arrives.
+        private readonly List<ClientCallbackFunc> _mediaCallbacks = new();
 
         // Cached memory region pointers (refreshed each frame is too slow;
         // these are stable for the lifetime of a loaded game).
@@ -35,7 +39,7 @@ namespace Emutastic.Services
 
         // Identifies us to RA's server. RA's hardcore policy:
         //   * Missing / unrecognized User-Agent → server downgrades hardcore
-        //     unlocks to softcore (or returns 'emulator unknown' when
+        //     unlocks to casual (or returns 'emulator unknown' when
         //     hardcore is explicitly enabled).
         //   * Even with a valid UA, the emulator name must be on RA's
         //     approved list for hardcore unlocks to actually count.
@@ -490,6 +494,28 @@ namespace Emutastic.Services
         {
             if (_client != IntPtr.Zero)
                 rc_client_idle(_client);
+        }
+
+        /// <summary>
+        /// Tells rcheevos a different disc was inserted. It hashes the new media and checks it
+        /// belongs to the loaded game; <paramref name="done"/> receives the rcheevos result
+        /// (RC_OK; RC_HARDCORE_DISABLED when an unrecognised disc dropped a hardcore session to
+        /// casual; or an error) and its message, on rcheevos' callback thread. No-op when no
+        /// game is loaded.
+        /// </summary>
+        public void ChangeMedia(string discPath, Action<int, string?> done)
+        {
+            if (_client == IntPtr.Zero || !IsGameLoaded) { done(RC_OK, null); return; }
+            ClientCallbackFunc? callback = null;
+            callback = (result, errorPtr, client, userdata) =>
+            {
+                string? msg = PtrToStringUTF8(errorPtr);
+                lock (_mediaCallbacks) _mediaCallbacks.Remove(callback!);
+                done(result, msg);
+            };
+            lock (_mediaCallbacks) _mediaCallbacks.Add(callback);
+            rc_client_begin_identify_and_change_media(_client, discPath, IntPtr.Zero, UIntPtr.Zero,
+                callback, IntPtr.Zero);
         }
 
         /// <summary>Call on emulator reset.</summary>

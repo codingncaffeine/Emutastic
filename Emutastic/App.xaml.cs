@@ -134,6 +134,21 @@ namespace Emutastic
                 return;
             }
 
+            // The RetroAchievements hardcore rules that live in pure code — launch decision,
+            // locked cheat core options, disc file for a swap:  Emutastic.exe --selftest-hardcore [report.log]
+            // No window and no PortableData needed; exit code 0 = every check passed.
+            int hcTestIdx = Array.FindIndex(e.Args,
+                a => string.Equals(a, "--selftest-hardcore", StringComparison.OrdinalIgnoreCase));
+            if (hcTestIdx >= 0)
+            {
+                string? report = hcTestIdx + 1 < e.Args.Length
+                                 && !e.Args[hcTestIdx + 1].StartsWith("--", StringComparison.Ordinal)
+                    ? e.Args[hcTestIdx + 1]
+                    : null;
+                Environment.Exit(HardcoreSelfTest.Run(report));
+                return;
+            }
+
             // Single-instance guard: if Emutastic is already running, bring it to
             // the front and exit this process instead of launching a second copy.
             _singleInstanceMutex = new Mutex(true, "Emutastic_SingleInstance_v1", out bool isFirstInstance);

@@ -12,6 +12,7 @@ namespace Emutastic.Services
 
         // ── Error codes ──────────────────────────────────────────────────────
         public const int RC_OK = 0;
+        public const int RC_HARDCORE_DISABLED = -30;   // rc_error.h: an unrecognised disc dropped hardcore
         public const int RC_ABORTED = -31;
         public const int RC_NO_RESPONSE = -32;
         public const int RC_INVALID_CREDENTIALS = -34;
@@ -277,6 +278,18 @@ namespace Emutastic.Services
         public static extern IntPtr rc_client_begin_load_game(
             IntPtr client,
             [MarshalAs(UnmanagedType.LPStr)] string hash,
+            ClientCallbackFunc callback,
+            IntPtr callbackUserdata);
+
+        // Disc swap: hashes the newly inserted media and checks it belongs to the loaded game.
+        // In hardcore an unrecognised disc makes rcheevos drop the session to casual (callback
+        // result RC_HARDCORE_DISABLED). 12.x name — 11.x called it rc_client_begin_change_media.
+        [DllImport(DLL, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        public static extern IntPtr rc_client_begin_identify_and_change_media(
+            IntPtr client,
+            [MarshalAs(UnmanagedType.LPStr)] string filePath,
+            IntPtr data,
+            UIntPtr dataSize,
             ClientCallbackFunc callback,
             IntPtr callbackUserdata);
 

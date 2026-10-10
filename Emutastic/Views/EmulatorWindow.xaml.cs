@@ -332,8 +332,16 @@ namespace Emutastic.Views
         // Snapshot of HardcoreMode taken when _raClient was created. Re-reading
         // config live would let a user open Preferences mid-game and silently
         // relax the gates — using a snapshot makes the running session's HC
-        // status stable until the next launch, matching RA's session model.
-        private bool _raHardcoreActive;
+        // status stable until the next launch, matching RA's session model. Volatile:
+        // rcheevos can clear it from its callback thread after a disc swap (see
+        // DropHardcoreForSession) while the emu thread and the UI thread read it.
+        private volatile bool _raHardcoreActive;
+        // The launch's hardcore decision (HardcoreLaunchPolicy), taken in
+        // DecideHardcoreForLaunch BEFORE the core loads so the core-option lock in
+        // GET_VARIABLE and the achievement runtime agree. Fixed for the session.
+        private bool _raHardcoreIntent;
+        private HardcoreDemotion _raHardcoreDemotion = HardcoreDemotion.None;
+        private bool _hardcoreOptionLockNotified;
 
         // Overlay HUD
         private bool _isPaused = false;
@@ -1619,6 +1627,11 @@ namespace Emutastic.Views
                         System.Diagnostics.Trace.WriteLine("Launch backstop: extraction failed; passing original path to core");
                     }
                 }
+
+                // RetroAchievements: decide hardcore for this launch BEFORE the core reads its
+                // options — a core whose own cheat engine is a core option reads it during
+                // retro_load_game, and a hardcore session serves it the locked value.
+                DecideHardcoreForLaunch();
 
                 bool loaded = _core.LoadGame(romToLoad, _game.PatchPath);
                 System.Diagnostics.Trace.WriteLine($"LoadGame: {loaded}");
@@ -3639,6 +3652,26 @@ namespace Emutastic.Views
                         string key = Marshal.PtrToStringAnsi(keyPtr) ?? "";
                         if (_coreOptions.TryGetValue(key, out string? value))
                         {
+                            // RA hardcore-compliance: a core's own cheat engine switched on through
+                            // a core option is still a cheat (Section B), and the libretro cheat
+                            // API our ApplyAllCheats gate covers never sees it. Serve the locked
+                            // value for the whole session; Preferences keeps the user's choice.
+                            if (_raHardcoreIntent && HardcoreLaunchPolicy.IsCheatCoreOption(key))
+                            {
+                                string locked = HardcoreLaunchPolicy.LockedValue(
+                                    _coreOptionSchema.FirstOrDefault(o => o.Key == key)?.ValidValues);
+                                if (!string.Equals(locked, value, StringComparison.Ordinal))
+                                {
+                                    System.Diagnostics.Trace.WriteLine($"GET_VARIABLE: {key} = '{value}' locked to '{locked}' (hardcore)");
+                                    value = locked;
+                                    if (!_hardcoreOptionLockNotified)
+                                    {
+                                        _hardcoreOptionLockNotified = true;
+                                        _transientMsg    = "Cheat options are disabled in hardcore mode";
+                                        _transientExpiry = DateTime.Now.AddSeconds(5);
+                                    }
+                                }
+                            }
                             // Reuse an existing HGlobal if the value hasn't changed. Cores such as
                             // DOSBox Pure cache the const char* we hand back and dereference it from
                             // their own variable-change logic on later frames — freeing-and-reallocating
@@ -5174,6 +5207,19 @@ namespace Emutastic.Views
                 uint cur = _diskGetImageIndex?.Invoke() ?? 0;
                 uint next = (cur + 1) % count;
 
+                // RA hardcore-compliance: rcheevos must see every inserted disc so it can
+                // confirm the disc belongs to the loaded game (RetroArch does the same on
+                // its disc-control path). The disc file comes from the launch playlist;
+                // without one there is nothing to hash, so a hardcore session keeps its
+                // current disc rather than continuing on unverified media.
+                string? discPath = DiscPlaylist.ResolveDiscPath(_game?.RomPath, next);
+                if (discPath == null && IsHardcoreActive())
+                {
+                    ShowDiskStatus("Disk swap blocked in hardcore: the next disc can't be verified (launch from an .m3u)");
+                    System.Diagnostics.Trace.WriteLine($"Disk swap: {cur} -> {next} refused — hardcore session and no disc path");
+                    return;
+                }
+
                 // Mirror RetroArch's swap pattern (`disk_control_interface.c`
                 // `disk_control_set_index` → runloop frame counter at runloop.c:6741):
                 //   1) eject immediately
@@ -5193,6 +5239,7 @@ namespace Emutastic.Views
                 System.Diagnostics.Trace.WriteLine($"Disk swap: {cur} -> {next} (of {count}) — insert deferred 100 frames");
 
                 ShowDiskStatus($"Disk {next + 1} / {count}");
+                if (discPath != null) RaChangeMedia(discPath);
             }
             catch (Exception ex)
             {
@@ -6182,15 +6229,15 @@ namespace Emutastic.Views
                 System.Diagnostics.Trace.WriteLine("SwapDisc: disc control not available");
                 return false;
             }
-            // RA hardcore: rcheevos has to verify every inserted disc belongs to the
-            // loaded game (rc_client_begin_identify_and_change_media). This helper
-            // only knows the index, not the file, so until a caller supplies the
-            // disc path and routes it through the RA client, a hardcore session
-            // keeps its current disc. Nothing in the UI calls this yet.
-            if (IsHardcoreActive())
+            // RA hardcore-compliance: rcheevos has to verify every inserted disc belongs
+            // to the loaded game (rc_client_begin_identify_and_change_media). The disc
+            // file comes from the launch playlist; a hardcore session without one keeps
+            // its current disc. Same rule as the in-game chord (SwapToNextDisk).
+            string? discPath = DiscPlaylist.ResolveDiscPath(_game?.RomPath, discIndex);
+            if (discPath == null && IsHardcoreActive())
             {
                 System.Diagnostics.Trace.WriteLine($"SwapDisc({discIndex}) refused: hardcore session, disc not verifiable");
-                _transientMsg    = "Disc switch is unavailable in hardcore mode";
+                _transientMsg    = "Disk swap blocked in hardcore: the disc can't be verified (launch from an .m3u)";
                 _transientExpiry = DateTime.Now.AddSeconds(4);
                 return false;
             }
@@ -6200,6 +6247,7 @@ namespace Emutastic.Views
                 bool ok = _diskSetImageIndex(discIndex);
                 _diskSetEjectState(false);
                 System.Diagnostics.Trace.WriteLine($"SwapDisc({discIndex}): {ok}");
+                if (ok && discPath != null) RaChangeMedia(discPath);
                 return ok;
             }
             catch (Exception ex)
@@ -7090,6 +7138,90 @@ namespace Emutastic.Views
             catch { /* HUD elements may be unavailable in unusual init orderings */ }
         }
 
+        /// <summary>
+        /// The hardcore decision for this launch, taken on the emu thread before the core loads
+        /// (see <see cref="HardcoreLaunchPolicy"/>). Not signed in or a console RA has no ID for
+        /// means no achievement session at all, so no hardcore either.
+        /// </summary>
+        private void DecideHardcoreForLaunch()
+        {
+            _raHardcoreIntent = false;
+            _raHardcoreDemotion = HardcoreDemotion.None;
+            try
+            {
+                var raConfig = _configService.GetRetroAchievementsConfiguration();
+                if (!raConfig.IsConfigured || RetroAchievementsClient.GetConsoleId(_game.Console) == 0) return;
+                var (hardcore, reason) = HardcoreLaunchPolicy.Evaluate(
+                    raConfig.HardcoreMode, _game.Console, Services.HdPackService.ActiveModHasRomPatch(_game));
+                _raHardcoreIntent = hardcore;
+                _raHardcoreDemotion = reason;
+                System.Diagnostics.Trace.WriteLine(
+                    $"[RA] Launch decision: {(hardcore ? "hardcore" : "casual")}{(reason != HardcoreDemotion.None ? $" ({reason})" : "")}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[RA] Launch decision failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Tells rcheevos which disc was just inserted so it can confirm the disc belongs to the
+        /// loaded game. In hardcore an unrecognised disc makes rcheevos drop the session to
+        /// casual (RC_HARDCORE_DISABLED); the launch snapshot follows so the gates and the pill
+        /// agree with the runtime. Dropping hardcore mid-session is permitted by RA's rules;
+        /// only the reverse needs a reset.
+        /// </summary>
+        private void RaChangeMedia(string discPath)
+        {
+            var client = _raClient;
+            if (client == null || !client.IsGameLoaded) return;
+            try
+            {
+                client.ChangeMedia(discPath, (result, msg) =>
+                {
+                    if (result == RcheevosInterop.RC_OK)
+                    {
+                        System.Diagnostics.Trace.WriteLine($"[RA] media change accepted: {discPath}");
+                        return;
+                    }
+                    System.Diagnostics.Trace.WriteLine($"[RA] media change result {result}: {msg} ({discPath})");
+                    if (result == RcheevosInterop.RC_HARDCORE_DISABLED)
+                        DropHardcoreForSession("Hardcore disabled: this disc isn't recognised for the loaded game");
+                });
+            }
+            catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[RA] ChangeMedia error: {ex.Message}"); }
+        }
+
+        /// <summary>
+        /// The achievement runtime left hardcore for the rest of this session (rcheevos said so
+        /// after a disc swap). The gates follow the runtime: the pill goes, and the HUD buttons
+        /// the hardcore session had hidden come back where the core supports them. The reverse
+        /// — entering hardcore — never happens mid-session; that takes a new launch.
+        /// </summary>
+        private void DropHardcoreForSession(string message)
+        {
+            if (!_raHardcoreActive) return;
+            _raHardcoreActive = false;
+            Dispatcher.BeginInvoke(() =>
+            {
+                try
+                {
+                    if (HardcoreIndicator != null) HardcoreIndicator.Visibility = Visibility.Collapsed;
+                    if (!IsSaveStateUnreliable())
+                    {
+                        if (LoadStateBtn != null) LoadStateBtn.Visibility = Visibility.Visible;
+                        if (LoadStateHoverBtn != null) LoadStateHoverBtn.Visibility = Visibility.Visible;
+                    }
+                    if (OverlayCheatsBtn != null && _core != null
+                        && Services.CheatSupport.Lookup(_core.CorePath).Level != Services.CheatSupportLevel.NotSupported)
+                        OverlayCheatsBtn.Visibility = Visibility.Visible;
+                }
+                catch { /* the HUD may already be torn down */ }
+                _transientMsg    = message;
+                _transientExpiry = DateTime.Now.AddSeconds(6);
+            });
+        }
+
         private void InitRetroAchievements()
         {
             try
@@ -7109,43 +7241,27 @@ namespace Emutastic.Views
                     return;
                 }
 
-                // RA hardcore-compliance carve-out for PSP. The PPSSPP libretro
-                // core reads cheats from cheats/<DiscID>.ini directly, bypassing
-                // the libretro retro_cheat_set frontend API our ApplyAllCheats
-                // gate intercepts. libretro exposes no environment callback for
-                // the frontend to communicate hardcore state, so we can't reach
-                // into PPSSPP's cheat-load path from out here. Until upstream
-                // PPSSPP gains a hardcore-aware behavior in libretro mode, the
-                // conservative posture is to refuse to run hardcore on PSP —
-                // we drop to softcore for this session and surface a transient
-                // explaining why. Achievements still track in softcore; just
-                // not on the hardcore leaderboard.
-                bool effectiveHardcore = raConfig.HardcoreMode;
-                if (effectiveHardcore && string.Equals(_game.Console, "PSP", StringComparison.Ordinal))
+                // The hardcore decision for this launch was taken in DecideHardcoreForLaunch
+                // (HardcoreLaunchPolicy) before the core loaded, so the core-option lock saw
+                // it. Two carve-outs demote a hardcore request to casual for the session —
+                // achievements still track, just not on the hardcore leaderboard:
+                //   PSP — the PPSSPP core reads cheats/<DiscID>.ini itself, bypassing the
+                //         libretro retro_cheat_set API our ApplyAllCheats gate intercepts,
+                //         and libretro has no environment callback to tell a core about
+                //         hardcore. Until upstream PPSSPP is hardcore-aware in libretro
+                //         mode, PSP runs casual.
+                //   HD mod with a ROM patch (<patch> in hires.txt) — Mesen patches the ROM
+                //         internally at load, so rcheevos hashed the clean file while the
+                //         running game is modified code; switching the mod to None restores
+                //         hardcore on the next launch.
+                bool effectiveHardcore = _raHardcoreIntent;
+                string? demotion = HardcoreLaunchPolicy.DemotionMessage(_raHardcoreDemotion);
+                if (demotion != null)
                 {
-                    effectiveHardcore = false;
-                    System.Diagnostics.Trace.WriteLine("[RA] Hardcore mode refused for PSP — PPSSPP cheats path not gateable from the frontend; dropping to softcore for this session.");
+                    System.Diagnostics.Trace.WriteLine($"[RA] Hardcore refused for this session ({_raHardcoreDemotion}); casual.");
                     Dispatcher.BeginInvoke(() =>
                     {
-                        _transientMsg = "Hardcore Mode is disabled for PSP titles — achievements still track";
-                        _transientExpiry = DateTime.Now.AddSeconds(6);
-                    });
-                }
-
-                // RA hardcore-compliance carve-out for HD mods that embed ROM
-                // patches (<patch> in hires.txt): Mesen patches the ROM
-                // internally at load, so rcheevos hashed the clean file while
-                // the running game is modified code — crediting hardcore
-                // unlocks against the base game's set wouldn't be compliant.
-                // Softcore still tracks; switching the mod to None restores
-                // hardcore on the next launch.
-                if (effectiveHardcore && Services.HdPackService.ActiveModHasRomPatch(_game))
-                {
-                    effectiveHardcore = false;
-                    System.Diagnostics.Trace.WriteLine("[RA] Hardcore refused — active HD mod patches the ROM (pack <patch> tag); softcore for this session.");
-                    Dispatcher.BeginInvoke(() =>
-                    {
-                        _transientMsg = "Hardcore disabled — the active HD mod patches the ROM; achievements still track";
+                        _transientMsg = demotion;
                         _transientExpiry = DateTime.Now.AddSeconds(6);
                     });
                 }
@@ -7517,12 +7633,12 @@ namespace Emutastic.Views
                 if (!cfg.LbToastWhenYouBeat && !cfg.LbToastForProximity) return;
                 // Respect the user's "hardcore-only toasts" preference. If
                 // they've asked for HC-only signal and this session is
-                // softcore (PSP carve-out or HC disabled in this session),
+                // casual (PSP carve-out or HC disabled in this session),
                 // suppress LB toasts wholesale — matches the achievement
                 // toast behavior at MainWindow.xaml.cs:3835.
                 if (cfg.HardcoreOnlyToast && !IsHardcoreActive())
                 {
-                    RaLog.Write($"[LbToast] HardcoreOnlyToast=true and session is softcore — suppressing");
+                    RaLog.Write($"[LbToast] HardcoreOnlyToast=true and session is casual — suppressing");
                     return;
                 }
 

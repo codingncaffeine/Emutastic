@@ -10,7 +10,7 @@ namespace Emutastic.Services
     /// RA's hardcore-compliance policy keys two server-side decisions on this
     /// header: whether the unlock request is hardcore-eligible at all (must
     /// be a recognised emulator), and whether to downgrade hardcore unlocks
-    /// to softcore (happens when the UA is missing, malformed, or has no
+    /// to casual (happens when the UA is missing, malformed, or has no
     /// parseable version). Format per their docs:
     ///
     ///   EmulatorName/v1.0.0 (OSName 10.0) core_name/v0.5.0
