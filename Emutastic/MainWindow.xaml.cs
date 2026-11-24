@@ -2357,9 +2357,35 @@ namespace Emutastic
             menu.Items.Add(MakeMenuItem("📝  Notes", () => Views.NotesWindow.ShowFor(game, this)));
 
             // ── Manual (view if downloaded, else download then open) ──
-            bool hasManual = game.HasManual && File.Exists(game.ManualPath);
-            menu.Items.Add(MakeMenuItem(hasManual ? "📖  View Manual" : "⬇  Download Manual",
-                async () => await Views.ManualLauncher.OpenOrDownloadAsync(game, _artworkFetch, this)));
+            // Commodore 64 BASIC: Commodore's own two manuals, each on its own, in place of the manual search.
+            if (Services.C64BasicManuals.IsBasicEntry(game))
+            {
+                foreach (var m in Services.C64BasicManuals.All)
+                {
+                    var book = m;
+                    menu.Items.Add(MakeMenuItem(Services.C64BasicManuals.Has(book) ? $"📖  View {book.Title}" : $"⬇  Download {book.Title}",
+                        () => OpenOrDownloadBasicManualAsync(book)));
+                }
+            }
+            else
+            {
+                bool hasManual = game.HasManual && File.Exists(game.ManualPath);
+                menu.Items.Add(MakeMenuItem(hasManual ? "📖  View Manual" : "⬇  Download Manual",
+                    async () => await Views.ManualLauncher.OpenOrDownloadAsync(game, _artworkFetch, this)));
+            }
+
+            // ── Commodore 64: new, empty media (floppies and tapes become library entries of their own; the hard
+            // drive belongs to this game) ──
+            if (string.Equals(game.Console, "C64", StringComparison.OrdinalIgnoreCase))
+            {
+                menu.Items.Add(MakeMenuItem("💾  New Blank Floppy Disk…", () => AddBlankC64MediaAsync(game, tape: false)));
+                menu.Items.Add(MakeMenuItem("📼  New Blank Tape…", () => AddBlankC64MediaAsync(game, tape: true)));
+                menu.Items.Add(MakeMenuItem("🗄  New Blank Hard Drive…", () =>
+                {
+                    var w = new Views.HardDriveWindow(game, _coreManager.GetCorePathForGame(game) ?? "") { Owner = this };
+                    if (w.ShowDialog() == true && w.Result != null) _vm.SetStatus(w.Result, autoClear: true);
+                }));
+            }
 
             // ── Mods: ROM hack patches + enhancement packs, one entry point ──
             // A single item covers whatever this console supports; the handler
@@ -2555,6 +2581,49 @@ namespace Emutastic
             menu.Items.Add(deleteItem);
 
             return menu;
+        }
+
+        /// <summary>Makes a blank C64 floppy or tape (named by the user) and imports it as a library entry.</summary>
+        private async Task AddBlankC64MediaAsync(Models.Game game, bool tape)
+        {
+            var dlg = new Views.RenameWindow(tape ? "My Tape" : "My Disk",
+                tape ? "Name the new tape" : "Name the new floppy disk", "Create") { Owner = this };
+            if (dlg.ShowDialog() != true || string.IsNullOrWhiteSpace(dlg.NewTitle)) return;
+            string name = dlg.NewTitle;
+            string path = await Task.Run(() => tape ? Services.C64BlankMedia.CreateTape(game.Title, name)
+                                                    : Services.C64BlankMedia.CreateDisk(game.Title, name));
+            _importer.ImportFilesAsync(new[] { path }, "C64");
+            _vm.SetStatus($"Added the blank {(tape ? "tape" : "floppy")} \"{name}\" to the library.", autoClear: true);
+        }
+
+        /// <summary>Opens one of the Commodore 64 BASIC entry's manuals, downloading it first (progress in the status
+        /// bar; the download runs off the UI thread).</summary>
+        internal async Task OpenOrDownloadBasicManualAsync(Services.C64BasicManuals.Manual m)
+        {
+            string path = Services.C64BasicManuals.PathFor(m);
+            if (!Services.C64BasicManuals.Has(m))
+            {
+                int shown = -1;
+                _vm.SetStatus($"Downloading the Commodore 64 {m.Title}…");
+                try
+                {
+                    await Task.Run(() => Services.C64BasicManuals.DownloadAsync(m, p =>
+                    {
+                        int pct = (int)p;
+                        if (pct == shown) return;
+                        shown = pct;
+                        Dispatcher.BeginInvoke(() => _vm.SetStatus($"Downloading the Commodore 64 {m.Title}… {pct}%"));
+                    }));
+                }
+                catch (Exception ex)
+                {
+                    _vm.SetStatus($"Couldn't download the {m.Title}: {ex.Message}", autoClear: true);
+                    return;
+                }
+                _vm.SetStatus($"Downloaded the Commodore 64 {m.Title}.", autoClear: true);
+            }
+            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true }); }
+            catch (Exception ex) { _vm.SetStatus($"Couldn't open the {m.Title}: {ex.Message}", autoClear: true); }
         }
 
         private MenuItem MakeMenuItem(string header, Action onClick)

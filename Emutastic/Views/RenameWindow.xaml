@@ -14,7 +14,7 @@
             BorderThickness="1"
             CornerRadius="10">
         <StackPanel Margin="24">
-            <TextBlock Text="Rename Game"
+            <TextBlock x:Name="HeadingText" Text="Rename Game"
                        FontFamily="{StaticResource PrimaryFont}"
                        FontSize="15"
                        FontWeight="SemiBold"
@@ -42,7 +42,7 @@
                         Padding="16,8"
                         Margin="0,0,8,0"
                         Click="Cancel_Click"/>
-                <Button Content="Rename"
+                <Button x:Name="OkButton" Content="Rename"
                         Style="{StaticResource PlayButtonStyle}"
                         Padding="16,8"
                         Click="Rename_Click"/>

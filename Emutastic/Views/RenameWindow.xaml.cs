@@ -7,9 +7,13 @@ namespace Emutastic.Views
     {
         public string NewTitle { get; private set; } = "";
 
-        public RenameWindow(string currentTitle)
+        /// <param name="heading">Replaces the "Rename Game" heading and the window title.</param>
+        /// <param name="okLabel">Replaces the "Rename" button's text.</param>
+        public RenameWindow(string currentTitle, string? heading = null, string? okLabel = null)
         {
             InitializeComponent();
+            if (heading != null) { Title = heading; HeadingText.Text = heading; }
+            if (okLabel != null) OkButton.Content = okLabel;
             TitleBox.Text = currentTitle;
             TitleBox.SelectAll();
             TitleBox.Focus();
