@@ -15,6 +15,7 @@ namespace Emutastic.Services.ConsoleHandlers
         {
             "NES"  or "FDS"  => new NesHandler(console),
             "SNES"           => new SnesHandler(),
+            "C64"            => new C64Handler(),
             "N64"            => new N64Handler(),
             "GameCube"       => new GameCubeHandler(),
             "PS1"            => new Ps1Handler(game),
