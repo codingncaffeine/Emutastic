@@ -76,7 +76,7 @@ namespace Emutastic
             ("PS1", "PlayStation", "SONY"), ("PS2", "PlayStation 2", "SONY"), ("PS3", "PlayStation 3", "SONY"), ("PSP", "PSP", "SONY"),
             ("TG16", "TurboGrafx-16", "NEC"), ("TGCD", "TurboGrafx-CD", "NEC"),
             ("NeoGeo", "Neo Geo", "SNK"), ("NeoCD", "Neo Geo CD", "SNK"), ("NGP", "NeoGeo Pocket", "SNK"),
-            ("3DO", "3DO", "OTHER"), ("CDi", "Philips CD-i", "OTHER"), ("ColecoVision", "ColecoVision", "OTHER"), ("Vectrex", "Vectrex", "OTHER"),
+            ("3DO", "3DO", "OTHER"), ("C64", "Commodore 64", "OTHER"), ("CDi", "Philips CD-i", "OTHER"), ("ColecoVision", "ColecoVision", "OTHER"), ("Vectrex", "Vectrex", "OTHER"),
         };
 
         private static async Task<int> RunAsync(Report r)
@@ -139,7 +139,7 @@ namespace Emutastic
 
             var other = ConsoleCatalog.InGroup("OTHER").ToList();
             var ordered = ConsoleCatalog.InUserOrder(other, new[] { "Vectrex", "NotAConsole", "3DO" }, e => e.Tag).Select(e => e.Tag).ToArray();
-            r.Check(ordered.SequenceEqual(new[] { "Vectrex", "3DO", "CDi", "ColecoVision" }),
+            r.Check(ordered.SequenceEqual(new[] { "Vectrex", "3DO", "C64", "CDi", "ColecoVision" }),
                     $"a user order places its consoles first and keeps the rest in catalog order ({string.Join(", ", ordered)})");
             r.Check(ConsoleCatalog.InUserOrder(other, new List<string>(), e => e.Tag).SequenceEqual(other),
                     "an empty user order is the catalog order");
@@ -443,7 +443,7 @@ namespace Emutastic
             string custom = string.Join(" ", ReadSidebar(panel).Select(x => x.Key));
             r.Check(custom.StartsWith("Windows [SONY] PS1 PS2 PS3 PSP [NINTENDO] SNES NES N64 ")
                     && !custom.Contains("Arcade") && !custom.Contains("FDS") && !custom.Contains("[SEGA]") && !custom.Contains("Genesis")
-                    && custom.EndsWith("[ATARI] Atari2600 Atari7800 Jaguar [NEC] TG16 TGCD [SNK] NeoGeo NeoCD NGP [OTHER] 3DO CDi ColecoVision Vectrex"),
+                    && custom.EndsWith("[ATARI] Atari2600 Atari7800 Jaguar [NEC] TG16 TGCD [SNK] NeoGeo NeoCD NGP [OTHER] 3DO C64 CDi ColecoVision Vectrex"),
                     $"a customised layout hides, reorders and regroups exactly as asked:{Environment.NewLine}        {custom}");
 
             // Fold a heading, rebuild, and it stays folded.
