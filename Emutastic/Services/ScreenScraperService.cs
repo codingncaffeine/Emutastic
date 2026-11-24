@@ -91,6 +91,7 @@ namespace Emutastic.Services
 
             { "Vectrex",      102},
             { "3DO",          29 },
+            { "C64",          66 },
             { "Arcade",       75 },
             { "NeoGeo",       142},
             { "NeoCD",         70},

@@ -86,6 +86,7 @@ namespace Emutastic.Services
 
             { "Vectrex",      "GCE - Vectrex"                                  },
             { "3DO",          "The 3DO Company - 3DO"                          },
+            { "C64",          "Commodore - 64"                                 },
             { "CDi",          "Philips - CD-i"                                 },
             { "NeoGeo",       "SNK - Neo Geo"                                  },
             { "NeoCD",        "SNK - Neo Geo CD"                               },

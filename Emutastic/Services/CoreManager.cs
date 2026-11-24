@@ -77,6 +77,7 @@ namespace Emutastic.Services
 
             { "Vectrex",     new[] { "vecx_libretro.dll"                }},
             { "3DO",         new[] { "opera_libretro.dll"               }},
+            { "C64",         new[] { "kernal64_libretro.dll"            }},
             { "CDi",         new[] { "same_cdi_libretro.dll"            }},
             { "NeoGeo",      new[] { "geolith_libretro.dll"              }},
             { "NeoCD",       new[] { "geolith_libretro.dll"              }},
@@ -218,6 +219,12 @@ namespace Emutastic.Services
                 return anyPs2Bios ? new List<string>()
                                   : new List<string> { @"a PS2 BIOS dump in pcsx2\bios\" };
             }
+
+            // Commodore 64 (Kernal64): the core finds BASIC, KERNAL and the character ROM by their contents in
+            // the System folder or its kernal64/ folder, whatever they are named (also a C64C's combined 16 KB
+            // BASIC+KERNAL image), so the gate asks the same of the files.
+            if (console.Equals("C64", StringComparison.OrdinalIgnoreCase))
+                return C64Roms.Missing(systemDir);
 
             // Region-aware path: check only the files needed for this region.
             if (region != "Unknown" && RegionBiosMap.TryGetValue(console, out var regionMap))

@@ -68,6 +68,7 @@ namespace Emutastic.Services
         public const uint RC_CONSOLE_ATARI_2600 = 25;
         public const uint RC_CONSOLE_SG1000 = 33;
         public const uint RC_CONSOLE_3DO = 43;
+        public const uint RC_CONSOLE_COMMODORE_64 = 30;
         public const uint RC_CONSOLE_COLECOVISION = 44;
         public const uint RC_CONSOLE_VECTREX = 46;
         public const uint RC_CONSOLE_ATARI_7800 = 51;

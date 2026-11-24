@@ -20,7 +20,7 @@ namespace Emutastic.Services
             // multi-disc GC titles (Resident Evil 0, Baten Kaitos, etc.) get
             // routed correctly when the folder name disambiguates. Ambiguity
             // resolved via DAT lookup, folder name, or user picker.
-            { ".m3u", new[] { "PS2", "SegaCD", "Saturn", "PS1", "TGCD", "NeoCD", "3DO", "CDi", "GameCube", "Amiga" } },
+            { ".m3u", new[] { "PS2", "SegaCD", "Saturn", "PS1", "TGCD", "NeoCD", "3DO", "CDi", "GameCube", "Amiga", "C64" } },
             { ".bin", new[] { "PS1", "PS2", "SegaCD", "Saturn", "NeoCD", "3DO", "Dreamcast", "Atari7800", "Atari2600", "Genesis", "Sega32X", "ColecoVision", "NES", "NGP" } },
         };
 
@@ -75,6 +75,14 @@ namespace Emutastic.Services
             { ".gdi",  "Dreamcast"   },
             { ".cdi",  "Dreamcast"   },
             { ".neo",  "NeoGeo"      },
+            { ".crt",  "C64"         },
+            { ".prg",  "C64"         },
+            { ".p00",  "C64"         },
+            { ".t64",  "C64"         },
+            { ".d64",  "C64"         },
+            { ".g64",  "C64"         },
+            { ".nib",  "C64"         },
+            { ".tap",  "C64"         },
             { ".zip",  "Arcade"      },
             { ".7z",   "Arcade"      },
         };
@@ -109,6 +117,7 @@ namespace Emutastic.Services
 
             { "Vectrex",      "GCE"        },
             { "3DO",          "3DO"        },
+            { "C64",          "Commodore"  },
             { "CDi",          "Philips"    },
             { "Arcade",       "Arcade"     },
             { WindowsApps.ConsoleTag, WindowsApps.Manufacturer },
@@ -139,6 +148,7 @@ namespace Emutastic.Services
             { "TG16",        ("#1A2E2E", "#009688") },
             { "Dreamcast",   ("#1A0A0A", "#FF6600") },
             { "CDi",         ("#1A1A2E", "#00897B") },
+            { "C64",         ("#14102E", "#7869C4") },
             { "NGP",         ("#1A0A1A", "#C8A951") },
             { "NGPC",        ("#1A0A1A", "#D4A843") },
             { "NeoGeo",      ("#1A0A1A", "#FFD700") },
@@ -307,6 +317,8 @@ namespace Emutastic.Services
             ("3do",           "3DO"),
             ("panasonic",     "3DO"),
             ("3do interactive","3DO"),
+            ("commodore 64",  "C64"),
+            ("c64",           "C64"),
             ("philips cd-i",  "CDi"),
             ("philips cdi",   "CDi"),
             ("cd-i",          "CDi"),
@@ -437,6 +449,7 @@ namespace Emutastic.Services
             { "ColecoVision", 0.73 },
             { "Vectrex",      0.76 },
             { "3DO",          1.09 },
+            { "C64",          0.75 },   // tape and disk boxes vary; most are near 3:4
             { "CDi",          1.02 },
             { "NeoGeo",       0.81 },
             { "NeoCD",        1.00 },

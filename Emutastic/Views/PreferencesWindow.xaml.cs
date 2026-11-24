@@ -1327,7 +1327,7 @@ namespace Emutastic.Views
             ("Sony",      new[] { "PlayStation", "PlayStation 2", "PlayStation 3" }),
             ("NEC",       new[] { "TurboGrafx-CD" }),
             ("Arcade",    new[] { "Neo Geo" }),
-            ("Other",     new[] { "3DO", "Philips CD-i" }),
+            ("Other",     new[] { "3DO", "Philips CD-i", "Commodore 64" }),
         };
 
         private void BuildBiosPanel() => _ = BuildBiosPanelAsync();
@@ -2157,7 +2157,7 @@ namespace Emutastic.Views
             ("NEC",       new[] { "TG16", "TGCD" }),
             ("Atari",     new[] { "Atari2600", "Atari7800", "Jaguar" }),
             ("Arcade",    new[] { "Arcade", "NeoGeo", "NeoCD" }),
-            ("Other",     new[] { "NGP", "ColecoVision", "Vectrex", "3DO", "CDi" }),
+            ("Other",     new[] { "NGP", "ColecoVision", "Vectrex", "3DO", "CDi", "C64" }),
         };
 
         private void BuildCoresPanel() => _ = BuildCoresPanelAsync();
@@ -6635,6 +6635,20 @@ namespace Emutastic.Views
 
             // Philips CD-i (SAME CDi / MAME — place cdibios.zip in System folder)
             new("CDi","Philips CD-i","cdibios.zip","CD-i BIOS (required)",0,null),
+            // Commodore 64 (Kernal64): found by contents in System/ or System/kernal64/, any names; the canonical
+            // names go in kernal64/. A C64C's combined 16 KB image holds BASIC and KERNAL. The 1541 halves are
+            // needed for disks only; the CMD HD files for hard drives.
+            new("C64","Commodore 64","kernal64/basic.901226-01.bin","BASIC ROM",8192,"57af4ae21d4b705c2991d98ed5c1f7b8"),
+            new("C64","Commodore 64","kernal64/kernal.901227-03.bin","KERNAL ROM",8192,"39065497630802346bce17963f13c092"),
+            new("C64","Commodore 64","kernal64/characters.901225-01.bin","Character ROM",4096,"12a4202f5331d45af846af6c58fba946"),
+            new("C64","Commodore 64","kernal64/64c.251913-01.bin","BASIC + KERNAL, C64C combined image (instead of the two above)",16384,"8c37b056c00a44c0725508b8cedbbefb"),
+            new("C64","Commodore 64","kernal64/1541-c000.325302-01.bin","1541 drive ROM, lower half (disks)",8192,"41f5af978d69fc20f1f2fcad7c2ad8cf"),
+            new("C64","Commodore 64","kernal64/1541-e000.901229-05.bin","1541 drive ROM, upper half (disks)",8192,"ea93aaa7016a673aac2294cbb08a9885"),
+            new("C64","Commodore 64","kernal64/cmd_hd_bootrom_v280.bin","CMD HD boot ROM v2.80 (hard drives)",32768,"d0d97a52d3455aac4e23afcfadaa3a59",
+                AltMd5s: new[] { "3e4b2f2718e4d581b946aa0b67100fc4" }),   // the same ROM as a 16K image
+            new("C64","Commodore 64","kernal64/cmd_hd_utilities.d64","CMD HD utilities disk (.d64 or .d81): the floppy that came with the CMD hard " +
+                "drive, with the programs that set a new drive up. Needed to make hard drives",174848,"7a5faf0680a248650c160bc44df6dea5",
+                AltMd5s: new[] { "55f98f28cf85bdf337be853bfbf8e722" }),   // a D81 holding the same programs (DOS 1.82)
 
             // Neo Geo (Geolith)
             new("NeoGeo","Neo Geo","neogeo.zip","Neo Geo BIOS (required)",0,null),

@@ -35,6 +35,7 @@ namespace Emutastic.Services
             ("tgcd", "tg-cd"), ("pcecd", "pcenginecd"),
             ("turbografx", "tg16"), ("pc engine", "tg16"), ("pc-engine", "tg16"),
             ("3do", "3do"),
+            ("commodore 64", "c64"), ("c64", "c64"),
             ("vectrex", "vectrex"),
             ("wonderswan", "wonderswan"),
             ("atari 2600", "atari2600"), ("atari 5200", "atari5200"), ("atari 7800", "atari7800"),

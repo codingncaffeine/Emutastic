@@ -78,6 +78,7 @@ namespace Emutastic.Services
             new("NGP",          "NeoGeo Pocket",       "SNK"),
 
             new("3DO",          "3DO",                 "OTHER"),
+            new("C64",          "Commodore 64",        "OTHER"),
             new("CDi",          "Philips CD-i",        "OTHER"),
             new("ColecoVision", "ColecoVision",        "OTHER"),
             new("Vectrex",      "Vectrex",             "OTHER"),
@@ -126,6 +127,7 @@ namespace Emutastic.Services
             ["NGP"]          = "neo geo pocket.jpg",
             ["NGPC"]         = "neo geo pocket.jpg",
             ["3DO"]          = "3d0.jpg",
+            ["C64"]          = "c64.png",
             ["CDi"]          = "cdi_icon.jpg",
             ["ColecoVision"] = "coleco.jpg",
             ["Vectrex"]      = "vectrex.jpg",

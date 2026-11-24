@@ -14,6 +14,8 @@ namespace Emutastic.Services
         public string DisplayName { get; init; } = "";
         public string[] Systems   { get; init; } = [];
         public bool Recommended   { get; init; } = true;
+        // A core that is not on the buildbot: its zip on the web (a GitHub release), else null.
+        public string? ZipUrl     { get; init; }
     }
 
     public enum CoreStatus { NotInstalled, Installed, UpdateAvailable }
@@ -72,13 +74,17 @@ namespace Emutastic.Services
             new() { FileName = "fbneo_libretro.dll",            DisplayName = "FBNeo (Final Burn Neo)", Systems = ["Arcade"],                            Recommended = true  },
             new() { FileName = "mame2003_plus_libretro.dll",    DisplayName = "MAME 2003-Plus",         Systems = ["Arcade"],                            Recommended = true  },
             new() { FileName = "geolith_libretro.dll",         DisplayName = "Geolith (Neo Geo / CD)", Systems = ["NeoGeo", "NeoCD"],                   Recommended = true  },
+
+            // Commodore 64: Kernal64, our own C64 core. Not on the buildbot: its releases on GitHub (the newest published one).
+            new() { FileName = "kernal64_libretro.dll",        DisplayName = "Kernal64",              Systems = ["C64"],                               Recommended = true,
+                    ZipUrl = "https://github.com/codingncaffeine/Kernal64/releases/latest/download/kernal64_libretro-windows-x86_64.zip" },
         };
 
         // ── Infrastructure ────────────────────────────────────────────────────
         private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromMinutes(10) };
         private const string BuildbotBase = "https://buildbot.libretro.com/nightly/windows/x86_64/latest/";
 
-        private string ZipUrl(string fileName) => BuildbotBase + fileName + ".zip";
+        private string ZipUrl(CoreEntry entry) => entry.ZipUrl ?? BuildbotBase + entry.FileName + ".zip";
 
         // ── Status check ──────────────────────────────────────────────────────
 
@@ -103,7 +109,7 @@ namespace Emutastic.Services
 
             try
             {
-                using var req = new HttpRequestMessage(HttpMethod.Head, ZipUrl(entry.FileName));
+                using var req = new HttpRequestMessage(HttpMethod.Head, ZipUrl(entry));
                 using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
                 if (resp.Content.Headers.LastModified is DateTimeOffset remote)
                 {
@@ -197,7 +203,7 @@ namespace Emutastic.Services
             Directory.CreateDirectory(coresFolder);
 
             string localPath = Path.Combine(coresFolder, entry.FileName);
-            string url       = ZipUrl(entry.FileName);
+            string url       = ZipUrl(entry);
             // Cores are native code we load in-process — only ever fetch them over
             // TLS from the official libretro buildbot. Fail closed if the base URL is
             // ever misconfigured to plain http.

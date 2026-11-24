@@ -18,6 +18,7 @@ namespace Emutastic.Views
             { "TGCD",      "TurboGrafx-CD"          },
             { "GameCube",  "Nintendo GameCube"      },
             { "3DO",       "3DO"                    },
+            { "C64",       "Commodore 64"           },
         };
 
         public ConsolePickerWindow(string fileName, string[] candidates)

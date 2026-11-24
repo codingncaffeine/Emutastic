@@ -69,6 +69,7 @@ namespace Emutastic.Services
             ["mgba_libretro"]             = "GBA",
             ["nestopia_libretro"]         = "NES",
             ["opera_libretro"]            = "3DO",
+            ["kernal64_libretro"]         = "C64",
             ["parallel_n64_libretro"]     = "N64",
             ["pcsx2_libretro"]            = "PS2",
             ["picodrive_libretro"]        = "Sega32X",
