@@ -776,6 +776,36 @@ namespace Emutastic.Configuration
                 }
             },
 
+            ["C64"] = new ControllerDefinition
+            {
+                Name = "Commodore 64",
+                ControllerImage = "/Assets/images/C64/c64_joystick.png",
+                Buttons = new List<ButtonDefinition>
+                {
+                    new("Up",                 "Up",               240,  90, ButtonType.DPad,            50, 50, GDPad),
+                    new("Down",               "Down",             240, 170, ButtonType.DPad,            50, 50, GDPad),
+                    new("Left",               "Left",             200, 130, ButtonType.DPad,            50, 50, GDPad),
+                    new("Right",              "Right",            280, 130, ButtonType.DPad,            50, 50, GDPad),
+                    new("Fire",               "B",                160,  40, ButtonType.Button,          40, 40, GFace),
+                    new("Button A",           "A",                320,  40, ButtonType.Button,          35, 35, GFace),
+                    new("Space",              "X",                380, 100, ButtonType.Button,          35, 35, GFace),
+                    new("Button Y",           "Y",                380, 140, ButtonType.Button,          35, 35, GFace),
+                    new("Button L",           "L",                 40,  40, ButtonType.Button,          60, 22, GShoulder),
+                    new("Button R",           "R",                440,  40, ButtonType.Button,          60, 22, GShoulder),
+                    new("RUN/STOP",           "L2",                40,  70, ButtonType.Button,          70, 22, GTrigger),
+                    new("RETURN",             "R2",               440,  70, ButtonType.Button,          70, 22, GTrigger),
+                    new("Keyboard",           "Select",           200, 230, ButtonType.Button,          60, 20, GSystem),
+                    new("Button Start",       "Start",            280, 230, ButtonType.Button,          60, 20, GSystem),
+                    new("Button L3",          "L3",                40, 200, ButtonType.Button,          50, 22, GSystem),
+                    new("Freezer",            "R3",               440, 200, ButtonType.Button,          50, 22, GSystem),
+                    new("Left Analog Up",     "LeftAnalogUp",      80, 120, ButtonType.AnalogDirection, 30, 30, GLAnalog),
+                    new("Left Analog Down",   "LeftAnalogDown",    80, 160, ButtonType.AnalogDirection, 30, 30, GLAnalog),
+                    new("Left Analog Left",   "LeftAnalogLeft",    60, 140, ButtonType.AnalogDirection, 30, 30, GLAnalog),
+                    new("Left Analog Right",  "LeftAnalogRight",  100, 140, ButtonType.AnalogDirection, 30, 30, GLAnalog),
+                    new("Right Analog Left",  "RightAnalogLeft",  400, 160, ButtonType.AnalogDirection, 30, 30, GRAnalog),
+                    new("Right Analog Right", "RightAnalogRight", 440, 160, ButtonType.AnalogDirection, 30, 30, GRAnalog),
+                }
+            },
             ["3DO"] = new ControllerDefinition
             {
                 Name = "3DO",

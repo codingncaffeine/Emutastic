@@ -300,6 +300,29 @@ namespace Emutastic.Services
                         _ => uint.MaxValue
                     };
 
+                // ── Commodore 64 (Kernal64) ──────────────────────────────────
+                // Names are the core's defaults for each RetroPad button (its kernal64_pad_* options can make
+                // any of them a C64 key or an action); the left stick is the joystick and paddle X, the right
+                // stick paddle Y.
+                case "C64":
+                    return n switch
+                    {
+                        "fire" => JOYPAD_B, "button a" => JOYPAD_A, "button y" => JOYPAD_Y, "space" => JOYPAD_X,
+                        "button l" => JOYPAD_L, "button r" => JOYPAD_R,
+                        "run/stop" => JOYPAD_L2, "return" => JOYPAD_R2,
+                        "button l3" => JOYPAD_L3, "freezer" => JOYPAD_R3,
+                        "keyboard" => JOYPAD_SELECT, "button start" => JOYPAD_START,
+                        "up" => JOYPAD_UP, "down" => JOYPAD_DOWN,
+                        "left" => JOYPAD_LEFT, "right" => JOYPAD_RIGHT,
+                        "left analog up"    => ANALOG_LEFT_UP,
+                        "left analog down"  => ANALOG_LEFT_DOWN,
+                        "left analog left"  => ANALOG_LEFT_LEFT,
+                        "left analog right" => ANALOG_LEFT_RIGHT,
+                        "right analog left"  => ANALOG_RIGHT_LEFT,
+                        "right analog right" => ANALOG_RIGHT_RIGHT,
+                        _ => uint.MaxValue
+                    };
+
                 // ── 3DO (digital-only; never shipped with an analog pad) ─────
                 // See feedback_3do_no_analog memory.
                 case "3DO":

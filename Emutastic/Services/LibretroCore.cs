@@ -485,6 +485,10 @@ namespace Emutastic.Services
         /// <summary>Set when LoadGame fails for a surfaceable reason (e.g. a bad ROM-hack patch).</summary>
         public string? LastError { get; private set; }
 
+        /// <summary>A library entry that starts its core with no content: its file is only a marker.</summary>
+        public static bool IsNoContentMarker(string path) =>
+            path.EndsWith(".nocontent", StringComparison.OrdinalIgnoreCase);
+
         public bool LoadGame(string romPath, string? patchPath = null)
         {
             LastError = null;
@@ -495,6 +499,14 @@ namespace Emutastic.Services
             }
 
             System.Diagnostics.Trace.WriteLine($"LoadGame: ROM exists, size={new FileInfo(romPath).Length} bytes");
+
+            // A built-in entry with nothing to load (the Commodore 64's BASIC): the core starts with no content.
+            if (IsNoContentMarker(romPath))
+            {
+                bool started = _retro_load_game?.Invoke(IntPtr.Zero) ?? false;
+                System.Diagnostics.Trace.WriteLine($"LoadGame: no content (built-in entry) — retro_load_game returned {started}");
+                return started;
+            }
 
             bool needFullPath = SystemInfo.need_fullpath;
 

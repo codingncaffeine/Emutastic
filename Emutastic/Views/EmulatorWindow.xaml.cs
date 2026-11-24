@@ -5465,6 +5465,17 @@ namespace Emutastic.Views
             RecLog($"KeyDown: {e.Key}");
             SetKey(KeyboardBindings.RealKey(e), true);
 
+            // A computer (the Commodore 64): every key is the machine's (Escape and F1-F8 too); only
+            // F10 (close), F11 (fullscreen) and the screenshot keys stay the frontend's.
+            if (IsComputer)
+            {
+                if (e.Key == Key.F11) ToggleFullscreen();
+                else if (e.Key == Key.F10) { if (_isFullscreen) ToggleFullscreen(); else Close(); }
+                else if (e.Key == Key.PrintScreen) TakeScreenshot();
+                e.Handled = true;
+                return;
+            }
+
             bool hotkeyModifier = true;
 
             if (hotkeyModifier)
@@ -6174,6 +6185,9 @@ namespace Emutastic.Views
                 UpdatePointerPosition(e);
         }
 
+        // A computer's keyboard (the Commodore 64): keys go to the machine through RETRO_DEVICE_KEYBOARD only.
+        private bool IsComputer => _game?.Console == "C64";
+
         private void SetKey(Key key, bool pressed)
         {
             // Mirror every press to the raw-keyboard state so cores that poll
@@ -6200,6 +6214,9 @@ namespace Emutastic.Views
                     _kbEventQueue.Enqueue((pressed, retroKey, retroMod));
                 }
             }
+
+            // A computer (the Commodore 64): its keys are the machine's, not gamepad buttons or chords.
+            if (IsComputer) return;
 
             // Disk Swap chord — track each half independently. EmuThread polls both
             // flags and fires when both halves are simultaneously held. Tracked

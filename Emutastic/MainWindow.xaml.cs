@@ -282,7 +282,11 @@ namespace Emutastic
 
             // ── Phase 2: load data off UI thread, then filter on UI thread ──
             var swReload = Services.StartupTrace.Start();
-            await Task.Run(() => _vm.Reload());  // GetAllGames() — stays off UI thread
+            await Task.Run(() =>
+            {
+                Services.C64BasicEntry.Ensure(_db!);   // the C64's BASIC entry, once its ROMs are in
+                _vm.Reload();                          // GetAllGames() — stays off UI thread
+            });
             Services.StartupTrace.Stop("vm.Reload", swReload);
 
             var swFilter = Services.StartupTrace.Start();
@@ -6078,6 +6082,17 @@ namespace Emutastic
                 };
                 _vm.Games = sorted;
             }
+        }
+
+        /// <summary>After system files arrive: adds the built-in entries they make possible (Commodore 64 BASIC)
+        /// and shows them.</summary>
+        public async void EnsureBuiltInEntries()
+        {
+            if (_db == null || _vm == null) return;
+            if (!await Task.Run(() => Services.C64BasicEntry.Ensure(_db))) return;
+            await Task.Run(() => _vm.Reload());
+            await _vm.FilterGamesAsync();
+            BuildConsoleSidebar();
         }
     }
 }

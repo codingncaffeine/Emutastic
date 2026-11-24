@@ -1998,6 +1998,7 @@ namespace Emutastic.Views
                 PreferencesCache.InvalidateBiosScan();
                 InvalidateSection(PrefSection.SystemFiles);
                 _ = LoadSectionAsync(PrefSection.SystemFiles); // refresh status badges
+                (Application.Current?.MainWindow as MainWindow)?.EnsureBuiltInEntries();   // e.g. the C64's BASIC entry
             }
 
             string summary = imported > 0
